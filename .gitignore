@@ -2,3 +2,5 @@ literature/*
 agentic/*
 .claude/*
 input/*
+CLAUDE*
+*toml
