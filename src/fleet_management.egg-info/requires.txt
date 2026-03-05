@@ -1,0 +1,8 @@
+numpy
+scipy
+gurobipy
+pyyaml
+h5py
+
+[dev]
+pytest

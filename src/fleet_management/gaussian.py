@@ -116,6 +116,7 @@ def solve_fleet_management(
     C_P: float,
     mu_0: np.ndarray,
     v_0: np.ndarray,
+    verbose: int = 1,
 ) -> dict:
     """
     Solve the Fleet Management MILP with Gaussian degradation using Gurobi.
@@ -146,11 +147,13 @@ def solve_fleet_management(
         Initial mean values per flight.
     v_0 : np.ndarray, shape (F,)
         Initial variance values per flight.
+    verbose : int, optional
+        Gurobi output verbosity flag (0 = silent, 1 = normal). Default is 1.
 
     Returns
     -------
     dict
-        Keys: "status", "objective", "x", "mu", "v", "z", "model".
+        Keys: "status", "objective", "x", "mu", "v", "z", "F", "H", "M", "model".
     """
     # --- Consistency checks ---
     validate_inputs(F, H, M, mu_param, v_param, epsilon, C_M, C_R, C_S, C_P, mu_0, v_0)
@@ -174,6 +177,7 @@ def solve_fleet_management(
     #   j: PDF {0,...,M}   -> Python 0..M
     #   k: PDF {1,...,2H}  -> Python 0..2H-1
     model = gp.Model("fleet_management_gaussian_degradation")
+    model.Params.OutputFlag = int(verbose)
 
     # Decision variables
     x = model.addVars(F, M + 1, 2 * H, vtype=GRB.BINARY, name="x")
@@ -317,6 +321,9 @@ def solve_fleet_management(
         return {
             "status": "optimal",
             "objective": model.ObjVal,
+            "F": F,
+            "H": H,
+            "M": M,
             "x": x_sol,
             "mu": mu_sol,
             "v": v_sol,
@@ -327,6 +334,9 @@ def solve_fleet_management(
         return {
             "status": model.status,
             "objective": None,
+            "F": F,
+            "H": H,
+            "M": M,
             "x": None,
             "mu": None,
             "v": None,
