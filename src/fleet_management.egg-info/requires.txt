@@ -3,6 +3,7 @@ scipy
 gurobipy
 pyyaml
 h5py
+matplotlib
 
 [dev]
 pytest

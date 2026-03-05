@@ -8,5 +8,6 @@ Requires-Dist: scipy
 Requires-Dist: gurobipy
 Requires-Dist: pyyaml
 Requires-Dist: h5py
+Requires-Dist: matplotlib
 Provides-Extra: dev
 Requires-Dist: pytest; extra == "dev"

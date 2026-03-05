@@ -59,6 +59,10 @@ def solve(input_path: str, degradation: str, results_path: str = None) -> None:
     if degradation_lower == "gaussian":
         result = solve_fleet_management(**params)
 
+    result["degradation"] = degradation_lower
+    result["mu_0"] = params["mu_0"]
+    result["v_0"] = params["v_0"]
+
     # --- Save results ---
     _save_results(result, results_path)
 
@@ -176,9 +180,12 @@ def _build_serializable_output(result: dict) -> dict:
     output = {
         "status": result["status"],
         "objective": float(result["objective"]) if result["objective"] is not None else None,
+        "degradation": result["degradation"],
         "F": result["F"],
         "M": result["M"],
         "H": result["H"],
+        "mu_0": result["mu_0"].tolist(),
+        "v_0": result["v_0"].tolist(),
     }
     if result["x"] is not None:
         output["x"] = result["x"].tolist()
@@ -205,9 +212,12 @@ def _save_hdf5(result: dict, path: Path) -> None:
         f.attrs["status"] = result["status"] if isinstance(result["status"], str) else str(result["status"])
         if result["objective"] is not None:
             f.attrs["objective"] = float(result["objective"])
+        f.attrs["degradation"] = result["degradation"]
         f.attrs["F"] = result["F"]
         f.attrs["M"] = result["M"]
         f.attrs["H"] = result["H"]
+        f.create_dataset("mu_0", data=result["mu_0"])
+        f.create_dataset("v_0", data=result["v_0"])
         if result["x"] is not None:
             f.create_dataset("x", data=result["x"])
             f.create_dataset("mu", data=result["mu"])
