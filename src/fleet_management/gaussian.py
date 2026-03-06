@@ -296,13 +296,11 @@ def solve_fleet_management(
             name=f"v_periodic_{i}",
         )
 
-    # u_k >= mu_{ik} - 2H + 2H * sum_{j=1}^{M} x_{ijk},  for all i, k
+    # u_k >= mu_{ik},  for all i, k
     for k in range(2 * H):
         for i in range(F):
             model.addConstr(
-                u_var[k] >= mu_var[i, k] - 2 * H + 2 * H * gp.quicksum(
-                    x[i, j, k] for j in range(1, M + 1)
-                ),
+                u_var[k] >= mu_var[i, k],
                 name=f"u_bound_{i}_{k}",
             )
 

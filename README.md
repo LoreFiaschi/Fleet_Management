@@ -131,7 +131,7 @@ The output file includes:
 | `x` | Binary assignment solution (F x (M+1) x 2H) |
 | `mu` | Mean degradation solution (F x 2H) |
 | `v` | Variance degradation solution (F x 2H) |
-| `u` | Max active degradation mean per time step (2H) |
+| `u` | Max degradation mean per time step (2H) |
 | `z` | Auxiliary variable solution (F x 2H) |
 
 ## Project structure
