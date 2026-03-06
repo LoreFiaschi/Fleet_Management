@@ -5,3 +5,4 @@ input/*
 CLAUDE*
 *.zip
 build/*
+test/*

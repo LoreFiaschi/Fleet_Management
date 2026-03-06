@@ -121,6 +121,7 @@ def solve_fleet_management(
     mu_0: np.ndarray,
     v_0: np.ndarray,
     verbose: int = 1,
+    mip_gap: float = None,
 ) -> dict:
     """
     Solve the Fleet Management MILP with Gaussian degradation using Gurobi.
@@ -155,6 +156,8 @@ def solve_fleet_management(
         Initial variance values per flight.
     verbose : int, optional
         Gurobi output verbosity flag (0 = silent, 1 = normal). Default is 1.
+    mip_gap : float, optional
+        Relative MIP optimality gap tolerance. If None, Gurobi's default is used.
 
     Returns
     -------
@@ -184,24 +187,27 @@ def solve_fleet_management(
     #   k: PDF {1,...,2H}  -> Python 0..2H-1
     model = gp.Model("fleet_management_gaussian_degradation")
     model.Params.OutputFlag = int(verbose)
+    if mip_gap is not None:
+        model.Params.MIPGap = mip_gap
 
     # Decision variables
     x = model.addVars(F, M + 1, 2 * H, vtype=GRB.BINARY, name="x")
     mu_var = model.addVars(F, 2 * H, vtype=GRB.CONTINUOUS, lb=0.0, name="mu")
     v_var = model.addVars(F, 2 * H, vtype=GRB.CONTINUOUS, lb=0.0, name="v")
+    u_var = model.addVars(2 * H, vtype=GRB.CONTINUOUS, lb=0.0, name="u")
     z_var = model.addVars(F, 2 * H, vtype=GRB.CONTINUOUS, lb=0.0, name="z")
 
     # --- Objective ---
     # min C_M * sum_{k,i} x_{i,0,k}
     #   + C_R * sum_{k,i} z_{ik}
-    #   + C_S * sum_{k,i} mu_{ik}
+    #   + C_S * sum_{k} u_{k}
     #   + C_P * sum_i (mu_{i,H-1} - mu_{i,2H-1} + v_{i,H-1} - v_{i,2H-1})
     obj = gp.LinExpr()
     for k in range(2 * H):
+        obj += C_S * u_var[k]
         for i in range(F):
             obj += C_M * x[i, 0, k]
             obj += C_R * z_var[i, k]
-            obj += C_S * mu_var[i, k]
     for i in range(F):
         obj += C_P * (
             mu_var[i, H - 1] - mu_var[i, 2 * H - 1]
@@ -290,6 +296,14 @@ def solve_fleet_management(
             name=f"v_periodic_{i}",
         )
 
+    # u_k >= mu_{ik},  for all i, k
+    for k in range(2 * H):
+        for i in range(F):
+            model.addConstr(
+                u_var[k] >= mu_var[i, k],
+                name=f"u_bound_{i}_{k}",
+            )
+
     # (8) sum_{j=0}^{M} x_{ijk} <= 1,  for all i, k
     for i in range(F):
         for k in range(2 * H):
@@ -314,10 +328,12 @@ def solve_fleet_management(
         x_sol = np.zeros((F, M + 1, 2 * H))
         mu_sol = np.zeros((F, 2 * H))
         v_sol = np.zeros((F, 2 * H))
+        u_sol = np.zeros(2 * H)
         z_sol = np.zeros((F, 2 * H))
 
-        for i in range(F):
-            for k in range(2 * H):
+        for k in range(2 * H):
+            u_sol[k] = u_var[k].X
+            for i in range(F):
                 mu_sol[i, k] = mu_var[i, k].X
                 v_sol[i, k] = v_var[i, k].X
                 z_sol[i, k] = z_var[i, k].X
@@ -334,6 +350,7 @@ def solve_fleet_management(
             "x": x_sol,
             "mu": mu_sol,
             "v": v_sol,
+            "u": u_sol,
             "z": z_sol,
             "model": model,
         }
@@ -348,6 +365,7 @@ def solve_fleet_management(
             "x": None,
             "mu": None,
             "v": None,
+            "u": None,
             "z": None,
             "model": model,
         }

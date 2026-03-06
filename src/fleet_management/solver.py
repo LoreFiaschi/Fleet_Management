@@ -91,7 +91,7 @@ def _read_hdf5(path: Path) -> dict:
     - Array parameters (mu, v, mu_0, v_0) stored as datasets.
     """
     data = {}
-    scalar_keys = {"F", "H", "M", "alpha", "epsilon", "C_M", "C_R", "C_S", "C_P", "verbose"}
+    scalar_keys = {"F", "H", "M", "alpha", "epsilon", "C_M", "C_R", "C_S", "C_P", "verbose", "mip_gap"}
     array_keys = {"mu", "v", "mu_0", "v_0"}
 
     with h5py.File(path, "r") as f:
@@ -142,6 +142,8 @@ def _extract_parameters(data: dict) -> dict:
     v_0 = np.array(data["v_0"], dtype=float)
 
     verbose = int(data.get("verbose", 1))
+    mip_gap_raw = data.get("mip_gap", None)
+    mip_gap = float(mip_gap_raw) if mip_gap_raw is not None else None
 
     if mu_param.shape != (F, M, H):
         raise ValueError(
@@ -159,6 +161,7 @@ def _extract_parameters(data: dict) -> dict:
         "C_M": C_M, "C_R": C_R, "C_S": C_S, "C_P": C_P,
         "mu_0": mu_0, "v_0": v_0,
         "verbose": verbose,
+        "mip_gap": mip_gap,
     }
 
 
@@ -193,6 +196,7 @@ def _build_serializable_output(result: dict) -> dict:
         output["x"] = result["x"].tolist()
         output["mu"] = result["mu"].tolist()
         output["v"] = result["v"].tolist()
+        output["u"] = result["u"].tolist()
         output["z"] = result["z"].tolist()
     return output
 
@@ -225,4 +229,5 @@ def _save_hdf5(result: dict, path: Path) -> None:
             f.create_dataset("x", data=result["x"])
             f.create_dataset("mu", data=result["mu"])
             f.create_dataset("v", data=result["v"])
+            f.create_dataset("u", data=result["u"])
             f.create_dataset("z", data=result["z"])
