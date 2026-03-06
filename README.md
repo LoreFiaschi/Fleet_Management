@@ -57,7 +57,7 @@ Reads solver output and produces a colour-coded schedule grid.
 
 Supported image formats: **PNG** (`.png`), **PDF** (`.pdf`).
 
-The plot is an F x (2H+1) grid where each cell is coloured on a green-to-red heatmap (0 to 1) based on the degradation mean. Cell annotations indicate:
+The plot is an F x (2H+1) grid where each cell is coloured on a green-to-red heatmap (0 to alpha) based on the degradation mean. Cell annotations indicate:
 
 - **Number** (j): flight j is assigned (`x[i,j,k] = 1`, j > 0)
 - **Gear icon**: maintenance is scheduled (`x[i,0,k] = 1`)
@@ -69,47 +69,51 @@ The input file must contain the following keys:
 
 | Key | Type | Description |
 |---|---|---|
-| `F` | int | Number of flights |
+| `F` | int | Number of flights (must be > M) |
 | `H` | int | Time horizon (model spans 2H steps) |
 | `M` | int | Number of maintenance levels |
-| `mu` | 3D array (F x M x H) | Mean degradation parameters |
+| `mu` | 3D array (F x M x H) | Mean degradation parameters (must be < alpha, >= 3*sqrt(v)) |
 | `v` | 3D array (F x M x H) | Variance degradation parameters |
+| `alpha` | float | Upper bound for degradation mean (must be positive) |
 | `epsilon` | float | Reliability threshold, in (0, 0.5) |
 | `C_M` | float | Maintenance cost coefficient |
 | `C_R` | float | Repair cost coefficient |
 | `C_S` | float | Safety cost coefficient |
 | `C_P` | float | Penalty cost coefficient |
-| `mu_0` | 1D array (F) | Initial mean values per flight |
+| `mu_0` | 1D array (F) | Initial mean values per flight (must be < alpha, >= 3*sqrt(v_0)) |
 | `v_0` | 1D array (F) | Initial variance values per flight |
 | `verbose` | int, optional | Gurobi verbosity (0 = silent, 1 = normal). Default: 1 |
+| `mip_gap` | float, optional | Relative MIP optimality gap tolerance. Default: Gurobi default (1e-4) |
 
 ### YAML example
 
 ```yaml
-F: 4
-H: 3
-M: 2
+F: 6
+H: 10
+M: 3
+alpha: 1.0
 epsilon: 0.1
 C_M: 1.0
 C_R: 2.0
 C_S: 1.5
 C_P: 3.0
 verbose: 0
+mip_gap: 0.02
 
-mu_0: [0.5, 0.6, 0.55, 0.45]
-v_0: [0.02, 0.03, 0.025, 0.018]
+mu_0: [0.1341, 0.1113, 0.1925, 0.1877, 0.1258, 0.166]
+v_0: [0.000799, 0.000551, 0.001647, 0.001566, 0.000703, 0.001225]
 
 mu:
-  - [[0.4, 0.5, 0.6], [0.35, 0.45, 0.55]]
-  - [[0.5, 0.6, 0.7], [0.45, 0.55, 0.65]]
-  - [[0.45, 0.55, 0.65], [0.4, 0.5, 0.6]]
-  - [[0.35, 0.45, 0.55], [0.3, 0.4, 0.5]]
+  - - [0.1375, 0.1951, 0.1732, 0.1599, 0.1156, 0.1156, 0.1058, 0.1866, 0.1601, 0.1708]
+    - [0.1021, 0.1970, 0.1832, 0.1212, 0.1182, 0.1183, 0.1304, 0.1525, 0.1432, 0.1291]
+    - [0.1612, 0.1139, 0.1292, 0.1366, 0.1456, 0.1785, 0.1200, 0.1514, 0.1592, 0.1046]
+  # ... (6 x 3 x 10 tensor)
 
 v:
-  - [[0.01, 0.015, 0.02], [0.008, 0.012, 0.016]]
-  - [[0.015, 0.02, 0.025], [0.012, 0.016, 0.02]]
-  - [[0.012, 0.018, 0.022], [0.01, 0.014, 0.018]]
-  - [[0.008, 0.012, 0.016], [0.006, 0.01, 0.014]]
+  - - [0.000840, 0.001692, 0.001333, 0.001136, 0.000594, 0.000594, 0.000497, 0.001548, 0.001139, 0.001297]
+    - [0.000463, 0.001725, 0.001492, 0.000653, 0.000621, 0.000622, 0.000756, 0.001034, 0.000911, 0.000741]
+    - [0.001155, 0.000577, 0.000742, 0.000829, 0.000942, 0.001416, 0.000640, 0.001019, 0.001126, 0.000486]
+  # ... (6 x 3 x 10 tensor)
 ```
 
 ## Output file contents
@@ -122,10 +126,12 @@ The output file includes:
 | `objective` | Optimal objective value (or `null`) |
 | `degradation` | Degradation model used |
 | `F`, `M`, `H` | Problem dimensions |
+| `alpha` | Upper bound for degradation mean |
 | `mu_0`, `v_0` | Initial conditions |
 | `x` | Binary assignment solution (F x (M+1) x 2H) |
 | `mu` | Mean degradation solution (F x 2H) |
 | `v` | Variance degradation solution (F x 2H) |
+| `u` | Max active degradation mean per time step (2H) |
 | `z` | Auxiliary variable solution (F x 2H) |
 
 ## Project structure
