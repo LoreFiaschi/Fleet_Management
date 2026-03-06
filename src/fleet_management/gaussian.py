@@ -10,6 +10,7 @@ def validate_inputs(
     M: int,
     mu_param: np.ndarray,
     v_param: np.ndarray,
+    alpha: float,
     epsilon: float,
     C_M: float,
     C_R: float,
@@ -22,6 +23,8 @@ def validate_inputs(
     # All variables must be positive
     if F <= 0 or H <= 0 or M <= 0:
         raise ValueError("F, H, M must be positive integers.")
+    if alpha <= 0:
+        raise ValueError("alpha must be positive.")
     if C_M <= 0 or C_R <= 0 or C_S <= 0 or C_P <= 0:
         raise ValueError("All cost coefficients must be positive.")
     if epsilon <= 0:
@@ -69,13 +72,13 @@ def validate_inputs(
     if not np.all(mu_0 >= 3 * np.sqrt(v_0)):
         raise ValueError("mu_0 must be >= 3*sqrt(v_0) element-wise.")
 
-    # mu < 1 element-wise
-    if not np.all(mu_param < 1):
-        raise ValueError("mu must be < 1 element-wise.")
+    # mu < alpha element-wise
+    if not np.all(mu_param < alpha):
+        raise ValueError(f"mu must be < alpha={alpha} element-wise.")
 
-    # mu_0 < 1 element-wise
-    if not np.all(mu_0 < 1):
-        raise ValueError("mu_0 must be < 1 element-wise.")
+    # mu_0 < alpha element-wise
+    if not np.all(mu_0 < alpha):
+        raise ValueError(f"mu_0 must be < alpha={alpha} element-wise.")
 
 
 def compute_W(
@@ -109,6 +112,7 @@ def solve_fleet_management(
     M: int,
     mu_param: np.ndarray,
     v_param: np.ndarray,
+    alpha: float,
     epsilon: float,
     C_M: float,
     C_R: float,
@@ -133,6 +137,8 @@ def solve_fleet_management(
         Mean degradation parameters.
     v_param : np.ndarray, shape (F, M, H)
         Variance degradation parameters.
+    alpha : float
+        Upper bound for degradation mean (must be positive).
     epsilon : float
         Reliability threshold (must be in (0, 0.5)).
     C_M : float
@@ -153,10 +159,10 @@ def solve_fleet_management(
     Returns
     -------
     dict
-        Keys: "status", "objective", "x", "mu", "v", "z", "F", "H", "M", "model".
+        Keys: "status", "objective", "x", "mu", "v", "z", "F", "H", "M", "alpha", "model".
     """
     # --- Consistency checks ---
-    validate_inputs(F, H, M, mu_param, v_param, epsilon, C_M, C_R, C_S, C_P, mu_0, v_0)
+    validate_inputs(F, H, M, mu_param, v_param, alpha, epsilon, C_M, C_R, C_S, C_P, mu_0, v_0)
 
     # --- Precompute constants ---
     phi_inv = norm.ppf(1 - epsilon)
@@ -224,12 +230,12 @@ def solve_fleet_management(
 
             # (2) Reliability constraint:
             #   v_{ik-1} * (phi_inv^2 - 9) + 2*mu_{ik-1} - 2H*x_{i,0,k}
-            #     <= 1 + sum_{j=1}^{M} x_{i,j,k} * W_{i,j-1,k}
+            #     <= alpha + sum_{j=1}^{M} x_{i,j,k} * W_{i,j-1,k}
             model.addConstr(
                 v_prev * (phi_inv_sq - 9)
                 + 2 * mu_prev
                 - 2 * H * x[i, 0, k]
-                <= 1 + gp.quicksum(
+                <= alpha + gp.quicksum(
                     x[i, j, k] * W[i, j - 1, k] for j in range(1, M + 1)
                 ),
                 name=f"reliability_{i}_{k}",
@@ -324,6 +330,7 @@ def solve_fleet_management(
             "F": F,
             "H": H,
             "M": M,
+            "alpha": alpha,
             "x": x_sol,
             "mu": mu_sol,
             "v": v_sol,
@@ -337,6 +344,7 @@ def solve_fleet_management(
             "F": F,
             "H": H,
             "M": M,
+            "alpha": alpha,
             "x": None,
             "mu": None,
             "v": None,

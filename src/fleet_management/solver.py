@@ -91,7 +91,7 @@ def _read_hdf5(path: Path) -> dict:
     - Array parameters (mu, v, mu_0, v_0) stored as datasets.
     """
     data = {}
-    scalar_keys = {"F", "H", "M", "epsilon", "C_M", "C_R", "C_S", "C_P", "verbose"}
+    scalar_keys = {"F", "H", "M", "alpha", "epsilon", "C_M", "C_R", "C_S", "C_P", "verbose"}
     array_keys = {"mu", "v", "mu_0", "v_0"}
 
     with h5py.File(path, "r") as f:
@@ -117,7 +117,7 @@ def _resolve_results_path(results_path) -> Path:
     return p
 
 
-REQUIRED_KEYS = {"F", "H", "M", "mu", "v", "epsilon", "C_M", "C_R", "C_S", "C_P", "mu_0", "v_0"}
+REQUIRED_KEYS = {"F", "H", "M", "mu", "v", "alpha", "epsilon", "C_M", "C_R", "C_S", "C_P", "mu_0", "v_0"}
 
 
 def _extract_parameters(data: dict) -> dict:
@@ -129,6 +129,7 @@ def _extract_parameters(data: dict) -> dict:
     F = int(data["F"])
     H = int(data["H"])
     M = int(data["M"])
+    alpha = float(data["alpha"])
     epsilon = float(data["epsilon"])
     C_M = float(data["C_M"])
     C_R = float(data["C_R"])
@@ -154,7 +155,7 @@ def _extract_parameters(data: dict) -> dict:
     return {
         "F": F, "H": H, "M": M,
         "mu_param": mu_param, "v_param": v_param,
-        "epsilon": epsilon,
+        "alpha": alpha, "epsilon": epsilon,
         "C_M": C_M, "C_R": C_R, "C_S": C_S, "C_P": C_P,
         "mu_0": mu_0, "v_0": v_0,
         "verbose": verbose,
@@ -184,6 +185,7 @@ def _build_serializable_output(result: dict) -> dict:
         "F": result["F"],
         "M": result["M"],
         "H": result["H"],
+        "alpha": result["alpha"],
         "mu_0": result["mu_0"].tolist(),
         "v_0": result["v_0"].tolist(),
     }
@@ -216,6 +218,7 @@ def _save_hdf5(result: dict, path: Path) -> None:
         f.attrs["F"] = result["F"]
         f.attrs["M"] = result["M"]
         f.attrs["H"] = result["H"]
+        f.attrs["alpha"] = result["alpha"]
         f.create_dataset("mu_0", data=result["mu_0"])
         f.create_dataset("v_0", data=result["v_0"])
         if result["x"] is not None:

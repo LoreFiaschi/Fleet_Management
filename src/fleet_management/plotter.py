@@ -52,6 +52,7 @@ def plot_management(input_file_path: str, plot_file_path: str = None) -> None:
     F = int(data["F"])
     M = int(data["M"])
     H = int(data["H"])
+    alpha = float(data["alpha"])
     mu_0 = np.array(data["mu_0"], dtype=float)
     mu = np.array(data["mu"], dtype=float)
     x = np.array(data["x"], dtype=float)
@@ -68,7 +69,7 @@ def plot_management(input_file_path: str, plot_file_path: str = None) -> None:
     cmap = mcolors.LinearSegmentedColormap.from_list("gr", ["green", "red"])
     fig, ax = plt.subplots(figsize=(max(n_cols * 0.8, 6), max(F * 0.8, 4)))
 
-    ax.imshow(grid, cmap=cmap, vmin=0, vmax=1, aspect="equal", origin="upper")
+    ax.imshow(grid, cmap=cmap, vmin=0, vmax=alpha, aspect="equal", origin="upper")
 
     # Draw grid lines and cell annotations
     for i in range(F):
@@ -145,7 +146,7 @@ def _read_input(input_file: Path) -> dict:
 
 def _read_hdf5(path: Path) -> dict:
     data = {}
-    scalar_keys = {"F", "H", "M"}
+    scalar_keys = {"F", "H", "M", "alpha"}
     array_keys = {"mu", "mu_0", "x"}
 
     with h5py.File(path, "r") as f:
