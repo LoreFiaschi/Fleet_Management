@@ -3,3 +3,5 @@ agentic/*
 .claude/*
 input/*
 CLAUDE*
+*.zip
+build/*
