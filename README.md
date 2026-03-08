@@ -1,6 +1,6 @@
 # Fleet Management
 
-Fleet scheduling optimization with Gaussian degradation, solved as a Mixed-Integer Linear Program (MILP) using Gurobi.
+Fleet scheduling optimization with degradation models (Gaussian and inverse Gaussian), solved as a Mixed-Integer Linear Program (MILP) using Gurobi.
 
 ## Prerequisites
 
@@ -24,10 +24,13 @@ pip install -e ".[dev]"
 ```python
 from fleet_management import solve, plot_management
 
-# 1. Solve the optimization problem
+# 1. Solve with Gaussian degradation
 solve("input/data.yaml", degradation="gaussian", results_path="results/output.yaml")
 
-# 2. Plot the resulting schedule
+# 2. Solve with inverse Gaussian degradation
+solve("input/data_ig.yaml", degradation="inverse_gaussian", results_path="results/output_ig.yaml")
+
+# 3. Plot the resulting schedule
 plot_management("results/output.yaml", plot_file_path="results/schedule.png")
 ```
 
@@ -40,7 +43,7 @@ Reads the problem data, solves the MILP, and writes the results to a file.
 | Parameter | Type | Description |
 |---|---|---|
 | `input_path` | `str` | Path to the input data file. |
-| `degradation` | `str` | Degradation model. Currently supported: `"gaussian"`. |
+| `degradation` | `str` | Degradation model. Supported: `"gaussian"`, `"inverse_gaussian"`. |
 | `results_path` | `str`, optional | Output file path. Defaults to `"output.yaml"`. |
 
 Supported input/output formats: **YAML** (`.yaml`, `.yml`), **JSON** (`.json`), **HDF5** (`.h5`, `.hdf5`).
@@ -65,25 +68,38 @@ The plot is an F x (2H+1) grid where each cell is coloured on a green-to-red hea
 
 ## Input file format
 
-The input file must contain the following keys:
+### Common keys (both models)
 
 | Key | Type | Description |
 |---|---|---|
 | `F` | int | Number of flights (must be > M) |
 | `H` | int | Time horizon (model spans 2H steps) |
 | `M` | int | Number of maintenance levels |
-| `mu` | 3D array (F x M x H) | Mean degradation parameters (must be < alpha, >= 3*sqrt(v)) |
-| `v` | 3D array (F x M x H) | Variance degradation parameters |
+| `mu` | array (F x M x H) or (F x M) | Mean degradation parameters (must be < alpha). If 2D, the same values are used for all time steps. |
 | `alpha` | float | Upper bound for degradation mean (must be positive) |
 | `epsilon` | float | Reliability threshold, in (0, 0.5) |
 | `C_M` | float | Maintenance cost coefficient |
 | `C_R` | float | Repair cost coefficient |
 | `C_S` | float | Safety cost coefficient |
 | `C_P` | float | Penalty cost coefficient |
-| `mu_0` | 1D array (F) | Initial mean values per flight (must be < alpha, >= 3*sqrt(v_0)) |
-| `v_0` | 1D array (F) | Initial variance values per flight |
+| `mu_0` | 1D array (F) | Initial mean values per flight (must be < alpha) |
 | `verbose` | int, optional | Gurobi verbosity (0 = silent, 1 = normal). Default: 1 |
 | `mip_gap` | float, optional | Relative MIP optimality gap tolerance. Default: Gurobi default (1e-4) |
+
+### Gaussian-specific keys
+
+| Key | Type | Description |
+|---|---|---|
+| `v` | array (F x M x H) or (F x M) | Variance degradation parameters. If 2D, the same values are used for all time steps. |
+| `v_0` | 1D array (F) | Initial variance values per flight |
+
+Additional constraints: `mu >= 3*sqrt(v)` and `mu_0 >= 3*sqrt(v_0)`.
+
+### Inverse Gaussian-specific keys
+
+| Key | Type | Description |
+|---|---|---|
+| `c` | 1D array (F) | Shape parameter per flight (must be positive) |
 
 ### YAML example
 
@@ -127,10 +143,10 @@ The output file includes:
 | `degradation` | Degradation model used |
 | `F`, `M`, `H` | Problem dimensions |
 | `alpha` | Upper bound for degradation mean |
-| `mu_0`, `v_0` | Initial conditions |
+| `mu_0`, `v_0` | Initial conditions (`v_0` only for Gaussian) |
 | `x` | Binary assignment solution (F x (M+1) x 2H) |
 | `mu` | Mean degradation solution (F x 2H) |
-| `v` | Variance degradation solution (F x 2H) |
+| `v` | Variance degradation solution (F x 2H, Gaussian only) |
 | `u` | Max degradation mean per time step (2H) |
 | `z` | Auxiliary variable solution (F x 2H) |
 
@@ -145,5 +161,6 @@ Fleet_Management/
             __init__.py        # Public API: solve, plot_management
             solver.py          # Mid-layer: I/O, validation, dispatch
             gaussian.py        # Gaussian degradation MILP (Gurobi)
+            inverse_gaussian.py # Inverse Gaussian degradation MILP (Gurobi)
             plotter.py         # Schedule visualisation
 ```

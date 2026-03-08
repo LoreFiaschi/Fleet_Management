@@ -2,6 +2,7 @@ README.md
 pyproject.toml
 src/fleet_management/__init__.py
 src/fleet_management/gaussian.py
+src/fleet_management/inverse_gaussian.py
 src/fleet_management/plotter.py
 src/fleet_management/solver.py
 src/fleet_management.egg-info/PKG-INFO

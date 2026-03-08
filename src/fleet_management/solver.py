@@ -6,9 +6,12 @@ import h5py
 import numpy as np
 import yaml
 
-from fleet_management.gaussian import solve_fleet_management
+from fleet_management.gaussian import solve_fleet_management as solve_gaussian
+from fleet_management.inverse_gaussian import (
+    solve_fleet_management as solve_inverse_gaussian,
+)
 
-SUPPORTED_DEGRADATIONS = {"gaussian"}
+SUPPORTED_DEGRADATIONS = {"gaussian", "inverse_gaussian"}
 SUPPORTED_EXTENSIONS = {".yaml", ".yml", ".json", ".h5", ".hdf5"}
 
 
@@ -53,15 +56,18 @@ def solve(input_path: str, degradation: str, results_path: str = None) -> None:
 
     # --- Read and parse input ---
     data = _read_input(input_file)
-    params = _extract_parameters(data)
+    params = _extract_parameters(data, degradation_lower)
 
     # --- Solve ---
     if degradation_lower == "gaussian":
-        result = solve_fleet_management(**params)
+        result = solve_gaussian(**params)
+    elif degradation_lower == "inverse_gaussian":
+        result = solve_inverse_gaussian(**params)
 
     result["degradation"] = degradation_lower
     result["mu_0"] = params["mu_0"]
-    result["v_0"] = params["v_0"]
+    if "v_0" in params:
+        result["v_0"] = params["v_0"]
 
     # --- Save results ---
     _save_results(result, results_path)
@@ -92,7 +98,7 @@ def _read_hdf5(path: Path) -> dict:
     """
     data = {}
     scalar_keys = {"F", "H", "M", "alpha", "epsilon", "C_M", "C_R", "C_S", "C_P", "verbose", "mip_gap"}
-    array_keys = {"mu", "v", "mu_0", "v_0"}
+    array_keys = {"mu", "v", "mu_0", "v_0", "c"}
 
     with h5py.File(path, "r") as f:
         for key in scalar_keys:
@@ -117,12 +123,20 @@ def _resolve_results_path(results_path) -> Path:
     return p
 
 
-REQUIRED_KEYS = {"F", "H", "M", "mu", "v", "alpha", "epsilon", "C_M", "C_R", "C_S", "C_P", "mu_0", "v_0"}
+_COMMON_KEYS = {"F", "H", "M", "mu", "alpha", "epsilon", "C_M", "C_R", "C_S", "C_P", "mu_0"}
+_GAUSSIAN_KEYS = _COMMON_KEYS | {"v", "v_0"}
+_INVERSE_GAUSSIAN_KEYS = _COMMON_KEYS | {"c"}
+
+REQUIRED_KEYS_BY_DEGRADATION = {
+    "gaussian": _GAUSSIAN_KEYS,
+    "inverse_gaussian": _INVERSE_GAUSSIAN_KEYS,
+}
 
 
-def _extract_parameters(data: dict) -> dict:
+def _extract_parameters(data: dict, degradation: str) -> dict:
     """Extract and validate all solver parameters from the parsed input data."""
-    missing = REQUIRED_KEYS - set(data.keys())
+    required = REQUIRED_KEYS_BY_DEGRADATION[degradation]
+    missing = required - set(data.keys())
     if missing:
         raise KeyError(f"Missing required keys in input file: {sorted(missing)}")
 
@@ -137,32 +151,48 @@ def _extract_parameters(data: dict) -> dict:
     C_P = float(data["C_P"])
 
     mu_param = np.array(data["mu"], dtype=float)
-    v_param = np.array(data["v"], dtype=float)
     mu_0 = np.array(data["mu_0"], dtype=float)
-    v_0 = np.array(data["v_0"], dtype=float)
 
     verbose = int(data.get("verbose", 1))
     mip_gap_raw = data.get("mip_gap", None)
     mip_gap = float(mip_gap_raw) if mip_gap_raw is not None else None
 
-    if mu_param.shape != (F, M, H):
+    if mu_param.shape == (F, M):
+        mu_param = np.repeat(mu_param[:, :, np.newaxis], H, axis=2)
+    elif mu_param.shape != (F, M, H):
         raise ValueError(
-            f"'mu' shape {mu_param.shape} does not match (F={F}, M={M}, H={H})."
-        )
-    if v_param.shape != (F, M, H):
-        raise ValueError(
-            f"'v' shape {v_param.shape} does not match (F={F}, M={M}, H={H})."
+            f"'mu' shape {mu_param.shape} does not match (F={F}, M={M}) or (F={F}, M={M}, H={H})."
         )
 
-    return {
-        "F": F, "H": H, "M": M,
-        "mu_param": mu_param, "v_param": v_param,
-        "alpha": alpha, "epsilon": epsilon,
-        "C_M": C_M, "C_R": C_R, "C_S": C_S, "C_P": C_P,
-        "mu_0": mu_0, "v_0": v_0,
-        "verbose": verbose,
-        "mip_gap": mip_gap,
-    }
+    if degradation == "gaussian":
+        v_param = np.array(data["v"], dtype=float)
+        v_0 = np.array(data["v_0"], dtype=float)
+        if v_param.shape == (F, M):
+            v_param = np.repeat(v_param[:, :, np.newaxis], H, axis=2)
+        elif v_param.shape != (F, M, H):
+            raise ValueError(
+                f"'v' shape {v_param.shape} does not match (F={F}, M={M}) or (F={F}, M={M}, H={H})."
+            )
+        return {
+            "F": F, "H": H, "M": M,
+            "mu_param": mu_param, "v_param": v_param,
+            "alpha": alpha, "epsilon": epsilon,
+            "C_M": C_M, "C_R": C_R, "C_S": C_S, "C_P": C_P,
+            "mu_0": mu_0, "v_0": v_0,
+            "verbose": verbose,
+            "mip_gap": mip_gap,
+        }
+    else:  # inverse_gaussian
+        c = np.array(data["c"], dtype=float)
+        return {
+            "F": F, "H": H, "M": M,
+            "mu_param": mu_param, "c": c,
+            "alpha": alpha, "epsilon": epsilon,
+            "C_M": C_M, "C_R": C_R, "C_S": C_S, "C_P": C_P,
+            "mu_0": mu_0,
+            "verbose": verbose,
+            "mip_gap": mip_gap,
+        }
 
 
 def _save_results(result: dict, path: Path) -> None:
@@ -190,12 +220,14 @@ def _build_serializable_output(result: dict) -> dict:
         "H": result["H"],
         "alpha": result["alpha"],
         "mu_0": result["mu_0"].tolist(),
-        "v_0": result["v_0"].tolist(),
     }
+    if "v_0" in result:
+        output["v_0"] = result["v_0"].tolist()
     if result["x"] is not None:
         output["x"] = result["x"].tolist()
         output["mu"] = result["mu"].tolist()
-        output["v"] = result["v"].tolist()
+        if "v" in result:
+            output["v"] = result["v"].tolist()
         output["u"] = result["u"].tolist()
         output["z"] = result["z"].tolist()
     return output
@@ -224,10 +256,12 @@ def _save_hdf5(result: dict, path: Path) -> None:
         f.attrs["H"] = result["H"]
         f.attrs["alpha"] = result["alpha"]
         f.create_dataset("mu_0", data=result["mu_0"])
-        f.create_dataset("v_0", data=result["v_0"])
+        if "v_0" in result:
+            f.create_dataset("v_0", data=result["v_0"])
         if result["x"] is not None:
             f.create_dataset("x", data=result["x"])
             f.create_dataset("mu", data=result["mu"])
-            f.create_dataset("v", data=result["v"])
+            if "v" in result:
+                f.create_dataset("v", data=result["v"])
             f.create_dataset("u", data=result["u"])
             f.create_dataset("z", data=result["z"])
