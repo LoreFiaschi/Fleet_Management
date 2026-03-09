@@ -1,6 +1,6 @@
 # Fleet Management
 
-Fleet scheduling optimization with degradation models (Gaussian and inverse Gaussian), solved as a Mixed-Integer Linear Program (MILP) using Gurobi.
+Train fleet scheduling optimization with degradation models (Gaussian and inverse Gaussian), solved as a Mixed-Integer Linear Program (MILP) using Gurobi.
 
 ## Prerequisites
 
@@ -62,9 +62,9 @@ Supported image formats: **PNG** (`.png`), **PDF** (`.pdf`).
 
 The plot is an F x (2H+1) grid where each cell is coloured on a green-to-red heatmap (0 to alpha) based on the degradation mean. Cell annotations indicate:
 
-- **Number** (j): flight j is assigned (`x[i,j,k] = 1`, j > 0)
+- **Number** (j): mission j is assigned (`x[i,j,k] = 1`, j > 0)
 - **Gear icon**: maintenance is scheduled (`x[i,0,k] = 1`)
-- **"zzz" cloud**: the aircraft is idle
+- **"zzz" cloud**: the train is idle
 
 ## Input file format
 
@@ -72,9 +72,9 @@ The plot is an F x (2H+1) grid where each cell is coloured on a green-to-red hea
 
 | Key | Type | Description |
 |---|---|---|
-| `F` | int | Number of flights (must be > M) |
+| `F` | int | Number of trains (must be > M) |
 | `H` | int | Time horizon (model spans 2H steps) |
-| `M` | int | Number of maintenance levels |
+| `M` | int | Number of missions |
 | `mu` | array (F x M x H) or (F x M) | Mean degradation parameters (must be < alpha). If 2D, the same values are used for all time steps. |
 | `alpha` | float | Upper bound for degradation mean (must be positive) |
 | `epsilon` | float | Reliability threshold, in (0, 0.5) |
@@ -82,7 +82,7 @@ The plot is an F x (2H+1) grid where each cell is coloured on a green-to-red hea
 | `C_R` | float | Repair cost coefficient |
 | `C_S` | float | Safety cost coefficient |
 | `C_P` | float | Penalty cost coefficient |
-| `mu_0` | 1D array (F) | Initial mean values per flight (must be < alpha) |
+| `mu_0` | 1D array (F) | Initial mean degradation values per train (must be < alpha) |
 | `verbose` | int, optional | Gurobi verbosity (0 = silent, 1 = normal). Default: 1 |
 | `mip_gap` | float, optional | Relative MIP optimality gap tolerance. Default: Gurobi default (1e-4) |
 
@@ -91,7 +91,7 @@ The plot is an F x (2H+1) grid where each cell is coloured on a green-to-red hea
 | Key | Type | Description |
 |---|---|---|
 | `v` | array (F x M x H) or (F x M) | Variance degradation parameters. If 2D, the same values are used for all time steps. |
-| `v_0` | 1D array (F) | Initial variance values per flight |
+| `v_0` | 1D array (F) | Initial variance values per train |
 
 Additional constraints: `mu >= 3*sqrt(v)` and `mu_0 >= 3*sqrt(v_0)`.
 
@@ -99,7 +99,7 @@ Additional constraints: `mu >= 3*sqrt(v)` and `mu_0 >= 3*sqrt(v_0)`.
 
 | Key | Type | Description |
 |---|---|---|
-| `c` | 1D array (F) | Shape parameter per flight (must be positive) |
+| `c` | 1D array (F) | Shape parameter per train (must be positive) |
 
 ### YAML example
 
@@ -141,14 +141,14 @@ The output file includes:
 | `status` | Solver status (`"optimal"` or Gurobi status code) |
 | `objective` | Optimal objective value (or `null`) |
 | `degradation` | Degradation model used |
-| `F`, `M`, `H` | Problem dimensions |
+| `F`, `M`, `H` | Problem dimensions (trains, missions, time horizon) |
 | `alpha` | Upper bound for degradation mean |
 | `mu_0`, `v_0` | Initial conditions (`v_0` only for Gaussian) |
 | `x` | Binary assignment solution (F x (M+1) x 2H) |
 | `mu` | Mean degradation solution (F x 2H) |
 | `v` | Variance degradation solution (F x 2H, Gaussian only) |
 | `u` | Max degradation mean per time step (2H) |
-| `z` | Auxiliary variable solution (F x 2H) |
+| `z` | Degradation level at repair per train (F x 2H, non-zero only when maintenance is scheduled) |
 
 ## Project structure
 
