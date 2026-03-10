@@ -98,7 +98,7 @@ def _read_hdf5(path: Path) -> dict:
     """
     data = {}
     scalar_keys = {"F", "H", "M", "alpha", "epsilon", "C_M", "C_R", "C_S", "C_P", "verbose", "mip_gap"}
-    array_keys = {"mu", "v", "mu_0", "v_0", "c"}
+    array_keys = {"mu", "v", "mu_0", "v_0", "c", "xi"}
 
     with h5py.File(path, "r") as f:
         for key in scalar_keys:
@@ -123,7 +123,7 @@ def _resolve_results_path(results_path) -> Path:
     return p
 
 
-_COMMON_KEYS = {"F", "H", "M", "mu", "alpha", "epsilon", "C_M", "C_R", "C_S", "C_P", "mu_0"}
+_COMMON_KEYS = {"F", "H", "M", "mu", "alpha", "epsilon", "xi", "C_M", "C_R", "C_S", "C_P", "mu_0"}
 _GAUSSIAN_KEYS = _COMMON_KEYS | {"v", "v_0"}
 _INVERSE_GAUSSIAN_KEYS = _COMMON_KEYS | {"c"}
 
@@ -149,6 +149,7 @@ def _extract_parameters(data: dict, degradation: str) -> dict:
     C_R = float(data["C_R"])
     C_S = float(data["C_S"])
     C_P = float(data["C_P"])
+    xi = np.array(data["xi"], dtype=float)
 
     mu_param = np.array(data["mu"], dtype=float)
     mu_0 = np.array(data["mu_0"], dtype=float)
@@ -176,7 +177,7 @@ def _extract_parameters(data: dict, degradation: str) -> dict:
         return {
             "F": F, "H": H, "M": M,
             "mu_param": mu_param, "v_param": v_param,
-            "alpha": alpha, "epsilon": epsilon,
+            "alpha": alpha, "epsilon": epsilon, "xi": xi,
             "C_M": C_M, "C_R": C_R, "C_S": C_S, "C_P": C_P,
             "mu_0": mu_0, "v_0": v_0,
             "verbose": verbose,
@@ -187,7 +188,7 @@ def _extract_parameters(data: dict, degradation: str) -> dict:
         return {
             "F": F, "H": H, "M": M,
             "mu_param": mu_param, "c": c,
-            "alpha": alpha, "epsilon": epsilon,
+            "alpha": alpha, "epsilon": epsilon, "xi": xi,
             "C_M": C_M, "C_R": C_R, "C_S": C_S, "C_P": C_P,
             "mu_0": mu_0,
             "verbose": verbose,

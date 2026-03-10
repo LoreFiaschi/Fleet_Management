@@ -78,6 +78,7 @@ The plot is an F x (2H+1) grid where each cell is coloured on a green-to-red hea
 | `mu` | array (F x M x H) or (F x M) | Mean degradation parameters (must be < alpha). If 2D, the same values are used for all time steps. |
 | `alpha` | float | Upper bound for degradation mean (must be positive) |
 | `epsilon` | float | Reliability threshold, in (0, 0.5) |
+| `xi` | 1D array (F) | Fraction of damage repairable in one maintenance day per train, in (0, 1] element-wise |
 | `C_M` | float | Maintenance cost coefficient |
 | `C_R` | float | Repair cost coefficient |
 | `C_S` | float | Safety cost coefficient |
@@ -109,6 +110,7 @@ H: 10
 M: 3
 alpha: 1.0
 epsilon: 0.1
+xi: [0.8, 0.75, 0.9, 0.85, 0.7, 0.8]
 C_M: 1.0
 C_R: 2.0
 C_S: 1.5

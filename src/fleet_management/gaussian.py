@@ -12,6 +12,7 @@ def validate_inputs(
     v_param: np.ndarray,
     alpha: float,
     epsilon: float,
+    xi: np.ndarray,
     C_M: float,
     C_R: float,
     C_S: float,
@@ -47,6 +48,14 @@ def validate_inputs(
     # epsilon < 0.5
     if epsilon >= 0.5:
         raise ValueError(f"epsilon must be < 0.5 (got {epsilon}).")
+
+    # xi is a 1D vector of length F, element-wise <= 1
+    if xi.shape != (F,):
+        raise ValueError(f"xi must be a 1D vector of length {F}.")
+    if not np.all(xi > 0):
+        raise ValueError("All entries of xi must be positive.")
+    if not np.all(xi <= 1):
+        raise ValueError("xi must be <= 1 element-wise.")
 
     # mu_0 and v_0 are 1D vectors of length F
     if mu_0.shape != (F,):
@@ -114,6 +123,7 @@ def solve_fleet_management(
     v_param: np.ndarray,
     alpha: float,
     epsilon: float,
+    xi: np.ndarray,
     C_M: float,
     C_R: float,
     C_S: float,
@@ -142,6 +152,8 @@ def solve_fleet_management(
         Upper bound for degradation mean (must be positive).
     epsilon : float
         Reliability threshold (must be in (0, 0.5)).
+    xi : np.ndarray, shape (F,)
+        Fraction of damage repairable in one maintenance day per train (must be in (0, 1]).
     C_M : float
         Maintenance cost coefficient.
     C_R : float
@@ -165,7 +177,7 @@ def solve_fleet_management(
         Keys: "status", "objective", "x", "mu", "v", "z", "F", "H", "M", "alpha", "model".
     """
     # --- Consistency checks ---
-    validate_inputs(F, H, M, mu_param, v_param, alpha, epsilon, C_M, C_R, C_S, C_P, mu_0, v_0)
+    validate_inputs(F, H, M, mu_param, v_param, alpha, epsilon, xi, C_M, C_R, C_S, C_P, mu_0, v_0)
 
     # --- Precompute constants ---
     phi_inv = norm.ppf(1 - epsilon)
@@ -261,6 +273,13 @@ def solve_fleet_management(
                 name=f"mu_update_{i}_{k}",
             )
 
+            # (3b) mu lower bound during maintenance:
+            #   mu_{ik} >= mu_{ik-1} * (1 - xi_i)
+            model.addConstr(
+                mu_var[i, k] >= mu_prev * (1 - xi[i]),
+                name=f"mu_lb_{i}_{k}",
+            )
+
             # (4) v update:
             #   v_{ik} >= v_{ik-1} + sum_{j=1}^{M} x_{ijk} * v_input_{ijk}
             #             - alpha * x_{i,0,k}
@@ -275,10 +294,17 @@ def solve_fleet_management(
                 name=f"v_update_{i}_{k}",
             )
 
-            # (7) z bound:
-            #   z_{ik} >= mu_{ik-1} - alpha + alpha * x_{i,0,k}
+            # (4b) v lower bound during maintenance:
+            #   v_{ik} >= v_{ik-1} * (1 - xi_i)
             model.addConstr(
-                z_var[i, k] >= mu_prev - alpha + alpha * x[i, 0, k],
+                v_var[i, k] >= v_prev * (1 - xi[i]),
+                name=f"v_lb_{i}_{k}",
+            )
+
+            # (7) z bound:
+            #   z_{ik} >= mu_{ik} * xi_i - alpha + alpha * x_{i,0,k}
+            model.addConstr(
+                z_var[i, k] >= mu_var[i, k] * xi[i] - alpha + alpha * x[i, 0, k],
                 name=f"z_bound_{i}_{k}",
             )
 

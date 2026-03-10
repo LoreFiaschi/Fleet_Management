@@ -12,6 +12,7 @@ def validate_inputs(
     c: np.ndarray,
     alpha: float,
     epsilon: float,
+    xi: np.ndarray,
     C_M: float,
     C_R: float,
     C_S: float,
@@ -38,6 +39,13 @@ def validate_inputs(
 
     if epsilon >= 0.5:
         raise ValueError(f"epsilon must be < 0.5 (got {epsilon}).")
+
+    if xi.shape != (F,):
+        raise ValueError(f"xi must be a 1D vector of length {F}.")
+    if not np.all(xi > 0):
+        raise ValueError("All entries of xi must be positive.")
+    if not np.all(xi <= 1):
+        raise ValueError("xi must be <= 1 element-wise.")
 
     if c.shape != (F,):
         raise ValueError(f"c must be a 1D vector of length {F}.")
@@ -67,6 +75,7 @@ def solve_fleet_management(
     c: np.ndarray,
     alpha: float,
     epsilon: float,
+    xi: np.ndarray,
     C_M: float,
     C_R: float,
     C_S: float,
@@ -94,6 +103,8 @@ def solve_fleet_management(
         Upper bound for degradation mean (must be positive).
     epsilon : float
         Reliability threshold (must be in (0, 0.5)).
+    xi : np.ndarray, shape (F,)
+        Fraction of damage repairable in one maintenance day per train (must be in (0, 1]).
     C_M : float
         Maintenance cost coefficient.
     C_R : float
@@ -115,7 +126,7 @@ def solve_fleet_management(
         Keys: "status", "objective", "x", "mu", "u", "z", "F", "H", "M", "alpha", "model".
     """
     # --- Consistency checks ---
-    validate_inputs(F, H, M, mu_param, c, alpha, epsilon, C_M, C_R, C_S, C_P, mu_0)
+    validate_inputs(F, H, M, mu_param, c, alpha, epsilon, xi, C_M, C_R, C_S, C_P, mu_0)
 
     # --- Precompute constants ---
     phi_inv = norm.ppf(1 - epsilon)
@@ -200,10 +211,17 @@ def solve_fleet_management(
                 name=f"mu_update_{i}_{k}",
             )
 
-            # z bound:
-            #   z_{ik} >= mu_{ik-1} - alpha + alpha * x_{i,0,k}
+            # mu lower bound during maintenance:
+            #   mu_{ik} >= mu_{ik-1} * (1 - xi_i)
             model.addConstr(
-                z_var[i, k] >= mu_prev - alpha + alpha * x[i, 0, k],
+                mu_var[i, k] >= mu_prev * (1 - xi[i]),
+                name=f"mu_lb_{i}_{k}",
+            )
+
+            # z bound:
+            #   z_{ik} >= mu_{ik-1} * xi_i - alpha + alpha * x_{i,0,k}
+            model.addConstr(
+                z_var[i, k] >= mu_prev * xi[i] - alpha + alpha * x[i, 0, k],
                 name=f"z_bound_{i}_{k}",
             )
 
