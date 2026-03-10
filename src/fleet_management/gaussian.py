@@ -235,12 +235,12 @@ def solve_fleet_management(
                 v_prev = v_var[i, k - 1]
 
             # (2) Reliability constraint:
-            #   v_{ik-1} * (phi_inv^2 - 9) + 2*mu_{ik-1} - 2H*x_{i,0,k}
+            #   v_{ik-1} * (phi_inv^2 - 9) + 2*mu_{ik-1} - 3*alpha*x_{i,0,k}
             #     <= alpha + sum_{j=1}^{M} x_{i,j,k} * W_{i,j-1,k}
             model.addConstr(
                 v_prev * (phi_inv_sq - 9)
                 + 2 * mu_prev
-                - 2 * H * x[i, 0, k]
+                - 3 * alpha * x[i, 0, k]
                 <= alpha + gp.quicksum(
                     x[i, j, k] * W[i, j - 1, k] for j in range(1, M + 1)
                 ),
@@ -249,7 +249,7 @@ def solve_fleet_management(
 
             # (3) mu update:
             #   mu_{ik} >= mu_{ik-1} + sum_{j=1}^{M} x_{ijk} * mu_input_{ijk}
-            #              - 2H * x_{i,0,k}
+            #              - alpha * x_{i,0,k}
             model.addConstr(
                 mu_var[i, k]
                 >= mu_prev
@@ -257,13 +257,13 @@ def solve_fleet_management(
                     x[i, j, k] * mu_input(i, j - 1, k)
                     for j in range(1, M + 1)
                 )
-                - 2 * H * x[i, 0, k],
+                - alpha * x[i, 0, k],
                 name=f"mu_update_{i}_{k}",
             )
 
             # (4) v update:
             #   v_{ik} >= v_{ik-1} + sum_{j=1}^{M} x_{ijk} * v_input_{ijk}
-            #             - 2H * x_{i,0,k}
+            #             - alpha * x_{i,0,k}
             model.addConstr(
                 v_var[i, k]
                 >= v_prev
@@ -271,14 +271,14 @@ def solve_fleet_management(
                     x[i, j, k] * v_input(i, j - 1, k)
                     for j in range(1, M + 1)
                 )
-                - 2 * H * x[i, 0, k],
+                - alpha * x[i, 0, k],
                 name=f"v_update_{i}_{k}",
             )
 
             # (7) z bound:
-            #   z_{ik} >= mu_{ik-1} - 2H + 2H * x_{i,0,k}
+            #   z_{ik} >= mu_{ik-1} - alpha + alpha * x_{i,0,k}
             model.addConstr(
-                z_var[i, k] >= mu_prev - 2 * H + 2 * H * x[i, 0, k],
+                z_var[i, k] >= mu_prev - alpha + alpha * x[i, 0, k],
                 name=f"z_bound_{i}_{k}",
             )
 

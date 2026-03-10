@@ -188,7 +188,7 @@ def solve_fleet_management(
 
             # (3) mu update:
             #   mu_{ik} >= mu_{ik-1} + sum_{j=1}^{M} x_{ijk} * mu_input_{ijk}
-            #              - 2H * x_{i,0,k}
+            #              - alpha * x_{i,0,k}
             model.addConstr(
                 mu_var[i, k]
                 >= mu_prev
@@ -196,14 +196,14 @@ def solve_fleet_management(
                     x[i, j, k] * mu_input(i, j - 1, k)
                     for j in range(1, M + 1)
                 )
-                - 2 * H * x[i, 0, k],
+                - alpha * x[i, 0, k],
                 name=f"mu_update_{i}_{k}",
             )
 
             # z bound:
-            #   z_{ik} >= mu_{ik-1} - 2H + 2H * x_{i,0,k}
+            #   z_{ik} >= mu_{ik-1} - alpha + alpha * x_{i,0,k}
             model.addConstr(
-                z_var[i, k] >= mu_prev - 2 * H + 2 * H * x[i, 0, k],
+                z_var[i, k] >= mu_prev - alpha + alpha * x[i, 0, k],
                 name=f"z_bound_{i}_{k}",
             )
 
