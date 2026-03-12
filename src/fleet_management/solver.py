@@ -25,7 +25,7 @@ def solve(input_path: str, degradation: str, results_path: str = None) -> None:
         Path to an input file containing the problem data.
         Supported formats: YAML (.yaml/.yml), JSON (.json), HDF5 (.h5/.hdf5).
     degradation : str
-        Type of degradation model. Currently supported: "gaussian".
+        Type of degradation model. Currently supported: "gaussian", "inverse_gaussian".
     results_path : str, optional
         Path where results will be saved. Defaults to "output.yaml".
         If provided without an extension, ".yaml" is appended.
@@ -92,12 +92,12 @@ def _read_hdf5(path: Path) -> dict:
     """Read all solver parameters from an HDF5 file.
 
     Expected structure:
-    - Scalar parameters (F, H, M, epsilon, C_M, C_R, C_S, C_P, verbose)
+    - Scalar parameters (F, H, M, L, epsilon, C_M, C_R, C_S, C_P, verbose)
       stored as attributes on the root group or as scalar datasets.
-    - Array parameters (mu, v, mu_0, v_0) stored as datasets.
+    - Array parameters (mu, v, mu_0, v_0, c, xi) stored as datasets.
     """
     data = {}
-    scalar_keys = {"F", "H", "M", "alpha", "epsilon", "C_M", "C_R", "C_S", "C_P", "verbose", "mip_gap"}
+    scalar_keys = {"F", "H", "M", "L", "alpha", "epsilon", "C_M", "C_R", "C_S", "C_P", "verbose", "mip_gap"}
     array_keys = {"mu", "v", "mu_0", "v_0", "c", "xi"}
 
     with h5py.File(path, "r") as f:
@@ -143,39 +143,56 @@ def _extract_parameters(data: dict, degradation: str) -> dict:
     F = int(data["F"])
     H = int(data["H"])
     M = int(data["M"])
+    L = int(data.get("L", 1))
     alpha = float(data["alpha"])
     epsilon = float(data["epsilon"])
     C_M = float(data["C_M"])
     C_R = float(data["C_R"])
     C_S = float(data["C_S"])
     C_P = float(data["C_P"])
-    xi = np.array(data["xi"], dtype=float)
-
-    mu_param = np.array(data["mu"], dtype=float)
-    mu_0 = np.array(data["mu_0"], dtype=float)
 
     verbose = int(data.get("verbose", 1))
     mip_gap_raw = data.get("mip_gap", None)
     mip_gap = float(mip_gap_raw) if mip_gap_raw is not None else None
 
-    if mu_param.shape == (F, M):
-        mu_param = np.repeat(mu_param[:, :, np.newaxis], H, axis=2)
-    elif mu_param.shape != (F, M, H):
+    # --- Broadcast xi: accept (F,) when L=1, or (F, L) ---
+    xi = np.array(data["xi"], dtype=float)
+    if L == 1 and xi.shape == (F,):
+        xi = xi[:, np.newaxis]
+    elif xi.shape != (F, L):
         raise ValueError(
-            f"'mu' shape {mu_param.shape} does not match (F={F}, M={M}) or (F={F}, M={M}, H={H})."
+            f"'xi' shape {xi.shape} does not match (F={F}, L={L})."
         )
 
+    # --- Broadcast mu_0: accept (F,) when L=1, or (F, L) ---
+    mu_0 = np.array(data["mu_0"], dtype=float)
+    if L == 1 and mu_0.shape == (F,):
+        mu_0 = mu_0[:, np.newaxis]
+    elif mu_0.shape != (F, L):
+        raise ValueError(
+            f"'mu_0' shape {mu_0.shape} does not match (F={F}, L={L})."
+        )
+
+    # --- Broadcast mu_param: accept multiple shapes ---
+    mu_param = np.array(data["mu"], dtype=float)
+    mu_param = _broadcast_4d_param(mu_param, F, M, L, H, "mu")
+
     if degradation == "gaussian":
-        v_param = np.array(data["v"], dtype=float)
+        # --- Broadcast v_0: accept (F,) when L=1, or (F, L) ---
         v_0 = np.array(data["v_0"], dtype=float)
-        if v_param.shape == (F, M):
-            v_param = np.repeat(v_param[:, :, np.newaxis], H, axis=2)
-        elif v_param.shape != (F, M, H):
+        if L == 1 and v_0.shape == (F,):
+            v_0 = v_0[:, np.newaxis]
+        elif v_0.shape != (F, L):
             raise ValueError(
-                f"'v' shape {v_param.shape} does not match (F={F}, M={M}) or (F={F}, M={M}, H={H})."
+                f"'v_0' shape {v_0.shape} does not match (F={F}, L={L})."
             )
+
+        # --- Broadcast v_param: accept multiple shapes ---
+        v_param = np.array(data["v"], dtype=float)
+        v_param = _broadcast_4d_param(v_param, F, M, L, H, "v")
+
         return {
-            "F": F, "H": H, "M": M,
+            "F": F, "H": H, "M": M, "L": L,
             "mu_param": mu_param, "v_param": v_param,
             "alpha": alpha, "epsilon": epsilon, "xi": xi,
             "C_M": C_M, "C_R": C_R, "C_S": C_S, "C_P": C_P,
@@ -184,9 +201,17 @@ def _extract_parameters(data: dict, degradation: str) -> dict:
             "mip_gap": mip_gap,
         }
     else:  # inverse_gaussian
+        # --- Broadcast c: accept (F,) when L=1, or (F, L) ---
         c = np.array(data["c"], dtype=float)
+        if L == 1 and c.shape == (F,):
+            c = c[:, np.newaxis]
+        elif c.shape != (F, L):
+            raise ValueError(
+                f"'c' shape {c.shape} does not match (F={F}, L={L})."
+            )
+
         return {
-            "F": F, "H": H, "M": M,
+            "F": F, "H": H, "M": M, "L": L,
             "mu_param": mu_param, "c": c,
             "alpha": alpha, "epsilon": epsilon, "xi": xi,
             "C_M": C_M, "C_R": C_R, "C_S": C_S, "C_P": C_P,
@@ -194,6 +219,31 @@ def _extract_parameters(data: dict, degradation: str) -> dict:
             "verbose": verbose,
             "mip_gap": mip_gap,
         }
+
+
+def _broadcast_4d_param(arr: np.ndarray, F: int, M: int, L: int, H: int,
+                        name: str) -> np.ndarray:
+    """Broadcast an array to shape (F, M, L, H), handling legacy shapes.
+
+    Accepted shapes:
+    - (F, M, L, H) — use directly
+    - (F, M, L)    — repeat along H
+    - (F, M, H) with L=1 — insert L dimension, giving (F, M, 1, H)
+    - (F, M) with L=1 — insert L dimension and repeat along H
+    """
+    if arr.shape == (F, M, L, H):
+        return arr
+    if arr.ndim == 3 and arr.shape == (F, M, L):
+        return np.repeat(arr[:, :, :, np.newaxis], H, axis=3)
+    if L == 1 and arr.ndim == 3 and arr.shape == (F, M, H):
+        return arr[:, :, np.newaxis, :]
+    if L == 1 and arr.ndim == 2 and arr.shape == (F, M):
+        arr = arr[:, :, np.newaxis, np.newaxis]
+        return np.repeat(arr, H, axis=3)
+    raise ValueError(
+        f"'{name}' shape {arr.shape} cannot be broadcast to "
+        f"(F={F}, M={M}, L={L}, H={H})."
+    )
 
 
 def _save_results(result: dict, path: Path) -> None:
@@ -219,6 +269,7 @@ def _build_serializable_output(result: dict) -> dict:
         "F": result["F"],
         "M": result["M"],
         "H": result["H"],
+        "L": result["L"],
         "alpha": result["alpha"],
         "mu_0": result["mu_0"].tolist(),
     }
@@ -255,6 +306,7 @@ def _save_hdf5(result: dict, path: Path) -> None:
         f.attrs["F"] = result["F"]
         f.attrs["M"] = result["M"]
         f.attrs["H"] = result["H"]
+        f.attrs["L"] = result["L"]
         f.attrs["alpha"] = result["alpha"]
         f.create_dataset("mu_0", data=result["mu_0"])
         if "v_0" in result:

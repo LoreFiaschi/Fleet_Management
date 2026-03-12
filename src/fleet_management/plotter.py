@@ -17,6 +17,10 @@ def plot_management(input_file_path: str, plot_file_path: str = None) -> None:
     """
     Plot the fleet management schedule as a coloured grid.
 
+    Each cell (train i, time step k) is split into L horizontal strips,
+    one per component, coloured on a green-to-red heatmap (0 to alpha)
+    based on the component's degradation mean.
+
     Parameters
     ----------
     input_file_path : str
@@ -52,33 +56,60 @@ def plot_management(input_file_path: str, plot_file_path: str = None) -> None:
     F = int(data["F"])
     M = int(data["M"])
     H = int(data["H"])
+    L = int(data.get("L", 1))
     alpha = float(data["alpha"])
     mu_0 = np.array(data["mu_0"], dtype=float)
     mu = np.array(data["mu"], dtype=float)
     x = np.array(data["x"], dtype=float)
 
+    # Handle legacy shapes (L=1 with no L dimension)
+    if mu_0.ndim == 1:
+        mu_0 = mu_0[:, np.newaxis]  # (F,) -> (F, 1)
+    if mu.ndim == 2:
+        mu = mu[:, np.newaxis, :]  # (F, 2H) -> (F, 1, 2H)
+
     # --- Build grid values ---
-    # Grid has F rows and (2H + 1) columns
+    # grid has shape (F, L, n_cols) where n_cols = 2H + 1
     # Column 0 = mu_0, columns 1..2H = mu
     n_cols = 2 * H + 1
-    grid = np.zeros((F, n_cols))
-    grid[:, 0] = mu_0
-    grid[:, 1:] = mu  # mu is F x 2H
+    grid = np.zeros((F, L, n_cols))
+    grid[:, :, 0] = mu_0  # (F, L)
+    grid[:, :, 1:] = mu   # (F, L, 2H)
 
     # --- Create plot ---
     cmap = mcolors.LinearSegmentedColormap.from_list("gr", ["green", "red"])
+    cnorm = mcolors.Normalize(vmin=0, vmax=alpha)
     fig, ax = plt.subplots(figsize=(max(n_cols * 0.8, 6), max(F * 0.8, 4)))
 
-    ax.imshow(grid, cmap=cmap, vmin=0, vmax=alpha, aspect="equal", origin="upper")
-
-    # Draw grid lines and cell annotations
+    # Draw coloured strips for each cell
+    strip_h = 1.0 / L
     for i in range(F):
         for k in range(n_cols):
-            if k == 0:
-                # First column: just show mu_0 value
-                continue
+            for l in range(L):
+                val = grid[i, l, k]
+                color = cmap(cnorm(val))
+                rect = mpatches.Rectangle(
+                    (k - 0.5, i - 0.5 + l * strip_h),
+                    1.0, strip_h,
+                    facecolor=color, edgecolor="none",
+                )
+                ax.add_patch(rect)
 
-            # k in the grid corresponds to time step k (1-based in grid, 0-based in x)
+    # Set axis limits (inverted y for origin upper)
+    ax.set_xlim(-0.5, n_cols - 0.5)
+    ax.set_ylim(F - 0.5, -0.5)
+
+    # Draw component separator lines within cells (only if L > 1)
+    if L > 1:
+        for i in range(F):
+            for l in range(1, L):
+                y = i - 0.5 + l * strip_h
+                ax.hlines(y, -0.5, n_cols - 0.5,
+                          colors="gray", linewidths=0.3, linestyles="--")
+
+    # Cell annotations
+    for i in range(F):
+        for k in range(1, n_cols):
             k_x = k - 1  # index into x array (0-based, range 0..2H-1)
 
             if x[i, 0, k_x] == 1:
@@ -115,7 +146,11 @@ def plot_management(input_file_path: str, plot_file_path: str = None) -> None:
     for k in range(n_cols + 1):
         ax.axvline(k - 0.5, color="black", linewidth=0.5)
 
-    plt.colorbar(ax.images[0], ax=ax, label="μ value", shrink=0.8)
+    # Colorbar
+    sm = plt.cm.ScalarMappable(cmap=cmap, norm=cnorm)
+    sm.set_array([])
+    plt.colorbar(sm, ax=ax, label="\u03bc value", shrink=0.8)
+
     fig.tight_layout()
     fig.savefig(plot_path, dpi=150)
     plt.close(fig)
@@ -146,7 +181,7 @@ def _read_input(input_file: Path) -> dict:
 
 def _read_hdf5(path: Path) -> dict:
     data = {}
-    scalar_keys = {"F", "H", "M", "alpha"}
+    scalar_keys = {"F", "H", "M", "L", "alpha"}
     array_keys = {"mu", "mu_0", "x"}
 
     with h5py.File(path, "r") as f:
