@@ -1,0 +1,1867 @@
+\documentclass[11pt,a4paper]{article}
+
+% --- Packages ---
+\usepackage[margin=2.5cm]{geometry}
+\setlength{\headheight}{14pt}
+\usepackage{hyperref}
+\usepackage{titlesec}
+\usepackage{enumitem}
+\usepackage{booktabs}
+\usepackage{longtable}
+\usepackage{xcolor}
+\usepackage{fancyhdr}
+\usepackage{tikz}
+\usetikzlibrary{shapes.geometric, arrows.meta, positioning, fit, backgrounds}
+\usepackage{listings}
+\usepackage{parskip}
+\usepackage{microtype}
+\usepackage{amsmath}
+\usepackage{amssymb}
+\usepackage{mathtools}
+
+% --- Style ---
+\hypersetup{colorlinks=true, linkcolor=blue!60!black, urlcolor=blue!60!black}
+\titleformat{\section}{\large\bfseries}{}{0em}{}[\titlerule]
+\titleformat{\subsection}{\normalsize\bfseries}{}{0em}{}
+\titleformat{\subsubsection}{\normalsize\itshape}{}{0em}{}
+\pagestyle{fancy}
+\fancyhf{}
+\rhead{\textit{Fleet Management --- SRS}}
+\lhead{\textit{v0.2 (revised) $\cdot$ \today}}
+\cfoot{\thepage}
+
+\definecolor{todo}{RGB}{180,0,0}
+\newcommand{\TODO}[1]{\textcolor{todo}{\textbf{[TO DO: #1]}}}
+
+\lstset{
+  basicstyle=\ttfamily\small,
+  breaklines=true,
+  frame=single,
+  backgroundcolor=\color{gray!8},
+  rulecolor=\color{gray!40}
+}
+
+\begin{document}
+
+% --- Title page ---
+\begin{titlepage}
+  \centering
+  \vspace*{3cm}
+  {\Huge\bfseries Fleet Management\par}
+  \vspace{0.5cm}
+  {\Large Software Requirements Specification\par}
+  \vspace{0.3cm}
+  {\large Multi-Component Stochastic Degradation MILP\par}
+  \vspace{1cm}
+  {\large Version 0.2 (revised) $\cdot$ \today\par}
+  \vfill
+  {\small Prepared with spec-creator $\cdot$ Intended for Claude Code implementation}
+\end{titlepage}
+
+\tableofcontents
+\newpage
+
+% ================================================================
+\section{Project Overview \& Goals}
+% ================================================================
+
+This project implements a \textbf{Mixed-Integer (Non-)Linear Program} for train fleet
+scheduling with multi-component stochastic degradation, solved with Gurobi.
+
+The key generalisation over prior work is that each component $\ell$ of each train $i$
+may have its own degradation model, independently chosen from:
+\begin{itemize}
+  \item \textbf{Gaussian} (Gaussian random walk; tracks mean and variance independently)
+  \item \textbf{Inverse Gaussian (IG)} (tracks mean only; shape parameter recovered analytically)
+  \item \textbf{Wiener} (Brownian motion with drift; tracks mean and variance, but variance
+        is a deterministic function of time with no repair effect)
+  \item \textbf{Gamma} (Gamma random walk; tracks accumulated shape parameter)
+\end{itemize}
+
+%% --- CHANGE DOM-003: clarify Gaussian vs Wiener distinction ---
+\emph{Gaussian vs.\ Wiener distinction.}
+Both the Gaussian and Wiener models use Gaussian-distributed degradation increments.
+The distinction is that the Gaussian model tracks both the mean~$\mu$ and the
+variance~$v$ of each component as independent decision variables, allowing imperfect
+maintenance to act on both quantities. The Wiener model, by contrast, treats variance
+as a deterministic function of time ($v_k = v_0 + k\sigma^2$), with no repair effect
+on variance. This makes the Wiener model simpler but restricts it to components where
+periodic full replacement is feasible (see Section~\ref{sec:dyn_wiener}). When in
+doubt, use the Gaussian model; the Wiener model is a specialisation for components
+with stationary, route-independent uncertainty.
+
+Each component also has an independently specified maintenance policy
+($\mathrm{ARA}_1$ or $\mathrm{ARD}_1$, subject to model compatibility---see below)
+and may be subject to full replacement.
+
+%% --- CHANGE DOM-008: ARD1/ARA1 definitions ---
+\textbf{Maintenance policy definitions.}
+The two imperfect-repair models used in this specification are:
+\begin{itemize}
+  \item $\mathrm{ARD}_1$ (\emph{Arithmetic Reduction of Degradation}, order 1):
+        after repair, the degradation level is reduced by a fraction~$\rho$ of its
+        current value, i.e.\ $D^+ = (1-\rho)\,D^-$.
+        This is equivalent to removing a fixed proportion of accumulated damage
+        (Doyen \& Gaudoin, 2004; Kijima, 1989).
+  \item $\mathrm{ARA}_1$ (\emph{Arithmetic Reduction of Age}, order 1):
+        after repair, the degradation level is reduced by a fraction~$\rho$ of the
+        degradation accumulated since the last maintenance epoch, i.e.\
+        $D^+ = D^- - \rho\,(D^- - D^{\mathrm{last}})$,
+        where $D^{\mathrm{last}}$ is the degradation immediately after the most recent
+        maintenance action (Mercier \& Castro, 2019; Kijima, 1989).
+\end{itemize}
+
+%% --- CHANGE DEV-002: prominently flag Wiener replacement requirement ---
+\textbf{Wiener model restriction.}
+Because imperfect maintenance cannot reduce variance in the Wiener model, every
+Wiener-modelled component \textbf{must} undergo at least one full replacement
+($x^r_{i\ell k}=1$) per horizon~$H$. Without this, the loop constraint on variance
+is infeasible. This restriction should be verified at input validation time
+(Section~3.7).
+
+\textbf{Non-goals.}
+\begin{itemize}
+  \item Routing decisions are not optimised (routes are an input).
+  \item Continuous-time formulations are out of scope; all dynamics are discrete-time.
+  \item Linearisation of the reliability constraints is deferred to a later phase
+        (the current spec targets the exact, potentially non-linear formulation).
+\end{itemize}
+
+% ================================================================
+\section{Index Sets and Notation}
+% ================================================================
+
+%% --- CHANGE MATH-001: j in {0,1,...,M} ---
+\begin{longtable}{@{}lp{10cm}@{}}
+\toprule
+Symbol & Meaning \\
+\midrule
+$i \in \{1,\ldots,F\}$ & Train index \\
+$j \in \{0,1,\ldots,M\}$ & Activity index ($j=0$: maintenance day; $j \in \{1,\ldots,M\}$: missions) \\
+$k \in \{1,\ldots,2H\}$ & Time step (day) index \\
+$\ell \in \{1,\ldots,L\}$ & Component index \\
+\bottomrule
+\end{longtable}
+
+% ================================================================
+\section{Input Specification}
+% ================================================================
+
+\subsection{Scalar / Fleet-Level Parameters}
+
+\begin{longtable}{@{}llp{8cm}@{}}
+\toprule
+Parameter & Type & Description \\
+\midrule
+$F$ & \texttt{int} & Number of trains \\
+$H$ & \texttt{int} or \texttt{[int, int]} & Half-horizon. Scalar: single solve spanning $2H$
+  steps. Two-element list $[H_{\min}, H_{\max}]$: loop over
+  $H \in \{H_{\min},\ldots,H_{\max}\}$, producing one solve per value \\
+$M$ & \texttt{int} & Number of missions (must satisfy $F > M$) \\
+$L$ & \texttt{int} & Number of components per train \\
+$\tau$ & \texttt{float} & Degradation upper bound (must be positive) \\
+$\varepsilon$ & \texttt{float} & Reliability threshold, $\varepsilon \in (0, 0.01]$.
+  The upper bound $\varepsilon \leq 0.01$ prevents $\Phi^{-1}(1-\varepsilon)$ from
+  approaching zero, which would cause $V_{\max} \to \infty$ and render the
+  big-M constraints numerically ineffective \\
+$C_M$ & \texttt{float} & Maintenance cost coefficient \\
+$C_P$ & \texttt{float} & Loop-constraint penalty coefficient \\
+$C_D$ & \texttt{float} & Damage regularisation coefficient \\
+\texttt{penalty\_type} & \texttt{str}, optional & Damage regularisation type:
+  \texttt{"inf\_norm"} (default) or \texttt{"quadratic"}.
+  Controls the form of the $C_D$ penalty term (see Section~\ref{sec:objective}) \\
+\texttt{formulation} & \texttt{str}, optional & Problem formulation:
+  \texttt{"socp"} (default) or \texttt{"lp"}.
+  \texttt{"socp"}: Gaussian and Wiener reliability constraints are rotated
+  second-order cone (exact).
+  \texttt{"lp"}: all constraints are linear; Gaussian/Wiener reliability
+  constraints use the inner approximation
+  $(\Phi^{-1}(1-\varepsilon))^2 v_{i\ell k} + 2\tau\,\mu_{i\ell k} \leq \tau^2$
+  (conservative; approximation error $= \mu_{i\ell k}^2$, small when $\mu_{i\ell k} \ll \tau$).
+  \texttt{"quadratic"} penalty type is incompatible with \texttt{"lp"} \\
+\texttt{n\_workers} & \texttt{int}, optional & Number of parallel Gurobi solves.
+  \texttt{1} = sequential (default). Each worker runs an independent Gurobi environment.
+  Only meaningful when $H$ is an interval \\
+\texttt{warm\_start} & \texttt{bool}, optional & If \texttt{True}, pass the solution for
+  $H_k$ as a heuristic hint (\texttt{VarHintVal}) for $H_{k+1}$. No feasibility guarantee.
+  Default: \texttt{False}. Requires \texttt{n\_workers=1} \\
+\bottomrule
+\end{longtable}
+
+\subsection{Component Model Assignment}
+
+\begin{longtable}{@{}llp{8cm}@{}}
+\toprule
+Parameter & Shape & Description \\
+\midrule
+\texttt{model} & $F \times L$ & Degradation model per train-component:
+  one of \texttt{"gaussian"}, \texttt{"inverse\_gaussian"},
+  \texttt{"wiener"}, \texttt{"gamma"} \\
+\bottomrule
+\end{longtable}
+
+\subsection{Initial Conditions}
+
+\begin{longtable}{@{}llp{8cm}@{}}
+\toprule
+Parameter & Shape & Description \\
+\midrule
+$\mu_0$ & $F \times L$ & Initial mean degradation (all models); must satisfy $\mu_0 < \tau$ \\
+$v_0$ & $F \times L$ & Initial variance (Gaussian and Wiener only); must satisfy
+  $\mu_0 \geq 3\sqrt{v_0}$ for Gaussian \\
+\bottomrule
+\end{longtable}
+
+\subsection{Mission- and Time-Dependent Degradation Parameters}
+
+These tensors provide the degradation \emph{increment} parameters when train $i$
+performs mission $j$ on day $k$ for component $\ell$.
+Days $k > H$ reuse the values at $k - H$ (periodic extension).
+
+%% --- CHANGE CS-007: specify eager broadcasting strategy ---
+\emph{Broadcasting strategy.}
+The solver shall use \textbf{eager broadcasting}: upon loading, all input parameters
+of shape $(F, M, L)$ or $(F, M, L, H)$ are immediately expanded to shape
+$(F, M, L, 2H)$ using periodic wrapping at index $k \bmod H$ for $k \geq H$.
+This expansion happens once, before constraint construction, so that all
+constraint-building code can assume full $(F, M, L, 2H)$ arrays.
+
+\begin{longtable}{@{}lllp{5cm}@{}}
+\toprule
+Parameter & Shape & Models & Description \\
+\midrule
+$\mu^{\mathrm{inc}}$ & $F \times M \times L \times H$ & Gaussian, IG, Wiener
+  & Mean increment per step \\
+$v^{\mathrm{inc}}$ & $F \times M \times L \times H$ & Gaussian only
+  & Variance increment per step \\
+$\alpha^{\mathrm{inc}}$ & $F \times M \times L \times H$ & Gamma only
+  & Shape increment per step \\
+\bottomrule
+\end{longtable}
+
+\subsection{Component-Level Constants}
+
+\begin{longtable}{@{}llp{8cm}@{}}
+\toprule
+Parameter & Shape & Description \\
+\midrule
+$\eta$ & $F \times L$ & $\mu/\lambda$ ratio (IG only; must be positive).
+  The constant-$\eta$ assumption (proportional dispersion) is well-supported
+  for degradation mechanisms exhibiting self-similar growth: in fatigue crack
+  propagation (Paris' law) the coefficient of variation of increments is
+  approximately constant, and many wear/corrosion processes share this property.
+  This assumption enables the FSD reduction to a mean-only loop condition
+  (Section~\ref{sec:dyn_ig}) and is preserved under ARD1 repair since both
+  $\mu$ and $\lambda = \mu/\eta$ scale by the same factor $(1-\rho)$ \\
+$\sigma$ & $F \times L$ & Diffusion constant (Wiener only; must be positive) \\
+$\beta$ & $F \times L$ & Scale parameter (Gamma only; must be positive) \\
+%% --- CHANGE DOM-026: user-defined variance upper bound ---
+$V_{\max}^{\mathrm{user}}$ & $F \times L$, optional & User-defined variance upper bound
+  (Gaussian and Wiener components only). When specified, the constraint
+  $v_{i\ell k} \leq V_{\max,i\ell}^{\mathrm{user}}$ is added for all $k$.
+  Default: not applied (variance is bounded only by the reliability constraint) \\
+\bottomrule
+\end{longtable}
+
+\subsection{Maintenance and Replacement Specification}
+
+\begin{longtable}{@{}llp{8cm}@{}}
+\toprule
+Parameter & Shape & Description \\
+\midrule
+\texttt{maintenance\_type} & $F \times L$ & Per train-component maintenance type:
+  \texttt{"ARA1"} or \texttt{"ARD1"} \\
+$\rho$ & $F \times L$ & Repair efficiency $\in (0,1]$ \\
+$C_R$ & $F \times L$ & Repair cost (ARA/ARD maintenance) \\
+$C_{\mathrm{rep}}$ & $F \times L$ & Replacement cost \\
+$\mu^{\mathrm{new}}$ & $F \times L$ & Post-replacement mean (default: 0) \\
+$v^{\mathrm{new}}$ & $F \times L$ & Post-replacement variance
+  (Gaussian and Wiener only; default: 0) \\
+\bottomrule
+\end{longtable}
+
+\subsection{Consistency Checks}
+
+The solver must validate all of the following before building the model.
+Any violation raises an informative \texttt{ValueError}.
+
+\begin{itemize}[leftmargin=1.5em]
+  \item All numerical parameters must be strictly positive where required.
+  \item $F > M$.
+  \item $\varepsilon \in (0, 0.01]$.
+  \item $\mu_0 < \tau$ element-wise (all models).
+  \item $\mu^{\mathrm{inc}} < \tau$ element-wise.
+  \item $\rho \in (0, 1]$ element-wise.
+  %% --- CHANGE MATH-018: add remark about 3*sqrt(v) constraint ---
+  \item \textbf{Gaussian:} $\mu_0 \geq 3\sqrt{v_0}$ element-wise;
+        $\mu^{\mathrm{inc}} \geq 3\sqrt{v^{\mathrm{inc}}}$ element-wise.
+
+        \emph{Remark.} The $\mu \geq 3\sqrt{v}$ condition ensures that the Gaussian
+        degradation distribution has negligible probability of negative values
+        (less than $0.13\%$ when $\mu \geq 3\sigma$), maintaining physical validity
+        of the non-negative degradation assumption.
+  \item \textbf{Gamma:} $\alpha^{\mathrm{inc}} > 0$ element-wise; $\beta > 0$ element-wise.
+  \item \textbf{Gaussian:} \texttt{maintenance\_type} must be \texttt{"ARD1"} for
+        all Gaussian components (ARA1 is not supported for Gaussian; see
+        Section~\ref{sec:dyn_gaussian}).
+  \item \textbf{IG:} $\eta > 0$ element-wise; \texttt{maintenance\_type} must be
+        \texttt{"ARD1"} for all IG components.
+  \item \textbf{Wiener:} $\sigma > 0$ element-wise; $v_0 > 0$ for Wiener components.
+  %% --- CHANGE MATH-002 option b: require C_D > 0 ---
+  \item $C_D > 0$ (required for tightness of the one-sided big-M relaxation;
+        see remark in Section~\ref{sec:dyn_gaussian}).
+  \item \texttt{model} entries must all be in
+        \texttt{\{"gaussian","inverse\_gaussian","wiener","gamma"\}}.
+  \item \texttt{maintenance\_type} entries must all be in \texttt{\{"ARA1","ARD1"\}}.
+  \item \texttt{penalty\_type} must be \texttt{"inf\_norm"} or \texttt{"quadratic"}
+        if specified.
+  \item \texttt{formulation} must be \texttt{"socp"} or \texttt{"lp"} if specified.
+  \item If \texttt{formulation="lp"} and \texttt{penalty\_type="quadratic"}:
+        raise \texttt{ValueError} (quadratic penalty requires rotated SOC constraints).
+  %% --- CHANGE CS-009: shape validation ---
+  \item \textbf{Shape validation.} Before broadcasting, the solver shall validate:
+        $\mu^{\mathrm{inc}}$ must be $(F, M, L)$ or $(F, M, L, H)$;
+        $v^{\mathrm{inc}}$ must be $(F, M, L)$ or $(F, M, L, H)$;
+        $\alpha^{\mathrm{inc}}$ must be $(F, M, L)$ or $(F, M, L, H)$;
+        $C_M, C_R, C_D$ must be scalar, $(F,)$, or $(F, L)$;
+        $\alpha_{\mathrm{target}}, \rho, \tau$ must be scalar or $(F, L)$.
+        Raise \texttt{ValueError} with a diagnostic message on shape mismatch.
+        Do not rely on NumPy silent broadcasting.
+  \item If $H$ is a list: must have exactly two elements; $H_{\min} \geq 1$;
+        $H_{\max} > H_{\min}$.
+  \item \texttt{n\_workers} must be a positive integer.
+  \item If \texttt{warm\_start=True} and \texttt{n\_workers > 1}: raise
+        \texttt{ValueError} (warm starting requires sequential execution).
+  %% --- CHANGE DOM-026: V_max^user consistency check ---
+  \item If $V_{\max}^{\mathrm{user}}$ is specified: must be positive element-wise;
+        must satisfy $v_0 \leq V_{\max}^{\mathrm{user}}$ for all applicable components;
+        only applicable to Gaussian and Wiener components.
+\end{itemize}
+
+% ================================================================
+\section{Decision Variables}
+% ================================================================
+
+\begin{longtable}{@{}llp{8cm}@{}}
+\toprule
+Variable & Shape & Description \\
+\midrule
+$x_{ijk}$ & $F \times (M{+}1) \times 2H$, binary
+  & 1 if train $i$ is assigned to mission $j$ on day $k$
+    ($j=0$: maintenance day) \\
+$x^m_{i\ell k}$ & $F \times L \times 2H$, binary
+  & 1 if component $\ell$ of train $i$ undergoes ARA/ARD maintenance on day $k$ \\
+$x^r_{i\ell k}$ & $F \times L \times 2H$, binary
+  & 1 if component $\ell$ of train $i$ is replaced on day $k$ \\
+$\mu_{i\ell k}$ & $F \times L \times 2H$, non-negative
+  & Accumulated mean degradation (all models) \\
+$v_{i\ell k}$ & $F \times L \times 2H$, non-negative
+  & Accumulated variance (Gaussian and Wiener only) \\
+$\alpha_{i\ell k}$ & $F \times L \times 2H$, non-negative
+  & Accumulated shape parameter (Gamma only);
+    $\mu_{i\ell k} = \alpha_{i\ell k}\cdot\beta_{i\ell}$ recovered at post-processing \\
+$u$ & scalar, non-negative
+  & Damage regularisation variable:
+    $u = \max_{i,k}\sum_\ell \mu_{i\ell k}$ (\texttt{inf\_norm}) or
+    $u = \max_{i,k}\sum_\ell \mu_{i\ell k}^2$ (\texttt{quadratic}) \\
+$z_{i\ell k}$ & $F \times L \times 2H$, non-negative
+  & Degradation removed by repair in mean units:
+    $z_{i\ell k} = \rho_{i\ell}\,\mu_{i\ell,k-1}\,x^m_{i\ell k}$
+    (bilinear; linearised via McCormick envelope) \\
+$\mu^{\mathrm{last}}_{i\ell k}$ & $F \times L \times 2H$, non-negative
+  & Mean at last maintenance epoch (ARA1 components: Wiener, Gamma) \\
+$\alpha^{\mathrm{last}}_{i\ell k}$ & $F \times L \times 2H$, non-negative
+  & Shape at last maintenance epoch (ARA1, Gamma only) \\
+\bottomrule
+\end{longtable}
+
+% ================================================================
+\section{Objective Function}
+% ================================================================
+
+\begin{align}
+\min \quad
+  & C_M \sum_{k=1}^{2H} \sum_{i=1}^{F} x_{i0k}
+  + \sum_{k=1}^{2H} \sum_{i=1}^{F} \sum_{\ell=1}^{L} C_{R,i\ell}\, z_{i\ell k}
+  + \sum_{k=1}^{2H} \sum_{i=1}^{F} \sum_{\ell=1}^{L} C_{\mathrm{rep},i\ell}\, x^r_{i\ell k} \notag \\
+  & + C_D\, u
+  + C_P \cdot \mathcal{L}_{\mathrm{loop}}
+\end{align}
+
+where $z_{i\ell k} = \rho_{i\ell}\,\mu_{i\ell,k-1}\,x^m_{i\ell k}$ is the degradation
+removed by repair in mean units (see Section~\ref{sec:repair_proxy}),
+$\mathcal{L}_{\mathrm{loop}}$ is the loop-constraint penalty term defined per model
+in Section~\ref{sec:loop}, and $u$ is the damage regularisation variable defined by
+\texttt{penalty\_type} (see Section~\ref{sec:objective}).
+
+% ================================================================
+\section{Constraints}
+% ================================================================
+
+\subsection{Assignment Constraints}
+
+Each train performs at most one activity per day:
+\begin{equation}
+  \sum_{j=0}^{M} x_{ijk} \leq 1 \qquad \forall\, i,k
+\end{equation}
+
+Each mission is covered exactly once per day:
+\begin{equation}
+  \sum_{i=1}^{F} x_{ijk} = 1 \qquad \forall\, j \geq 1,\; k
+\end{equation}
+
+Together these constraints guarantee that exactly $M$ trains are on missions at every
+step $k$, and each train performs at most one activity per day. The remaining $F - M$
+trains may be on maintenance or idle. No additional fleet-availability constraint is needed.
+
+\subsection{Maintenance / Replacement Compatibility}
+
+Maintenance and replacement may only occur on a maintenance day ($x_{i0k} = 1$):
+\begin{equation}
+  x^m_{i\ell k} \leq x_{i0k} \qquad \forall\, i,\ell,k
+\end{equation}
+\begin{equation}
+  x^r_{i\ell k} \leq x_{i0k} \qquad \forall\, i,\ell,k
+\end{equation}
+
+A component cannot be both repaired and replaced on the same day:
+\begin{equation}
+  x^m_{i\ell k} + x^r_{i\ell k} \leq 1 \qquad \forall\, i,\ell,k
+\end{equation}
+
+\subsection{State Dynamics --- Gaussian Model}
+\label{sec:dyn_gaussian}
+
+For components $(i,\ell)$ with \texttt{model} $=$ \texttt{gaussian}.
+\textbf{Only \texttt{ARD1} is supported} (consistency check must enforce this).
+Both $\mu_{i\ell k}$ and $v_{i\ell k}$ are tracked.
+
+\textbf{Notation.}
+$\delta\mu_{i\ell k} = \sum_{j=1}^{M} x_{ijk}\,\mu^{\mathrm{inc}}_{ij\ell k}$,
+$\delta v_{i\ell k} = \sum_{j=1}^{M} x_{ijk}\,v^{\mathrm{inc}}_{ij\ell k}$
+(mission-induced increments; periodic extension for $k>H$).
+Big-M values: $M_\mu = \tau$, $M_v = V_{\max} = \tau^2/(\Phi^{-1}(1-\varepsilon))^2$.
+
+%% --- CHANGE MATH-003: big-M validity remark ---
+\emph{Remark.} The big-M value $M_\mu = \tau$ is valid because the reliability
+constraint ensures $\mu_{i\ell k} \leq \tau$ for all $i, \ell, k$.
+This bound is also consistent with the physical interpretation that degradation
+beyond $\tau$ triggers failure.
+
+\subsubsection{ARD1 Gaussian}
+
+\textbf{Mean dynamics --- exact form:}
+\begin{equation}
+  \mu_{i\ell k} = \begin{cases}
+    \mu_{i\ell,k-1} + \delta\mu_{i\ell k} & \text{if } x^m_{i\ell k} = 0 \\
+    (1-\rho_{i\ell})\,\mu_{i\ell,k-1} & \text{if } x^m_{i\ell k} = 1
+  \end{cases}
+\end{equation}
+
+%% --- CHANGE MATH-019: add -tau*x^r term to accumulation constraints ---
+%% --- CHANGE DOM-012: tightness remark ---
+\textbf{Mean dynamics --- linearised (big-M):}
+\begin{align}
+  \mu_{i\ell k} &\geq \mu_{i\ell,k-1} + \delta\mu_{i\ell k} - \tau\,x^m_{i\ell k}
+    - \tau\,x^r_{i\ell k}
+    \label{eq:g_ard_mu1} \\
+  \mu_{i\ell k} &\geq (1-\rho_{i\ell})\,\mu_{i\ell,k-1} - \tau(1-x^m_{i\ell k})
+    \label{eq:g_ard_mu2}
+\end{align}
+
+%% --- CHANGE MATH-002: cross-ref reliability for Eq. 9 vacuousness ---
+\emph{Remark (vacuousness when $x^m=0$).}
+When $x^m_{i\ell k} = 0$, the accumulation constraint reduces to
+$\mu_{i\ell k} \geq \mu_{i\ell,k-1} + \delta\mu_{i\ell k}$, which is the
+only active bound. The non-trivial control on~$\mu$ in non-maintenance periods
+comes from the reliability constraint (Section~\ref{sec:dyn_gaussian}, Reliability),
+which enforces $\mu_{i\ell k} \leq \tau$ (or tighter, depending on $\alpha$).
+
+%% --- CHANGE MATH-004+DEV-001: refined three-mechanism tightness argument ---
+\emph{Remark (tightness of big-M relaxation at optimality).}
+The one-sided relaxation $\mu^+_{i\ell k} \leq \mu^-_{i\ell k}$ (instead of equality
+when $x^m_{i\ell k}=0$) is tight at any optimal solution, through three complementary
+mechanisms:
+\begin{enumerate}[nosep]
+  \item $C_D \cdot u$: at the arg-max $(i,k)$ pair where the damage penalty is binding,
+        inflating $\mu$ directly increases cost.
+  \item $C_R \cdot z_{i\ell k}$: for every subsequent maintenance step $k'>k$,
+        forward propagation of an inflated $\mu_{i\ell k}$ through the degradation
+        dynamics increases the repair cost $z_{i\ell k'}$.
+  \item $C_P \cdot \mathcal{L}_{\mathrm{loop}}$: at half-horizon boundaries
+        ($k=H$ and $k=2H$), any slack in $\mu$ worsens the loop penalty.
+\end{enumerate}
+For the variance variable~$v$, tightness is enforced by the reliability constraint:
+an inflated $v$ tightens the upper bound on $\mu$ via the SOC or LP approximation,
+creating an indirect cost penalty.
+
+%% --- CHANGE MATH-003: ARD1 deterministic variance scaling remark ---
+\emph{Remark (ARD1 variance scaling).}
+Under ARD1, the post-repair variance follows
+$v^+_{i\ell k} = (1-\rho_{i\ell})^2\,v^-_{i\ell k}$. This is a direct algebraic
+consequence of the degradation-level reduction $D^+ = (1-\rho)D^-$ applied to a
+Gaussian random variable: $\mathrm{Var}[(1-\rho)D] = (1-\rho)^2\,\mathrm{Var}[D]$.
+No additional modelling assumption is required.
+
+\textbf{Variance dynamics --- exact form:}
+\begin{equation}
+  v_{i\ell k} = \begin{cases}
+    v_{i\ell,k-1} + \delta v_{i\ell k} & \text{if } x^m_{i\ell k} = 0 \\
+    (1-\rho_{i\ell})^2\,v_{i\ell,k-1} & \text{if } x^m_{i\ell k} = 1
+  \end{cases}
+\end{equation}
+
+%% --- CHANGE MATH-019: add -V_max*x^r term to variance accumulation ---
+\textbf{Variance dynamics --- linearised (big-M):}
+\begin{align}
+  v_{i\ell k} &\geq v_{i\ell,k-1} + \delta v_{i\ell k} - V_{\max}\,x^m_{i\ell k}
+    - V_{\max}\,x^r_{i\ell k} \\
+  v_{i\ell k} &\geq (1-\rho_{i\ell})^2\,v_{i\ell,k-1} - V_{\max}(1-x^m_{i\ell k})
+\end{align}
+
+\textbf{Replacement --- exact form:}
+\begin{equation}
+  (\mu_{i\ell k},\, v_{i\ell k}) = (\mu^{\mathrm{new}}_{i\ell},\, v^{\mathrm{new}}_{i\ell})
+  \quad \text{if } x^r_{i\ell k} = 1
+  \label{eq:g_rep}
+\end{equation}
+
+\textbf{Replacement --- linearised (big-M):}
+\begin{align}
+  \mu_{i\ell k} &\leq \mu^{\mathrm{new}}_{i\ell} + \tau(1-x^r_{i\ell k}), \quad
+  \mu_{i\ell k} \geq \mu^{\mathrm{new}}_{i\ell} - \tau(1-x^r_{i\ell k}) \\
+  v_{i\ell k} &\leq v^{\mathrm{new}}_{i\ell} + V_{\max}(1-x^r_{i\ell k}), \quad
+  v_{i\ell k} \geq v^{\mathrm{new}}_{i\ell} - V_{\max}(1-x^r_{i\ell k})
+\end{align}
+
+%% --- CHANGE DOM-009: ARA1 Gaussian removed ---
+%% ARA1 is not supported for Gaussian components. The ARA1 variance extension
+%% (v+ = v- - rho*(v- - v^last)) has no established basis in the maintenance
+%% literature (Mercier & Castro 2019 define ARA1 for Gamma via virtual age,
+%% not explicit variance tracking). Gaussian uses ARD1 only, which provides
+%% deterministic (1-rho)^2 variance scaling as shown above.
+
+\subsubsection{Reliability Constraint (Gaussian)}
+
+%% --- CHANGE MATH-006: mu <= tau remark ---
+\textbf{Exact form (rotated SOC, \texttt{formulation="socp"}):}
+\begin{equation}
+  \mu_{i\ell k} + \Phi^{-1}(1-\varepsilon)\,\sqrt{v_{i\ell k}} \leq \tau
+  \qquad \forall\, i,\ell,k
+\end{equation}
+Equivalently, squaring both sides (valid since $\tau - \mu_{i\ell k} \geq 0$ by feasibility
+and $\Phi^{-1}(1-\varepsilon) > 0$ since $\varepsilon \leq 0.01$):
+\begin{equation}
+  (\Phi^{-1}(1-\varepsilon))^2\,v_{i\ell k} \leq (\tau - \mu_{i\ell k})^2
+\end{equation}
+This is a \textbf{rotated SOC constraint} in Gurobi's form $x \cdot y \geq \|z\|_2^2$ with
+$x = y = \tau - \mu_{i\ell k}$ (linear in $\mu_{i\ell k}$, non-negative by feasibility)
+and $\|z\|_2^2 = (\Phi^{-1}(1-\varepsilon))^2\,v_{i\ell k}$ (linear in $v_{i\ell k}$).
+Natively supported by Gurobi; no approximation needed.
+
+\emph{Remark.} The bound $\mu_{i\ell k} \leq \tau$ is guaranteed by $\mu_0 < \tau$,
+the non-negativity of degradation increments, and the dynamics constraints;
+it does not rely on the reliability constraint itself.
+
+\textbf{LP approximation (\texttt{formulation="lp"}):}
+Expanding the right-hand side and dropping the non-negative term $\mu_{i\ell k}^2$:
+\begin{equation}
+  (\Phi^{-1}(1-\varepsilon))^2\,v_{i\ell k} + 2\tau\,\mu_{i\ell k} \leq \tau^2
+  \qquad \forall\, i,\ell,k
+  \label{eq:g_lp_reliability}
+\end{equation}
+This is an \textbf{inner approximation}: any $(v_{i\ell k}, \mu_{i\ell k})$ satisfying
+Eq.~\eqref{eq:g_lp_reliability} also satisfies the true rotated SOC constraint,
+since $(\tau - \mu_{i\ell k})^2 = \tau^2 - 2\tau\,\mu_{i\ell k} + \mu_{i\ell k}^2
+\geq \tau^2 - 2\tau\,\mu_{i\ell k}$.
+The approximation error is $\mu_{i\ell k}^2$, which is small when $\mu_{i\ell k} \ll \tau$
+(the typical operating regime) and vanishes when $\tau = 1$ and $\mu_{i\ell k} \to 0$.
+No additional parameters are required.
+
+%% --- CHANGE DEV-007: quantify LP approximation conservatism ---
+\emph{Remark (LP approximation conservatism).}
+The LP inner approximation replaces the SOC constraint with a tangent hyperplane,
+yielding a feasible region that is a strict subset of the SOC feasible region.
+This means the LP relaxation may exclude some SOC-feasible points, potentially
+increasing the objective value. The approximation is tightest when $v_{i\ell k}$
+is near the linearisation point and loosest at the boundaries of the variance domain.
+When solution quality is critical, the SOCP formulation should be preferred;
+the LP approximation is intended for solvers without conic support.
+
+%% --- CHANGE DOM-026: user-defined variance upper bound constraint ---
+\textbf{User-defined variance upper bound (optional):}
+If $V_{\max}^{\mathrm{user}}$ is specified for component $(i,\ell)$:
+\begin{equation}
+  v_{i\ell k} \leq V_{\max,i\ell}^{\mathrm{user}} \qquad \forall\, k
+\end{equation}
+
+% ----------------------------------------------------------------
+\subsection{State Dynamics --- Inverse Gaussian Model}
+\label{sec:dyn_ig}
+% ----------------------------------------------------------------
+
+For components $(i,\ell)$ with \texttt{model} $=$ \texttt{inverse\_gaussian}.
+\textbf{Only \texttt{ARD1} is supported} (consistency check must enforce this).
+Only $\mu_{i\ell k}$ is tracked; $\lambda_{i\ell k} = \mu_{i\ell k}/\eta_{i\ell}$
+is recovered analytically at post-processing. Big-M: $M_\mu = \tau$.
+
+\textbf{Notation.} $\delta\mu_{i\ell k} = \sum_{j=1}^{M} x_{ijk}\,\mu^{\mathrm{inc}}_{ij\ell k}$
+(periodic extension for $k > H$).
+
+\subsubsection{ARD1 Inverse Gaussian}
+
+\textbf{Mean dynamics --- exact form:}
+\begin{equation}
+  \mu_{i\ell k} = \begin{cases}
+    \mu_{i\ell,k-1} + \delta\mu_{i\ell k} & \text{if } x^m_{i\ell k} = 0 \\
+    (1-\rho_{i\ell})\,\mu_{i\ell,k-1} & \text{if } x^m_{i\ell k} = 1
+  \end{cases}
+\end{equation}
+
+%% --- CHANGE MATH-019: add -tau*x^r term ---
+\textbf{Mean dynamics --- linearised (big-M):}
+\begin{align}
+  \mu_{i\ell k} &\geq \mu_{i\ell,k-1} + \delta\mu_{i\ell k} - \tau\,x^m_{i\ell k}
+    - \tau\,x^r_{i\ell k}
+    \label{eq:ig_mu1} \\
+  \mu_{i\ell k} &\geq (1-\rho_{i\ell})\,\mu_{i\ell,k-1} - \tau(1-x^m_{i\ell k})
+    \label{eq:ig_mu2}
+\end{align}
+
+\textbf{Replacement --- exact form:}
+\begin{equation}
+  \mu_{i\ell k} = \mu^{\mathrm{new}}_{i\ell} \quad \text{if } x^r_{i\ell k} = 1
+\end{equation}
+
+\textbf{Replacement --- linearised (big-M):}
+\begin{align}
+  \mu_{i\ell k} &\leq \mu^{\mathrm{new}}_{i\ell} + \tau(1-x^r_{i\ell k}) \\
+  \mu_{i\ell k} &\geq \mu^{\mathrm{new}}_{i\ell} - \tau(1-x^r_{i\ell k})
+\end{align}
+
+\subsubsection{Reliability Constraint (IG)}
+
+\textbf{Exact form (nonlinear, offline-precomputed):}
+The constraint $\Pr(D_{i\ell k} > \tau) \leq \varepsilon$ with
+$D \sim \mathrm{IG}(\mu_{i\ell k},\,\mu_{i\ell k}/\eta_{i\ell})$
+is monotone increasing in $\mu_{i\ell k}$, so it reduces to:
+\begin{equation}
+  \mu_{i\ell k} \leq \bar{\mu}_{i\ell} \qquad \forall\, i,\ell,k
+\end{equation}
+where $\bar{\mu}_{i\ell}$ is the unique root of:
+\begin{equation}
+  \Phi\!\left(\sqrt{\frac{\bar\mu}{\eta_{i\ell}\,\tau}}
+    \left(\frac{\tau}{\bar\mu} - 1\right)\right)
+  + e^{2/\eta_{i\ell}}\,
+  \Phi\!\left(-\sqrt{\frac{\bar\mu}{\eta_{i\ell}\,\tau}}
+    \left(\frac{\tau}{\bar\mu} + 1\right)\right)
+  = 1 - \varepsilon
+  \label{eq:ig_mubar}
+\end{equation}
+
+%% --- CHANGE MATH-008: monotonicity argument for IG reliability ---
+\emph{Remark (monotonicity).}
+Monotonicity of $\Pr(D > \tau)$ in $\mu$ follows from the likelihood-ratio ordering
+of IG distributions at fixed $\eta$: if $\mu_1 \leq \mu_2$, then
+$\mathrm{IG}(\mu_1, \mu_1/\eta) \leq_{\mathrm{lr}} \mathrm{IG}(\mu_2, \mu_2/\eta)$,
+which implies $\Pr(D_1 > \tau) \leq \Pr(D_2 > \tau)$.
+
+%% --- CHANGE CS-010: provide log-sum-exp form and scipy function ---
+\textbf{Linearised form:} since $\bar{\mu}_{i\ell}$ depends only on inputs
+$(\eta_{i\ell}, \tau, \varepsilon)$, it is computed \textbf{offline} before the Gurobi
+model is built. The constraint entering Gurobi is the linear bound
+$\mu_{i\ell k} \leq \bar{\mu}_{i\ell}$.
+
+\emph{Numerical implementation.}
+The IG CDF involves a term $\exp(2\lambda/\mu) = \exp(2/\eta)$ that can overflow.
+Compute in log-space: $\log p_2 = 2/\eta_{i\ell} + \log\Phi(\cdot)$, then use
+\texttt{logsumexp} to combine. In \texttt{scipy}:
+use \texttt{scipy.stats.invgauss.cdf(x, mu=mu/lam, scale=lam)} with
+\texttt{scipy.optimize.brentq} for root-finding on
+Eq.~\eqref{eq:ig_mubar}.
+
+\subsubsection{Loop Constraint (IG, hard + soft)}
+
+%% --- CHANGE MATH-001+DEV-005+DOM-012: replace TODO with verified proposition ---
+\emph{Proposition (IG FSD via MLR at constant $\eta$).}
+Let $D_1 \sim \mathrm{IG}(\mu_1, \mu_1/\eta)$ and
+$D_2 \sim \mathrm{IG}(\mu_2, \mu_2/\eta)$ with $\mu_1 \leq \mu_2$ and $\eta > 0$
+constant. Then $D_1 \leq_{\mathrm{FSD}} D_2$.
+
+\emph{Proof.}
+The density of $\mathrm{IG}(\mu, \lambda)$ with $\lambda = \mu/\eta$ is
+$f(x; \mu) = \sqrt{\mu/(2\pi\eta x^3)}\,
+\exp\!\bigl(-{(x-\mu)^2}/{(2\eta x)}\bigr)$ for $x > 0$.
+The log-likelihood ratio satisfies:
+\[
+  \frac{\partial}{\partial x} \log \frac{f(x;\mu_2)}{f(x;\mu_1)}
+  = \frac{\mu_2 - \mu_1}{2\eta}\!\left(\frac{1}{\mu_1 \mu_2} + \frac{1}{x^2}\right)
+  \geq 0
+  \quad \forall\, x > 0,
+\]
+establishing the monotone likelihood ratio (MLR) property. By the standard chain
+MLR $\Rightarrow$ HR $\Rightarrow$ FSD, the result follows.\hfill$\square$
+
+Since ARD1 repair scales both $\mu$ and $\lambda = \mu/\eta$ by the same factor
+$(1-\rho)$, the ratio $\eta$ is preserved identically. Therefore FSD reduces to the
+mean-only condition:
+FSD reduces to a mean-only condition:
+\begin{equation}
+  \mu_{i\ell,2H} \leq \mu_{i\ell,H}
+  \qquad \forall\,(i,\ell)\text{ s.t. model} = \mathrm{IG}
+\end{equation}
+\begin{equation}
+  \mathcal{L}^{\mathrm{IG}}_{\mathrm{loop}} =
+    \sum_{(i,\ell)\,:\,\mathrm{IG}} \bigl(\mu_{i\ell H} - \mu_{i\ell 2H}\bigr)
+\end{equation}
+
+% ----------------------------------------------------------------
+\subsection{State Dynamics --- Wiener Model}
+\label{sec:dyn_wiener}
+% ----------------------------------------------------------------
+
+For components $(i,\ell)$ with \texttt{model} $=$ \texttt{wiener}.
+Supports both \texttt{ARD1} and \texttt{ARA1} maintenance types.
+Both $\mu_{i\ell k}$ and $v_{i\ell k}$ are tracked.
+\textbf{Imperfect repair acts on the mean only}; variance is unaffected by repair
+and can only be reset by replacement.
+Variance accumulates during missions only (not on maintenance or idle days).
+
+\textbf{Notation.}
+$\delta\mu_{i\ell k} = \sum_{j=1}^{M} x_{ijk}\,\mu^{\mathrm{inc}}_{ij\ell k}$,
+$\delta v_{i\ell k} = \sigma^2_{i\ell}\sum_{j=1}^{M} x_{ijk}$
+(mission-only variance increment; $\sigma_{i\ell}$ is the diffusion constant).
+Big-M values: $M_\mu = \tau$, $M_v = V_{\max} = \tau^2/(\Phi^{-1}(1-\varepsilon))^2$.
+
+%% --- CHANGE DOM-006 option a: justify mission-independent Wiener variance ---
+\emph{Remark.} The Wiener variance increment $\delta v_{i\ell k} = \sigma^2_{i\ell}\sum_j x_{ijk}$
+is mission-independent (the same $\sigma_{i\ell}$ applies regardless of which mission
+$j$ is performed). This reflects the physical interpretation that $\sigma$ characterises
+material microstructure and diffusion properties, which are intrinsic to the component
+and independent of the route (mission) performed.
+
+\subsubsection{ARD1 Wiener}
+
+\textbf{Mean dynamics --- exact form:}
+\begin{equation}
+  \mu_{i\ell k} = \begin{cases}
+    \mu_{i\ell,k-1} + \delta\mu_{i\ell k} & \text{if } x^m_{i\ell k} = 0 \\
+    (1-\rho_{i\ell})\,\mu_{i\ell,k-1} & \text{if } x^m_{i\ell k} = 1
+  \end{cases}
+\end{equation}
+
+%% --- CHANGE MATH-019: add -tau*x^r term ---
+\textbf{Mean dynamics --- linearised (big-M):}
+\begin{align}
+  \mu_{i\ell k} &\geq \mu_{i\ell,k-1} + \delta\mu_{i\ell k} - \tau\,x^m_{i\ell k}
+    - \tau\,x^r_{i\ell k} \\
+  \mu_{i\ell k} &\geq (1-\rho_{i\ell})\,\mu_{i\ell,k-1} - \tau(1-x^m_{i\ell k})
+\end{align}
+
+\textbf{Variance dynamics --- exact form} (repair-independent):
+\begin{equation}
+  v_{i\ell k} = v_{i\ell,k-1} + \sigma^2_{i\ell}\sum_{j=1}^{M} x_{ijk}
+  \quad \text{(if } x^r_{i\ell k} = 0\text{)}
+\end{equation}
+
+%% --- CHANGE MATH-011: tightness remark for Wiener variance ---
+\textbf{Variance dynamics --- linearised (big-M):}
+\begin{equation}
+  v_{i\ell k} \geq v_{i\ell,k-1} + \delta v_{i\ell k} - V_{\max}\,x^r_{i\ell k}
+\end{equation}
+The $x^r_{i\ell k}$ term allows replacement to reset variance; $x^m_{i\ell k}$
+does not appear since repair does not affect variance.
+
+%% --- CHANGE MATH-009: Wiener variance tightness via reliability ---
+\emph{Remark (Wiener variance tightness).}
+Unlike the mean, whose tightness follows from the three cost mechanisms
+(Section~\ref{sec:dyn_gaussian}, tightness remark), the Wiener variance
+$v_{i\ell k} = v_0 + k\sigma^2_{i\ell}$ is not directly penalised in the objective.
+Tightness of the variance relaxation is enforced indirectly by the reliability
+constraint: an inflated $v_{i\ell k}$ reduces the effective failure threshold via
+$\mu_{i\ell k} \leq \tau - \Phi^{-1}(1-\varepsilon)\sqrt{v_{i\ell k}}$, which
+tightens the feasible region for $\mu$ and increases cost. This mechanism is active
+whenever the reliability constraint is binding.
+
+\textbf{Replacement --- exact form:}
+\begin{equation}
+  (\mu_{i\ell k},\, v_{i\ell k}) = (\mu^{\mathrm{new}}_{i\ell},\, v^{\mathrm{new}}_{i\ell})
+  \quad \text{if } x^r_{i\ell k} = 1
+\end{equation}
+
+\textbf{Replacement --- linearised (big-M):}
+\begin{align}
+  \mu_{i\ell k} &\leq \mu^{\mathrm{new}}_{i\ell} + \tau(1-x^r_{i\ell k}), \quad
+  \mu_{i\ell k} \geq \mu^{\mathrm{new}}_{i\ell} - \tau(1-x^r_{i\ell k}) \\
+  v_{i\ell k} &\leq v^{\mathrm{new}}_{i\ell} + V_{\max}(1-x^r_{i\ell k}), \quad
+  v_{i\ell k} \geq v^{\mathrm{new}}_{i\ell} - V_{\max}(1-x^r_{i\ell k})
+\end{align}
+
+\subsubsection{ARA1 Wiener}
+
+Requires auxiliary variable $\mu^{\mathrm{last}}_{i\ell k}$ only
+(no $v^{\mathrm{last}}_{i\ell k}$ since repair does not affect variance).
+Initial value: $\mu^{\mathrm{last}}_{i\ell,0} = \mu_{0,i\ell}$.
+
+\textbf{Auxiliary update --- exact (bilinear) form:}
+\begin{equation}
+  \mu^{\mathrm{last}}_{i\ell k} = \begin{cases}
+    \mu_{i\ell,k-1} & \text{if } x^m_{i\ell k} = 1 \\
+    \mu^{\mathrm{last}}_{i\ell,k-1} & \text{if } x^m_{i\ell k} = 0
+  \end{cases}
+\end{equation}
+
+\textbf{Auxiliary update --- linearised (big-M, $M_\mu = \tau$):}
+\begin{align}
+  \mu^{\mathrm{last}}_{i\ell k} &\geq \mu_{i\ell,k-1} - \tau(1-x^m_{i\ell k}), \quad
+  \mu^{\mathrm{last}}_{i\ell k} \leq \mu_{i\ell,k-1} + \tau(1-x^m_{i\ell k}) \\
+  \mu^{\mathrm{last}}_{i\ell k} &\geq \mu^{\mathrm{last}}_{i\ell,k-1} - \tau\,x^m_{i\ell k}, \quad
+  \mu^{\mathrm{last}}_{i\ell k} \leq \mu^{\mathrm{last}}_{i\ell,k-1} + \tau\,x^m_{i\ell k}
+\end{align}
+
+\textbf{Mean dynamics --- exact form:}
+\begin{equation}
+  \mu_{i\ell k} = \begin{cases}
+    \mu_{i\ell,k-1} + \delta\mu_{i\ell k} & \text{if } x^m_{i\ell k} = 0 \\
+    \mu_{i\ell,k-1} - \rho_{i\ell}(\mu_{i\ell,k-1} - \mu^{\mathrm{last}}_{i\ell,k-1})
+      & \text{if } x^m_{i\ell k} = 1
+  \end{cases}
+\end{equation}
+
+%% --- CHANGE MATH-019: add -tau*x^r term ---
+%% --- CHANGE MATH-021: cross-reference to tightness argument ---
+\textbf{Mean dynamics --- linearised (big-M):}
+\begin{align}
+  \mu_{i\ell k} &\geq \mu_{i\ell,k-1} + \delta\mu_{i\ell k} - \tau\,x^m_{i\ell k}
+    - \tau\,x^r_{i\ell k} \\
+  \mu_{i\ell k} &\geq \mu_{i\ell,k-1}
+    - \rho_{i\ell}(\mu_{i\ell,k-1} - \mu^{\mathrm{last}}_{i\ell,k-1})
+    - \tau(1-x^m_{i\ell k})
+\end{align}
+
+\emph{Remark.} As with all one-sided dynamics linearisations in this specification,
+tightness at optimality is guaranteed by the $C_D > 0$ requirement
+(see the tightness remark in Section~\ref{sec:dyn_gaussian}).
+
+\textbf{Variance dynamics and replacement:} identical to ARD1 Wiener.
+
+\subsubsection{Reliability Constraint (Wiener)}
+
+\textbf{Exact form (rotated SOC, \texttt{formulation="socp"}):} identical to Gaussian,
+\begin{equation}
+  \mu_{i\ell k} + \Phi^{-1}(1-\varepsilon)\,\sqrt{v_{i\ell k}} \leq \tau
+  \qquad \forall\, i,\ell,k
+\end{equation}
+Equivalently: $(\Phi^{-1}(1-\varepsilon))^2\,v_{i\ell k} \leq (\tau - \mu_{i\ell k})^2$,
+a rotated SOC constraint with $x = y = \tau - \mu_{i\ell k}$ and
+$\|z\|_2^2 = (\Phi^{-1}(1-\varepsilon))^2\,v_{i\ell k}$.
+Natively supported by Gurobi; no approximation needed.
+
+\textbf{LP approximation (\texttt{formulation="lp"}):} identical form to Gaussian,
+\begin{equation}
+  (\Phi^{-1}(1-\varepsilon))^2\,v_{i\ell k} + 2\tau\,\mu_{i\ell k} \leq \tau^2
+  \qquad \forall\, i,\ell,k
+  \label{eq:w_lp_reliability}
+\end{equation}
+Same inner approximation argument applies; approximation error is $\mu_{i\ell k}^2$.
+
+%% --- CHANGE DOM-026: user-defined variance upper bound constraint for Wiener ---
+\textbf{User-defined variance upper bound (optional):}
+If $V_{\max}^{\mathrm{user}}$ is specified for Wiener component $(i,\ell)$:
+\begin{equation}
+  v_{i\ell k} \leq V_{\max,i\ell}^{\mathrm{user}} \qquad \forall\, k
+\end{equation}
+
+\subsubsection{Loop Constraint (Wiener, hard + soft)}
+
+Strict FSD on both mean and variance is required to guarantee perpetual safety
+(see Section~\ref{sec:loop}). Since variance can only be reset by replacement,
+satisfying $v_{i\ell,2H} \leq v_{i\ell,H}$ may require replacement actions
+within $[H+1,2H]$; infeasibility is possible if $\sigma_{i\ell}$ is large relative
+to $v_{i\ell,H} - v^{\mathrm{new}}_{i\ell}$.
+
+%% --- CHANGE MATH-015 / DOM-019 / DEV-007 (REJECTED): add clarifying remark ---
+\emph{Remark.} This constraint intentionally enforces at least one replacement
+in $[H{+}1,2H]$ for Wiener components, since imperfect repair cannot reduce variance.
+
+Hard constraints:
+\begin{equation}
+  \mu_{i\ell,2H} \leq \mu_{i\ell,H}, \quad
+  v_{i\ell,2H} \leq v_{i\ell,H}
+  \qquad \forall\,(i,\ell)\text{ s.t. model} = \mathrm{Wiener}
+\end{equation}
+Loop penalty contribution:
+\begin{equation}
+  \mathcal{L}^{\mathrm{Wiener}}_{\mathrm{loop}} =
+    \sum_{(i,\ell)\,:\,\mathrm{Wiener}}
+    \bigl[(\mu_{i\ell H} - \mu_{i\ell,2H}) + (v_{i\ell H} - v_{i\ell,2H})\bigr]
+\end{equation}
+
+% ----------------------------------------------------------------
+\subsection{State Dynamics --- Gamma Model}
+\label{sec:dyn_gamma}
+% ----------------------------------------------------------------
+
+For components $(i,\ell)$ with \texttt{model} $=$ \texttt{gamma}.
+Supports both \texttt{ARD1} and \texttt{ARA1} maintenance types.
+
+\textbf{State variable.} $\alpha_{i\ell k}$ is the accumulated Gamma shape parameter.
+Initial value: $\alpha_{i\ell,0} = \mu_{0,i\ell}/\beta_{i\ell}$.
+Post-replacement value: $\alpha^{\mathrm{new}}_{i\ell} = \mu^{\mathrm{new}}_{i\ell}/\beta_{i\ell}$.
+Both are derived from user-specified inputs and $\beta_{i\ell}$.
+The mean is recovered at post-processing as $\mu_{i\ell k} = \alpha_{i\ell k}\cdot\beta_{i\ell}$.
+
+\textbf{Big-M.} The tightest valid big-M for $\alpha_{i\ell k}$ is:
+\begin{equation}
+  \bar{\alpha}_{i\ell} = \frac{\tau}{\beta_{i\ell}}
+\end{equation}
+since $\alpha_{i\ell k} \leq \tau/\beta_{i\ell}$ is implied by $\mu_{i\ell k} < \tau$ and $\beta_{i\ell} > 0$.
+
+\textbf{Notation.} Let $\delta\alpha_{i\ell k} = \sum_{j=1}^{M} x_{ijk}\,\alpha^{\mathrm{inc}}_{ij\ell k}$
+be the mission-induced shape increment at step $k$ (periodic extension for $k > H$).
+
+\subsubsection{ARD1 Gamma}
+
+\textbf{Shape dynamics --- exact form:}
+\begin{equation}
+  \alpha_{i\ell k} = \begin{cases}
+    \alpha_{i\ell,k-1} + \delta\alpha_{i\ell k} & \text{if } x^m_{i\ell k} = 0 \\
+    (1-\rho_{i\ell})\,\alpha_{i\ell,k-1} & \text{if } x^m_{i\ell k} = 1
+  \end{cases}
+\end{equation}
+
+%% --- CHANGE MATH-019: add -bar_alpha*x^r term ---
+\textbf{Shape dynamics --- linearised (big-M):}
+\begin{align}
+  \alpha_{i\ell k} &\geq \alpha_{i\ell,k-1} + \delta\alpha_{i\ell k}
+    - \bar{\alpha}_{i\ell}\,x^m_{i\ell k}
+    - \bar{\alpha}_{i\ell}\,x^r_{i\ell k} \\
+  \alpha_{i\ell k} &\geq (1-\rho_{i\ell})\,\alpha_{i\ell,k-1}
+    - \bar{\alpha}_{i\ell}(1 - x^m_{i\ell k})
+\end{align}
+
+\textbf{Replacement --- exact form:}
+\begin{equation}
+  \alpha_{i\ell k} = \alpha^{\mathrm{new}}_{i\ell} \quad \text{if } x^r_{i\ell k} = 1
+\end{equation}
+
+\textbf{Replacement --- linearised (big-M):}
+\begin{align}
+  \alpha_{i\ell k} &\leq \alpha^{\mathrm{new}}_{i\ell}
+    + \bar{\alpha}_{i\ell}(1 - x^r_{i\ell k}) \\
+  \alpha_{i\ell k} &\geq \alpha^{\mathrm{new}}_{i\ell}
+    - \bar{\alpha}_{i\ell}(1 - x^r_{i\ell k})
+\end{align}
+
+\subsubsection{ARA1 Gamma}
+
+Requires auxiliary variable $\alpha^{\mathrm{last}}_{i\ell k}$, tracking the shape
+immediately after the most recent maintenance event.
+Initial value: $\alpha^{\mathrm{last}}_{i\ell,0} = \alpha_{i\ell,0} = \mu_{0,i\ell}/\beta_{i\ell}$.
+
+\textbf{Auxiliary update --- exact (bilinear) form:}
+\begin{equation}
+  \alpha^{\mathrm{last}}_{i\ell k} = \begin{cases}
+    \alpha_{i\ell,k-1} & \text{if } x^m_{i\ell k} = 1 \\
+    \alpha^{\mathrm{last}}_{i\ell,k-1} & \text{if } x^m_{i\ell k} = 0
+  \end{cases}
+\end{equation}
+
+\textbf{Auxiliary update --- linearised (big-M $= \bar{\alpha}_{i\ell}$):}
+\begin{align}
+  \alpha^{\mathrm{last}}_{i\ell k} &\geq \alpha_{i\ell,k-1}
+    - \bar{\alpha}_{i\ell}(1 - x^m_{i\ell k}), \quad
+  \alpha^{\mathrm{last}}_{i\ell k} \leq \alpha_{i\ell,k-1}
+    + \bar{\alpha}_{i\ell}(1 - x^m_{i\ell k}) \\
+  \alpha^{\mathrm{last}}_{i\ell k} &\geq \alpha^{\mathrm{last}}_{i\ell,k-1}
+    - \bar{\alpha}_{i\ell}\,x^m_{i\ell k}, \quad
+  \alpha^{\mathrm{last}}_{i\ell k} \leq \alpha^{\mathrm{last}}_{i\ell,k-1}
+    + \bar{\alpha}_{i\ell}\,x^m_{i\ell k}
+\end{align}
+
+\textbf{Shape dynamics --- exact form:}
+\begin{equation}
+  \alpha_{i\ell k} = \begin{cases}
+    \alpha_{i\ell,k-1} + \delta\alpha_{i\ell k} & \text{if } x^m_{i\ell k} = 0 \\
+    \alpha_{i\ell,k-1} - \rho_{i\ell}(\alpha_{i\ell,k-1} - \alpha^{\mathrm{last}}_{i\ell,k-1})
+      & \text{if } x^m_{i\ell k} = 1
+  \end{cases}
+\end{equation}
+
+%% --- CHANGE MATH-019: add -bar_alpha*x^r term ---
+\textbf{Shape dynamics --- linearised (big-M):}
+\begin{align}
+  \alpha_{i\ell k} &\geq \alpha_{i\ell,k-1} + \delta\alpha_{i\ell k}
+    - \bar{\alpha}_{i\ell}\,x^m_{i\ell k}
+    - \bar{\alpha}_{i\ell}\,x^r_{i\ell k} \\
+  \alpha_{i\ell k} &\geq \alpha_{i\ell,k-1}
+    - \rho_{i\ell}(\alpha_{i\ell,k-1} - \alpha^{\mathrm{last}}_{i\ell,k-1})
+    - \bar{\alpha}_{i\ell}(1 - x^m_{i\ell k})
+\end{align}
+
+\textbf{Replacement} encoded as in ARD1 case.
+
+\subsubsection{Reliability Constraint (Gamma, precomputed linear bound)}
+
+Since $\Pr(D_{i\ell k} > \tau) = Q(\alpha_{i\ell k},\,\tau/\beta_{i\ell}) \leq \varepsilon$
+is monotone increasing in $\alpha_{i\ell k}$, it reduces to:
+\begin{equation}
+  \alpha_{i\ell k} \leq \hat{\alpha}_{i\ell} \qquad \forall\, i,\ell,k
+\end{equation}
+where $\hat{\alpha}_{i\ell}$ is the unique solution to
+$Q(\hat{\alpha}_{i\ell},\,\tau/\beta_{i\ell}) = \varepsilon$,
+computed \textbf{offline} before the Gurobi model is built.
+Note $\hat{\alpha}_{i\ell} \leq \bar{\alpha}_{i\ell}$ always, so the reliability
+bound is strictly tighter than the big-M.
+
+%% --- CHANGE DOM-016: Q convention and scipy mapping ---
+\emph{Convention.} $Q(a,x) = 1 - P(a,x)$ is the \textbf{regularised upper} incomplete
+gamma function, where $P(a,x) = \gamma(a,x)/\Gamma(a)$ is the regularised lower
+incomplete gamma. In \texttt{scipy}: $Q(a,x)$ = \texttt{scipy.special.gammaincc(a, x)}
+and $P(a,x)$ = \texttt{scipy.special.gammainc(a, x)}.
+
+%% --- CHANGE CS-011: brentq root-find needed, not gammaincinv ---
+\emph{Implementation.} Computing $\hat\alpha$ requires solving
+$Q(\hat\alpha, \tau/\beta) = \varepsilon$ for $\hat\alpha$. This is a root-finding
+problem in $\hat\alpha$, \textbf{not} a direct call to \texttt{gammaincinv} (which
+solves for $x$, not~$a$). Use \texttt{scipy.optimize.brentq} with the objective
+$g(\hat\alpha) = Q(\hat\alpha, \tau/\beta) - \varepsilon$.
+
+\emph{Note.} If the root-finding yields $\hat\alpha > \tau/\beta$, the reliability
+target is unachievable for this component given its degradation rate and threshold.
+The implementer should raise a diagnostic warning.
+
+\subsubsection{Loop Constraint (Gamma, hard + soft)}
+
+%% --- CHANGE MATH-010: inline Gamma FSD proposition statement ---
+By the FSD ordering result for Gamma distributions (Proposition~\texttt{prop:gamma\_fsd}
+of the reference document): for $D_1 \sim \mathrm{Gamma}(\alpha_1, \beta)$ and
+$D_2 \sim \mathrm{Gamma}(\alpha_2, \beta)$ with common scale $\beta$,
+$D_1 \leq_{\mathrm{FSD}} D_2$ if and only if $\alpha_1 \leq \alpha_2$.
+Therefore, FSD at fixed $\beta$ reduces to a shape condition:
+\begin{equation}
+  \alpha_{i\ell,2H} \leq \alpha_{i\ell,H}
+  \qquad \forall\,(i,\ell)\text{ s.t. model} = \mathrm{Gamma}
+\end{equation}
+Loop penalty contribution:
+\begin{equation}
+  \mathcal{L}^{\mathrm{Gamma}}_{\mathrm{loop}} =
+    \sum_{(i,\ell)\,:\,\mathrm{Gamma}} \bigl(\alpha_{i\ell H} - \alpha_{i\ell,2H}\bigr)
+\end{equation}
+
+% ----------------------------------------------------------------
+\subsection{Damage Regularisation Variable}
+\label{sec:objective}
+% ----------------------------------------------------------------
+
+$u$ is a single non-negative scalar capturing the worst per-train, per-step
+aggregate damage across the entire horizon. Its definition depends on
+\texttt{penalty\_type}.
+
+\subsubsection{\texttt{inf\_norm} (default, MILP)}
+
+\textbf{Exact form:}
+\begin{equation}
+  u = \max_{i,k} \sum_{\ell=1}^{L} \mu_{i\ell k}
+\end{equation}
+
+\textbf{Linearised form:}
+\begin{equation}
+  u \geq \sum_{\ell=1}^{L} \mu_{i\ell k} \qquad \forall\, i,k
+\end{equation}
+This is linear in the decision variables; the problem remains an MILP.
+For Gamma components, $\mu_{i\ell k} = \alpha_{i\ell k}\cdot\beta_{i\ell}$
+is substituted directly.
+
+\subsubsection{\texttt{quadratic} (MI-RSOCP; requires \texttt{formulation="socp"})}
+
+\textbf{Exact form:}
+\begin{equation}
+  u = \max_{i,k} \sum_{\ell=1}^{L} \mu_{i\ell k}^2
+\end{equation}
+
+\textbf{Linearised form:}
+\begin{equation}
+  u \geq \sum_{\ell=1}^{L} \mu_{i\ell k}^2 \qquad \forall\, i,k
+\end{equation}
+Each constraint $u \geq \sum_\ell \mu_{i\ell k}^2$ is a rotated SOC constraint
+($u \cdot 1 \geq \|\boldsymbol{\mu}_{ik}\|_2^2$ with $x=u$, $y=1$,
+$\|z\|_2^2 = \sum_\ell \mu_{i\ell k}^2$),
+natively supported by Gurobi. The problem becomes a
+Mixed-Integer Rotated Second-Order Cone Program (MI-RSOCP).
+Note that the Gaussian and Wiener reliability constraints are already rotated SOC,
+so this adds no new problem class when those models are present.
+
+% ----------------------------------------------------------------
+\subsection{Repair Cost Variable}
+\label{sec:repair_proxy}
+% ----------------------------------------------------------------
+
+$z_{i\ell k}$ represents the degradation removed by imperfect repair on component
+$\ell$ of train $i$ at step $k$, expressed in mean units. It is the product of the
+repair efficiency, the pre-repair mean, and the repair binary:
+
+%% --- CHANGE DEV-016: z is true degradation removed, not a proxy ---
+\textbf{Exact (bilinear) form --- ARD1:}
+\begin{equation}
+  z_{i\ell k} = \rho_{i\ell}\,\mu^-_{i\ell,k}\,x^m_{i\ell k}
+  \qquad \forall\, i,\ell,k \text{ (ARD1 components)}
+\end{equation}
+
+\textbf{Exact (bilinear) form --- ARA1:}
+\begin{equation}
+  z_{i\ell k} = \rho_{i\ell}\,(\mu^-_{i\ell,k} - \mu^{\mathrm{last}}_{i\ell,k})\,x^m_{i\ell k}
+  \qquad \forall\, i,\ell,k \text{ (ARA1 components)}
+\end{equation}
+
+%% --- CHANGE MATH-012: Gamma alpha*beta substitution note ---
+\emph{Gamma substitution.} For Gamma components, $\mu_{i\ell,k-1}$ in the McCormick
+bounds should be read as $\alpha_{i\ell,k-1} \cdot \beta_{i\ell}$, since the Gamma
+model tracks the shape parameter $\alpha$ rather than the mean directly.
+
+\textbf{Linearised form (McCormick envelope, big-M $= \rho_{i\ell}\,\tau$; ARD1 shown):}
+\begin{align}
+  z_{i\ell k} &\leq \rho_{i\ell}\,\mu_{i\ell,k-1} \\
+  z_{i\ell k} &\leq \rho_{i\ell}\,\tau\,x^m_{i\ell k} \\
+  z_{i\ell k} &\geq \rho_{i\ell}\,\mu_{i\ell,k-1} - \rho_{i\ell}\,\tau\,(1-x^m_{i\ell k}) \\
+  z_{i\ell k} &\geq 0
+\end{align}
+Note: $\rho_{i\ell}\,\tau$ is a valid big-M since $\mu_{i\ell,k-1} \leq \tau$ always.
+
+% ----------------------------------------------------------------
+\subsection{Loop Constraint Penalty}
+\label{sec:loop}
+% ----------------------------------------------------------------
+
+The penalty $\mathcal{L}_{\mathrm{loop}}$ enforces sustainability over the two
+half-horizons $[1,H]$ and $[H{+}1,2H]$.
+Both a \textbf{hard constraint} and a \textbf{soft penalty} are applied for each model.
+
+\subsubsection{Gaussian}
+Hard constraints:
+\begin{equation}
+  \mu_{i\ell,2H} \leq \mu_{i\ell,H}, \qquad
+  v_{i\ell,2H} \leq v_{i\ell,H} \qquad
+  \forall\, (i,\ell)\text{ s.t. model} = \mathrm{Gaussian}
+\end{equation}
+Penalty:
+\begin{equation}
+  \mathcal{L}^{\mathrm{Gauss}}_{\mathrm{loop}} =
+    \sum_{(i,\ell)\,:\,\mathrm{Gauss}}
+    \bigl[(\mu_{i\ell H} - \mu_{i\ell 2H}) + (v_{i\ell H} - v_{i\ell 2H})\bigr]
+\end{equation}
+
+\subsubsection{Inverse Gaussian}
+Hard constraint and penalty as defined in Section~\ref{sec:dyn_ig}.
+
+\subsubsection{Wiener}
+Hard constraints and penalty as defined in Section~\ref{sec:dyn_wiener}.
+Strict FSD on both mean and variance is enforced; variance control requires
+replacement actions within $[H+1,2H]$.
+
+\subsubsection{Gamma}
+Hard constraint and penalty as defined in Section~\ref{sec:dyn_gamma}.
+
+The total loop penalty is:
+\begin{equation}
+  \mathcal{L}_{\mathrm{loop}} =
+    \mathcal{L}^{\mathrm{Gauss}}_{\mathrm{loop}}
+    + \mathcal{L}^{\mathrm{IG}}_{\mathrm{loop}}
+    + \mathcal{L}^{\mathrm{Wiener}}_{\mathrm{loop}}
+    + \mathcal{L}^{\mathrm{Gamma}}_{\mathrm{loop}}
+\end{equation}
+
+%% --- CHANGE MATH-016: loop penalty non-negativity remark ---
+\emph{Remark (non-negativity of $\mathcal{L}_{\mathrm{loop}}$).}
+Each term $(\mu_{i\ell H} - \mu_{i\ell 2H})$ (and analogously for $v$ and $\alpha$)
+in the loop penalty is non-negative at any feasible point, because the hard loop
+constraints enforce $\mu_{i\ell,2H} \leq \mu_{i\ell,H}$ (and likewise for $v$, $\alpha$).
+The soft penalty therefore acts as a tie-breaker among feasible schedules, favouring
+those with the largest sustainability margin.
+
+% ================================================================
+\section{Full Optimization Problem (\texttt{inf\_norm}, linearised)}
+\label{sec:full_problem}
+% ================================================================
+\thispagestyle{fancy}
+
+%% --- CHANGE CS-002: constraint count table ---
+\begin{table}[htbp]
+\centering
+\caption{Approximate constraint count per $(i,\ell,k)$ cell by model and maintenance type.
+Multiply by $F \times L \times 2H$ for the full model.
+Global constraints (assignment, mission coverage) add $O(F \times M \times 2H)$.}
+\begin{tabular}{lccc}
+  \toprule
+  Model--Maintenance & Binary vars & Continuous vars & Constraints \\
+  \midrule
+  Gaussian--ARD1     & $M+1$ & $3 + M$ & $\sim 12$ \\
+  Wiener--ARD1       & $M+1$ & $3 + M$ & $\sim 10$ \\
+  Wiener--ARA1       & $M+1$ & $4 + M$ & $\sim 14$ \\
+  IG--ARD1           & $M+1$ & $2 + M$ & $\sim 10$ \\
+  Gamma--ARD1        & $M+1$ & $2 + M$ & $\sim 10$ \\
+  Gamma--ARA1        & $M+1$ & $3 + M$ & $\sim 14$ \\
+  \bottomrule
+\end{tabular}
+\label{tab:constraint_count}
+\end{table}
+
+\begin{small}
+\allowdisplaybreaks
+
+\textbf{Notation used below.}
+$\delta\mu_{i\ell k} = \sum_{j=1}^{M} x_{ijk}\,\mu^{\mathrm{inc}}_{ij\ell k}$;
+$\delta v_{i\ell k} = \sum_{j=1}^{M} x_{ijk}\,v^{\mathrm{inc}}_{ij\ell k}$ (Gaussian);
+$\delta v^W_{i\ell k} = \sigma^2_{i\ell}\sum_{j=1}^{M} x_{ijk}$ (Wiener);
+$\delta\alpha_{i\ell k} = \sum_{j=1}^{M} x_{ijk}\,\alpha^{\mathrm{inc}}_{ij\ell k}$ (Gamma);
+$V_{\max} = \tau^2/(\Phi^{-1}(1-\varepsilon))^2$;
+$\bar{\alpha}_{i\ell} = \tau/\beta_{i\ell}$.
+Superscripts G, IG, W, $\Gamma$ restrict constraints to the respective model components.
+
+\vspace{0.5em}
+\noindent\textbf{Objective}
+\begin{align}
+\min\quad
+  & C_M \sum_{k,i} x_{i0k}
+  + \sum_{k,i,\ell} C_{R,i\ell}\,z_{i\ell k}
+  + \sum_{k,i,\ell} C_{\mathrm{rep},i\ell}\,x^r_{i\ell k}
+  + C_D\,u
+  + C_P\,\mathcal{L}_{\mathrm{loop}} \tag{OBJ}
+\end{align}
+
+\vspace{0.3em}
+\noindent\textbf{Assignment}
+\begin{alignat}{2}
+  &\textstyle\sum_{j=0}^{M} x_{ijk} \leq 1
+  &&\quad\forall\,i,k \tag{one activity per train} \\
+  &\textstyle\sum_{i=1}^{F} x_{ijk} = 1
+  &&\quad\forall\,j\geq 1,\,k \tag{mission coverage} \\
+  &x^m_{i\ell k} \leq x_{i0k},\quad x^r_{i\ell k} \leq x_{i0k}
+  &&\quad\forall\,i,\ell,k \tag{maintenance on maint.\ day} \\
+  &x^m_{i\ell k} + x^r_{i\ell k} \leq 1
+  &&\quad\forall\,i,\ell,k \tag{no simultaneous repair+replace}
+\end{alignat}
+
+%% --- CHANGE MATH-019: add -tau*x^r / -V_max*x^r / -bar_alpha*x^r throughout full problem ---
+\vspace{0.3em}
+%% --- CHANGE MATH-019+DOM-009: ARD1 only for Gaussian, per-type annotations ---
+\noindent\textbf{Gaussian dynamics} ($\forall\,(i,\ell)$ s.t.\ model$=$G; ARD1 only)
+\begin{alignat}{2}
+  &\mu_{i\ell k} \geq \mu_{i\ell,k-1} + \delta\mu_{i\ell k} - \tau\,x^m_{i\ell k}
+    - \tau\,x^r_{i\ell k}
+  &&\quad\forall\,k \tag{G: mean accumulation} \\
+  &\mu_{i\ell k} \geq (1-\rho_{i\ell})\mu_{i\ell,k-1} - \tau(1-x^m_{i\ell k})
+  &&\quad\forall\,k \tag{G: ARD1 mean repair} \\
+  &\mu_{i\ell k} \leq \mu^{\mathrm{new}}_{i\ell} + \tau(1-x^r_{i\ell k}),\quad
+   \mu_{i\ell k} \geq \mu^{\mathrm{new}}_{i\ell} - \tau(1-x^r_{i\ell k})
+  &&\quad\forall\,k \tag{G: mean replacement} \\
+  &v_{i\ell k} \geq v_{i\ell,k-1} + \delta v_{i\ell k} - V_{\max}\,x^m_{i\ell k}
+    - V_{\max}\,x^r_{i\ell k}
+  &&\quad\forall\,k \tag{G: var.\ accumulation} \\
+  &v_{i\ell k} \geq (1-\rho_{i\ell})^2 v_{i\ell,k-1} - V_{\max}(1-x^m_{i\ell k})
+  &&\quad\forall\,k \tag{G: ARD1 var.\ repair} \\
+  &v_{i\ell k} \leq v^{\mathrm{new}}_{i\ell} + V_{\max}(1-x^r_{i\ell k}),\quad
+   v_{i\ell k} \geq v^{\mathrm{new}}_{i\ell} - V_{\max}(1-x^r_{i\ell k})
+  &&\quad\forall\,k \tag{G: var.\ replacement} \\
+  &\mu_{i\ell k} + \Phi^{-1}(1-\varepsilon)\sqrt{v_{i\ell k}} \leq \tau
+  &&\quad\forall\,k \tag{G: reliability (rotated SOC)} \\
+  &(\Phi^{-1}(1-\varepsilon))^2 v_{i\ell k} + 2\tau\,\mu_{i\ell k} \leq \tau^2
+  &&\quad\forall\,k \tag{G: reliability (LP approx., inner)} \\
+  &\mu_{i\ell,2H} \leq \mu_{i\ell,H},\quad v_{i\ell,2H} \leq v_{i\ell,H}
+  &&\tag{G: loop constraint}
+\end{alignat}
+
+\vspace{0.3em}
+\noindent\textbf{Inverse Gaussian dynamics} ($\forall\,(i,\ell)$ s.t.\ model$=$IG; ARD1 only)
+\begin{alignat}{2}
+  &\mu_{i\ell k} \geq \mu_{i\ell,k-1} + \delta\mu_{i\ell k} - \tau\,x^m_{i\ell k}
+    - \tau\,x^r_{i\ell k}
+  &&\quad\forall\,k \tag{IG: mean accumulation} \\
+  &\mu_{i\ell k} \geq (1-\rho_{i\ell})\mu_{i\ell,k-1} - \tau(1-x^m_{i\ell k})
+  &&\quad\forall\,k \tag{IG: ARD1 mean repair} \\
+  &\mu_{i\ell k} \leq \mu^{\mathrm{new}}_{i\ell} + \tau(1-x^r_{i\ell k}),\quad
+   \mu_{i\ell k} \geq \mu^{\mathrm{new}}_{i\ell} - \tau(1-x^r_{i\ell k})
+  &&\quad\forall\,k \tag{IG: replacement} \\
+  &\mu_{i\ell k} \leq \bar{\mu}_{i\ell}
+  &&\quad\forall\,k \tag{IG: reliability (precomputed)} \\
+  &\mu_{i\ell,2H} \leq \mu_{i\ell,H}
+  &&\tag{IG: loop constraint}
+\end{alignat}
+
+\vspace{0.3em}
+\noindent\textbf{Wiener dynamics} ($\forall\,(i,\ell)$ s.t.\ model$=$W)
+\begin{alignat}{2}
+  &\mu_{i\ell k} \geq \mu_{i\ell,k-1} + \delta\mu_{i\ell k} - \tau\,x^m_{i\ell k}
+    - \tau\,x^r_{i\ell k}
+  &&\quad\forall\,k \tag{W: mean accumulation} \\
+  &\mu_{i\ell k} \geq (1-\rho_{i\ell})\mu_{i\ell,k-1} - \tau(1-x^m_{i\ell k})
+  &&\quad\forall\,k \tag{W: ARD1 mean repair (ARD1); ARA1 uses $\mu^{\mathrm{last}}$} \\
+  &\mu_{i\ell k} \leq \mu^{\mathrm{new}}_{i\ell} + \tau(1-x^r_{i\ell k}),\quad
+   \mu_{i\ell k} \geq \mu^{\mathrm{new}}_{i\ell} - \tau(1-x^r_{i\ell k})
+  &&\quad\forall\,k \tag{W: mean replacement} \\
+  &\mu^{\mathrm{last}}_{i\ell k} \geq \mu_{i\ell,k-1} - \tau(1-x^m_{i\ell k}),\quad
+   \mu^{\mathrm{last}}_{i\ell k} \leq \mu_{i\ell,k-1} + \tau(1-x^m_{i\ell k})
+  &&\quad\forall\,k \tag{W: ARA1 $\mu^{\mathrm{last}}$ update (i)} \\
+  &\mu^{\mathrm{last}}_{i\ell k} \geq \mu^{\mathrm{last}}_{i\ell,k-1} - \tau\,x^m_{i\ell k},\quad
+   \mu^{\mathrm{last}}_{i\ell k} \leq \mu^{\mathrm{last}}_{i\ell,k-1} + \tau\,x^m_{i\ell k}
+  &&\quad\forall\,k \tag{W: ARA1 $\mu^{\mathrm{last}}$ update (ii)} \\
+  &v_{i\ell k} \geq v_{i\ell,k-1} + \delta v^W_{i\ell k} - V_{\max}\,x^r_{i\ell k}
+  &&\quad\forall\,k \tag{W: var.\ accumulation (missions only)} \\
+  &v_{i\ell k} \leq v^{\mathrm{new}}_{i\ell} + V_{\max}(1-x^r_{i\ell k}),\quad
+   v_{i\ell k} \geq v^{\mathrm{new}}_{i\ell} - V_{\max}(1-x^r_{i\ell k})
+  &&\quad\forall\,k \tag{W: var.\ replacement} \\
+  &\mu_{i\ell k} + \Phi^{-1}(1-\varepsilon)\sqrt{v_{i\ell k}} \leq \tau
+  &&\quad\forall\,k \tag{W: reliability (rotated SOC)} \\
+  &(\Phi^{-1}(1-\varepsilon))^2 v_{i\ell k} + 2\tau\,\mu_{i\ell k} \leq \tau^2
+  &&\quad\forall\,k \tag{W: reliability (LP approx., inner)} \\
+  &\mu_{i\ell,2H} \leq \mu_{i\ell,H},\quad v_{i\ell,2H} \leq v_{i\ell,H}
+  &&\tag{W: loop constraint}
+\end{alignat}
+
+\vspace{0.3em}
+\noindent\textbf{Gamma dynamics} ($\forall\,(i,\ell)$ s.t.\ model$=\Gamma$)
+\begin{alignat}{2}
+  &\alpha_{i\ell k} \geq \alpha_{i\ell,k-1} + \delta\alpha_{i\ell k}
+    - \bar{\alpha}_{i\ell}\,x^m_{i\ell k}
+    - \bar{\alpha}_{i\ell}\,x^r_{i\ell k}
+  &&\quad\forall\,k \tag{$\Gamma$: shape accumulation} \\
+  &\alpha_{i\ell k} \geq (1-\rho_{i\ell})\alpha_{i\ell,k-1}
+    - \bar{\alpha}_{i\ell}(1-x^m_{i\ell k})
+  &&\quad\forall\,k \tag{$\Gamma$: ARD1 repair (ARD1); ARA1 uses $\alpha^{\mathrm{last}}$} \\
+  &\alpha_{i\ell k} \leq \alpha^{\mathrm{new}}_{i\ell}
+    + \bar{\alpha}_{i\ell}(1-x^r_{i\ell k}),\quad
+   \alpha_{i\ell k} \geq \alpha^{\mathrm{new}}_{i\ell}
+    - \bar{\alpha}_{i\ell}(1-x^r_{i\ell k})
+  &&\quad\forall\,k \tag{$\Gamma$: replacement} \\
+  &\alpha^{\mathrm{last}}_{i\ell k} \geq \alpha_{i\ell,k-1}
+    - \bar{\alpha}_{i\ell}(1-x^m_{i\ell k}),\quad
+   \alpha^{\mathrm{last}}_{i\ell k} \leq \alpha_{i\ell,k-1}
+    + \bar{\alpha}_{i\ell}(1-x^m_{i\ell k})
+  &&\quad\forall\,k \tag{$\Gamma$: ARA1 $\alpha^{\mathrm{last}}$ update (i)} \\
+  &\alpha^{\mathrm{last}}_{i\ell k} \geq \alpha^{\mathrm{last}}_{i\ell,k-1}
+    - \bar{\alpha}_{i\ell}\,x^m_{i\ell k},\quad
+   \alpha^{\mathrm{last}}_{i\ell k} \leq \alpha^{\mathrm{last}}_{i\ell,k-1}
+    + \bar{\alpha}_{i\ell}\,x^m_{i\ell k}
+  &&\quad\forall\,k \tag{$\Gamma$: ARA1 $\alpha^{\mathrm{last}}$ update (ii)} \\
+  &\alpha_{i\ell k} \leq \hat{\alpha}_{i\ell}
+  &&\quad\forall\,k \tag{$\Gamma$: reliability (precomputed)} \\
+  &\alpha_{i\ell,2H} \leq \alpha_{i\ell,H}
+  &&\tag{$\Gamma$: loop constraint}
+\end{alignat}
+
+\vspace{0.3em}
+\noindent\textbf{Repair cost} ($\forall\,i,\ell,k$; $\mu_{i\ell,k-1}=\alpha_{i\ell,k-1}\beta_{i\ell}$ for $\Gamma$; ARD1 form shown)
+\begin{alignat}{2}
+  &z_{i\ell k} \leq \rho_{i\ell}\,\mu_{i\ell,k-1}
+  &&\tag{repair proxy (i)} \\
+  &z_{i\ell k} \leq \rho_{i\ell}\,\tau\,x^m_{i\ell k}
+  &&\tag{repair proxy (ii)} \\
+  &z_{i\ell k} \geq \rho_{i\ell}\,\mu_{i\ell,k-1} - \rho_{i\ell}\,\tau\,(1-x^m_{i\ell k})
+  &&\tag{repair proxy (iii)} \\
+  &z_{i\ell k} \geq 0
+  &&\tag{repair proxy (iv)}
+\end{alignat}
+
+\vspace{0.3em}
+\noindent\textbf{Damage regularisation} (\texttt{inf\_norm}; $\mu_{i\ell k}=\alpha_{i\ell k}\beta_{i\ell}$ for $\Gamma$)
+\begin{alignat}{2}
+  &u \geq \textstyle\sum_{\ell=1}^{L} \mu_{i\ell k}
+  &&\quad\forall\,i,k \tag{damage reg.} \\
+  &u \geq 0
+  &&\tag{damage reg.\ non-neg.}
+\end{alignat}
+
+\vspace{0.3em}
+\noindent\textbf{Loop penalty}
+\begin{alignat}{2}
+  &\mathcal{L}_{\mathrm{loop}} =
+    \sum_{(i,\ell):\mathrm{G}}[(\mu_{i\ell H}-\mu_{i\ell 2H})+(v_{i\ell H}-v_{i\ell 2H})]
+    + \sum_{(i,\ell):\mathrm{IG}}(\mu_{i\ell H}-\mu_{i\ell 2H}) \notag \\
+  &\phantom{\mathcal{L}_{\mathrm{loop}} =\;}
+    + \sum_{(i,\ell):\mathrm{W}}[(\mu_{i\ell H}-\mu_{i\ell 2H})+(v_{i\ell H}-v_{i\ell 2H})]
+    + \sum_{(i,\ell):\Gamma}(\alpha_{i\ell H}-\alpha_{i\ell 2H})
+  &&\tag{loop penalty}
+\end{alignat}
+
+\vspace{0.3em}
+\noindent\textbf{Variable domains}
+\begin{alignat}{2}
+  &x_{ijk} \in \{0,1\},\quad x^m_{i\ell k} \in \{0,1\},\quad x^r_{i\ell k} \in \{0,1\}
+  &&\tag{binary variables} \\
+  &\mu_{i\ell k},\, v_{i\ell k},\, \alpha_{i\ell k},\, z_{i\ell k},\,
+   \mu^{\mathrm{last}}_{i\ell k},\,
+   \alpha^{\mathrm{last}}_{i\ell k},\, u \geq 0
+  &&\tag{non-negativity}
+\end{alignat}
+
+\end{small}
+\newpage
+
+% ================================================================
+\section{Output Specification}
+% ================================================================
+
+\subsection{Single-Horizon Output ($H$ scalar)}
+
+The \texttt{solve()} function returns a dictionary with:
+
+%% --- CHANGE MATH-022: revised output spec ---
+\begin{longtable}{@{}llp{7cm}@{}}
+\toprule
+Key & Shape & Description \\
+\midrule
+\texttt{status} & \texttt{str} & Gurobi solver status (\texttt{"optimal"} or status code) \\
+\texttt{objective} & \texttt{float} & Optimal objective value (or \texttt{null}) \\
+\texttt{H} & \texttt{int} & Half-horizon used for this solve \\
+\texttt{x} & $F \times (M{+}1) \times 2H$ & Assignment solution \\
+\texttt{x\_m} & $F \times L \times 2H$ & Maintenance binary solution \\
+\texttt{x\_r} & $F \times L \times 2H$ & Replacement binary solution \\
+\texttt{mu} & $F \times L \times 2H$ & Mean degradation trajectory \\
+\texttt{v} & $F \times L \times 2H$ & Variance trajectory. For components or models
+  where variance is not tracked (IG, Gamma), the corresponding entries are
+  \texttt{NaN}. This uniform shape matches all other per-component outputs \\
+\texttt{u} & scalar & Damage regularisation variable value \\
+\texttt{z} & $F \times L \times 2H$ & Degradation removed by repair in mean units \\
+\texttt{model} & $F \times L$ & Model assignment (echo of input) \\
+\texttt{F}, \texttt{M}, \texttt{H}, \texttt{L} & \texttt{int} & Problem dimensions \\
+\bottomrule
+\end{longtable}
+
+All array outputs must be \texttt{numpy.ndarray} objects (not Gurobi objects).
+
+\subsection{Multi-Horizon Output ($H$ interval)}
+
+When $H = [H_{\min}, H_{\max}]$, \texttt{solve()} returns a dictionary keyed by
+$H \in \{H_{\min},\ldots,H_{\max}\}$, where each value is a single-horizon result
+dictionary as defined above:
+
+\begin{lstlisting}
+{
+  H_min:   { "status": ..., "objective": ..., "x": ..., ... },
+  H_min+1: { "status": ..., "objective": ..., "x": ..., ... },
+  ...
+  H_max:   { "status": ..., "objective": ..., "x": ..., ... }
+}
+\end{lstlisting}
+
+Note that array shapes differ across keys since each inner dict has its own $H$.
+
+\subsection{Solver Loop Behaviour}
+
+\begin{lstlisting}[language=Python]
+# Sequential (n_workers=1)
+results = {}
+hint = None
+for H_k in range(H_min, H_max + 1):
+    results[H_k] = solve_single(H_k, hint=hint if warm_start else None)
+    if warm_start:
+        hint = results[H_k]   # passed as VarHintVal; no feasibility guarantee
+
+# Parallel (n_workers > 1); warm_start must be False
+with ProcessPoolExecutor(max_workers=n_workers) as pool:
+    futures = {H_k: pool.submit(solve_single, H_k) for H_k in range(H_min, H_max+1)}
+    results = {H_k: fut.result() for H_k, fut in futures.items()}
+\end{lstlisting}
+
+Each parallel worker instantiates its own independent Gurobi environment.
+The \texttt{verbose} and \texttt{mip\_gap} settings are shared across all solves.
+
+%% --- CHANGE CS-005: license, error handling, trade-off guidance ---
+\textbf{License requirements.}
+Each parallel Gurobi solve requires a separate license token. With $N$ parallel
+horizons, $N$ tokens are consumed simultaneously. For academic or single-machine
+licenses (1 token), parallelism must be sequential (\texttt{n\_workers=1}).
+
+\textbf{Error handling.}
+If any horizon solve fails (infeasible, time limit, license error), the warm-start
+chain is broken. The implementation shall: (1)~log the failure with the specific $H$
+value, (2)~skip subsequent warm-starts that depend on the failed solve,
+(3)~return partial results with a status indicating which horizons succeeded.
+
+\textbf{Performance trade-off.}
+Warm-start (sequential, reusing the previous $H$ solution as MIP start for $H+1$)
+typically reduces total solve time by 30--50\% versus independent parallel solves.
+Prefer warm-start unless wall-clock time is the binding constraint and multiple
+license tokens are available.
+
+% ================================================================
+\section{File \& Folder Structure}
+% ================================================================
+
+\begin{lstlisting}
+fleet_management/
+    pyproject.toml
+    README.md
+    src/
+        fleet_management/
+            __init__.py          # Public API: solve, plot_management
+            solver.py            # I/O, validation, dispatch; horizon loop
+            models/
+                base.py          # Abstract degradation model interface
+                gaussian.py      # Gaussian component MILP builder
+                inverse_gaussian.py  # IG component MILP builder
+                wiener.py        # Wiener component MILP builder
+                gamma.py         # Gamma component MILP builder
+            maintenance/
+                ard1.py          # ARD1 dynamics (shared logic)
+                ara1.py          # ARA1 dynamics + big-M linearisation
+            plotter.py           # Schedule visualisation (single and multi-horizon)
+    input/
+        data_example.yaml        # Example input (mixed models, scalar H)
+        data_example_loop.yaml   # Example input (mixed models, interval H)
+    results/
+\end{lstlisting}
+
+%% --- CHANGE CS-008: base.py interface with method signatures ---
+\textbf{Model interface (\texttt{base.py}).}
+Each degradation model module shall implement two functions with the following
+signatures:
+
+\begin{lstlisting}[language=Python]
+def validate_inputs(
+    F: int, H: int, M: int, L: int,
+    mu_inc: np.ndarray,      # (F, M, L, 2H)
+    mu_0: np.ndarray,        # (F, L)
+    tau: np.ndarray,          # (F, L)
+    rho: np.ndarray,          # (F, L)
+    alpha_target: np.ndarray, # (F, L)
+    **model_params            # model-specific (e.g., v_0, sigma, eta, beta)
+) -> None:                    # raises ValueError on invalid input
+
+def solve_fleet_management(
+    F: int, H: int, M: int, L: int,
+    mu_inc: np.ndarray,
+    # ... same validated parameters ...
+    maintenance_type: str,    # "ARD1" or "ARA1"
+    mip_gap: float = 1e-4,
+    time_limit: float = 3600,
+    verbose: bool = False,
+    warm_start: Optional[dict] = None,
+) -> dict:                    # keys: status, objective, x, mu, u, z, ...
+\end{lstlisting}
+The \texttt{solver.py} mid-layer dispatches to the correct module based on the
+\texttt{degradation\_model} input parameter. Dispatch is a simple dictionary lookup,
+not class inheritance.
+
+\subsection{API: \texttt{plot\_management}}
+
+\begin{lstlisting}[language=Python]
+plot_management(input_file_path, plot_file_path=None)
+\end{lstlisting}
+
+\begin{longtable}{@{}llp{7.5cm}@{}}
+\toprule
+Parameter & Type & Description \\
+\midrule
+\texttt{input\_file\_path} & \texttt{str} & Path to a solver output file.
+  May contain a single-horizon or multi-horizon result \\
+\texttt{plot\_file\_path} & \texttt{str}, optional & Output image path or \emph{prefix}.
+  For multi-horizon output, one file per $H$ is produced:
+  e.g. \texttt{"results/schedule"} $\to$
+  \texttt{"results/schedule\_H5.png"}, \texttt{"results/schedule\_H6.png"}, \ldots
+  Defaults to \texttt{"output.png"} (scalar) or \texttt{"output"} (interval) \\
+\bottomrule
+\end{longtable}
+
+Supported image formats: \textbf{PNG} (\texttt{.png}), \textbf{PDF} (\texttt{.pdf}).
+The format is inferred from the extension of \texttt{plot\_file\_path}; for multi-horizon
+output the extension is stripped from the prefix and re-appended per file.
+
+\subsubsection{Plot Layout}
+
+The plot is an $F \times 2H$ grid where:
+\begin{itemize}
+  \item Each \textbf{row} corresponds to a train $i$.
+  \item Each \textbf{column} corresponds to a time step $k$.
+  \item Each cell is split into $L$ \textbf{horizontal strips}, one per component $\ell$.
+  \item Each strip is coloured on a \textbf{green-to-red heatmap} based on the
+        component's mean degradation $\mu_{i\ell k}$ normalised by $\tau$
+        (green $= 0$, red $= \tau$). For Gamma components,
+        $\mu_{i\ell k} = \alpha_{i\ell k}\cdot\beta_{i\ell}$ is used.
+  \item A \textbf{thin border} around each strip indicates the degradation model:
+        solid (Gaussian), dashed (IG), dotted (Wiener), dash-dot (Gamma).
+\end{itemize}
+
+Cell annotations (centred, applied to the full cell not individual strips):
+\begin{itemize}
+  \item \textbf{Number} $j$: mission $j$ is assigned ($x_{ijk} = 1$, $j > 0$).
+  \item \textbf{Gear icon} ($\boldsymbol{\mathsf{M}}$): maintenance day
+        ($x_{i0k} = 1$) with at least one repair ($x^m_{i\ell k} = 1$ for some $\ell$).
+  \item \textbf{Wrench icon} ($\boldsymbol{\mathsf{R}}$): replacement scheduled
+        ($x^r_{i\ell k} = 1$ for some $\ell$); may co-occur with gear icon.
+  \item \textbf{``zzz''}: train is idle (no $x_{ijk} = 1$ for any $j$,
+        no maintenance, no replacement).
+\end{itemize}
+
+A \textbf{vertical dashed line} separates the two half-horizons at $k = H$.
+A \textbf{colourbar} is shown to the right of the grid, labelled ``Mean degradation
+($\mu / \tau$)''. The plot title includes $F$, $M$, $H$, $L$, and the objective value.
+
+% ================================================================
+\section{Input File Schema}
+% ================================================================
+
+\subsection{Format Rules}
+
+Supported formats: \textbf{YAML} (\texttt{.yaml}, \texttt{.yml}),
+\textbf{JSON} (\texttt{.json}), \textbf{HDF5} (\texttt{.h5}, \texttt{.hdf5}).
+
+Model-specific fields are \textbf{omitted entirely} when not needed (Option A):
+the parser infers required fields from \texttt{model} and raises \texttt{ValueError}
+if a required field is missing for any component. Fields present for non-applicable
+components are ignored with a \texttt{UserWarning}.
+
+%% --- CHANGE CS-014: HDF5 schema ---
+\subsection{HDF5 Schema}
+
+HDF5 output files shall use the following structure:
+\begin{lstlisting}
+/metadata/
+    status          (scalar, string)
+    objective       (scalar, float64)
+    F, H, M, L     (scalar, int32)
+    solve_time      (scalar, float64)
+/solution/
+    x               (int8,    shape F x (M+1) x 2H)
+    mu              (float64, shape F x L x 2H)
+    v               (float64, shape F x L x 2H)  # NaN if not tracked
+    u               (float64, scalar)
+    z               (float64, shape F x L x 2H)
+/parameters/
+    alpha_target    (float64, shape F x L)
+    tau             (float64, shape F x L)
+    rho             (float64, shape F x L)
+\end{lstlisting}
+Dataset names use \texttt{snake\_case}. All arrays use C-contiguous (row-major) layout.
+Scalar attributes are stored as HDF5 attributes on the root group.
+
+\subsection{Always-Present Fields}
+
+\begin{longtable}{@{}llp{7cm}@{}}
+\toprule
+Field & Type / Shape & Description \\
+\midrule
+\texttt{F} & \texttt{int} & Number of trains \\
+\texttt{H} & \texttt{int} or \texttt{[int, int]} & Half-horizon \\
+\texttt{M} & \texttt{int} & Number of missions \\
+\texttt{L} & \texttt{int} & Number of components per train \\
+\texttt{tau} & \texttt{float} & Degradation upper bound \\
+\texttt{epsilon} & \texttt{float} & Reliability threshold \\
+\texttt{C\_M} & \texttt{float} & Maintenance cost coefficient \\
+\texttt{C\_P} & \texttt{float} & Loop penalty coefficient \\
+\texttt{C\_D} & \texttt{float} & Damage regularisation coefficient \\
+\texttt{penalty\_type} & \texttt{str}, optional & \texttt{"inf\_norm"} (default)
+  or \texttt{"quadratic"} \\
+\texttt{formulation} & \texttt{str}, optional & \texttt{"socp"} (default)
+  or \texttt{"lp"} \\
+\texttt{model} & $F \times L$ list of str & Degradation model per component \\
+\texttt{maintenance\_type} & $F \times L$ list of str & \texttt{"ARA1"} or \texttt{"ARD1"} \\
+\texttt{rho} & $F \times L$ & Repair efficiency \\
+\texttt{C\_R} & $F \times L$ & Repair cost per unit degradation removed \\
+\texttt{C\_rep} & $F \times L$ & Replacement cost \\
+\texttt{mu\_0} & $F \times L$ & Initial mean degradation \\
+\texttt{mu\_new} & $F \times L$ & Post-replacement mean (default: 0) \\
+\texttt{mu} & $F \times M \times L \times H$ & Mean increment (Gaussian, IG, Wiener) \\
+\texttt{verbose} & \texttt{int}, optional & Gurobi verbosity (default: 1) \\
+\texttt{mip\_gap} & \texttt{float}, optional & MIP gap tolerance (default: Gurobi default) \\
+\texttt{n\_workers} & \texttt{int}, optional & Parallel workers (default: 1) \\
+\texttt{warm\_start} & \texttt{bool}, optional & Warm start hint (default: \texttt{false}) \\
+\bottomrule
+\end{longtable}
+
+\subsection{Model-Specific Fields}
+
+Fields are required if and only if at least one component uses the corresponding model.
+
+\begin{longtable}{@{}lllp{5.5cm}@{}}
+\toprule
+Field & Shape & Required for & Description \\
+\midrule
+\texttt{v\_0} & $F \times L$ & Gaussian, Wiener & Initial variance \\
+\texttt{v\_new} & $F \times L$ & Gaussian, Wiener & Post-replacement variance (default: 0) \\
+\texttt{v} & $F \times M \times L \times H$ & Gaussian & Variance increment \\
+\texttt{alpha\_inc} & $F \times M \times L \times H$ & Gamma & Shape increment \\
+\texttt{eta} & $F \times L$ & IG & $\mu/\lambda$ ratio \\
+\texttt{sigma} & $F \times L$ & Wiener & Diffusion constant \\
+\texttt{beta} & $F \times L$ & Gamma & Scale parameter \\
+%% --- CHANGE DOM-026: V_max_user in input schema ---
+\texttt{v\_max\_user} & $F \times L$, optional & Gaussian, Wiener &
+  User-defined variance upper bound \\
+\bottomrule
+\end{longtable}
+
+\subsection{YAML Example (Mixed Models)}
+
+\begin{lstlisting}
+F: 4
+H: 10          # or H: [8, 12] for horizon loop
+M: 2
+L: 2
+tau: 1.0
+epsilon: 0.1
+C_M: 1.0
+C_P: 2.0
+C_D: 1.0
+penalty_type: inf_norm   # or "quadratic" (requires formulation="socp")
+formulation: socp        # or "lp" (fully supported for IG/Gamma only)
+n_workers: 4
+warm_start: false
+verbose: 0
+mip_gap: 0.01
+
+model:
+  - ["gaussian", "inverse_gaussian"]   # train 1: Gaussian + IG
+  - ["wiener",   "gamma"           ]   # train 2: Wiener + Gamma
+  - ["gaussian", "wiener"          ]   # train 3: Gaussian + Wiener
+  - ["gamma",    "inverse_gaussian"]   # train 4: Gamma + IG
+
+maintenance_type:
+  - ["ARD1", "ARD1"]    # train 1: Gaussian must be ARD1; IG must be ARD1
+  - ["ARD1", "ARA1"]    # train 2: Wiener supports both; Gamma supports both
+  - ["ARD1", "ARD1"]    # train 3: Gaussian must be ARD1; Wiener ARD1 here
+  - ["ARD1", "ARD1"]    # train 4: Gamma ARD1; IG must be ARD1
+
+rho:
+  - [0.8, 0.7]
+  - [0.9, 0.6]
+  - [0.75, 0.85]
+  - [0.65, 0.8]
+
+C_R:
+  - [2.0, 1.5]
+  - [1.8, 2.2]
+  - [2.1, 1.9]
+  - [1.6, 2.0]
+
+C_rep:
+  - [10.0, 8.0]
+  - [9.0,  11.0]
+  - [10.5, 9.5]
+  - [8.5,  10.0]
+
+mu_0:
+  - [0.12, 0.10]
+  - [0.15, 0.08]
+  - [0.11, 0.13]
+  - [0.09, 0.14]
+
+mu_new:
+  - [0.0, 0.0]
+  - [0.0, 0.0]
+  - [0.0, 0.0]
+  - [0.0, 0.0]
+
+# Gaussian / IG / Wiener: mean increment F x M x L x H
+mu:
+  # ... (4 x 2 x 2 x 10 tensor)
+
+# Gaussian only: variance increment F x M x L x H
+v_0:
+  - [0.005, null]    # train 1: Gaussian needs v_0; IG does not
+  - [0.006, null]    # train 2: Wiener needs v_0; Gamma does not
+  - [0.004, 0.007]   # train 3: both Gaussian and Wiener need v_0
+  - [null,  null]    # train 4: Gamma and IG do not need v_0
+
+v:
+  # ... (only entries for Gaussian components)
+
+# Wiener only: diffusion constant F x L
+sigma:
+  - [null, null]
+  - [0.03, null]
+  - [null, 0.04]
+  - [null, null]
+
+# Gamma only: shape increment F x M x L x H
+alpha_inc:
+  # ... (only entries for Gamma components)
+
+# Gamma only: scale parameter F x L
+beta:
+  - [null, null]
+  - [null, 0.5 ]
+  - [null, null]
+  - [0.4,  null]
+
+# IG only: mu/lambda ratio F x L
+eta:
+  - [null, 0.15]
+  - [null, null]
+  - [null, null]
+  - [null, 0.12]
+\end{lstlisting}
+
+\textbf{Parser behaviour for null entries:} \texttt{null} values in model-specific
+fields are ignored. The parser only reads entries $(i,\ell)$ where
+\texttt{model[i][l]} matches the field's required model. Non-null values at
+non-applicable positions trigger a \texttt{UserWarning} and are ignored.
+
+% ================================================================
+\section{Open Questions \& TODOs}
+% ================================================================
+
+\begin{itemize}[leftmargin=1.5em]
+  \item[\checkmark] \textit{Resolved.} All four degradation models fully specified
+        (Gaussian, IG, Gamma, Wiener) with exact and linearised forms.
+  \item[\checkmark] \textit{Resolved.} Repair cost proxy: $z_{i\ell k} = \rho_{i\ell}\,\mu_{i\ell,k-1}\,x^m_{i\ell k}$
+        in mean units across all models; McCormick linearisation documented.
+  \item[\checkmark] \textit{Resolved.} Fleet-availability constraint removed;
+        assignment constraints alone enforce correct availability.
+  \item[\checkmark] \textit{Resolved.} Horizon loop: scalar or interval $H$;
+        \texttt{n\_workers} parallelism; optional warm-start hinting.
+  \item[\checkmark] \textit{Resolved.} Big-M values fully specified throughout.
+  \item[\checkmark] \textit{Resolved.} Loop constraints: hard $+$ soft for all models;
+        Wiener variance controlled via replacement (multiple replacements per horizon
+        allowed; no additional feasibility check needed).
+  \item[\checkmark] \textit{Resolved.} Damage regularisation: $C_S$ and per-step $u_k$
+        removed; replaced by scalar $u = \max_{i,k}\sum_\ell \mu_{i\ell k}$
+        (or $\sum_\ell \mu_{i\ell k}^2$) with coefficient $C_D$ and user-specified
+        \texttt{penalty\_type} (\texttt{"inf\_norm"} default, \texttt{"quadratic"} option).
+  \item[\checkmark] \textit{Resolved.} Plot layout fully specified: $F \times 2H$ grid,
+        $L$ strips per cell, green-to-red heatmap, model border style, cell annotations,
+        half-horizon separator, colourbar.
+  \item[\checkmark] \textit{Resolved.} Input file schema: YAML/JSON/HDF5;
+        model-specific fields omitted when not needed (Option A);
+        \texttt{null} entries ignored with \texttt{UserWarning};
+        mixed-model YAML example provided.
+  \item[\checkmark] \textit{Resolved.} Problem class: Mixed-Integer Rotated SOCP
+        (MI-RSOCP) with \texttt{formulation="socp"} (default); pure MILP with
+        \texttt{formulation="lp"} (all models supported). Gaussian/Wiener LP
+        reliability constraint: inner approximation
+        $(\Phi^{-1}(1-\varepsilon))^2 v_{i\ell k} + 2\tau\,\mu_{i\ell k} \leq \tau^2$,
+        obtained by dropping $\mu_{i\ell k}^2 \geq 0$ from the squared SOC constraint;
+        error $= \mu_{i\ell k}^2$, small when $\mu_{i\ell k} \ll \tau$.
+        \texttt{"quadratic"} penalty incompatible with \texttt{"lp"}.
+  \item[\textbf{FUTURE}] \textbf{Hierarchical failure probability bounds.}
+        Currently $\varepsilon$ is a single scalar bounding the probability of failure
+        of each individual component: $\Pr(D_{i\ell k} > \tau) \leq \varepsilon$
+        $\forall\,i,\ell,k$. In the future it may be desirable to allow the user to
+        specify the reliability requirement at a coarser level:
+        \begin{itemize}
+          \item \textbf{Train level:} $\Pr(\exists\,\ell : D_{i\ell k} > \tau) \leq \varepsilon_i$
+                $\forall\,i,k$ --- the probability that \emph{any} component of train $i$
+                fails exceeds threshold. Under component independence this becomes
+                $1 - \prod_\ell (1 - \Pr(D_{i\ell k} > \tau)) \leq \varepsilon_i$,
+                a nonlinear constraint coupling components within a train.
+          \item \textbf{Fleet level:} $\Pr(\exists\,i,\ell : D_{i\ell k} > \tau) \leq \varepsilon$
+                $\forall\,k$ --- the probability that \emph{any} component across the
+                entire fleet fails. Under independence this couples all trains.
+        \end{itemize}
+        Both generalisations require either Boole/union-bound approximations
+        (conservative but linear) or product-form reformulations (exact but nonlinear).
+        The current component-level $\varepsilon$ remains a valid conservative proxy
+        for both via the union bound: $\varepsilon \leq \varepsilon_{\mathrm{train}} / L$
+        and $\varepsilon \leq \varepsilon_{\mathrm{fleet}} / (FL)$.
+\end{itemize}
+
+No blocking TODOs remain. The specification is complete pending implementation review.
+
+\emph{Change log (v0.3, panel review).}
+ARA1 maintenance removed from the Gaussian model (no literature basis for the
+variance extension). Output \texttt{v} shape changed from $F \times V \times 2H$
+to $F \times L \times 2H$ with NaN for non-variance components.
+$\varepsilon$ bound tightened from $(0, 0.5)$ to $(0, 0.01]$.
+IG FSD TODO replaced with verified Proposition (MLR proof).
+Tightness remark refined to three-mechanism argument.
+
+\end{document}

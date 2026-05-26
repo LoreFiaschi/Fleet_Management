@@ -7,3 +7,4 @@ CLAUDE*
 build/*
 test/*
 bkp/*
+*/*.pdf

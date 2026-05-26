@@ -1,0 +1,928 @@
+\documentclass[11pt,a4paper]{article}
+\usepackage[utf8]{inputenc}
+\usepackage[T1]{fontenc}
+\usepackage[top=2.5cm,bottom=2.5cm,left=2.5cm,right=2.5cm]{geometry}
+\usepackage{amsmath,amssymb,amsthm,mathtools}
+\usepackage[numbers,sort&compress]{natbib}
+\usepackage{hyperref}
+\usepackage{enumitem}
+\usepackage{booktabs}
+\usepackage{tikz}
+\usetikzlibrary{arrows.meta,positioning,shapes.geometric,fit,decorations.pathreplacing,calc}
+\usepackage{xcolor}
+\usepackage{float}
+\DeclareMathOperator*{\argmin}{arg\,min}
+\DeclareMathOperator*{\argmax}{arg\,max}
+
+
+\theoremstyle{plain}
+\newtheorem{theorem}{Theorem}[section]
+\newtheorem{proposition}[theorem]{Proposition}
+\newtheorem{lemma}[theorem]{Lemma}
+\theoremstyle{definition}
+\newtheorem{definition}[theorem]{Definition}
+\newtheorem{example}[theorem]{Example}
+\theoremstyle{remark}
+\newtheorem{remark}[theorem]{Remark}
+
+\definecolor{br1}{RGB}{31,119,180}
+\definecolor{br2}{RGB}{255,127,14}
+\definecolor{br3}{RGB}{44,160,44}
+\definecolor{br4}{RGB}{214,39,40}
+\definecolor{br5}{RGB}{148,103,189}
+\definecolor{br6}{RGB}{140,86,75}
+\hypersetup{colorlinks=true,linkcolor=br1,citecolor=br3,urlcolor=br4}
+\begin{document}
+% WRITER 1 OUTPUT: Preamble, Part I (Taxonomy I), Part II (Taxonomy II)
+
+\title{\textbf{Stochastic Degradation Aware Optimal Fleet management with Application to Trains}\\[6pt]
+{\normalsize A Comprehensive Reference Document}}
+\author{L.\ Fiaschi \\ \small ETH Z\"urich \\ \small \texttt{lfiaschi@ethz.ch}}
+\date{May 2026}
+
+\maketitle
+\begin{abstract}
+This is a project scoping where I collect all the needed information to write an article.
+The goal is to develop a general purpose model and its algorithmic solver to address the management of a fleet during a certain horizon.
+Each member of the fleet is described as a collection of components.
+Each day, a member can be sent to serve a route, to maintenance (partial or full repair of each component), or left idle.
+The service of a route damages the components of the fleet member.
+Each component has its own stochastic degradation model, and the actual degradation changes according to the route served.
+We show a concrete application to train fleet management.
+\end{abstract}
+\tableofcontents
+\newpage
+
+\section{Overview of the problem}
+\label{sec:overview}
+
+We consider a fleet of $F$ members, each composed of $L$ components subject to stochastic degradation.
+The planning horizon spans $2H$ discrete time steps (days).
+At each step, every fleet member is assigned to exactly one activity: serving one of $M$ available missions, undergoing maintenance, or remaining idle.
+Serving a mission damages the components of the assigned member according to a stochastic degradation process that depends on both the mission and the component.
+On a maintenance day, each component may independently undergo imperfect repair (which partially reduces accumulated damage), full replacement (which resets the component to a like-new state), or no intervention at all.
+
+The degradation state of component $\ell$ of fleet member $i$ at time $k$ is described by a random variable $D_{i\ell k}$, whose distribution belongs to a parametric family specified per component.
+A component is considered to have failed when $D_{i\ell k}$ exceeds a threshold $\tau$; the schedule must guarantee that the probability of this event remains below $\varepsilon$ at every time step.
+To ensure that the schedule can be repeated indefinitely, a \emph{loop constraint} requires that the degradation state at the end of the horizon stochastically dominates (in the sense of a lower probability of failure) the state at the mid-point: the second half of the schedule must leave the fleet in at least as good a condition as the first half did.
+
+Table~\ref{tab:notation} collects the notation used throughout this document.
+All variables are general and independent of any specific degradation model.
+
+\begin{table}[htbp]
+\centering
+\caption{Notation and variable definitions.}
+\label{tab:notation}
+\small
+\begin{tabular}{@{}lp{10.5cm}@{}}
+\toprule
+\textbf{Symbol} & \textbf{Description} \\
+\midrule
+\multicolumn{2}{@{}l}{\textit{Index sets}} \\
+$i \in \{1,\ldots,F\}$        & Fleet member \\
+$j \in \{0,1,\ldots,M\}$      & Activity ($j=0$: maintenance day; $j \ge 1$: mission) \\
+$k \in \{1,\ldots,2H\}$       & Time step (day) \\
+$\ell \in \{1,\ldots,L\}$     & Component \\
+\midrule
+\multicolumn{2}{@{}l}{\textit{Scalar and fleet-level parameters}} \\
+$F$             & Number of fleet members \\
+$H$             & Half-horizon length (the full planning window spans $2H$ days) \\
+$M$             & Number of missions (must satisfy $F > M$) \\
+$L$             & Number of components per fleet member \\
+$\tau$          & Degradation failure threshold (component-level) \\
+$\varepsilon$   & Reliability threshold: $\Pr(D_{i\ell k} > \tau) \le \varepsilon$ for all $i,\ell,k$ \\
+\midrule
+\multicolumn{2}{@{}l}{\textit{Cost functions}} \\
+$C_M$           & Maintenance cost: $\{x_{i0k}\}_{i,k} \to \mathbb{R}_{\ge 0}$ \\
+$C_R$           & Repair cost: $\{z_{i\ell k}\}_{i,\ell,k} \to \mathbb{R}_{\ge 0}$ \\
+$C_{\mathrm{rep}}$ & Replacement cost: $\{x^r_{i\ell k}\}_{i,\ell,k} \to \mathbb{R}_{\ge 0}$ \\
+$C_D$           & Damage regularisation cost: $u \to \mathbb{R}_{\ge 0}$ \\
+\midrule
+\multicolumn{2}{@{}l}{\textit{Component-level parameters}} \\
+$\rho_{i\ell}$      & Repair efficiency $\in (0,1]$ \\
+\midrule
+\multicolumn{2}{@{}l}{\textit{Initial and reference values}} \\
+$D^{\mathrm{start}}_{i\ell}$       & Initial degradation state of component $\ell$ of member $i$ (known distribution; must satisfy $\Pr(D^{\mathrm{start}}_{i\ell} > \tau) \le \varepsilon$) \\
+$D^{\mathrm{new}}_{i\ell}$ & Post-replacement degradation state (known distribution; typically near-zero damage) \\
+\midrule
+\multicolumn{2}{@{}l}{\textit{Stochastic state}} \\
+$D_{i\ell k}$  & Random variable: degradation of component $\ell$ of member $i$ at time $k$ \\
+$\Delta D_{i\ell k}^{(j)}$ & Random damage increment to component $\ell$ of member $i$ when mission $j$ is served on day $k$ \\
+\midrule
+\multicolumn{2}{@{}l}{\textit{Decision variables}} \\
+$x_{ijk} \in \{0,1\}$         & $1$ if member $i$ is assigned to activity $j$ on day $k$ \\
+$x^m_{i\ell k} \in \{0,1\}$   & $1$ if component $\ell$ of member $i$ undergoes imperfect repair on day $k$ \\
+$x^r_{i\ell k} \in \{0,1\}$   & $1$ if component $\ell$ of member $i$ is replaced on day $k$ \\
+$z_{i\ell k} \ge 0$            & Degradation removed by imperfect repair (in expected-damage units) \\
+$u \ge 0$                      & Damage regularisation variable \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\subsection{Scheduling and maintenance variables}
+
+The schedule is encoded by three families of binary decision variables.
+The \emph{assignment variable} $x_{ijk}$ determines which activity fleet member~$i$ performs on day~$k$: either serving mission~$j \ge 1$ or spending the day in the depot ($j=0$), either maintenance or idle.
+Each member performs at most one activity per day,
+\begin{equation}\label{eq:one_activity}
+  \sum_{j=0}^{M} x_{ijk} \;=\; 1 \qquad \forall\, i,\,k,
+\end{equation}
+and each mission must be covered by exactly one member,
+\begin{equation}\label{eq:mission_coverage}
+  \sum_{i=1}^{F} x_{ijk} \;=\; 1 \qquad \forall\, j \ge 1,\,k.
+\end{equation}
+Since $F > M$, at least $F - M$ members are available for maintenance or idling at every step.
+
+On a maintenance day ($x_{i0k}=1$), the intervention on each component is controlled independently by two additional binary variables.
+The \emph{repair variable} $x^m_{i\ell k}$ indicates whether component~$\ell$ undergoes imperfect repair, and the \emph{replacement variable} $x^r_{i\ell k}$ indicates full replacement.
+Both require a maintenance day and are mutually exclusive:
+\begin{equation}\label{eq:maint_compat}
+  x^m_{i\ell k} \;\le\; x_{i0k}, \qquad
+  x^r_{i\ell k} \;\le\; x_{i0k}, \qquad
+  x^m_{i\ell k} + x^r_{i\ell k} \;\le\; 1
+  \qquad \forall\, i,\,\ell,\,k.
+\end{equation}
+A component on a maintenance day with $x^m_{i\ell k} = x^r_{i\ell k} = 0$ receives no intervention (stays idle); its degradation state carries over unchanged.
+
+\subsection{Damage dynamics}
+
+The degradation of each component evolves in discrete time according to the activity assigned to the fleet member that carries it.
+We write $\Delta D_{i\ell k}^{(j)}$ for the \emph{random damage increment} sustained by component~$\ell$ of member~$i$ when mission~$j$ is served on day~$k$.
+The distribution of each increment is assumed known (from the component's degradation model) and may depend on~$i$,~$\ell$,~$j$, and~$k$.
+On days when the fleet member is idle or undergoing maintenance, no damage is accumulated.
+
+At each time step, exactly one of the following mutually exclusive cases applies to every component $(i,\ell)$:
+
+\begin{enumerate}[label=(\roman*)]
+  \item \textbf{Mission.} Member~$i$ serves mission~$j \ge 1$ ($x_{ijk}=1$).
+    The degradation grows by a mission- and component-dependent random increment:
+    \begin{equation}\label{eq:dyn_mission}
+      D_{i\ell k} \;=\; D_{i\ell,k-1} \;+\; \Delta D_{i\ell k}^{(j)}.
+    \end{equation}
+
+  \item \textbf{Imperfect repair.} The member is on a maintenance day ($x_{i0k}=1$) and component~$\ell$ undergoes imperfect repair ($x^m_{i\ell k}=1$).
+    The repair reduces the accumulated damage by a fraction determined by the repair efficiency~$\rho_{i\ell}$ and the specific maintenance policy in use.
+    Abstractly:
+    \begin{equation}\label{eq:dyn_repair}
+      D_{i\ell k} \;=\; \mathcal{R}\!\bigl(D_{i\ell,k-1},\;\rho_{i\ell}\bigr),
+    \end{equation}
+    where $\mathcal{R}$ denotes the repair operator.
+    Two common choices are:
+    \begin{itemize}
+      \item \emph{Arithmetic Reduction of Degradation} (ARD): the post-repair damage is a fixed fraction of the pre-repair damage, $D^+_{i\ell k} = (1-\rho_{i\ell})\,D^-_{i\ell,k}$;
+      \item \emph{Arithmetic Reduction of Age} (ARA): the repair removes a fraction of the damage accumulated since the last maintenance epoch.
+    \end{itemize}
+    The degradation removed by the repair action defines the repair cost variable:
+    \begin{equation}\label{eq:z_def}
+      z_{i\ell k} \;=\; \mathbb{E}\bigl[D_{i\ell,k-1}\bigr] - \mathbb{E}\bigl[D_{i\ell k}\bigr],
+      \qquad \text{when } x^m_{i\ell k}=1.
+    \end{equation}
+
+  \item \textbf{Full replacement.} The member is on a maintenance day and component~$\ell$ is replaced ($x^r_{i\ell k}=1$).
+    The degradation is reset:
+    \begin{equation}\label{eq:dyn_replace}
+      D_{i\ell k} \;=\; D^{\mathrm{new}}_{i\ell}.
+    \end{equation}
+
+  \item \textbf{Idle or maintenance day with no intervention on this component.}
+    The degradation is unchanged:
+    \begin{equation}\label{eq:dyn_idle}
+      D_{i\ell k} \;=\; D_{i\ell,k-1}.
+    \end{equation}
+\end{enumerate}
+
+Cases~(ii) and~(iii) are mutually exclusive: a component cannot be both repaired and replaced on the same day.
+Both require that the member be assigned to a maintenance day ($x_{i0k}=1$).
+Since exactly one case applies at each step, the dynamics can be written as a single equation:
+\begin{equation}\label{eq:dyn_full}
+  D_{i\ell k} \;=\;
+    D_{i\ell,k-1}\bigl(1 - x^m_{i\ell k}\bigr)\bigl(1 - x^r_{i\ell k}\bigr) + \sum_{j=1}^{M} x_{ijk}\,\Delta D_{i\ell k}^{(j)}
+    \;+\; \mathcal{R}\!\bigl(D_{i\ell,k-1},\,\rho_{i\ell}\bigr)\,x^m_{i\ell k}
+    \;+\; D^{\mathrm{new}}_{i\ell}\,x^r_{i\ell k},
+\end{equation}
+with initial condition $D_{i\ell,0} = D^{\mathrm{start}}_{i\ell}$.
+
+\subsection{Stochastic loop constraint}
+
+The planning horizon is split into two halves of length~$H$.
+For the schedule to be repeatable indefinitely, the fleet must emerge from the second half in no worse condition than it had at the midpoint.
+We formalise this by requiring that the probability of failure at the end of the horizon does not exceed the probability of failure at the midpoint, component by component:
+\begin{equation}\label{eq:loop}
+  \Pr\!\bigl(D_{i\ell,2H} > \tau\bigr)
+  \;\le\;
+  \Pr\!\bigl(D_{i\ell,H} > \tau\bigr)
+  \qquad \forall\, i,\,\ell.
+\end{equation}
+Together with the reliability constraint $\Pr(D_{i\ell k} > \tau) \le \varepsilon$ enforced at every step, condition~\eqref{eq:loop} ensures that the second half of the schedule does not consume more reliability margin than the first half created.
+Concatenating copies of the schedule therefore yields an infinite-horizon policy whose failure probability never exceeds~$\varepsilon$.
+
+\subsection{Cost function}
+
+The objective is to minimise the total cost of operating the fleet over the planning horizon.
+Four terms contribute to the cost:
+\begin{align}\label{eq:objective}
+\min \quad
+  C_M \left(\{x_{i0k}\}_{i,k}\right)
+  \;+\; C_{R} \left(\{z_{i\ell k}\}_{i,\ell,k}\right)
+  \;+\; C_{\mathrm{rep}}\, (\{x^r_{i\ell k}\}_{i,\ell,k}) +\; C_D\,(u).
+\end{align}
+
+All four cost functions are assumed to be non-negative and non-decreasing in each of their arguments: scheduling more maintenance days, removing more degradation, replacing more components, or tolerating higher aggregate damage never decreases the cost.
+
+The first term charges for every maintenance day scheduled across the fleet; it penalises excessive depot usage.
+The second term accounts for imperfect repair: whenever a component is repaired, the cost grows with the amount of degradation removed~$z_{i\ell k}$.
+The third term charges for every full replacement.
+
+The last term is a damage regularisation penalty.
+The variable~$u$ captures the worst-case aggregate expected damage across all fleet members and time steps:
+\begin{equation}\label{eq:u_def}
+  u \;=\; \max_{i,k}\; \phi\!\Bigl(\mathbb{E}[D_{i1k}],\;\ldots,\;\mathbb{E}[D_{iLk}]\Bigr),
+\end{equation}
+where $\phi\colon \mathbb{R}^L \to \mathbb{R}_{\ge 0}$ is a non-decreasing aggregation function (e.g.\ the sum or the sum of squares of the expected component damages).
+The cost controls the trade-off between minimising operational costs and spreading damage evenly across the fleet.
+
+\subsection{Abstract problem formulation}
+
+Collecting the objective~\eqref{eq:objective}, the scheduling constraints~\eqref{eq:one_activity}--\eqref{eq:maint_compat}, the degradation dynamics~\eqref{eq:dyn_full}, the reliability constraint, and the loop constraint~\eqref{eq:loop}, the fleet management problem reads:
+
+\begin{subequations}\label{eq:abstract}
+\begin{align}
+\min_{x,\,x^m,\,x^r,\,z,\,u} \quad
+  & C_M\!\bigl(\{x_{i0k}\}\bigr)
+    + C_R\!\bigl(\{z_{i\ell k}\}\bigr)
+    + C_{\mathrm{rep}}\!\bigl(\{x^r_{i\ell k}\}\bigr)
+    + C_D(u)
+    \label{eq:abs_obj} \\[6pt]
+%
+\text{s.t.} \quad
+  & \sum_{j=0}^{M} x_{ijk} = 1
+    && \forall\, i,\,k,
+    \label{eq:abs_assign} \\
+  & \sum_{i=1}^{F} x_{ijk} = 1
+    && \forall\, j \ge 1,\,k,
+    \label{eq:abs_cover} \\
+  & x^m_{i\ell k} + x^r_{i\ell k} \le x_{i0k}
+    && \forall\, i,\,\ell,\,k,
+    \label{eq:abs_maint} \\[6pt]
+%
+  & D_{i\ell k} = D_{i\ell,k-1}(1-x^m_{i\ell k})(1-x^r_{i\ell k})
+    + \sum_{j=1}^{M} x_{ijk}\,\Delta D_{i\ell k}^{(j)} + \notag \\
+  & \qquad\qquad + \mathcal{R}(D_{i\ell,k-1},\rho_{i\ell})\,x^m_{i\ell k}
+    + D^{\mathrm{new}}_{i\ell}\,x^r_{i\ell k}
+    && \forall\, i,\,\ell,\,k,
+    \label{eq:abs_dyn} \\
+  %& D_{i\ell,0} = D^{\mathrm{start}}_{i\ell}
+    %&& \forall\, i,\,\ell,
+    %\label{eq:abs_init} \\[6pt]
+%
+  & \Pr(D_{i\ell k} > \tau) \le \varepsilon
+    && \forall\, i,\,\ell,\,k,
+    \label{eq:abs_rel} \\
+  & \Pr(D_{i\ell,2H} > \tau) \le \Pr(D_{i\ell,H} > \tau)
+    && \forall\, i,\,\ell,
+    \label{eq:abs_loop} \\[6pt]
+%
+  & u = \max_{i,k}\;\phi\!\bigl(\mathbb{E}[D_{i1k}],\ldots,\mathbb{E}[D_{iLk}]\bigr),
+    \label{eq:abs_u} \\
+  & x_{ijk},\, x^m_{i\ell k},\, x^r_{i\ell k} \in \{0,1\},\quad
+    z_{i\ell k} \ge 0,\quad u \ge 0.
+    \label{eq:abs_domain}
+\end{align}
+\end{subequations}
+
+Problem~\eqref{eq:abstract} is a stochastic combinatorial optimisation problem.
+It makes no commitment to a specific degradation model (the distribution of~$\Delta D_{i\ell k}^{(j)}$), repair policy (the operator~$\mathcal{R}$), aggregation function~($\phi$), or cost structure (the functions $C_M, C_R, C_{\mathrm{rep}}, C_D$).
+All of these are instantiated when the formulation is specialised to a concrete fleet (Section~\ref{sec:trains}).
+
+\section{Literature review}
+
+\subsection{Stochastic degradation and fatigue models}
+
+Stochastic models of component degradation fall into two broad families.
+\emph{Damage-accumulation models} track a cumulative damage variable~$X(t)$ whose distribution evolves over time; failure occurs when $X(t)$ exceeds a threshold.
+\emph{Remaining-life models} characterise the number of load cycles a component can sustain before failure, relating applied stress to fatigue life through empirical laws.
+
+\subsubsection{Damage-accumulation processes}
+
+Table~\ref{tab:deg_models} summarises four widely used stochastic processes for modelling cumulative damage.
+In each case $X(t)$ denotes the cumulative damage at time~$t$ with $X(0)=0$; all processes have independent, stationary increments (L\'evy processes).
+
+\begin{table}[htbp]
+\centering
+\caption{Stochastic damage-accumulation models.
+Parameters: $\alpha,\beta>0$ (Gamma shape rate / inverse scale), $\mu$ (drift), $\sigma^2$ (diffusion coefficient), $\lambda$ (IG shape rate), $\nu$ (Poisson intensity), $F_Y$ (jump-size distribution).}
+\label{tab:deg_models}
+\small
+\begin{tabular}{@{}p{3cm}p{3.6cm}p{2.2cm}cp{3.5cm}@{}}
+\toprule
+\textbf{Model} & \textbf{Increment} $X(t)-X(s)$ & \textbf{Marginal} $X(t)$ & \textbf{Mon.} & \textbf{Closure under $+$} \\
+\midrule
+Gamma process \cite{AbdelHameed1975}
+  & $\mathrm{Ga}\!\bigl(\alpha(t{-}s),\,\beta\bigr)$
+  & $\mathrm{Ga}(\alpha t,\,\beta)$
+  & Yes
+  & Same rate~$\beta$ \\[4pt]
+Wiener process \cite{WhitmoreSchenkelberg1997}
+  & $\mathcal{N}\!\bigl(\mu(t{-}s),\,\sigma^2(t{-}s)\bigr)$
+  & $\mathcal{N}(\mu t,\,\sigma^2 t)$
+  & No
+  & Always \\[4pt]
+Inverse Gaussian process \cite{YeChen2014}
+  & $\mathrm{IG}\!\bigl(\mu(t{-}s),\,\lambda(t{-}s)^2\bigr)$
+  & $\mathrm{IG}(\mu t,\,\lambda t^2)$
+  & Yes
+  & Same $\mu^2/\lambda$ \\[4pt]
+Compound Poisson \cite{EsaryMarshallProschan1973,Wang2022}
+  & $\sum_{n=1}^{N(t-s)} Y_n$
+  & $\mathrm{CP}(\nu t,\,F_Y)$
+  & If $Y{\ge}0$
+  & Always \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\paragraph{Gamma process.}
+Introduced by Abdel-Hameed~\cite{AbdelHameed1975} and surveyed in depth by van~Noortwijk~\cite{vanNoortwijk2009}, the Gamma process is the most widely used model for monotonic degradation (wear, corrosion, crack growth).
+The process $\{X(t)\}$ has non-negative independent increments $X(t)-X(s) \sim \mathrm{Ga}(\alpha(t-s),\,\beta)$, where $\alpha>0$ is the shape rate and $\beta>0$ is the inverse scale (rate).
+Its mean and variance at time~$t$ are $\mathbb{E}[X(t)] = \alpha t/\beta$ and $\mathrm{Var}[X(t)] = \alpha t/\beta^2$.
+The Gamma family is closed under convolution when the rate parameter~$\beta$ is shared: if $X_1 \sim \mathrm{Ga}(\alpha_1,\beta)$ and $X_2 \sim \mathrm{Ga}(\alpha_2,\beta)$ are independent, then $X_1+X_2 \sim \mathrm{Ga}(\alpha_1+\alpha_2,\beta)$.
+
+\paragraph{Wiener process (Brownian motion with drift).}
+The Wiener degradation model~\cite{WhitmoreSchenkelberg1997} sets $X(t) = \mu t + \sigma W(t)$, where $W(t)$ is a standard Brownian motion, $\mu>0$ the drift rate, and $\sigma>0$ the diffusion coefficient.
+Increments are normally distributed: $X(t)-X(s) \sim \mathcal{N}(\mu(t-s),\,\sigma^2(t-s))$.
+The normal family is unconditionally closed under addition.
+Unlike the other three models, the Wiener process is \emph{not} monotone: sample paths can decrease, making it suitable for degradation phenomena with short-term fluctuations.
+A notable property is that the first-passage time to a fixed threshold~$\tau$ follows an Inverse Gaussian distribution: $T_\tau \sim \mathrm{IG}(\tau/\mu,\;\tau^2/\sigma^2)$.
+
+\paragraph{Inverse Gaussian process.}
+Proposed as a degradation model by Ye and Chen~\cite{YeChen2014}, the IG process has non-negative increments $X(t)-X(s) \sim \mathrm{IG}(\mu(t-s),\,\lambda(t-s)^2)$, with mean $\mu t$ and variance $\mu^3 t/\lambda$.
+Its increments are heavier-tailed than those of the Gamma process, making it appropriate when occasional large damage jumps are observed.
+The IG distribution is closed under convolution when the dispersion parameter $\mu^2/\lambda$ is shared across summands; however, the sum of two independent IG \emph{processes} with different parameters is not itself an IG process~\cite{YeChen2014}.
+
+\paragraph{Compound Poisson process.}
+The compound Poisson process $X(t) = \sum_{n=1}^{N(t)} Y_n$ models shock-based degradation~\cite{EsaryMarshallProschan1973}, where shocks arrive according to a Poisson process $N(t)$ with rate~$\nu$ and each shock causes a random damage~$Y_n$ drawn i.i.d.\ from a distribution~$F_Y$.
+When $Y_n \ge 0$, the process is monotone.
+The sum of independent compound Poisson processes is always a compound Poisson process.
+This model is natural for discrete damage events (e.g.\ impacts, overloads) rather than continuous wear; see Wang~\cite{Wang2022} for a recent application to structural reliability.
+
+\subsubsection{Discrete-time formulation}
+\label{sec:discrete_deg}
+
+The continuous-time processes of Table~\ref{tab:deg_models} are sampled at discrete steps in the fleet management setting of Section~\ref{sec:overview}: each day $k$, the damage of component~$(i,\ell)$ grows by a random increment $\Delta D_{i\ell k}^{(j)}$ whose distribution depends on the mission~$j$ served that day.
+The cumulative damage after $k$~steps is therefore a random walk
+\begin{equation}\label{eq:discrete_damage}
+  D_{i\ell k} \;=\; D_{i\ell,0} \;+\; \sum_{t=1}^{k} \Delta D_{i\ell t},
+\end{equation}
+where the increments $\Delta D_{i\ell t}$ are independent but \emph{not} identically distributed (different missions may be served on different days).
+Table~\ref{tab:discrete_models} restates the four models in this discrete-time setting.
+
+\begin{table}[htbp]
+\centering
+\caption{Discrete-time specialisation of the damage-accumulation models.
+Each row gives the distribution of a single-step increment~$\Delta D$ and the resulting marginal of $D_k = \sum_{t=1}^{k}\Delta D_t$ when all increments share the parameters required for closure.}
+\label{tab:discrete_models}
+\small
+\begin{tabular}{@{}p{2.1cm}p{3.4cm}p{4.0cm}p{4.2cm}@{}}
+\toprule
+\textbf{Model} & \textbf{Increment} $\Delta D_t$ & \textbf{Marginal} $D_k$ (homogeneous) & \textbf{Closure condition} \\
+\midrule
+Gamma
+  & $\mathrm{Ga}(\alpha_t,\,\beta)$
+  & $\mathrm{Ga}\!\bigl(\sum_{t}\alpha_t,\;\beta\bigr)$
+  & Same rate~$\beta$ \\[4pt]
+Gaussian
+  & $\mathcal{N}(\mu_t,\,\sigma_t^2)$
+  & $\mathcal{N}\!\bigl(\sum_{t}\mu_t,\;\sum_{t}\sigma_t^2\bigr)$
+  & Always \\[4pt]
+Inv.\ Gaussian
+  & $\mathrm{IG}(\mu_t,\,\lambda_t)$
+  & $\mathrm{IG}\!\bigl(\sum_{t}\mu_t,\;\frac{(\sum_t \mu_t)^2}{ \sum_t(\mu_t^2/\lambda_t)}\bigr)$
+  & Same $\mu^2/\lambda$ \\[4pt]
+Compound Poisson
+  & $\sum_{n=1}^{N_t} Y_n$
+  & $\mathrm{CP}\!\bigl(\sum_t\nu_t,\,F_Y\bigr)$
+  & Same $F_Y$ \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+The closure conditions determine whether the marginal distribution of~$D_{i\ell k}$ remains within the same parametric family after summing increments from different missions.
+When the condition holds, the distribution of~$D_{i\ell k}$ is available in closed form as a function of the cumulative parameters, which is essential for evaluating the reliability constraint $\Pr(D_{i\ell k} > \tau) \le \varepsilon$ efficiently.
+When it does not hold---for instance, summing Gamma increments with different rate parameters---the marginal must be computed numerically or approximated.
+
+In the fleet management problem of Section~\ref{sec:overview}, each day brings an increment with mission-dependent parameters.
+Closure therefore requires that the parameter shared across missions is indeed constant for a given component: the rate~$\beta$ for Gamma, or the dispersion $\mu^2/\lambda$ for Inverse Gaussian.
+The shape (or mean/variance) parameters may vary freely across missions; they simply accumulate additively.
+For the Gaussian model, no restriction is needed: normal random variables are unconditionally closed under addition.
+
+\subsubsection{Remaining-life models: the S--N curve and Palmgren--Miner rule}
+
+The stress--life (S--N) approach, originating with W\"ohler's experiments in the 1850s, relates the stress amplitude~$\sigma_a$ to the number of cycles to failure~$N_f$.
+The most common analytical form is Basquin's law~\cite{Basquin1910}:
+\begin{equation}\label{eq:basquin}
+  \sigma_a^{\,m}\, N_f \;=\; C,
+\end{equation}
+where $m>0$ is the fatigue exponent and $C>0$ is a material constant, both typically fitted from experimental data.
+Equivalently, $N_f = C\,\sigma_a^{-m}$, which appears as a straight line on a log--log plot.
+
+Under variable-amplitude loading, the Palmgren--Miner linear damage rule~\cite{Palmgren1924,Miner1945} defines the cumulative damage fraction as
+\begin{equation}\label{eq:miner}
+  D_{\mathrm{PM}} \;=\; \sum_{i} \frac{n_i}{N_{f,i}},
+\end{equation}
+where $n_i$ is the number of applied cycles at stress level~$\sigma_{a,i}$ and $N_{f,i}$ is the corresponding life from the S--N curve.
+Failure is predicted when $D_{\mathrm{PM}} \ge 1$.
+The rule assumes that damage accumulates linearly and independently of load ordering---an approximation that has been questioned experimentally (the critical damage sum $D_{\mathrm{PM}}^*$ at failure is scattered around~1 rather than being exactly~1) and extended stochastically by treating $D_{\mathrm{PM}}$ and/or $D_{\mathrm{PM}}^*$ as random variables~\cite{Shen1980,CastilloFernandezCanteli2009,Hilow2017,BohmEtAl2021,MunizCalvente2022}.
+
+Two sources of randomness enter the Palmgren--Miner accumulation:
+\begin{enumerate}[label=(\roman*)]
+  \item \emph{S--N scatter.}
+    At a given stress level~$\sigma_a$, the fatigue life~$N_f$ is not a deterministic constant but a random variable whose distribution reflects material variability, surface finish, and testing conditions.
+    The increment $\Delta D_{\mathrm{PM}} = n/N_f$ therefore inherits this randomness.
+  \item \emph{Random critical damage sum.}
+    Experimental evidence shows that the critical value $D_{\mathrm{PM}}^*$ at failure is itself scattered (typically in the range $0.5$--$2.0$) rather than being exactly~1~\cite{Shen1980}.
+    This can be modelled by replacing the deterministic threshold with a random one, or equivalently by normalising the damage by a random capacity.
+\end{enumerate}
+In the fleet management framework of Section~\ref{sec:overview}, source~(i) is the relevant one: the threshold is fixed at $\tau = 1$ and the randomness enters through the increments.
+We therefore focus on the distributional assumptions for~$N_f$ and the resulting distribution of~$\Delta D_{\mathrm{PM}}$.
+Table~\ref{tab:sn_scatter} summarises the three most common choices.
+
+\begin{table}[htbp]
+\centering
+\caption{Distributional assumptions for S--N scatter and their effect on the Palmgren--Miner increment $\Delta D_{\mathrm{PM}} = n/N_f$.
+In all cases, $\mu(\sigma_a)$ and the scale/shape parameters depend on the stress level through Basquin's law~\eqref{eq:basquin}.}
+\label{tab:sn_scatter}
+\small
+\begin{tabular}{@{}p{2.1cm}p{3.4cm}p{3.5cm}p{1.2cm}p{3.0cm}@{}}
+\toprule
+\textbf{Model} & \textbf{Life} $N_f$ & \textbf{Increment} $\Delta D_{\mathrm{PM}}$ & \textbf{Mon.} & \textbf{Closure under $+$} \\
+\midrule
+Log-normal
+  & $\ln N_f \sim \mathcal{N}\!\bigl(\mu,\,\sigma^2\bigr)$
+  & $\mathrm{LogN}\!\bigl(\ln n {-} \mu,\,\sigma^2\bigr)$
+  & Yes
+  & No \\[4pt]
+Weibull
+  & $N_f \sim \mathrm{Wei}(k,\,\lambda)$
+  & Inv.\ Weibull (Fr\'echet)
+  & Yes
+  & No \\[4pt]
+Gumbel
+  & $\ln N_f \sim \mathrm{Gumbel}(\mu,\,\beta)$
+  & Log-Gumbel
+  & Yes
+  & No \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\paragraph{Log-normal.}
+The most widely used assumption~\cite{MunizCalvente2022}: at a fixed stress level~$\sigma_a$, the fatigue life satisfies $\ln N_f \sim \mathcal{N}(\mu(\sigma_a),\,\sigma^2)$, where $\mu(\sigma_a) = \ln C - m\ln\sigma_a$ from Basquin's law and $\sigma$ captures the scatter.
+Since $\ln(n/N_f) = \ln n - \ln N_f$, each increment is log-normally distributed: $\Delta D_{\mathrm{PM}} \sim \mathrm{LogN}(\ln n - \mu,\,\sigma^2)$, with mean $n\,e^{-\mu + \sigma^2/2}$ and variance $n^2 e^{-2\mu+\sigma^2}(e^{\sigma^2}-1)$.
+The log-normal family is \emph{not} closed under summation: the sum of independent log-normals has no standard parametric form.
+In practice, $D_{\mathrm{PM},k} = \sum_{t=1}^{k}\Delta D_{\mathrm{PM},t}$ is often approximated as log-normal via moment-matching (Fenton--Wilkinson method), but this is an approximation whose quality degrades as the number of summands grows or the coefficient of variation increases.
+
+\paragraph{Weibull.}
+Widely adopted in fatigue standards (e.g.\ Eurocode, ASTM): $N_f \sim \mathrm{Wei}(k,\,\lambda(\sigma_a))$ with shape~$k$ and scale~$\lambda$ depending on the stress level.
+The reciprocal $1/N_f$ follows an inverse Weibull (Fr\'echet) distribution, so $\Delta D_{\mathrm{PM}} = n/N_f$ is a scaled Fr\'echet variable.
+The sum of independent Fr\'echet variables has no closed form, making the marginal of~$D_{\mathrm{PM},k}$ intractable analytically.
+
+\paragraph{Gumbel (extreme-value type~I).}
+Castillo and Fern\'andez-Canteli~\cite{CastilloFernandezCanteli2009} proposed a compatible statistical model for the entire S--N field based on a Gumbel (minimum) distribution for~$\ln N_f$: $\ln N_f \sim \mathrm{Gumbel}(\mu(\sigma_a),\,\beta)$.
+The increment $\Delta D_{\mathrm{PM}} = n/N_f$ then follows a log-Gumbel distribution.
+As with the other two families, the log-Gumbel is not closed under summation.
+
+\paragraph{Contrast with damage-accumulation models.}
+A fundamental difference with the processes of Table~\ref{tab:deg_models} is that \emph{none} of the standard distributional assumptions for S--N scatter yields increments that are closed under summation.
+The marginal distribution of $D_{\mathrm{PM},k}$ after $k$~loading blocks must therefore always be computed via convolution (analytically intractable in general), Monte Carlo simulation, or moment-based approximations.
+In the fleet management formulation, this means that the reliability constraint $\Pr(D_{\mathrm{PM},k} \ge 1) \le \varepsilon$ cannot be evaluated in closed form from the cumulative parameters alone, in contrast to the Gamma or Gaussian models where the CDF of the marginal is directly available.
+The upper bounds of Section~\ref{sec:stoch_orders} (Markov, Cantelli, Chernoff) remain applicable: because the mean and variance of~$D_{\mathrm{PM},k}$ are additive over increments regardless of the distributional family, the Cantelli bound provides a conservative but tractable constraint.
+Alternatively, if the scatter is small enough that a deterministic S--N curve (e.g.\ the mean or a design percentile) is an acceptable approximation, the problem reduces to the deterministic Miner's rule and all constraints become linear.
+
+\subsection{Stochastic orderings}
+\label{sec:stoch_orders}
+
+Comparing the degradation state of a component at different points in the schedule requires a notion of ``one random variable being larger than another.''
+Several stochastic orders formalise this idea with increasing strength~\cite{ShakedShanthikumar2007,WikiStochDom}.
+Let $X$ and $Y$ be two non-negative random variables with CDFs $F_X$, $F_Y$, survival functions $\bar F_X = 1-F_X$, $\bar F_Y = 1-F_Y$, and densities $f_X$, $f_Y$ (when they exist).
+
+\begin{definition}[Usual stochastic order]\label{def:st}
+  $X \le_{\mathrm{st}} Y$ if $F_X(t) \ge F_Y(t)$ for all $t \in \mathbb{R}$,
+  or equivalently $\Pr(X > t) \le \Pr(Y > t)$ for all~$t$.
+\end{definition}
+
+\begin{definition}[Hazard rate order]\label{def:hr}
+  $X \le_{\mathrm{hr}} Y$ if $\bar F_Y(t)/\bar F_X(t)$ is non-decreasing in $t$ over $\{t : \bar F_X(t) > 0\}$.
+  Equivalently, the hazard rates satisfy $r_X(t) \ge r_Y(t)$ for all~$t$, where $r(t) = f(t)/\bar F(t)$.
+\end{definition}
+
+\begin{definition}[Likelihood ratio order]\label{def:lr}
+  $X \le_{\mathrm{lr}} Y$ if $f_Y(t)/f_X(t)$ is non-decreasing in $t$ over the union of their supports.
+\end{definition}
+
+These three orders are progressively stronger~\cite[Ch.~1]{ShakedShanthikumar2007}.
+The implications are strict---none of the converses holds in general:
+\begin{equation}\label{eq:order_implications}
+  X \le_{\mathrm{lr}} Y
+  \;\Longrightarrow\;
+  X \le_{\mathrm{hr}} Y
+  \;\Longrightarrow\;
+  X \le_{\mathrm{st}} Y
+  \;\Longrightarrow\;
+  \mathbb{E}[X] \le \mathbb{E}[Y].
+\end{equation}
+
+\begin{remark}[Connection to the loop constraint]
+The loop constraint~\eqref{eq:loop} requires $\Pr(D_{i\ell,2H} > \tau) \le \Pr(D_{i\ell,H} > \tau)$, which is a \emph{pointwise} comparison of the survival functions at the single threshold~$\tau$.
+This is strictly weaker than $D_{i\ell,2H} \le_{\mathrm{st}} D_{i\ell,H}$, which demands the inequality at every point.
+Establishing the usual stochastic order is therefore a convenient sufficient condition for the loop constraint, though not a necessary one.
+\end{remark}
+
+\subsubsection{Stochastic ordering within each degradation family}
+
+For the fleet management problem, the relevant comparison is between two damage states of the same component---for instance the state at mid-horizon versus end-of-horizon---both belonging to the same parametric family.
+Tables~\ref{tab:ordering_lr}--\ref{tab:ordering_st} give, for each family from Table~\ref{tab:deg_models}, the necessary and sufficient conditions for each of the three orderings.
+An entry marked ``---'' indicates that no simple closed-form characterisation is known to the author; in those cases the $\le_{\mathrm{lr}}$ conditions remain a valid sufficient condition via~\eqref{eq:order_implications}.
+
+\begin{table}[htbp]
+\centering
+\caption{Conditions for $X \le_{\mathrm{lr}} Y$ (likelihood ratio order) within each family.  All conditions are necessary and sufficient.}
+\label{tab:ordering_lr}
+\small
+\begin{tabular}{@{}p{2.1cm}p{3.8cm}p{4.0cm}p{4.0cm}@{}}
+\toprule
+\textbf{Family} & $X$ & $Y$ & \textbf{Condition} \\
+\midrule
+Gamma
+  & $\mathrm{Ga}(\alpha_1,\,\beta_1)$
+  & $\mathrm{Ga}(\alpha_2,\,\beta_2)$
+  & $\alpha_1 \le \alpha_2$ and $\beta_1 \ge \beta_2$ \\[4pt]
+Gaussian
+  & $\mathcal{N}(\mu_1,\,\sigma_1^2)$
+  & $\mathcal{N}(\mu_2,\,\sigma_2^2)$
+  & $\mu_1 \le \mu_2$ and $\sigma_1 = \sigma_2$ \\[4pt]
+Inv.\ Gaussian
+  & $\mathrm{IG}(\mu_1,\,\lambda_1)$
+  & $\mathrm{IG}(\mu_2,\,\lambda_2)$
+  & $\lambda_2 \ge \lambda_1$ and $\lambda_1/\mu_1^2 \ge \lambda_2/\mu_2^2$ \\[4pt]
+Comp.\ Poisson
+  & $\mathrm{CP}(\nu_1,\,F_{Y_1})$
+  & $\mathrm{CP}(\nu_2,\,F_{Y_2})$
+  & $\nu_1 \le \nu_2$, $F_{Y_1} = F_{Y_2}$, $Y \ge 0$ \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\begin{table}[htbp]
+\centering
+\caption{Conditions for $X \le_{\mathrm{hr}} Y$ (hazard rate order) within each family.}
+\label{tab:ordering_hr}
+\small
+\begin{tabular}{@{}p{2.1cm}p{3.8cm}p{4.0cm}p{4.0cm}@{}}
+\toprule
+\textbf{Family} & $X$ & $Y$ & \textbf{Condition} \\
+\midrule
+Gamma
+  & $\mathrm{Ga}(\alpha_1,\,\beta_1)$
+  & $\mathrm{Ga}(\alpha_2,\,\beta_2)$
+  & $\alpha_1 \le \alpha_2$ and $\beta_1 \ge \beta_2$ \\[4pt]
+Gaussian
+  & $\mathcal{N}(\mu_1,\,\sigma_1^2)$
+  & $\mathcal{N}(\mu_2,\,\sigma_2^2)$
+  & $\mu_1 \le \mu_2$ and $\sigma_1 = \sigma_2$ \\[4pt]
+Inv.\ Gaussian
+  & $\mathrm{IG}(\mu_1,\,\lambda_1)$
+  & $\mathrm{IG}(\mu_2,\,\lambda_2)$
+  & --- (suf.: $\le_{\mathrm{lr}}$ conditions) \\[4pt]
+Comp.\ Poisson
+  & $\mathrm{CP}(\nu_1,\,F_{Y_1})$
+  & $\mathrm{CP}(\nu_2,\,F_{Y_2})$
+  & --- (suf.: $\le_{\mathrm{lr}}$ conditions) \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\begin{table}[htbp]
+\centering
+\caption{Conditions for $X \le_{\mathrm{st}} Y$ (usual stochastic order) within each family.}
+\label{tab:ordering_st}
+\small
+\begin{tabular}{@{}p{2.1cm}p{3.8cm}p{4.0cm}p{4.0cm}@{}}
+\toprule
+\textbf{Family} & $X$ & $Y$ & \textbf{Condition} \\
+\midrule
+Gamma
+  & $\mathrm{Ga}(\alpha_1,\,\beta_1)$
+  & $\mathrm{Ga}(\alpha_2,\,\beta_2)$
+  & $\alpha_1 \le \alpha_2$ and $\beta_1 \ge \beta_2$ \\[4pt]
+Gaussian
+  & $\mathcal{N}(\mu_1,\,\sigma_1^2)$
+  & $\mathcal{N}(\mu_2,\,\sigma_2^2)$
+  & $\mu_1 \le \mu_2$ and $\sigma_1 = \sigma_2$ \\[4pt]
+Inv.\ Gaussian
+  & $\mathrm{IG}(\mu_1,\,\lambda_1)$
+  & $\mathrm{IG}(\mu_2,\,\lambda_2)$
+  & --- (suf.: $\le_{\mathrm{lr}}$ conditions) \\[4pt]
+Comp.\ Poisson
+  & $\mathrm{CP}(\nu_1,\,F_{Y_1})$
+  & $\mathrm{CP}(\nu_2,\,F_{Y_2})$
+  & --- (suf.: $\le_{\mathrm{lr}}$ conditions) \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\paragraph{Gamma.}
+The log-likelihood ratio of $\mathrm{Ga}(\alpha_2,\beta_2)$ over $\mathrm{Ga}(\alpha_1,\beta_1)$ has derivative $(\alpha_2 - \alpha_1)/x - (\beta_2 - \beta_1)$, which is non-negative for all $x > 0$ if and only if $\alpha_2 \ge \alpha_1$ and $\beta_2 \le \beta_1$.
+Conversely, if $\alpha_1 > \alpha_2$ then $F_X(t) \sim (\beta_1 t)^{\alpha_1}/(\alpha_1\,\Gamma(\alpha_1)) \ll (\beta_2 t)^{\alpha_2}/(\alpha_2\,\Gamma(\alpha_2)) \sim F_Y(t)$ as $t \to 0^+$, violating $\le_{\mathrm{st}}$;
+if $\beta_1 < \beta_2$ then $\bar F_X(t)/\bar F_Y(t) \to \infty$ as $t \to \infty$, again violating $\le_{\mathrm{st}}$.
+Hence all three orders coincide for the Gamma family~\cite[Sec.~1.C]{ShakedShanthikumar2007}.
+Under the closure condition (same~$\beta$), they all reduce to $\alpha_1 \le \alpha_2$.
+
+\paragraph{Gaussian.}
+The CDF of $\mathcal{N}(\mu,\sigma^2)$ is $\Phi\bigl((t-\mu)/\sigma\bigr)$.
+The inequality $\Phi\bigl((t-\mu_1)/\sigma_1\bigr) \ge \Phi\bigl((t-\mu_2)/\sigma_2\bigr)$ for all~$t$ requires $(t-\mu_1)/\sigma_1 \ge (t-\mu_2)/\sigma_2$ for all~$t$, which is linear in~$t$ and can hold identically only if $\sigma_1 = \sigma_2$, in which case it reduces to $\mu_1 \le \mu_2$.
+The likelihood ratio is then $\exp\bigl((\mu_2-\mu_1)\,x/\sigma^2 + \text{const}\bigr)$, non-decreasing in~$x$.
+Thus all three orders coincide: $\sigma_1 = \sigma_2$ and $\mu_1 \le \mu_2$.
+
+\paragraph{Inverse Gaussian.}
+The log-likelihood ratio of $\mathrm{IG}(\mu_2,\lambda_2)$ over $\mathrm{IG}(\mu_1,\lambda_1)$ has derivative
+\[
+  \frac{\lambda_1}{2\mu_1^2} - \frac{\lambda_2}{2\mu_2^2} + \frac{\lambda_2 - \lambda_1}{2x^2}.
+\]
+This is non-negative for all $x > 0$ if and only if $\lambda_2 \ge \lambda_1$ (from $x \to 0^+$) and $\lambda_1/\mu_1^2 \ge \lambda_2/\mu_2^2$ (from $x \to \infty$).
+Under the closure condition (same $\mu^2/\lambda$), these simplify to $\mu_1 \le \mu_2$.
+For the general two-parameter case, closed-form necessary and sufficient conditions for $\le_{\mathrm{hr}}$ and $\le_{\mathrm{st}}$ do not appear in the standard references; the $\le_{\mathrm{lr}}$ conditions serve as a sufficient criterion.
+
+\paragraph{Compound Poisson.}
+With the same jump-size distribution~$F_Y$ ($Y \ge 0$), $\mathrm{CP}(\nu_1, F_Y) \le_{\mathrm{lr}} \mathrm{CP}(\nu_2, F_Y)$ when $\nu_1 \le \nu_2$: a higher arrival rate produces stochastically more shocks and hence more cumulative damage.
+When the jump-size distributions differ or are not constrained to be non-negative, the ordering conditions depend on the specific form of~$F_Y$ and no universal closed-form characterisation is available.
+
+\paragraph{Implications for the fleet problem.}
+Under the closure conditions of Table~\ref{tab:discrete_models}, the cumulative damage $D_{i\ell k}$ depends on the schedule only through the sum of the mission-dependent shape (or mean) parameters.
+Stochastic ordering of two damage states therefore reduces to comparing scalar cumulative parameters:
+for Gamma, the total shape $\sum_t \alpha_t$;
+for Gaussian, the total mean $\sum_t \mu_t$ (the total variance $\sum_t \sigma_t^2$ is equal if the same missions are served in different order, or is irrelevant in the Wiener-process formulation where $\sigma^2$ is a fixed component parameter);
+for IG, the total mean $\sum_t \mu_t$.
+This scalar comparison is what makes the loop constraint~\eqref{eq:loop} tractable within each model family.
+
+\subsubsection{Loop constraint for each degradation model}
+
+We now specialise the loop constraint~\eqref{eq:loop} to each family.
+Let $D_H$ and $D_{2H}$ denote the degradation of a single component at the mid-point and end of the horizon, with parameters determined by the schedule and any intervening maintenance.
+The constraint reads $\Pr(D_{2H} > \tau) \le \Pr(D_H > \tau)$.
+We drop the $(i,\ell)$ subscripts for clarity.
+
+\paragraph{Gamma.}
+Let $D_H \sim \mathrm{Ga}(A_H,\,\beta)$ and $D_{2H} \sim \mathrm{Ga}(A_{2H},\,\beta)$, where $A_k$ denotes the effective cumulative shape at step~$k$ (accounting for repairs and replacements).
+The survival function is $\Pr(D > \tau) = Q(A,\,\beta\tau)$, where $Q(a,x) = \Gamma(a,x)/\Gamma(a)$ is the regularised upper incomplete gamma function.
+Since $Q(a,x)$ is strictly increasing in~$a$ for fixed $x > 0$, the loop constraint becomes a scalar inequality:
+\begin{equation}\label{eq:loop_gamma}
+  A_{2H} \;\le\; A_H.
+\end{equation}
+This is a linear constraint on the cumulative shape parameters, directly expressible in terms of the scheduling and maintenance decision variables.
+
+\paragraph{Gaussian.}
+Let $D_H \sim \mathcal{N}(\mu_H,\,\sigma_H^2)$ and $D_{2H} \sim \mathcal{N}(\mu_{2H},\,\sigma_{2H}^2)$.
+The survival function is $\Pr(D > \tau) = \Phi\bigl((\mu - \tau)/\sigma\bigr)$, where $\Phi$ is the standard normal CDF.
+Since $\Phi$ is strictly increasing, the loop constraint is equivalent to
+\begin{equation}\label{eq:loop_gauss}
+  \frac{\mu_{2H} - \tau}{\sigma_{2H}} \;\le\; \frac{\mu_H - \tau}{\sigma_H},
+\end{equation}
+or equivalently $(\tau - \mu_{2H})/\sigma_{2H} \ge (\tau - \mu_H)/\sigma_H$.
+When $\sigma_H = \sigma_{2H}$ (e.g.\ if the Wiener process uses a fixed per-step diffusion coefficient and the same number of mission days is served in each half), this reduces to $\mu_{2H} \le \mu_H$.
+In general, condition~\eqref{eq:loop_gauss} couples the mean and standard deviation: a higher variance at~$2H$ can be compensated by a sufficiently lower mean.
+
+\paragraph{Inverse Gaussian.}
+Let $D_H \sim \mathrm{IG}(\mu_H,\,\lambda_H)$ and $D_{2H} \sim \mathrm{IG}(\mu_{2H},\,\lambda_{2H})$.
+The CDF of $\mathrm{IG}(\mu,\lambda)$ admits the closed form
+\begin{equation}\label{eq:ig_cdf}
+  F_{\mathrm{IG}}(x;\,\mu,\lambda) \;=\;
+    \Phi\!\Biggl(\sqrt{\frac{\lambda}{x}}\Bigl(\frac{x}{\mu}-1\Bigr)\Biggr)
+    \;+\; e^{2\lambda/\mu}\;
+    \Phi\!\Biggl(-\sqrt{\frac{\lambda}{x}}\Bigl(\frac{x}{\mu}+1\Bigr)\Biggr).
+\end{equation}
+The loop constraint becomes
+\begin{equation}\label{eq:loop_ig}
+  F_{\mathrm{IG}}(\tau;\,\mu_{2H},\lambda_{2H}) \;\ge\; F_{\mathrm{IG}}(\tau;\,\mu_H,\lambda_H).
+\end{equation}
+This is an analytical but nonlinear inequality in the four parameters $(\mu_H,\lambda_H,\mu_{2H},\lambda_{2H})$.
+Under the closure condition (same $\mu^2/\lambda$), the $\le_{\mathrm{lr}}$ results of Table~\ref{tab:ordering_lr} guarantee that $\mu_{2H} \le \mu_H$ is a sufficient condition.
+
+\paragraph{Compound Poisson.}
+When $D \sim \mathrm{CP}(\nu,F_Y)$, the survival function does not admit a universal closed form.
+Conditioning on the number of shocks gives the series
+\begin{equation}\label{eq:surv_cp}
+  \Pr(D > \tau) \;=\; \sum_{n=0}^{\infty} \frac{e^{-\nu}\,\nu^n}{n!}\;\Pr\!\Bigl(\sum_{k=1}^{n} Y_k > \tau\Bigr),
+\end{equation}
+which can be evaluated numerically (it converges rapidly) or bounded.
+
+\paragraph{Upper bounds when no closed form is available.}
+When the survival function $\Pr(D > \tau)$ cannot be computed in closed form---as for the compound Poisson process, or when the closure condition fails and the marginal of the sum is not within a standard family---the loop constraint can still be enforced through conservative upper bounds on the failure probability.
+Three standard choices, in order of increasing tightness, are:
+\begin{enumerate}[label=(\roman*)]
+  \item \emph{Markov bound.}
+    $\Pr(D > \tau) \;\le\; \mathbb{E}[D]\,/\,\tau$.
+    Requires only the mean; very loose but always valid.
+
+  \item \emph{Cantelli bound} (one-sided Chebyshev).
+    For $\tau > \mathbb{E}[D]$:
+    \begin{equation}\label{eq:cantelli}
+      \Pr(D > \tau) \;\le\; \frac{\mathrm{Var}[D]}{\mathrm{Var}[D] + (\tau - \mathbb{E}[D])^2}.
+    \end{equation}
+    Requires the first two moments; tighter than Markov when $\tau$ is well above the mean.
+
+  \item \emph{Chernoff bound.}
+    $\Pr(D > \tau) \;\le\; \inf_{s > 0}\, e^{-s\tau}\,M_D(s)$,
+    where $M_D(s) = \mathbb{E}[e^{sD}]$ is the moment-generating function.
+    For the compound Poisson process, $M_D(s) = \exp\bigl(\nu(M_Y(s)-1)\bigr)$, which is available in closed form whenever $M_Y$ is.
+    This yields the tightest exponential bound but requires solving a one-dimensional optimisation over~$s$.
+\end{enumerate}
+In an optimisation setting, the Cantelli bound is often the most practical: the loop constraint reduces to a constraint on $\mathbb{E}[D_{2H}]$ and $\mathrm{Var}[D_{2H}]$ relative to $\mathbb{E}[D_H]$ and $\mathrm{Var}[D_H]$, both of which are additive over increments and therefore linear (or low-order polynomial) in the scheduling decisions.
+
+\subsection{Maintenance strategies}
+\label{sec:maint_strategies}
+
+Maintenance actions on a repairable component range between two extremes: \emph{minimal repair}, which restores the component to the state it was in just before failure (``as bad as old'', ABAO), and \emph{perfect repair} or \emph{replacement}, which resets it to a like-new condition (``as good as new'', AGAN).
+Real-world interventions almost always fall between these two extremes; they are collectively referred to as \emph{imperfect maintenance}~\cite{PhamWang1996}.
+This section surveys the principal modelling families.
+
+\subsubsection{Taxonomy of repair actions}
+
+Table~\ref{tab:repair_actions} classifies five canonical maintenance actions by their effect on the component state.
+
+\begin{table}[htbp]
+\centering
+\caption{Taxonomy of maintenance actions, from least to most restorative.}
+\label{tab:repair_actions}
+\small
+\begin{tabular}{@{}p{3.0cm}p{4.5cm}p{5.8cm}@{}}
+\toprule
+\textbf{Action} & \textbf{Effect on damage $D$} & \textbf{Model} \\
+\midrule
+No intervention
+  & $D^+ = D^-$
+  & Damage unchanged \\[3pt]
+Minimal repair (ABAO)
+  & $D^+ = D^-$
+  & Failure intensity restored to pre-failure level; damage history preserved~\cite{BrownProschan1983} \\[3pt]
+Imperfect repair
+  & $D^- > D^+ > D^{\mathrm{new}}$
+  & Partial reduction of damage or virtual age (see below) \\[3pt]
+Perfect repair (AGAN)
+  & $D^+ = D^{\mathrm{new}}$
+  & Component returned to like-new state \\[3pt]
+Replacement
+  & $D^+ = D^{\mathrm{new}}$
+  & Physical component substituted; equivalent to perfect repair \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\noindent Here $D^-$ and $D^+$ denote the damage immediately before and after maintenance, and $D^{\mathrm{new}}$ is the damage of a new component.
+
+\subsubsection{Virtual age models}
+
+Kijima~\cite{Kijima1989} formalised imperfect repair through the concept of \emph{virtual age}.
+After the $n$-th repair, the component behaves as if it had age $V_n$ (rather than its calendar age), and the failure intensity at calendar time~$t$ is $\lambda(t - T_n + V_n)$, where $T_n$ is the time of the $n$-th repair and $\lambda(\cdot)$ is the baseline intensity.
+Two variants are standard:
+\begin{itemize}
+  \item \textbf{Kijima~I.} The repair acts only on the damage accumulated since the previous repair:
+    \[
+      V_n \;=\; V_{n-1} + (1-\rho)\,(T_n - T_{n-1}),
+    \]
+    where $\rho \in [0,1]$ is the repair efficiency.
+    Only the most recent inter-repair period is partially rejuvenated (``memory-one'').
+  \item \textbf{Kijima~II.} The repair acts on the entire accumulated virtual age:
+    \[
+      V_n \;=\; (1-\rho)\,(V_{n-1} + T_n - T_{n-1}).
+    \]
+    The full history is rejuvenated (``infinite memory'').
+\end{itemize}
+In both cases $\rho = 0$ gives minimal repair (ABAO) and $\rho = 1$ gives perfect repair (AGAN).
+
+\subsubsection{Reduction-based models}
+
+Doyen and Gaudoin~\cite{DoyenGaudoin2004} proposed a unifying taxonomy by distinguishing the \emph{quantity} that the repair reduces: the accumulated damage (or virtual age), or the failure intensity.
+Each class admits a memory-one variant (subscript~1) and an infinite-memory variant (subscript~$\infty$).
+
+\paragraph{Arithmetic Reduction of Damage / Age (ARD, ARA).}
+The repair removes a fraction~$\rho$ of the accumulated damage:
+\begin{align}
+  \text{ARD}_1: &\quad D^+ = D^- - \rho\,(D^- - D^{\mathrm{last}}), \label{eq:ard1} \\
+  \text{ARA}_1: &\quad V^+ = V^- - \rho\,(V^- - V^{\mathrm{last}}), \label{eq:ara1} \\
+  \text{ARD}_\infty: &\quad D^+ = (1-\rho)\,D^-, \label{eq:ardinf} \\
+  \text{ARA}_\infty: &\quad V^+ = (1-\rho)\,V^-, \label{eq:arainf}
+\end{align}
+where $D^{\mathrm{last}}$ (resp.~$V^{\mathrm{last}}$) is the damage (resp.\ virtual age) at the end of the previous maintenance epoch.
+$\text{ARD}_\infty$ coincides with Kijima~II expressed in damage units, and $\text{ARA}_1$ coincides with Kijima~I expressed in virtual age.
+
+\paragraph{Arithmetic Reduction of Intensity (ARI).}
+Instead of reducing the virtual age, the repair directly reduces the failure intensity:
+\begin{align}
+  \text{ARI}_1: &\quad \lambda^+ = \lambda^- - \rho\,(\lambda^- - \lambda^{\mathrm{last}}), \label{eq:ari1} \\
+  \text{ARI}_\infty: &\quad \lambda^+ = (1-\rho)\,\lambda^-. \label{eq:ariinf}
+\end{align}
+ARI models are natural when maintenance targets the failure rate (e.g.\ condition-based interventions) rather than the underlying degradation state.
+They are in general not equivalent to ARA/ARD models: a reduction in intensity does not correspond to a unique reduction in virtual age unless the baseline intensity is strictly monotone~\cite{DoyenGaudoin2004}.
+
+\subsubsection{Connection to the fleet management formulation}
+
+The abstract repair operator $\mathcal{R}(D^-,\,\rho)$ introduced in Section~\ref{sec:overview} encompasses ARD, and replacement models.
+In particular:
+\begin{itemize}
+  \item $\text{ARD}_\infty$: $\mathcal{R}(D^-,\rho) = (1-\rho)\,D^-$ (used in the scoping as the default ``ARD'' policy);
+  \item $\text{ARD}_1$: $\mathcal{R}(D^-,\rho) = D^- - \rho\,(D^- - D^{\mathrm{last}})$, requiring the additional state variable $D^{\mathrm{last}}$;
+  \item Replacement / AGAN: $\mathcal{R}(D^-,\rho) = D^{\mathrm{new}}$ (captured by the separate replacement variable $x^r_{i\ell k}$ in the formulation).
+\end{itemize}
+The choice of repair model affects the degradation dynamics~\eqref{eq:dyn_full}, the definition of the repair cost variable~$z_{i\ell k}$, and the tractability of the resulting optimisation problem.
+ARI models are not directly compatible with the damage-tracking formulation of Section~\ref{sec:overview} and would require reformulation in terms of the failure intensity rather than the damage state.
+
+\paragraph{Maintenance under the Palmgren--Miner damage model.}
+The remaining-life framework of Section~\ref{sec:discrete_deg} represents damage as the normalised fraction $D_{\mathrm{PM}} = \sum_i n_i/N_{f,i} \in [0,1]$, with failure at $D_{\mathrm{PM}} \ge 1$.
+Because $D_{\mathrm{PM}}$ is additive over loading blocks, it fits the same damage-tracking structure as the stochastic processes of Table~\ref{tab:deg_models}: each mission day contributes an increment $\Delta D_{\mathrm{PM}} = n_j / N_{f,j}$ (deterministic if the S--N parameters are fixed, or random if scatter is modelled~\cite{MunizCalvente2022}).
+The repair operator~$\mathcal{R}$ and the replacement action therefore apply directly:
+\begin{itemize}
+  \item \emph{Replacement} resets the fatigue fraction to zero: $D_{\mathrm{PM}}^+ = 0$ (equivalently $D^{\mathrm{new}} = 0$).
+    This corresponds to substituting the physical component with a new one whose cycle count is zero.
+  \item $\text{ARD}_\infty$: $D_{\mathrm{PM}}^+ = (1-\rho)\,D_{\mathrm{PM}}^-$.
+    Physically, this models an intervention that partially restores fatigue life (e.g.\ surface treatment, shot peening, localised crack repair) without resetting the full loading history.
+  \item $\text{ARD}_1$: $D_{\mathrm{PM}}^+ = D_{\mathrm{PM}}^- - \rho\,(D_{\mathrm{PM}}^- - D_{\mathrm{PM}}^{\mathrm{last}})$.
+    Only the damage accumulated since the last maintenance epoch is partially reversed.
+\end{itemize}
+A notable difference from the stochastic process models is that $D_{\mathrm{PM}}$ is bounded above by construction (failure at~1), so the threshold is fixed at $\tau = 1$ and the reliability constraint becomes $\Pr(D_{\mathrm{PM}} \ge 1) \le \varepsilon$.
+In the deterministic variant of Miner's rule this is a hard feasibility check; in the stochastic extension it becomes a chance constraint analogous to~\eqref{eq:abs_rel}.
+
+Closure under summation is trivially satisfied: $D_{\mathrm{PM}}$ is a sum of real-valued increments, so the marginal at any step is the convolution of the individual increments regardless of their distributional family.
+In the deterministic variant of Miner's rule, comparing two schedules reduces to comparing two real numbers and no stochastic ordering is needed.
+In the stochastic extension (scatter in $N_{f,i}$), the parametric ordering conditions of Section~\ref{sec:stoch_orders} apply only if the distributional assumption on the scatter places the increments $n_i/N_{f,i}$ in one of the families of Table~\ref{tab:deg_models}; otherwise the general ordering definitions still hold but must be verified case by case.
+
+\paragraph{Remaining items for this section.}
+\begin{itemize}
+    \item[$\checkmark$] Fatigue models (either damage accumulation or remaining life)
+    \item[$\square$] Degradation-aware fleet management
+    \item[$\square$] Maintenance strategies
+    \item[$\square$] Stochastic orderings
+    \item[$\square$] Similar applications
+    \item[$\square$] Novelties of the project and its placement in the literature
+\end{itemize}
+
+\section{Focus on trains}
+
+\begin{itemize}
+    \item What are the relevant components (mechanical and electrical) to model a train
+    \item What is the typical degradation model for each of them under which operational assumptions
+\end{itemize}
+
+\section{Optimization problem for a fleet of trains}
+\label{sec:trains}
+
+Table~\ref{tab:notation_trains} lists the additional symbols introduced when specialising the abstract formulation of Section~\ref{sec:overview} to a concrete fleet of trains.
+All symbols from Table~\ref{tab:notation} remain in force; the entries below either instantiate abstract quantities or add new ones.
+
+\begin{table}[htbp]
+\centering
+\caption{Additional notation for the train fleet specialisation (extends Table~\ref{tab:notation}).}
+\label{tab:notation_trains}
+\small
+\begin{tabular}{@{}lp{10.5cm}@{}}
+\toprule
+\textbf{Symbol} & \textbf{Description} \\
+\midrule
+\multicolumn{2}{@{}l}{\textit{Cost parameters}} \\
+$C_M$                        & Cost of scheduling a maintenance day (scalar) \\
+$C_D$                        & Damage regularisation coefficient (scalar) \\
+$C_{R,i\ell}$                & Cost of imperfect repair per unit of expected degradation removed \\
+$C_{\mathrm{rep},i\ell}$     & Cost of full replacement of component $\ell$ of member $i$ \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\subsection{Cost function}
+
+With the cost parameters of Table~\ref{tab:notation_trains}, the abstract objective of Section~\ref{sec:overview} takes the form:
+\begin{align}\label{eq:objective_trains}
+\min \quad
+  & C_M \sum_{k=1}^{2H} \sum_{i=1}^{F} x_{i0k}
+  \;+\; \sum_{k=1}^{2H} \sum_{i=1}^{F} \sum_{\ell=1}^{L} C_{R,i\ell}\, z_{i\ell k}
+  \;+\; \sum_{k=1}^{2H} \sum_{i=1}^{F} \sum_{\ell=1}^{L} C_{\mathrm{rep},i\ell}\, x^r_{i\ell k} \notag \\
+  & +\; C_D\, u.
+\end{align}
+Each term is a weighted sum over the planning horizon:
+the first counts maintenance days, the second scales with the degradation removed by each repair, the third counts replacements, and the last penalises the worst-case aggregate expected damage via~$u$ (cf.~\eqref{eq:u_def}).
+
+\begin{itemize}
+    \item Specialize the previous optimization problem to the case of trains
+    \item Look for what are can be exactly modeled and what no
+    \item Provide the MILP approximation of such problem
+\end{itemize}
+
+\section{Implementation details}
+
+\begin{itemize}
+    \item Provide all the project specifications for the proper implementation of the solving algorithm
+	\item Provide the details to run an actual simulation of the system
+\end{itemize}
+
+\bibliographystyle{plainnat}
+\bibliography{scoping_bib}
+
+\end{document}
