@@ -35,7 +35,7 @@
 \begin{document}
 % WRITER 1 OUTPUT: Preamble, Part I (Taxonomy I), Part II (Taxonomy II)
 
-\title{\textbf{Stochastic Degradation Aware Optimal Fleet management with Application to Trains}\\[6pt]
+\title{\textbf{Stochastic Degradation Aware Optimal Fleet management with Application to Electric Vehicles}\\[6pt]
 {\normalsize A Comprehensive Reference Document}}
 \author{L.\ Fiaschi \\ \small ETH Z\"urich \\ \small \texttt{lfiaschi@ethz.ch}}
 \date{May 2026}
@@ -48,7 +48,7 @@ Each member of the fleet is described as a collection of components.
 Each day, a member can be sent to serve a route, to maintenance (partial or full repair of each component), or left idle.
 The service of a route damages the components of the fleet member.
 Each component has its own stochastic degradation model, and the actual degradation changes according to the route served.
-We show a concrete application to train fleet management.
+We show a concrete application to the management of electric-vehicle fleets, such as buses and cars.
 \end{abstract}
 \tableofcontents
 \newpage
@@ -167,11 +167,7 @@ At each time step, exactly one of the following mutually exclusive cases applies
       D_{i\ell k} \;=\; \mathcal{R}\!\bigl(D_{i\ell,k-1},\;\rho_{i\ell}\bigr),
     \end{equation}
     where $\mathcal{R}$ denotes the repair operator.
-    Two common choices are:
-    \begin{itemize}
-      \item \emph{Arithmetic Reduction of Degradation} (ARD): the post-repair damage is a fixed fraction of the pre-repair damage, $D^+_{i\ell k} = (1-\rho_{i\ell})\,D^-_{i\ell,k}$;
-      \item \emph{Arithmetic Reduction of Age} (ARA): the repair removes a fraction of the damage accumulated since the last maintenance epoch.
-    \end{itemize}
+    See Section \ref{sec:maint_strategies} for more details.
     The degradation removed by the repair action defines the repair cost variable:
     \begin{equation}\label{eq:z_def}
       z_{i\ell k} \;=\; \mathbb{E}\bigl[D_{i\ell,k-1}\bigr] - \mathbb{E}\bigl[D_{i\ell k}\bigr],
@@ -292,7 +288,7 @@ Collecting the objective~\eqref{eq:objective}, the scheduling constraints~\eqref
 
 Problem~\eqref{eq:abstract} is a stochastic combinatorial optimisation problem.
 It makes no commitment to a specific degradation model (the distribution of~$\Delta D_{i\ell k}^{(j)}$), repair policy (the operator~$\mathcal{R}$), aggregation function~($\phi$), or cost structure (the functions $C_M, C_R, C_{\mathrm{rep}}, C_D$).
-All of these are instantiated when the formulation is specialised to a concrete fleet (Section~\ref{sec:trains}).
+All of these are instantiated when the formulation is specialised to a concrete fleet (Section~\ref{sec:evs}).
 
 \section{Literature review}
 
@@ -865,211 +861,221 @@ In the stochastic extension (scatter in $N_{f,i}$), the parametric ordering cond
     \item[$\square$] Novelties of the project and its placement in the literature
 \end{itemize}
 
-\section{Focus on trains}
+\section{Focus on electric vehicles}
 
-A railway vehicle---whether a locomotive-hauled coach, a powered multiple unit, or a complete train-set---is a complex repairable system whose parts degrade at very different rates and through very different physical mechanisms.
+A battery-electric road vehicle---a transit bus or a passenger car---is a complex repairable system whose parts degrade at very different rates and through very different physical mechanisms.
 Not every part deserves an explicit place in the fleet-management model of Section~\ref{sec:overview}.
-We retain a component only if it satisfies three criteria:
+We retain a component if it satisfies two criteria:
 \begin{enumerate}[label=(C\arabic*)]
   \item \textbf{Usage-driven degradation.}
     Its condition deteriorates measurably as a function of \emph{how} the vehicle is used, so that the mission assigned on a given day produces a quantifiable damage increment $\Delta D^{(j)}_{i\ell k}$ (Section~\ref{sec:overview}).
     A part that ages only with calendar time, independently of the mission served, carries no scheduling information and need not enter the per-mission degradation state.
   \item \textbf{Operational significance.}
     Its failure or preventive renewal is a material driver of at least one of \emph{safety}, \emph{availability}, or \emph{life-cycle maintenance cost}---the three quantities the schedule trades off.
-  \item \textbf{Tractable degradation model.}
-    Its deterioration admits a stochastic model of the kind catalogued in Section~\ref{sec:stoch_orders} (a monotone accumulation process or a remaining-life/fatigue model), so that the reliability and loop constraints can be evaluated.
 \end{enumerate}
+We deliberately do \emph{not} require that the component admit a degradation model expressible within the families of Section~\ref{sec:stoch_orders}: a component can be worth considering even when the abstract model of Section~\ref{sec:overview} does not yet capture it.
+Such cases are listed here together with the modelling extension they would demand, rather than being silently dropped.
 
 The components meeting these criteria fall into two broad groups.
-The \emph{mechanical running gear and structure} degrades primarily through wear and mechanical fatigue driven by distance travelled, axle load, curving, and braking.
-The \emph{electrical and electronic traction and auxiliary equipment} degrades primarily through thermal and electrical ageing driven by transmitted power, current, and switching or thermal cycles.
-Table~\ref{tab:train_components} lists the principal candidates in each group, the dominant degradation mechanism, the operational quantity that drives it, and the reason the component is operationally significant.
+The \emph{electrochemical and electrical powertrain}---traction battery, electric motor, power electronics, charging interface---degrades through electrochemical ageing and thermal and electrical cycling, driven by energy throughput, charge and discharge rates, and temperature.
+The \emph{mechanical running gear}---tires, friction brakes, wheel bearings, suspension, reduction gear---degrades through wear and fatigue, driven by distance travelled, vehicle mass, road quality, and the acceleration/braking profile.
+Table~\ref{tab:ev_components} lists the principal candidates in each group, the dominant degradation mechanism, the operational quantity that drives it, and the reason the component is operationally significant.
 
-Empirical reliability studies support this selection.
-A recent criticality analysis of a passenger rolling-stock fleet, built on a reliability-block-diagram model with a sensitivity-based criticality index, ranks the \emph{bogie} subsystem---frame, wheels, and axles---as overwhelmingly the most critical, followed by the traction subsystem (gearbox and traction motors) and the pantograph, while the pneumatic braking subsystem emerges as the most reliable~\cite[Table~7]{SeyedanOskouei2024}.
-Data-driven predictive-maintenance surveys of the rolling-stock domain concentrate on the same parts: wheels and bogies, axle bearings, wheelsets, braking-circuit components, and door mechanisms~\cite[Sec.~4.3]{Davari2021}.
+Two domain-specific facts shape the relative importance of these components.
+First, the traction battery dominates: a recent predictive-maintenance study of electric buses centres entirely on the battery pack as the primary maintenance-critical component, models its end-of-life through the accumulated charge throughput, and shows that optimising the driving profile alone can cut the modelled capacity loss by 25\%~\cite[Secs.~2,~4.2]{Ibrahim2025}---direct evidence that battery damage is steerable by exactly the kind of mission-assignment decisions our framework optimises.
+Second, regenerative braking absorbs most of the service braking, with estimated reductions of roughly 60--90\% in friction-brake wear emissions~\cite[Sec.~6.1]{Fussell2022}; the relative wear burden consequently shifts to the tires, whose wear is aggravated by the higher mass of electric vehicles---to the point that, on motorways, the added tire-wear particle emissions are not offset by the regenerative-braking savings~\cite[Sec.~6.1]{Fussell2022}.
 
 \begin{table}[htbp]
 \centering
-\caption{Candidate train components for degradation-aware modelling.
-Relevance flags: \textbf{S} safety-critical, \textbf{A} availability driver, \textbf{C} maintenance-cost driver.
+\caption{Candidate electric-vehicle components for degradation-aware modelling.
+Relevance flags: \textbf{S} safety-critical, \textbf{A} availability driver (its failure or renewal takes the vehicle out of service), \textbf{C} maintenance-cost driver.
 The ``mission driver'' column names the operational quantity that determines the per-mission damage increment $\Delta D^{(j)}_{i\ell k}$.}
-\label{tab:train_components}
+\label{tab:ev_components}
 \small
 \begin{tabular}{@{}p{3.0cm}p{4.6cm}p{3.5cm}c@{}}
 \toprule
 \textbf{Component} & \textbf{Dominant degradation mechanism} & \textbf{Mission driver} & \textbf{Rel.} \\
 \midrule
-\multicolumn{4}{@{}l}{\textit{Mechanical: running gear and structure}} \\
-Wheelset (wheels)
-  & Tread/flange wear; rolling contact fatigue (RCF)
-  & Distance, curving, braking, axle load
-  & S, C \\[3pt]
-Axle
-  & High-cycle rotating-bending fatigue
-  & Distance / load cycles
-  & S \\[3pt]
-Axle-box bearings
-  & Fatigue spalling, wear, thermal damage
-  & Distance, speed
-  & S, A \\[3pt]
-Bogie frame
-  & Structural high-cycle fatigue
-  & Load cycles, distance
-  & S \\[3pt]
-Suspension (springs, dampers)
-  & Fatigue; loss of damping
-  & Load cycles, track quality
-  & A \\[3pt]
-Brake friction elements (pads/blocks, discs)
-  & Abrasive and thermal wear
-  & Number and energy of braking events
-  & S, C \\[3pt]
-Gear unit / final drive
-  & Wear, contact fatigue, lubricant ageing
-  & Transmitted torque, distance
-  & A \\
-\midrule
-\multicolumn{4}{@{}l}{\textit{Electrical / electronic: traction and auxiliary}} \\
+\multicolumn{4}{@{}l}{\textit{Electrochemical / electrical powertrain}} \\
+Traction battery pack
+  & Capacity fade and impedance growth: SEI growth, lithium plating, loss of active material (cycle $+$ calendar ageing)
+  & Energy throughput, DOD, C-rate, temperature
+  & A, C \\[3pt]
 Traction motor
   & Winding-insulation thermal ageing; bearing wear
   & Thermal/load cycles, current
   & A, C \\[3pt]
-Traction power converter (IGBT modules)
-  & Thermal-cycling fatigue (bond-wire lift-off, solder cracking); DC-link capacitor ageing
+Power semiconductors (IGBT / SiC modules in the inverter and converters)
+  & Thermal-cycling fatigue (bond-wire lift-off, solder cracking)
   & Power throughput, thermal cycles
   & A, C \\[3pt]
-Pantograph / current collection
-  & Carbon contact-strip wear (mechanical + arc erosion)
-  & Distance under wire, current, speed
+Converter capacitors (DC-link, filtering)
+  & Electrolyte vaporisation / dielectric wear-out (ripple-current self-heating)
+  & Ripple current, temperature, operating hours
   & A, C \\[3pt]
-Traction battery / energy storage
-  & Capacity fade; calendar + cycle ageing
-  & Charge/discharge cycles, depth of discharge
+Control / power PCBs (gate drivers, BMS, converter boards)
+  & Solder-joint and via thermo-mechanical fatigue; random infant/wear-out failures
+  & Thermal cycles, power-on hours, vibration
   & A \\[3pt]
-Auxiliaries (HVAC, compressor, doors)
-  & Wear, fatigue, cycle-driven failures
+Charging interface (inlet, connector)
+  & Contact wear and contact-resistance growth over mating cycles
+  & Number of charging events
+  & A \\
+\midrule
+\multicolumn{4}{@{}l}{\textit{Mechanical: running gear and chassis}} \\
+Tires
+  & Tread abrasion (friction work at the contact patch)
+  & Distance, vehicle mass, driving style, road surface
+  & S, C \\[3pt]
+Brake friction elements (pads, discs)
+  & Abrasive and thermal wear (mitigated by regenerative braking)
+  & Number and energy of friction-braking events
+  & S, C \\[3pt]
+Wheel bearings
+  & Rolling-contact fatigue spalling
+  & Distance, load
+  & S, A \\[3pt]
+Suspension (springs, dampers, bushings)
+  & Fatigue; loss of damping
+  & Load cycles, road quality
+  & A \\[3pt]
+Reduction gear / drive shafts
+  & Wear, contact fatigue, lubricant ageing
+  & Transmitted torque, distance
+  & A \\[3pt]
+Auxiliaries (HVAC, battery thermal management, doors)
+  & Wear, cycle-driven failures
   & Operating hours, actuation cycles
-  & A \\[3pt]
-Cabling, connectors, insulation
-  & Electrical/thermal insulation ageing
-  & Thermal/electrical load cycles
-  & S \\
+  & A \\
 \bottomrule
 \end{tabular}
 \end{table}
 
-\paragraph{Modelling shortlist.}
-For a first concrete instantiation of the abstract framework, the most informative components are those that are simultaneously safety- or cost-critical \emph{and} equipped with mature, monotone degradation models that fit the closure and ordering analysis of Section~\ref{sec:stoch_orders}: the \emph{wheelsets} (wear and RCF), the \emph{brake friction elements}, the \emph{axle-box bearings}, the \emph{traction-motor insulation}, the \emph{traction power-electronic modules}, and the \emph{pantograph contact strips}.
-Each maps onto a single per-component degradation variable $D_{i\ell k}$ whose mission-dependent increment $\Delta D^{(j)}_{i\ell k}$ is governed by the operational driver in the third column of Table~\ref{tab:train_components}.
-A long high-speed route, for instance, produces large wheel-wear and bearing increments, whereas a stop-intensive suburban route produces a large brake-wear increment; this mission-dependence is exactly the coupling that the scheduling problem of Section~\ref{sec:overview} exploits.
+\paragraph{Power-electronic and electronic components.}
+The traction chain contains four electrical sub-families beyond the battery, and they fit the framework to differing degrees.
+The \emph{power semiconductors} of the inverter and the DC--DC and on-board-charger \emph{converters} are governed by junction-temperature-swing fatigue and map cleanly onto the remaining-life family (treated in detail below).
+The \emph{converter capacitors}---DC-link and filtering---wear out by electrolyte vaporisation and dielectric ageing driven by ripple-current self-heating; this is a monotone, usage-driven accumulation (Arrhenius in temperature, power law in ripple current) and therefore also fits the framework, with the mission acting through the delivered power and the resulting ripple and thermal load.\footnote{The capacitor and PCB degradation-model forms in this paragraph are stated from standard power-electronics reliability theory; located primary sources have not yet been secured for them (see \texttt{inaccessible\_papers.md}).}
+The \emph{control and power printed circuit boards}---gate-driver, battery-management, and converter boards---are the borderline case: their solder-joint and plated-through-via fatigue is genuinely usage-driven (thermal cycling, power-on hours, vibration) and so satisfies~(C1)--(C2), but a substantial part of their failures are sudden and effectively random rather than a smooth accumulation crossing a threshold.
+The damage-accumulation dynamics of Section~\ref{sec:overview} do not fully capture this mixed wear-out-plus-random behaviour; representing it faithfully would require either a compound-Poisson shock term (Section~\ref{sec:stoch_orders}) or a failure-intensity formulation rather than the damage-state formulation of Equation~\eqref{eq:dyn_full}.
+We list PCBs here, with this caveat, precisely so the limitation is recorded rather than hidden by the choice of model.
 
-\paragraph{Worked example: wheel--rail wear and rolling contact fatigue.}
-The wheelset is simultaneously the most safety- and cost-critical running-gear component~\cite[Table~7]{SeyedanOskouei2024} and the one with the most mature usage-driven degradation models, so it serves as the reference instantiation of the abstract increment $\Delta D^{(j)}_{i\ell k}$.
-Its tread and flange suffer two competing damage modes: \emph{wear} (progressive loss of material) and \emph{rolling contact fatigue} (surface- and subsurface-crack initiation and growth).
-The two interact---a sufficiently high wear rate truncates crack growth by removing the cracked surface layer, so component life peaks at an intermediate ``magic wear rate''~\cite[Sec.~1, Fig.~1--2]{Akama2025}.
-Wear is most commonly modelled by Archard's law $V = k\,PL/H$, with $V$ the worn volume, $P$ the normal load, $L$ the sliding distance, $H$ the hardness and $k$ a wear coefficient~\cite[Eq.~25, Sec.~5.1.1]{Akama2025}; the same law underpins earlier wheel--rail wear reviews~\cite[Eq.~1, Sec.~4.2]{Soleimani2017} and, at the global contact-patch level, an energy-dissipation ``wear index'' proportional to $T\gamma$ (tangential force times creepage)~\cite[Sec.~5.5]{Akama2025}.
-RCF crack initiation is captured either by ratchetting models that accumulate plastic shear strain until a critical value---the Franklin--Kapoor brick model~\cite[Eqs.~4--5, Sec.~4.1.3]{Akama2025}---or by energy-dissipation life models in which damage accrues once $T\gamma$ exceeds a material threshold~\cite[Eqs.~1--2]{HNia2024}.
-Both modes share the property that is decisive for our framework: damage accumulates monotonically with \emph{running distance and load cycles}---mileage for wheels, million gross tonnes (MGT) for rails---so the daily increment is a direct function of the mission served (distance, curving, axle load, braking)~\cite[``Modelling of wheel and rail life'']{HNia2024}.
-H-Nia et al.~\cite{HNia2024} embed exactly this accumulation in a multibody-simulation predictive-maintenance framework for the heavy-haul Swedish Iron-Ore line and use it to predict how reprofiling and grinding intervals shift with operating conditions (lubrication, speed, track gauge)---the single-component analogue of the fleet-level scheduling problem of Section~\ref{sec:overview}.
-Because wear is monotone and additive, it fits the Gamma or inverse-Gaussian accumulation processes of Section~\ref{sec:stoch_orders}, whereas the RCF crack-initiation life maps onto the remaining-life / Palmgren--Miner formulation of the same section.
+\paragraph{Modelling shortlist.}
+For a first concrete instantiation of the abstract framework, the most informative components are those that are simultaneously safety- or cost-critical \emph{and} equipped with mature, monotone degradation models that fit the closure and ordering analysis of Section~\ref{sec:stoch_orders}: the \emph{traction battery pack}, the \emph{tires}, the \emph{brake friction elements}, the \emph{wheel bearings}, the \emph{traction-motor insulation}, and the \emph{inverter and converter power modules}.
+Each maps onto a single per-component degradation variable $D_{i\ell k}$ whose mission-dependent increment $\Delta D^{(j)}_{i\ell k}$ is governed by the operational driver in the third column of Table~\ref{tab:ev_components}.
+A long highway mission, for instance, produces large tire-wear and deep-discharge battery increments, whereas a stop-intensive urban mission multiplies braking events and charge--discharge micro-cycles; this mission-dependence is exactly the coupling that the scheduling problem of Section~\ref{sec:overview} exploits.
+
+\paragraph{Worked example: traction-battery capacity fade.}
+The battery pack is the costliest component of an electric vehicle and the focus of its predictive maintenance~\cite[Secs.~2,~4.2]{Ibrahim2025}, so it serves as the reference instantiation of the abstract increment $\Delta D^{(j)}_{i\ell k}$.
+Its degradation state is the relative capacity fade (one minus state-of-health), and the failure threshold~$\tau$ is the maximum admissible fade (the end-of-life criterion).
+Mechanistically, capacity is lost through three side-reaction families---SEI film growth, lithium plating, and gas generation---whose contributions split into loss of lithium inventory and loss of active material~\cite[Secs.~2.1,~4.1, Eqs.~28--29]{Lv2025}.
+At the fleet level this is abstracted by semi-empirical models that decompose the fade into a \emph{calendar} term and a \emph{cycling} term: the calendar term grows with an Arrhenius factor $a\exp(-E_a/RT)$ in temperature and a power law in time and state-of-charge, while the cycling term grows with the number of cycles modulated by temperature, C-rate, and depth-of-discharge stress factors~\cite[Eqs.~1--3]{Hosen2021}.
+An even simpler engineering abstraction links end-of-life directly to the accumulated charge throughput~\cite[Sec.~4.2]{Ibrahim2025}.
+For our framework the decisive structure is: the cycling fade is monotone and additive over days, and the daily increment is a function of the energy served on the mission---including the recharge that restores it, so that fast charging (high C-rate) makes the same mission costlier in damage---together with its depth-of-discharge and temperature profile.
+This is precisely a mission-dependent accumulation process of the Gamma or inverse-Gaussian type of Section~\ref{sec:stoch_orders}; the non-stationary (power-law) time dependence is absorbed by the time-varying increment parameters that the formulation already allows ($\Delta D^{(j)}_{i\ell k}$ may depend on~$k$).
+The calendar term, by contrast, accrues even on idle and maintenance days and is therefore \emph{not} captured by the dynamics of Section~\ref{sec:overview}, which leave the state unchanged on such days; over short horizons it can be neglected, while over long horizons the dynamics~\eqref{eq:dyn_full} must be extended with a small activity-independent drift added to every case, including idle.
+Maintenance also takes a specific form: replacing a subset of battery modules removes a corresponding fraction of the pack-level damage---a physical realisation of the ARD repair operator $\mathcal{R}$ with $\rho$ the fraction of modules renewed---while full pack replacement is the AGAN action~$x^r$.
 
 \subsection{Degradation models for the shortlisted components}
-\label{sec:train_deg_models}
+\label{sec:ev_deg_models}
 
-The remaining shortlisted components degrade through the same two structural mechanisms identified for the wheelset---monotone usage-driven \emph{wear/accumulation} and \emph{cyclic-load fatigue life consumption}---and therefore map onto the same two model families of Section~\ref{sec:stoch_orders}.
-Table~\ref{tab:train_deg_models} summarises the governing model for each, the operational quantity that drives the per-mission increment, and the abstract family it instantiates.\footnote{The primary sources for the traction-motor insulation thermal-ageing models (Arrhenius--Dakin, Montsinger) and the IGBT power-cycling lifetime models (Coffin--Manson, LESIT, Bayerer) could not be accessed at the time of writing; these two rows are described from standard reliability theory and are deliberately left uncited pending a located source (see \texttt{inaccessible\_papers.md}).}
+The remaining shortlisted components degrade through the same two structural mechanisms identified for the battery---monotone usage-driven \emph{wear/accumulation} and \emph{cyclic-load fatigue life consumption}---and therefore map onto the same two model families of Section~\ref{sec:stoch_orders}.
+Table~\ref{tab:ev_deg_models} summarises the governing model for each, the operational quantity that drives the per-mission increment, and the abstract family it instantiates.
 
 \begin{table}[htbp]
 \centering
-\caption{Degradation models for the shortlisted train components and their mapping onto the abstract model families of Section~\ref{sec:stoch_orders}.
+\caption{Degradation models for the shortlisted electric-vehicle components and their mapping onto the abstract model families of Section~\ref{sec:stoch_orders}.
 ``Accumulation'' denotes a monotone damage-accumulation process (Gamma / inverse-Gaussian / compound-Poisson); ``remaining-life'' denotes a cycles-to-failure model accumulated by the Palmgren--Miner rule.}
-\label{tab:train_deg_models}
+\label{tab:ev_deg_models}
 \small
-\begin{tabular}{@{}p{2.7cm}p{4.6cm}p{3.0cm}p{2.6cm}@{}}
+\begin{tabular}{@{}p{2.4cm}p{4.9cm}p{3.0cm}p{2.6cm}@{}}
 \toprule
 \textbf{Component} & \textbf{Degradation model / law} & \textbf{Mission driver} & \textbf{Abstract family} \\
 \midrule
-Wheelset
-  & Archard wear \cite{Akama2025,Soleimani2017} + ratchetting / energy-dissipation RCF \cite{Akama2025,HNia2024}
-  & Distance, curving, axle load, braking
-  & Accumulation (wear); remaining-life (RCF) \\[3pt]
-Axle-box bearing
-  & Subsurface-fatigue spall propagation, continuum damage \cite{Ohana2023}; data-driven health indicator \cite{Liu2023axlebox}
-  & Distance, speed, axle load
-  & Accumulation / remaining-life \\[3pt]
-Brake friction pad
-  & Energy-based weight-wear regression (braking-speed dominant) \cite{Sawczuk2022}
-  & Number and energy of braking events
+Battery pack
+  & Calendar $+$ cycle capacity fade: Arrhenius in $T$, power law in $t$/SOC, cycle-count term \cite[Eqs.~1--3]{Hosen2021}; mechanistic SEI / plating / LAM \cite[Sec.~2.1]{Lv2025}
+  & Energy throughput, DOD, C-rate, temperature
+  & Accumulation ($k$-dependent) \\[3pt]
+Tires
+  & Friction-work abrasion \cite[Eq.~7]{SchallamachTurner1960}; factors: tire build, road surface, vehicle operation \cite[Sec.~2.1.2]{Fussell2022}
+  & Distance, mass, accel./braking, road surface
   & Accumulation \\[3pt]
-Pantograph contact strip
-  & Combined mechanical $+$ electrical (Joule) $+$ arc-erosion wear \cite{Kuznar2023}
-  & Distance under wire, current, speed
-  & Accumulation (incl.\ compound-Poisson arcing) \\[3pt]
+Brake friction pad
+  & Archard-type wear per braking event \cite[Eqs.~14,~22]{Sha2022}; regenerative-braking mitigation \cite[Sec.~6.1]{Fussell2022}
+  & Number and energy of friction-braking events
+  & Accumulation \\[3pt]
+Wheel bearing
+  & Subsurface-fatigue spall propagation, continuum damage \cite[Sec.~2.1.3]{Ohana2023}
+  & Distance, speed, load
+  & Accumulation / remaining-life \\[3pt]
 Traction-motor insulation
-  & Arrhenius--Dakin thermal-endurance life; Montsinger rule
+  & Arrhenius--Dakin thermal-endurance life \cite{Dakin1948}; Montsinger rule \cite{Montsinger1930}; cumulative-damage extension \cite[Eqs.~1--2]{Zhang2025insul}
   & Thermal / load cycles, current
   & Remaining-life (Miner) \\[3pt]
-IGBT power module
-  & Coffin--Manson / LESIT cycles-to-failure in $\Delta T_j$; Palmgren--Miner accumulation
+Inverter power module
+  & Coffin--Manson / Norris--Landzberg cycles-to-failure in $\Delta T_j$ \cite[Eqs.~3--5]{Alavi2024}; Bayerer/CIPS08 \cite[Eq.~1]{Bayerer2008}
   & Power throughput, thermal cycles
   & Remaining-life (Miner) \\
 \bottomrule
 \end{tabular}
 \end{table}
 
-\paragraph{Axle-box bearings.}
+\paragraph{Tires.}
+Tread loss is governed by the frictional work expended at the tire--road contact patch: the classical theory of Schallamach and Turner assumes abrasion proportional to the frictionally dissipated energy~\cite[Eq.~7]{SchallamachTurner1960} and derives that, at small slip, wear grows approximately with the \emph{square} of the slip~\cite[Eq.~19]{SchallamachTurner1960}---so the wear rate rises steeply with the tangential forces generated by traction, braking, and cornering.
+The principal factors are the tire characteristics (compound, construction), the road-surface characteristics, and the vehicle operation~\cite[Sec.~2.1.2]{Fussell2022}.
+The higher kerb mass of electric vehicles raises these contact forces---enough that, on motorways, the added tire-wear particle emissions are not offset by the brake-wear savings of regenerative braking~\cite[Sec.~6.1]{Fussell2022}.
+Tread depth decreases monotonically from its new value to the legal limit, which plays the role of the threshold~$\tau$; the per-mission increment depends on distance, load, road surface, and driving aggressiveness.
+For bus fleets, retreading acts as a near-AGAN replacement of the wear state, while tire rotation merely redistributes wear across positions and is left outside the per-component model.
+
+\paragraph{Brake friction elements.}
+Friction-pad material loss is governed by the energy dissipated at the pad--disc interface during braking; a physics-based route applies Archard's law on a fractal, elastoplastic contact to obtain a per-cycle wear depth and hence a brake-cycle life $N = H_0/(S_0\,h_{\mathrm{wear}})$, with $H_0$ the admissible wear depth and $h_{\mathrm{wear}}$ the wear per braking~\cite[Eqs.~14,~22]{Sha2022}.
+In an electric vehicle the regenerative brake absorbs most service braking, cutting friction-brake wear by an estimated 60--90\%~\cite[Sec.~6.1]{Fussell2022}; the residual increments concentrate in the events where regeneration is unavailable or insufficient---battery near full charge, very low temperature, emergency stops.
+The cumulative pad wear remains a sum of non-negative, mission-dependent increments---one per friction-braking event---i.e.\ a monotone accumulation process whose rate now also depends on the energy-management strategy.
+
+\paragraph{Wheel bearings.}
 Bearing degradation proceeds in two stages: a long rolling-contact-fatigue \emph{initiation} phase followed by rapid \emph{spall propagation} once a surface defect forms.
 Ohana et al.~\cite[Sec.~2.1.3]{Ohana2023} model the propagation phase with a continuum-damage-mechanics formulation in which a scalar damage variable accumulates per over-rolling cycle, $\mathrm{d}D/\mathrm{d}N = \bigl(\sigma_{\mathrm{eff}}/[\sigma_r(1-D)]\bigr)^m$, with growth driven by the tensile residual stresses generated at the spall edge by repeated rolling-element impacts; the model is intended as the basis for a physics-based prognostic tool that estimates remaining useful life once a critical spall size is reached.
 Because the underlying driver is the number of load cycles---and hence running distance and speed---the bearing damage is a monotone accumulation process, well represented by a Gamma or inverse-Gaussian process (initiation) feeding a remaining-life threshold (propagation).
-Where a physical model is unavailable, data-driven health indicators built from axle-box vibration signals provide an empirical degradation trajectory~\cite[Sec.~4]{Liu2023axlebox}.
-
-\paragraph{Brake friction elements.}
-Friction-pad material loss is governed by the energy dissipated at the pad--disc interface during braking.
-Sawczuk et al.~\cite[Eq.~7]{Sawczuk2022} fit the per-application weight wear of a railway disc brake to braking-process variables by multiple regression and find the \emph{initial braking speed} (equivalently, the kinetic energy dissipated) to be the dominant factor ($r = 0.81$), well ahead of clamping pressure and pad thickness ($r < 0.2$).
-A complementary physics-based route applies Archard's law on a fractal, elastoplastic contact to obtain a per-cycle wear depth and hence a brake-cycle life $N = H_0/(S_0\,h_{\mathrm{wear}})$, with $H_0$ the admissible wear depth and $h_{\mathrm{wear}}$ the wear per braking~\cite[Eqs.~14,~22]{Sha2022}.
-Either way the cumulative pad wear is a sum of non-negative, mission-dependent increments---one per braking event---which is exactly a monotone accumulation process: a stop-intensive suburban mission contributes a large increment, an express run a small one.
-
-\paragraph{Pantograph contact strips.}
-Carbon contact-strip wear is the superposition of three mechanisms~\cite[Sec.~1.2]{Kuznar2023}: \emph{mechanical} wear from sliding friction against the contact wire (driven by distance under wire and contact force, the dominant mode), \emph{electrical} wear from Joule heating at the contact spot (driven by current), and \emph{arc erosion} from contact-loss arcing (aggravated by speed and current, most pronounced in winter conditions).
-In our framework the first two are continuous and monotone (Gamma-type accumulation), whereas the arcing component is intrinsically a shock process---discrete erosion events at loss-of-contact---naturally described by the compound-Poisson model of Section~\ref{sec:stoch_orders}.
-The total wear is therefore a mixed accumulation process whose increment depends on the mission through distance under wire, current draw, and speed.
 
 \paragraph{Traction-motor insulation.}
 The winding insulation is the principal life-limiting element of the traction motor, and its dominant ageing mechanism is thermal: elevated winding temperature accelerates the chemical degradation of the dielectric.
-Classical thermal-endurance theory models the time-to-failure with an Arrhenius--Dakin law, $L(T) = A\,\exp\!\bigl(E_a/(k_B T)\bigr)$, in which life decreases exponentially with absolute temperature $T$ ($E_a$ the activation energy, $k_B$ Boltzmann's constant); the empirical Montsinger ``rule'' is the equivalent statement that life halves for each fixed temperature rise.
-Under a mission-varying temperature profile, the fraction of insulation life consumed accumulates by a Palmgren--Miner-type summation of the time spent at each temperature divided by the corresponding endurance, so the abstract description coincides with the remaining-life model of Section~\ref{sec:discrete_deg} with the mission driving the thermal load (current, ventilation, ambient).
+Dakin recognised thermal ageing as a chemical reaction whose rate constant follows the Arrhenius exponential law $K = A\,e^{-B/T}$ in absolute temperature~\cite[Eq.~5]{Dakin1948}, giving the thermal-endurance life $L(T) = a\,\exp(b/T)$~\cite[Eq.~1]{Zhang2025insul}; the earlier empirical rule of Montsinger states that the ageing rate roughly doubles for each 8\,$^\circ$C temperature increase~\cite[Synopsis, p.~776]{Montsinger1930}---a halving of life per fixed rise that Dakin showed to be the constant-coefficient approximation of the Arrhenius law, accurate at one temperature only~\cite[Fig.~1 and discussion of Eq.~5]{Dakin1948}.
+Under a mission-varying temperature profile, the fraction of life consumed in an interval $\mathrm{d}t$ at temperature $T_i(t)$ is $\mathrm{d}t/L[T_i(t)]$, and the total consumed fraction is the integral of this loss rate over the profile---a cumulative-damage (Palmgren--Miner) extension of the Arrhenius model~\cite[Eq.~2 and Fig.~10]{Zhang2025insul}.
+The abstract description therefore coincides with the remaining-life model of Section~\ref{sec:discrete_deg}, with the mission driving the thermal load (current, cooling, ambient); notably, the same review also surveys Wiener- and Gamma-process formulations of insulation degradation~\cite[Sec.~5]{Zhang2025insul}, directly matching the stochastic families of Section~\ref{sec:stoch_orders}.
 
-\paragraph{Traction power-electronic modules.}
-The IGBT modules of the traction converter fail predominantly by thermo-mechanical fatigue---aluminium bond-wire lift-off and solder-layer cracking---driven by the coefficient-of-thermal-expansion mismatch under repeated junction-temperature swings $\Delta T_j$.
-The number of cycles to failure is classically captured by a Coffin--Manson power law $N_f = a\,(\Delta T_j)^{-n}$, refined by the LESIT model $N_f = a\,(\Delta T_j)^{-n}\exp\!\bigl(E_a/(k_B T_m)\bigr)$ that adds an Arrhenius dependence on the mean temperature $T_m$, and by the multi-factor Bayerer (CIPS\,2008) model that further accounts for power-on time, current per bond wire, and device geometry.
+\paragraph{Inverter power modules.}
+The IGBT or SiC modules of the traction inverter fail predominantly by thermo-mechanical fatigue---aluminium bond-wire lift-off and solder-layer cracking---driven by the coefficient-of-thermal-expansion mismatch under repeated junction-temperature swings $\Delta T_j$~\cite[Sec.~1]{Bayerer2008}.
+The number of cycles to failure is classically captured by a Coffin--Manson power law $N_f = \alpha\,(\Delta T_j)^{-n}$~\cite[Eq.~3]{Alavi2024}, refined by adding an Arrhenius factor in the mean junction temperature $T_{jm}$, $N_f = A\,(\Delta T_j)^{\alpha}\exp\!\bigl(E_a/(k_b T_{jm})\bigr)$~\cite[Eq.~4]{Alavi2024}, and generalised by the multi-factor Bayerer (CIPS08) model
+$N_f = K\,\Delta T_j^{\beta_1} e^{\beta_2/(T_{j}+273)}\, t_{\mathrm{on}}^{\beta_3}\, I^{\beta_4}\, V^{\beta_5}\, D^{\beta_6}$,
+fitted by multiple regression over power-cycling tests spanning temperature swing, power-on time~$t_{\mathrm{on}}$, current per bond wire~$I$, blocking voltage~$V$, and bond-wire diameter~$D$~\cite[Eq.~1]{Bayerer2008}.
+Being purely empirical, the model is valid only within the fitted test range and is not to be extrapolated~\cite[Sec.~3.1]{Bayerer2008}; its coefficients also require recalibration per device family---a recent re-fit on dedicated power-cycling tests shifted $(\beta_1,\beta_2,\beta_3)$ substantially and cut the predicted B10 inverter lifetime from 43 to 13~years~\cite[Abstract and Sec.~5]{Alavi2024}.
 Under a realistic mission mix the thermal cycles have heterogeneous amplitudes, and the accumulated damage is summed by the Palmgren--Miner rule $Q = \sum_i n_i/N_{f,i}$, failure at $Q=1$---placing the power module squarely in the remaining-life family of Section~\ref{sec:discrete_deg}, with the mission determining the transmitted power and hence the temperature-swing spectrum.
 
 \paragraph{Common structure.}
-Every shortlisted component reduces to one of the two abstract descriptions of Section~\ref{sec:stoch_orders}: a \emph{monotone accumulation process} (wheels, bearings, brakes, pantograph---wear) or a \emph{remaining-life model accumulated by the Palmgren--Miner rule} (RCF, insulation, power electronics---fatigue).
-In both, the per-mission damage increment $\Delta D^{(j)}_{i\ell k}$ is set by an operational driver that the schedule controls---distance, braking energy, current, or thermal cycling---which is precisely the structure the abstract formulation of Section~\ref{sec:overview} assumes.
-This confirms that the train fleet is a faithful concrete instance of the general problem, and fixes which degradation family parameterises each component when the model is specialised in Section~\ref{sec:trains}.
+Every shortlisted component reduces to one of the two abstract descriptions of Section~\ref{sec:stoch_orders}: a \emph{monotone accumulation process} (battery cycling fade, tires, brakes, bearings) or a \emph{remaining-life model accumulated by the Palmgren--Miner rule} (insulation, power modules).
+In both, the per-mission damage increment $\Delta D^{(j)}_{i\ell k}$ is set by an operational driver that the schedule controls---energy throughput and charging rate, distance and load, braking profile, or thermal cycling---which is precisely the structure the abstract formulation of Section~\ref{sec:overview} assumes.
+This confirms that the electric-vehicle fleet is a faithful concrete instance of the general problem, and fixes which degradation family parameterises each component when the model is specialised in Section~\ref{sec:evs}.
 
 \paragraph{Excluded parts.}
-Components whose deterioration is essentially independent of the mission served---for example corrosion of the carbody shell, or calendar ageing of static electronics---satisfy criterion~(C2) but not~(C1).
+Components whose deterioration is essentially independent of the mission served---body corrosion, interior fittings, static low-voltage electronics, the 12-volt auxiliary battery---satisfy criterion~(C2) but not~(C1).
 They are best handled by time-based overhaul outside the optimisation and are therefore omitted from the per-mission degradation state, although their fixed maintenance windows can be imposed as exogenous availability constraints.
+The calendar-ageing component of the traction battery is the one borderline case and is handled by the drift extension discussed in the worked example above.
 
 \paragraph{Remaining items for this section.}
 \begin{itemize}
-    \item[$\square$] Relevant components (mechanical and electrical) to model a train
+    \item[$\square$] Relevant components (mechanical and electrical) to model an electric vehicle
     \item[$\square$] Typical degradation model for each component, and the operational assumptions under which it holds
 \end{itemize}
 
-\section{Optimization problem for a fleet of trains}
-\label{sec:trains}
+\section{Optimization problem for a fleet of electric vehicles}
+\label{sec:evs}
 
-Table~\ref{tab:notation_trains} lists the additional symbols introduced when specialising the abstract formulation of Section~\ref{sec:overview} to a concrete fleet of trains.
+Table~\ref{tab:notation_evs} lists the additional symbols introduced when specialising the abstract formulation of Section~\ref{sec:overview} to a concrete fleet of electric vehicles.
 All symbols from Table~\ref{tab:notation} remain in force; the entries below either instantiate abstract quantities or add new ones.
 
 \begin{table}[htbp]
 \centering
-\caption{Additional notation for the train fleet specialisation (extends Table~\ref{tab:notation}).}
-\label{tab:notation_trains}
+\caption{Additional notation for the electric-vehicle fleet specialisation (extends Table~\ref{tab:notation}).}
+\label{tab:notation_evs}
 \small
 \begin{tabular}{@{}lp{10.5cm}@{}}
 \toprule
@@ -1086,8 +1092,8 @@ $C_{\mathrm{rep},i\ell}$     & Cost of full replacement of component $\ell$ of m
 
 \subsection{Cost function}
 
-With the cost parameters of Table~\ref{tab:notation_trains}, the abstract objective of Section~\ref{sec:overview} takes the form:
-\begin{align}\label{eq:objective_trains}
+With the cost parameters of Table~\ref{tab:notation_evs}, the abstract objective of Section~\ref{sec:overview} takes the form:
+\begin{align}\label{eq:objective_evs}
 \min \quad
   & C_M \sum_{k=1}^{2H} \sum_{i=1}^{F} x_{i0k}
   \;+\; \sum_{k=1}^{2H} \sum_{i=1}^{F} \sum_{\ell=1}^{L} C_{R,i\ell}\, z_{i\ell k}
@@ -1098,7 +1104,7 @@ Each term is a weighted sum over the planning horizon:
 the first counts maintenance days, the second scales with the degradation removed by each repair, the third counts replacements, and the last penalises the worst-case aggregate expected damage via~$u$ (cf.~\eqref{eq:u_def}).
 
 \begin{itemize}
-    \item Specialize the previous optimization problem to the case of trains
+    \item Specialize the previous optimization problem to the case of electric vehicles
     \item Look for what are can be exactly modeled and what no
     \item Provide the MILP approximation of such problem
 \end{itemize}
