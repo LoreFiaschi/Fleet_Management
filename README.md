@@ -22,7 +22,7 @@ pip install -e ".[dev]"
 ## Quick start
 
 ```python
-from fleet_management import solve, plot_management
+from fleet_management import solve, plot_management, validate
 
 # 1. Solve with Gaussian degradation
 solve("input/data.yaml", degradation="gaussian", results_path="results/output.yaml")
@@ -32,6 +32,13 @@ solve("input/data_ig.yaml", degradation="inverse_gaussian", results_path="result
 
 # 3. Plot the resulting schedule
 plot_management("results/output.yaml", plot_file_path="results/schedule.png")
+
+# 4. Validate results
+validate(input_path="input/data.yaml",
+degradation="gaussian",
+results_path="results/output.yaml",
+validation_path="results/validation.yaml",
+tol=1e-6)
 ```
 
 ## API reference
@@ -177,6 +184,50 @@ The output file includes:
 | `v` | Variance degradation solution (F x L x 2H, Gaussian only) |
 | `u` | Max degradation mean per time step (2H) |
 | `z` | Degradation level at repair per train (F x 2H, non-zero only when maintenance is scheduled) |
+
+## Validation
+
+### validate(input_path, degradation, results_path, validation_path, tolerance)
+
+| Parameter | Type | Description |
+|---|---|---|
+| `input_path` | `str` | Path to the input data file. |
+| `degradation` | `str` | Degradation model. Supported: `"gaussian"`, `"inverse_gaussian"`. |
+| `results_path` | `str` | Results file path. |
+| `validation_path` | `str` | Validation file path, defaults to `"validation.yaml"` |
+| `tolerance` | `float` | floating point tolerance for validating results |
+
+Supported input/output formats: **YAML** (`.yaml`, `.yml`), **JSON** (`.json`)
+
+### Validation file contents
+
+The validation file includes:
+
+| Key | Type | Description |
+|---|---|---|
+| `status` | `str` | Solver status (`"optimal"` or Gurobi status code) |
+| `degradation` | `str` | Degradation model used |
+| `objective` | `float` | Optimal objective value (or `null`) |
+| `tolerance` | `float` | Tolerance for floating point approximation |
+| `solver_status_optimal_check` | `bool` | Solver status binary result |
+| `x_binary` | `bool` | All x results are binary values |
+| `assignment_sum_j_x_le_1` | `bool` | Assignment constraint fulfilled|
+| `demand_sum_i_x_eq_1` | `bool` | Demand constraint fulfilled |
+| `u_ge_mu` | `bool` | u greater equals mu fulfilled |
+| `capacity_sum_mu_le_F_minus_M` | `bool` | Capacity constraint fulfilled |
+| `mu_periodic` | `bool` | Periodic mu constraint fulfilled |
+| `v_periodic` | `bool` | Periodic v constraint fulfilled |
+| `objective_recomputation` | `bool` | Recompute Gaussian objective from saved variables |
+
+## Negative / Positive Testing of Validator
+
+`make_corrupted_outputs.py` purposefully corrupts output files to test validator
+
+Automated testing of every report:
+```bash
+pytest tests/test_validator_negative_cases.py -v
+pytest test/test_validator_positive_case.py -v
+```
 
 ## Project structure
 

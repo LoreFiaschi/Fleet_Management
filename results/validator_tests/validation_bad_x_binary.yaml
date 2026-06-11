@@ -1,0 +1,44 @@
+status: optimal
+degradation: gaussian
+solver_objective: 41.38193835009239
+tolerance: 1.0e-06
+checks:
+- name: solver_status_optimal
+  passed: true
+  violation: 0.0
+  tolerance: 1.0e-06
+- name: x_binary
+  passed: false
+  violation: 0.5
+  tolerance: 1.0e-06
+- name: assignment_sum_j_x_le_1
+  passed: true
+  violation: 0.0
+  tolerance: 1.0e-06
+- name: demand_sum_i_x_eq_1
+  passed: false
+  violation: 0.5
+  tolerance: 1.0e-06
+- name: u_ge_mu
+  passed: true
+  violation: 0.0
+  tolerance: 1.0e-06
+- name: capacity_sum_mu_le_F_minus_M
+  passed: true
+  violation: 0.0
+  tolerance: 1.0e-06
+- name: mu_periodic
+  passed: true
+  violation: 0.0
+  tolerance: 1.0e-06
+- name: v_periodic
+  passed: true
+  violation: 0.0
+  tolerance: 1.0e-06
+- name: objective_recomputation
+  passed: false
+  violation: 0.5
+  tolerance: 1.0e-06
+recomputed_objective: 41.88193835009239
+passed: false
+max_violation: 0.5
