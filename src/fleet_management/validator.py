@@ -233,6 +233,12 @@ def validate(
 
         _validate_gaussian_objective(report, input_params, results_params, tol)
 
+    elif degradation_lower == "inverse_gaussian":
+        raise NotImplementedError(
+            "Inverse-Gaussian-specific validation is not implemented yet. "
+            "Only Gaussian validation is currently supported."
+        )
+
     report["passed"] = all(check["passed"] for check in report["checks"])
     report["max_violation"] = max(check["violation"] for check in report["checks"])
 
