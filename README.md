@@ -41,6 +41,15 @@ validation_path="results/validation.yaml",
 tol=1e-6)
 ```
 
+## Tiny EV tire-wear example
+
+A first modular electric-vehicle test case has been added in `input/ev_tiny_tires.yaml`. Unlike the earlier abstract test data, this instance defines vehicles, missions, and a component-specific degradation model. The mission contains operational drivers such as distance, road factor, and driving style, while the tire component uses a simple deterministic wear model to convert those drivers into damage increments. The solver then assigns vehicles to missions and schedules maintenance such that tire damage remains below the admissible threshold.
+
+Run the tiny EV tire example with:
+
+```bash
+pytest tests/test_ev_tiny_tires.py -v
+
 ## API reference
 
 ### `solve(input_path, degradation, results_path=None)`
