@@ -1,7 +1,8 @@
 literature/*
 agentic/*
 .claude/*
-#input/*
+input/*
+results/*
 CLAUDE*
 *.zip
 build/*

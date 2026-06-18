@@ -33,22 +33,12 @@ solve("input/data_ig.yaml", degradation="inverse_gaussian", results_path="result
 # 3. Plot the resulting schedule
 plot_management("results/output.yaml", plot_file_path="results/schedule.png")
 
-# 4. Validate results
-validate(input_path="input/data.yaml",
-degradation="gaussian",
-results_path="results/output.yaml",
-validation_path="results/validation.yaml",
-tol=1e-6)
+# 4. Naive validate results
+validate_baseline_assignment_feasibility(input_path="input/data_test_baseline.yaml",
+results_path="results/output_baseline.yaml",
+log_path="results/baseline_assignment_feasibility.log")
 ```
 
-## Tiny EV tire-wear example
-
-A first modular electric-vehicle test case has been added in `input/ev_tiny_tires.yaml`. Unlike the earlier abstract test data, this instance defines vehicles, missions, and a component-specific degradation model. The mission contains operational drivers such as distance, road factor, and driving style, while the tire component uses a simple deterministic wear model to convert those drivers into damage increments. The solver then assigns vehicles to missions and schedules maintenance such that tire damage remains below the admissible threshold.
-
-Run the tiny EV tire example with:
-
-```bash
-pytest tests/test_ev_tiny_tires.py -v
 
 ## API reference
 
@@ -196,15 +186,14 @@ The output file includes:
 
 ## Validation
 
-### validate(input_path, degradation, results_path, validation_path, tolerance)
+### validate_baseline_assignment_feasibility(input_path, results_path, log_path)
 
 | Parameter | Type | Description |
 |---|---|---|
 | `input_path` | `str` | Path to the input data file. |
-| `degradation` | `str` | Degradation model. Supported: `"gaussian"`, `"inverse_gaussian"`. |
 | `results_path` | `str` | Results file path. |
-| `validation_path` | `str` | Validation file path, defaults to `"validation.yaml"` |
-| `tolerance` | `float` | floating point tolerance for validating results |
+| `log_path` | `str` | Validation file path, defaults to `"baseline_assignment_feasibility.log"` |
+
 
 Supported input/output formats: **YAML** (`.yaml`, `.yml`), **JSON** (`.json`)
 
@@ -214,29 +203,12 @@ The validation file includes:
 
 | Key | Type | Description |
 |---|---|---|
-| `status` | `str` | Solver status (`"optimal"` or Gurobi status code) |
-| `degradation` | `str` | Degradation model used |
-| `objective` | `float` | Optimal objective value (or `null`) |
-| `tolerance` | `float` | Tolerance for floating point approximation |
-| `solver_status_optimal_check` | `bool` | Solver status binary result |
-| `x_binary` | `bool` | All x results are binary values |
-| `assignment_sum_j_x_le_1` | `bool` | Assignment constraint fulfilled|
-| `demand_sum_i_x_eq_1` | `bool` | Demand constraint fulfilled |
-| `u_ge_mu` | `bool` | u greater equals mu fulfilled |
-| `capacity_sum_mu_le_F_minus_M` | `bool` | Capacity constraint fulfilled |
-| `mu_periodic` | `bool` | Periodic mu constraint fulfilled |
-| `v_periodic` | `bool` | Periodic v constraint fulfilled |
-| `objective_recomputation` | `bool` | Recompute Gaussian objective from saved variables |
-
-## Negative / Positive Testing of Validator
-
-`make_corrupted_outputs.py` purposefully corrupts output files to test validator
-
-Automated testing of every report:
-```bash
-pytest tests/test_validator_negative_cases.py -v
-pytest test/test_validator_positive_case.py -v
-```
+| `File paths` | `str` | Input and Result files used for validator |
+| `Fleet parameters` | `int` | Define vehicles, missions, components, horizon |
+| `Failure threshold` | `float` | Can be manipulated to corrupt result and test validator |
+| `Degradation scale` | `float` | Can be manipulated to corrupt result and test validator |
+| `Actual solver assignment` | `array` | Damage state + Damage increment and threshold check |
+| `Summary` | `array` | assigned missions, feasible entries, infeasible (if damage increment would violate threshold), maintenance scheduled by solver |
 
 ## Project structure
 

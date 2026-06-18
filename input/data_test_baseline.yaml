@@ -1,10 +1,10 @@
-F: 6
-H: 10
-M: 3
-L: 2
-alpha: 1.0
-epsilon: 0.1
-xi:
+F: 6          # Number of fleet members
+H: 10         # Half-horizon
+M: 3          # Missions
+L: 2          # Components per vehicle
+alpha: 1.0    # Shape rate
+epsilon: 0.1  # Reliability threshold
+xi:           # Fraction of repairability in one maintenance day per car per component
 - - 0.8
   - 0.75
 - - 0.75
@@ -17,13 +17,13 @@ xi:
   - 0.8
 - - 0.8
   - 0.85
-C_M: 1.0
-C_R: 2.0
-C_S: 1.5
-C_P: 3.0
-verbose: 1
-mip_gap: 0.26
-mu_0:
+C_M: 1.0      # Maintenance cost
+C_R: 2.0      # Repair cost
+C_S: 1.5      # Safety cost
+C_P: 3.0      # Penalty cost
+verbose: 1    # Gurobi verbosity default=1
+mip_gap: 0.26 # Optimality gap tolerance
+mu_0:         # Initial mean degradation value per car per component
 - - 0.1341
   - 0.12
 - - 0.1113
@@ -36,7 +36,7 @@ mu_0:
   - 0.11
 - - 0.166
   - 0.15
-v_0:
+v_0:          # Gaussian initial variance values per car per component
 - - 0.000799
   - 0.00064
 - - 0.000551
@@ -49,7 +49,7 @@ v_0:
   - 0.000538
 - - 0.001225
   - 0.001
-mu:
+mu:           # Mean degradation parameters (< alpha)
 - - - - 0.1375
       - 0.1951
       - 0.1732
@@ -410,7 +410,7 @@ mu:
       - 0.144
       - 0.151
       - 0.099
-v:
+v:              # Gaussian variance degradation parameters
 - - - - 0.00084
       - 0.001692
       - 0.001333

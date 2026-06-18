@@ -251,6 +251,256 @@ def validate(
     return report
 
 
+def validate_baseline_assignment_feasibility(
+    input_path: str,
+    results_path: str,
+    log_path: str = "results/baseline_assignment_feasibility.log",
+    tol: float = 1e-6,
+    alpha_override: float | None = None,
+    degradation_scale: float = 1.0,
+) -> dict:
+    """
+    Naive baseline feasibility check for the existing Gaussian baseline dataset.
+
+    It interprets the input parameter mu[i, j, l, k] as the expected degradation
+    increment of component l of vehicle i when assigned to mission j on day k.
+
+    For every assignment x[i, j+1, k] = 1 in the solver output, it checks whether
+
+        current_damage[i, l] + mu_param[i, j, l, k % H] <= alpha
+
+    for every component l.
+
+    Maintenance is represented by x[i, 0, k] = 1.
+    """
+
+    input_file = Path(input_path)
+    results_file = Path(results_path)
+    log_file = Path(log_path)
+
+    if not input_file.exists():
+        raise FileNotFoundError(f"Input file not found: {input_path}")
+
+    if not results_file.exists():
+        raise FileNotFoundError(f"Result file not found: {results_path}")
+
+    log_file.parent.mkdir(parents=True, exist_ok=True)
+
+    # Read input and output using the parser structure.
+    input_data = _read_input(input_file)
+    input_params = _extract_parameters(input_data, "gaussian")
+
+    results_data = _read_results(results_file)
+    results_params = _extract_results_parameters(results_data)
+
+    if results_params["degradation"] != "gaussian":
+        raise ValueError(
+            "This diagnostic currently expects a Gaussian baseline result file."
+        )
+
+    F = input_params["F"]
+    M = input_params["M"]
+    L = input_params["L"]
+    H = input_params["H"]
+    alpha_original = input_params["alpha"]
+    alpha = alpha_original if alpha_override is None else float(alpha_override)
+    degradation_scale = float(degradation_scale)
+
+    if alpha <= 0.0:
+        raise ValueError(f"alpha must be positive, got {alpha}.")
+    
+    if degradation_scale <= 0.0:
+        raise ValueError(f"degradation_scale must be positive, got {degradation_scale}.")
+
+    mu_param = input_params["mu_param"]      # shape: F x M x L x H
+    mu_result = results_params["mu"]         # shape: F x L x 2H
+    x = results_params["x"]                  # shape: F x (M+1) x 2H
+
+    expected_x_shape = (F, M + 1, 2 * H)
+    expected_mu_result_shape = (F, L, 2 * H)
+    expected_mu_param_shape = (F, M, L, H)
+
+    if x.shape != expected_x_shape:
+        raise ValueError(f"x shape {x.shape}, expected {expected_x_shape}.")
+
+    if mu_result.shape != expected_mu_result_shape:
+        raise ValueError(
+            f"result mu shape {mu_result.shape}, expected {expected_mu_result_shape}."
+        )
+
+    if mu_param.shape != expected_mu_param_shape:
+        raise ValueError(
+            f"input mu shape {mu_param.shape}, expected {expected_mu_param_shape}."
+        )
+
+    assigned_checks = []
+    infeasible_assignments = []
+    maintenance_events = []
+
+    # For console summary
+    total_assignments = 0
+    feasible_assignments = 0
+    infeasible_count = 0
+
+    lines = []
+    lines.append("=" * 88)
+    lines.append("Baseline assignment feasibility diagnostic")
+    lines.append("=" * 88)
+    lines.append(f"Input file:   {input_file}")
+    lines.append(f"Results file: {results_file}")
+    lines.append(f"F={F}, M={M}, L={L}, H={H}, output horizon={2 * H}")
+    lines.append(f"Original failure threshold alpha={alpha_original}")
+    lines.append(f"Effective failure threshold alpha={alpha}")
+    lines.append(f"Degradation scale={degradation_scale}")
+    lines.append("")
+    lines.append(
+        "Interpretation: input mu[i,j,l,k] is treated as expected degradation "
+        "increment for vehicle i, mission j, component l, day k."
+    )
+    lines.append("")
+    lines.append("-" * 88)
+    lines.append("Actual solver assignments")
+    lines.append("-" * 88)
+
+    for k in range(2 * H):
+        # Solver output uses 2H horizon, but the input degradation
+        # increments are specified over H days. Therefore the second
+        # half of the horizon reuses the same H-day degradation values.
+        k_input = k % H
+
+        for i in range(F):
+            # Maintenance action in existing solver convention
+            if abs(x[i, 0, k] - 1.0) <= tol:
+                maintenance_events.append((i, k))
+                lines.append(
+                    f"k={k:02d}, vehicle={i}: MAINTENANCE scheduled "
+                    f"(x[{i},0,{k}] = {x[i,0,k]:.3f})"
+                )
+
+            # Missions are stored in x[:, 1:, :]
+            for j in range(M):
+                x_value = x[i, j + 1, k]
+
+                if abs(x_value - 1.0) <= tol:
+                    total_assignments += 1
+
+                    if k == 0:
+                        damage_before = input_params["mu_0"][i, :]
+                    else:
+                        damage_before = mu_result[i, :, k - 1]
+
+                    expected_increment = degradation_scale * mu_param[i, j, :, k_input]
+                    damage_after_naive = damage_before + expected_increment
+
+                    component_feasible = damage_after_naive <= alpha + tol
+                    assignment_feasible = bool(np.all(component_feasible))
+
+                    if assignment_feasible:
+                        feasible_assignments += 1
+                        status = "FEASIBLE"
+                    else:
+                        infeasible_count += 1
+                        status = "REQUIRES MAINTENANCE / INFEASIBLE BEFORE ASSIGNMENT"
+
+                    violating_components = np.where(~component_feasible)[0].tolist()
+
+                    record = {
+                        "vehicle": i,
+                        "mission": j,
+                        "time_step": k,
+                        "input_day": k_input,
+                        "feasible": assignment_feasible,
+                        "violating_components": violating_components,
+                        "damage_before": damage_before.tolist(),
+                        "expected_increment": expected_increment.tolist(),
+                        "damage_after_naive": damage_after_naive.tolist(),
+                    }
+
+                    assigned_checks.append(record)
+
+                    if not assignment_feasible:
+                        infeasible_assignments.append(record)
+
+                    lines.append(
+                        f"k={k:02d}, input_day={k_input:02d}, "
+                        f"vehicle={i}, mission={j}: {status}"
+                    )
+
+                    for l in range(L):
+                        component_status = (
+                            "OK" if component_feasible[l] else "ABOVE THRESHOLD"
+                        )
+                        lines.append(
+                            f"    component={l}: "
+                            f"before={damage_before[l]:.6f}, "
+                            f"increment={expected_increment[l]:.6f}, "
+                            f"after={damage_after_naive[l]:.6f}, "
+                            f"threshold={alpha:.6f} -> {component_status}"
+                        )
+
+    lines.append("")
+    lines.append("-" * 88)
+    lines.append("Summary")
+    lines.append("-" * 88)
+    lines.append(f"Total assigned vehicle-mission-time entries: {total_assignments}")
+    lines.append(f"Feasible assigned entries:                   {feasible_assignments}")
+    lines.append(f"Infeasible / maintenance-required entries:   {infeasible_count}")
+    lines.append(f"Maintenance events found:                    {len(maintenance_events)}")
+
+    if infeasible_assignments:
+        lines.append("")
+        lines.append("Infeasible assigned entries:")
+        for record in infeasible_assignments:
+            lines.append(
+                f"  k={record['time_step']:02d}, "
+                f"vehicle={record['vehicle']}, "
+                f"mission={record['mission']}, "
+                f"violating_components={record['violating_components']}"
+            )
+    else:
+        lines.append("")
+        lines.append("No infeasible assigned entries were found by this naive check.")
+
+    lines.append("=" * 88)
+
+    with open(log_file, "w") as f:
+        f.write("\n".join(lines))
+
+    report = {
+        "passed": infeasible_count == 0,
+        "alpha_original": float(alpha_original),
+        "alpha_effective": float(alpha),
+        "degradation_scale": float(degradation_scale),
+        "total_assignments": total_assignments,
+        "feasible_assignments": feasible_assignments,
+        "infeasible_assignments": infeasible_count,
+        "maintenance_events": len(maintenance_events),
+        "log_path": str(log_file),
+        "details": assigned_checks,
+    }
+
+    """print("=" * 72)
+    print("Baseline assignment feasibility diagnostic")
+    print("=" * 72)
+    print(f"Input file:   {input_file}")
+    print(f"Results file: {results_file}")
+    print(f"Log file:     {log_file}")
+    print(f"Total assignments checked: {total_assignments}")
+    print(f"Feasible assignments:      {feasible_assignments}")
+    print(f"Maintenance required:      {infeasible_count}")
+    print(f"Maintenance events found:  {len(maintenance_events)}")
+
+    if infeasible_count == 0:
+        print("Result: PASS according to the naive assignment feasibility check.")
+    else:
+        print("Result: FAIL. Some assigned missions exceed the component threshold.")
+        print("See log file for detailed component-level violations.")
+
+    print("=" * 72)"""
+
+    return report
+
+
 def _read_results(results_file: Path) -> dict:
     """Read results data from a supported file format."""
     ext = results_file.suffix.lower()
