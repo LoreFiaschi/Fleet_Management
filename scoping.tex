@@ -494,6 +494,125 @@ In the fleet management formulation, this means that the reliability constraint 
 The upper bounds of Section~\ref{sec:stoch_orders} (Markov, Cantelli, Chernoff) remain applicable: because the mean and variance of~$D_{\mathrm{PM},k}$ are additive over increments regardless of the distributional family, the Cantelli bound provides a conservative but tractable constraint.
 Alternatively, if the scatter is small enough that a deterministic S--N curve (e.g.\ the mean or a design percentile) is an acceptable approximation, the problem reduces to the deterministic Miner's rule and all constraints become linear.
 
+\subsubsection{Conservative surrogates for the empirical damage-increment distribution}
+\label{sec:cons_surrogates}
+
+In the remaining-life setting the per-mission increment is the Palmgren--Miner contribution $\Delta D^{(j)} = \sum_i n_i/N_{f,i}$ of Equation~\eqref{eq:miner}, and in our intended use its distribution is not postulated but \emph{measured}: a rainflow count~\cite{MunizCalvente2022} of load histories collected for mission~$j$ yields an empirical probability density of the non-negative increment $\Delta D^{(j)}$.
+We deliberately do \emph{not} fit a parametric law to this density---a fit ties the model to one data set and one functional form, undermining the generality the abstract formulation seeks---and instead summarise it by a few distributional functionals (moments, support, selected quantiles) and replace it by a \emph{conservative} surrogate.
+Conservative here means that the surrogate never \emph{under}-states damage, so that the reliability constraint $\Pr(D_{i\ell k} > \tau) \le \varepsilon$ and the loop constraint~\eqref{eq:loop} remain valid by construction.
+Two features of the problem delimit the admissible options.
+First, both constraints act on the \emph{accumulated} damage $D = \sum_t \Delta D_t$ of Equation~\eqref{eq:discrete_damage}, not on a single increment, so the surrogate must be evaluated after summation.
+Second, as observed in the contrast above, none of the standard S--N scatter families is closed under summation, so the law of $D$ is generally unavailable in closed form and must be either bounded or replaced by a convolution-closed surrogate.
+
+Because the increments on distinct days are independent, three functionals of the summands transfer to the sum,
+\begin{equation}\label{eq:additive_functionals}
+  \mathbb{E}[D] = \sum_t \mathbb{E}[\Delta D_t], \qquad
+  \operatorname{Var}[D] = \sum_t \operatorname{Var}[\Delta D_t], \qquad
+  M_D(s) = \prod_t M_{\Delta D_t}(s),
+\end{equation}
+the last two by independence, where $M_X(s) = \mathbb{E}[e^{sX}]$ is the moment-generating function.
+These support two routes.
+\emph{Route~I} bounds the upper tail of $D$ directly from the functionals in~\eqref{eq:additive_functionals}.
+\emph{Route~II} replaces each increment by a stochastically larger surrogate drawn from a family closed under convolution and propagates the order to the sum, using the following standard closure property of the usual stochastic order $\le_{\mathrm{st}}$ (Definition~\ref{def:st}).
+
+\begin{proposition}[Closure of $\le_{\mathrm{st}}$ under independent convolution]\label{prop:st_closure}
+Let $\Delta D_t \le_{\mathrm{st}} \widetilde{\Delta D}_t$ for $t = 1,\dots,k$, with $\{\Delta D_t\}_t$ mutually independent and $\{\widetilde{\Delta D}_t\}_t$ mutually independent.
+Then $\sum_t \Delta D_t \le_{\mathrm{st}} \sum_t \widetilde{\Delta D}_t$.
+More generally, the conclusion holds with the sum replaced by any coordinatewise non-decreasing map $g$ (see Shaked and Shanthikumar~\cite[\S1.A]{ShakedShanthikumar2007}).
+\end{proposition}
+\begin{proof}
+By the coupling characterisation of $\le_{\mathrm{st}}$ (Definition~\ref{def:st}), for each $t$ there exist $\hat X_t \stackrel{d}{=} \Delta D_t$ and $\hat Y_t \stackrel{d}{=} \widetilde{\Delta D}_t$ on a common probability space with $\hat X_t \le \hat Y_t$ almost surely.
+Realise these couplings independently across $t$.
+Then $\sum_t \hat X_t \le \sum_t \hat Y_t$ almost surely, while independence gives $\sum_t \hat X_t \stackrel{d}{=} \sum_t \Delta D_t$ and $\sum_t \hat Y_t \stackrel{d}{=} \sum_t \widetilde{\Delta D}_t$; hence $\sum_t \Delta D_t \le_{\mathrm{st}} \sum_t \widetilde{\Delta D}_t$.
+Any non-decreasing $g$ preserves the almost-sure inequality, yielding the general statement.
+\end{proof}
+
+Proposition~\ref{prop:st_closure} is what makes Route~II usable beyond a single sum: the dynamics~\eqref{eq:dyn_full} is a coordinatewise non-decreasing map of the increments and the (independent) reset variables, so a per-increment stochastic upper bound propagates to a bound on the entire state $D_{i\ell k}$---repairs and replacements included---and hence to $\Pr(D_{i\ell k} > \tau)$ at every step.
+Table~\ref{tab:cons_surrogates} collects the resulting options together with their guarantees and trade-offs.
+
+\begin{table}[htbp]
+\centering
+\caption{Ways to summarise the empirical per-mission damage-increment distribution and propagate it to the accumulated damage $D = \sum_t \Delta D_t$ for the constraint $\Pr(D > \tau) \le \varepsilon$.
+``Conservative'' means a guaranteed upper bound on the failure probability (Route~I) or $\le_{\mathrm{st}}$ dominance (Route~II); ``$\widetilde{D}$'' means the method yields an explicit surrogate \emph{law} for the sum---needed, e.g., for the loop constraint, which compares two survival functions---as opposed to a one-sided bound.
+Means are additive, variances additive, and moment-generating functions multiplicative over independent increments (Equation~\eqref{eq:additive_functionals}).}
+\label{tab:cons_surrogates}
+\footnotesize
+\setlength{\tabcolsep}{4.5pt}
+\begin{tabular}{@{}p{1.7cm}p{1.9cm}p{0.9cm}p{0.7cm}p{2.9cm}p{2.9cm}p{1.5cm}@{}}
+\toprule
+\textbf{Method} & \textbf{Inputs} & \textbf{Cons.?} & \textbf{$\widetilde{D}$?} & \textbf{Pros} & \textbf{Cons} & \textbf{Ref.} \\
+\midrule
+\multicolumn{7}{@{}l}{\textit{Route I --- bound the tail of $D$ directly (no surrogate law)}} \\
+Markov
+  & mean
+  & Yes & No
+  & needs only the mean; always valid
+  & extremely loose
+  & \cite{BertsimasPopescu2005} \\[3pt]
+Cantelli
+  & mean, var
+  & Yes & No
+  & only two moments; tight \emph{as} a two-moment bound
+  & ignores independence; loose in the tail
+  & \cite{BertsimasPopescu2005} \\[3pt]
+Bernstein
+  & mean, var, support $b$
+  & Yes & No
+  & exploits independence; few parameters; linear in the schedule
+  & needs a support bound; one-sided only
+  & \cite{BoucheronLugosiMassart2013} \\[3pt]
+Chernoff
+  & MGF $M(s)$ (or support-based bound)
+  & Yes & No
+  & tightest in the tail; valid for any fixed $s>0$
+  & needs the MGF; empirical MGF is an estimate, not a bound
+  & \cite{Chernoff1952} \\[3pt]
+\multicolumn{7}{@{}l}{\textit{Route II --- dominate each increment, then convolve (explicit $\widetilde{D}$)}} \\
+Moment-matched Gamma / IG
+  & mean, var
+  & No & Yes
+  & explicit law; closed under $+$; ordering tables apply
+  & matches moments but does not dominate (survival curves cross)
+  & \cite{vanNoortwijk2009,YeChen2014} \\[3pt]
+Dominating shared-rate Gamma
+  & moments $+$ empirical survival
+  & Yes & Yes
+  & conservative \emph{and} explicit; serves reliability and loop; shape linear in the schedule
+  & shared rate $+$ dominance margin add slack; commits to Gamma
+  & \cite{ShakedShanthikumar2007} \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+The Route~I entries are elementary, which is why they require no distributional assumption.
+With $D \ge 0$ and $\tau > 0$, Markov's inequality $\Pr(D > \tau) \le \mathbb{E}[D]/\tau$ follows from $\tau\,\mathbf{1}\{D > \tau\} \le D$.
+Applying Markov to $(D - \mathbb{E}[D] + c)^2$ and optimising over $c > 0$ gives the one-sided Chebyshev (Cantelli) bound, for $\tau > \mathbb{E}[D]$,
+\begin{equation}\label{eq:cantelli_surrogate}
+  \Pr(D > \tau) \;\le\; \frac{\operatorname{Var}[D]}{\operatorname{Var}[D] + (\tau - \mathbb{E}[D])^2}.
+\end{equation}
+Both are the \emph{tight} bounds attainable from the first one and two moments, respectively~\cite{BertsimasPopescu2005}, and both are attained by two-point distributions---which is exactly why they ignore, and are loose under, the independent-sum structure.
+The exponential (Cram\'er--Chernoff) bound,
+\begin{equation}\label{eq:chernoff_surrogate}
+  \Pr(D > \tau) \;\le\; \inf_{s > 0} e^{-s\tau} M_D(s)
+  \;=\; \inf_{s > 0} \exp\!\Big( -s\tau + \textstyle\sum_t \ln M_{\Delta D_t}(s) \Big),
+\end{equation}
+follows from Markov applied to $e^{sD}$ and is valid for every fixed $s > 0$~\cite{Chernoff1952}; Bernstein's inequality is the specialisation for independent summands bounded in $[0,b]$, $\Pr(D - \mathbb{E}[D] > a) \le \exp\big( -\tfrac{a^2/2}{\operatorname{Var}[D] + b\,a/3} \big)$ with $a = \tau - \mathbb{E}[D]$~\cite{BoucheronLugosiMassart2013}.
+Unlike Markov and Cantelli, these use the product form of $M_D$ in~\eqref{eq:additive_functionals} and therefore exploit independence.
+
+The choice among the Route~I bounds depends on how deep into the tail the constraint sits.
+In the regime relevant to a reliability constraint with small~$\varepsilon$---several standard deviations above $\mathbb{E}[D]$---the exponential bounds are markedly tighter: in a representative numerical experiment (non-negative increments bounded in $[0,1]$, $k \in \{30,100\}$ summands), at $\varepsilon \sim 10^{-4}$ the Chernoff bound stayed within roughly one order of magnitude of the empirical tail, whereas the Cantelli bound over-stated it by more than two orders; Bernstein fell between them and overtook Cantelli only as the tail deepened and the number of summands grew.\footnote{Recorded as a numerical illustration, not a proof; the test code and output are kept in the verification workspace. Asymptotically the gap is structural: Cantelli decays only polynomially, as $\operatorname{Var}[D]/(\tau-\mathbb{E}[D])^2$, whereas~\eqref{eq:chernoff_surrogate} decays exponentially in the deviation.}
+Cantelli, though the simplest, is therefore best reserved for short accumulation windows or as a coarse always-valid fallback.
+
+Route~II yields not a bound but an explicit surrogate law.
+Matching only the first two moments of a convolution-closed family (Gamma, with shape $\alpha = \mathbb{E}[\Delta D]^2/\operatorname{Var}[\Delta D]$ and rate $\beta = \mathbb{E}[\Delta D]/\operatorname{Var}[\Delta D]$; or inverse Gaussian) is convenient---the sum stays in the family under the closure conditions of Table~\ref{tab:discrete_models}---but is \emph{not} conservative: a moment-matched law generally crosses the empirical survival function rather than dominating it.
+Conservatism is recovered by using more of the empirical information than its moments.
+Fix a common rate $\beta^\star$ and, per mission, inflate the shape $\alpha_j$ until the surrogate survival dominates the empirical one, $\overline{\mathrm{Ga}}(x;\alpha_j,\beta^\star) \ge \widehat{\bar F}_j(x)$ for all $x$---always achievable, since $\overline{\mathrm{Ga}}(x;\alpha,\beta^\star) \to 1$ as $\alpha \to \infty$.
+By Proposition~\ref{prop:st_closure} the accumulated surrogate is then $\widetilde{D} = \mathrm{Ga}(A,\beta^\star)$ with cumulative shape $A = \sum_{t,j} x_{ijt}\,\alpha_j$ linear in the schedule, the reliability constraint reduces to the scalar condition $A \le A^\star(\varepsilon)$, and the loop constraint to $A_{2H} \le A_H$ exactly as in Equation~\eqref{eq:loop_gamma}.
+The price is the slack introduced by the shared rate and the dominance margin.
+
+In summary, for the one-sided reliability constraint we use the Chernoff bound~\eqref{eq:chernoff_surrogate} (or Bernstein when a closed form without the $s$-optimisation is preferred); when an explicit surrogate law is required---notably for the loop constraint, a comparison of two survival functions---we use the dominating shared-rate Gamma of the last row, which lands on the tractable Gamma machinery of Section~\ref{sec:stoch_orders}.
+The irreducible trade-off is that the bounds assume nothing about the shape but yield only a tail bound, whereas the dominating Gamma yields a propagatable law at the cost of a family commitment and some conservatism.
+
 \subsection{Stochastic orderings}
 \label{sec:stoch_orders}
 
