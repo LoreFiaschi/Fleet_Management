@@ -504,14 +504,17 @@ Two features of the problem delimit the admissible options.
 First, both constraints act on the \emph{accumulated} damage $D = \sum_t \Delta D_t$ of Equation~\eqref{eq:discrete_damage}, not on a single increment, so the surrogate must be evaluated after summation.
 Second, as observed in the contrast above, none of the standard S--N scatter families is closed under summation, so the law of $D$ is generally unavailable in closed form and must be either bounded or replaced by a convolution-closed surrogate.
 
-Because the increments on distinct days are independent, three functionals of the summands transfer to the sum,
+Crucially, Route~I never requires the moments or support of the accumulated damage~$D$ in advance: it consumes only \emph{per-mission} information, which the schedule then assembles through the assignment counts.
+Fix a component $(i,\ell)$ and an accumulation window, write $D = D_{i\ell}$ for its damage over that window, and let $n_{ij} = \sum_t x_{ijt}$ be the number of days mission~$j$ is served.
+Modelling repeated executions of mission~$j$ on component~$\ell$ as independent draws from a mission-specific increment law---with mean $\mu_{\ell j}$, variance $v_{\ell j}$, support $[0,b_{\ell j}]$, and cumulant generating function $\psi_{\ell j}(s) = \ln \mathbb{E}\big[e^{s\Delta D^{(j)}}\big]$, where $\mathbb{E}[e^{sX}]$ is the moment-generating function---independence across days gives
 \begin{equation}\label{eq:additive_functionals}
-  \mathbb{E}[D] = \sum_t \mathbb{E}[\Delta D_t], \qquad
-  \operatorname{Var}[D] = \sum_t \operatorname{Var}[\Delta D_t], \qquad
-  M_D(s) = \prod_t M_{\Delta D_t}(s),
+  \mathbb{E}[D] = \sum_j n_{ij}\,\mu_{\ell j}, \qquad
+  \operatorname{Var}[D] = \sum_j n_{ij}\,v_{\ell j}, \qquad
+  \ln M_D(s) = \sum_j n_{ij}\,\psi_{\ell j}(s).
 \end{equation}
-the last two by independence, where $M_X(s) = \mathbb{E}[e^{sX}]$ is the moment-generating function.
-These support two routes.
+Each functional of~$D$ is therefore a count-weighted sum of per-mission quantities---linear in the schedule, with the support entering only through the per-mission $b_{\ell j}$, never through a shared worst-case value.
+Repetition \emph{merges} into the tail description additively: serving mission~$j$ a total of $n_{ij}$ times multiplies its cumulant generating function by $n_{ij}$, and distinct missions combine by summation, so a gentle mission keeps its small $\psi_{\ell j}$ beside a punishing one rather than being averaged with it.
+These per-mission functionals support two routes.
 \emph{Route~I} bounds the upper tail of $D$ directly from the functionals in~\eqref{eq:additive_functionals}.
 \emph{Route~II} replaces each increment by a stochastically larger surrogate drawn from a family closed under convolution and propagates the order to the sum, using the following standard closure property of the usual stochastic order $\le_{\mathrm{st}}$ (Definition~\ref{def:st}).
 
@@ -534,7 +537,7 @@ Table~\ref{tab:cons_surrogates} collects the resulting options together with the
 \centering
 \caption{Ways to summarise the empirical per-mission damage-increment distribution and propagate it to the accumulated damage $D = \sum_t \Delta D_t$ for the constraint $\Pr(D > \tau) \le \varepsilon$.
 ``Conservative'' means a guaranteed upper bound on the failure probability (Route~I) or $\le_{\mathrm{st}}$ dominance (Route~II); ``$\widetilde{D}$'' means the method yields an explicit surrogate \emph{law} for the sum---needed, e.g., for the loop constraint, which compares two survival functions---as opposed to a one-sided bound.
-Means are additive, variances additive, and moment-generating functions multiplicative over independent increments (Equation~\eqref{eq:additive_functionals}).}
+All inputs are \emph{per mission}; the schedule assembles them through the assignment counts $n_{ij}$ via Equation~\eqref{eq:additive_functionals}, so the support enters only per mission and is never shared.}
 \label{tab:cons_surrogates}
 \footnotesize
 \setlength{\tabcolsep}{4.5pt}
@@ -556,16 +559,16 @@ Cantelli
   & ignores independence; loose in the tail
   & \cite{BertsimasPopescu2005} \\[3pt]
 Bernstein
-  & mean, var, support $b$
+  & per-mission mean, var, support $b_j$
   & Yes & No
-  & exploits independence; few parameters; linear in the schedule
-  & needs a support bound; one-sided only
+  & exploits independence; few parameters; linear in the counts
+  & needs per-mission support; one-sided only
   & \cite{BoucheronLugosiMassart2013} \\[3pt]
 Chernoff
-  & MGF $M(s)$ (or support-based bound)
+  & per-mission c.g.f.\ $\psi_j(s)$ (or mean $+$ support)
   & Yes & No
-  & tightest in the tail; valid for any fixed $s>0$
-  & needs the MGF; empirical MGF is an estimate, not a bound
+  & tightest in the tail; count-weighted; valid for any fixed $s>0$
+  & needs the c.g.f.; empirical c.g.f.\ is an estimate, not a bound
   & \cite{Chernoff1952} \\[3pt]
 \multicolumn{7}{@{}l}{\textit{Route II --- dominate each increment, then convolve (explicit $\widetilde{D}$)}} \\
 Moment-matched Gamma / IG
@@ -597,7 +600,34 @@ The exponential (Cram\'er--Chernoff) bound,
   \;=\; \inf_{s > 0} \exp\!\Big( -s\tau + \textstyle\sum_t \ln M_{\Delta D_t}(s) \Big),
 \end{equation}
 follows from Markov applied to $e^{sD}$ and is valid for every fixed $s > 0$~\cite{Chernoff1952}; Bernstein's inequality is the specialisation for independent summands bounded in $[0,b]$, $\Pr(D - \mathbb{E}[D] > a) \le \exp\big( -\tfrac{a^2/2}{\operatorname{Var}[D] + b\,a/3} \big)$ with $a = \tau - \mathbb{E}[D]$~\cite{BoucheronLugosiMassart2013}.
-Unlike Markov and Cantelli, these use the product form of $M_D$ in~\eqref{eq:additive_functionals} and therefore exploit independence.
+Unlike Markov and Cantelli, these use the additive log-MGF of~\eqref{eq:additive_functionals} and therefore exploit independence.
+
+\paragraph{Per-mission inputs do not flatten the missions.}
+Collapsing the summands to a single worst-case support $b = \max_j b_{\ell j}$ would make Bernstein treat every mission as the most damaging one, erasing the differences the schedule exploits; this flattening is an artefact of the closed form, not of Route~I.
+Kept per term, each bound retains every mission's own support and tail.
+Hoeffding reads $\Pr(D - \mathbb{E}[D] > a) \le \exp\!\big( -2a^2 / \sum_j n_{ij} b_{\ell j}^2 \big)$ with $a = \tau - \mathbb{E}[D]$, where mission~$j$ enters only through its own $b_{\ell j}^2$, and the Chernoff bound~\eqref{eq:chernoff_surrogate} becomes the count-weighted reliability constraint
+\begin{equation}\label{eq:chernoff_permission}
+  \Pr(D > \tau) \;\le\; \inf_{s > 0} \exp\!\Big( -s\tau + \sum_j n_{ij}\,\psi_{\ell j}(s) \Big),
+\end{equation}
+in which each mission contributes its own cumulant generating function $\psi_{\ell j}$.
+For a fixed~$s$ the exponent is linear in the assignment counts, so~\eqref{eq:chernoff_permission} is a linear reliability constraint; the inner infimum couples~$s$ to the counts---for a fixed schedule it is a one-dimensional convex problem whose minimiser $s^\star$ solves $\sum_j n_{ij}\,\psi_{\ell j}'(s) = \tau$ (the exponentially tilted mean of~$D$ equals~$\tau$), but since $s^\star$ depends on the counts one either fixes a conservative~$s$ (any $s > 0$ remains a valid bound) or sweeps a small grid.
+
+Bernstein's inequality is the one Route~I bound that resists this per-mission treatment, and the reason is the same coupling seen from the other side: its closed form requires a \emph{single} support $b_\ell = \max_j b_{\ell j}$ in the correction term (only the variance stays per-mission).
+Explicitly, with $\kappa = \ln(1/\varepsilon)$, the reliability constraint $\Pr(D > \tau) \le \varepsilon$ becomes
+\begin{equation}\label{eq:bernstein_constraint}
+  \sum_j n_{ij}\,\mu_{\ell j}
+  \;+\; \frac{\kappa\, b_\ell}{3}
+  \;+\; \sqrt{ \Big( \tfrac{\kappa\, b_\ell}{3} \Big)^2 + 2\kappa \sum_j n_{ij}\, v_{\ell j} }
+  \;\le\; \tau,
+\end{equation}
+a convex, second-order-cone-representable constraint in the assignment counts (equivalently $(\kappa b_\ell/3)^2 + 2\kappa\sum_j n_{ij} v_{\ell j} \le (\tau - \kappa b_\ell/3 - \sum_j n_{ij}\mu_{\ell j})^2$ with the bracket non-negative).
+Retaining a per-mission support $b_{\ell j}$ in the correction is possible only by keeping the per-term cumulant sum $\sum_j n_{ij}\,(s^2 v_{\ell j}/2)/(1 - s\,b_{\ell j}/3)$ and minimising over~$s$---which is exactly the Chernoff/Bennett bound~\eqref{eq:chernoff_permission}.
+The $s$-free closed form~\eqref{eq:bernstein_constraint} and per-mission support resolution therefore cannot be obtained simultaneously.
+
+\paragraph{Guaranteed bound versus estimate.}
+For~\eqref{eq:chernoff_permission} to be a true bound, the per-mission ingredient must be an \emph{upper} bound on $\psi_{\ell j}$.
+Two per-mission choices suffice and keep the support local: the mean-and-support bound $\psi_{\ell j}(s) \le \ln\!\big( 1 + (\mu_{\ell j}/b_{\ell j})(e^{s b_{\ell j}} - 1) \big)$, attained by the two-point law on $\{0, b_{\ell j}\}$; or the empirical cumulant generating function $\widehat\psi_{\ell j}(s) = \ln\!\big( \tfrac{1}{m} \sum_{r=1}^{m} e^{s \Delta D^{(j)}_r} \big)$ built from the $m$ recorded executions of mission~$j$, which is an \emph{estimate}, not a bound, and so must carry a one-sided confidence margin.
+Repeating a mission tightens both ingredients---more executions sharpen $\widehat\psi_{\ell j}$, $\mu_{\ell j}$ and $b_{\ell j}$ and shrink the margin---which is the precise sense in which undergoing a mission many times refines its tail description.
 
 The choice among the Route~I bounds depends on how deep into the tail the constraint sits.
 In the regime relevant to a reliability constraint with small~$\varepsilon$---several standard deviations above $\mathbb{E}[D]$---the exponential bounds are markedly tighter: in a representative numerical experiment (non-negative increments bounded in $[0,1]$, $k \in \{30,100\}$ summands), at $\varepsilon \sim 10^{-4}$ the Chernoff bound stayed within roughly one order of magnitude of the empirical tail, whereas the Cantelli bound over-stated it by more than two orders; Bernstein fell between them and overtook Cantelli only as the tail deepened and the number of summands grew.\footnote{Recorded as a numerical illustration, not a proof; the test code and output are kept in the verification workspace. Asymptotically the gap is structural: Cantelli decays only polynomially, as $\operatorname{Var}[D]/(\tau-\mathbb{E}[D])^2$, whereas~\eqref{eq:chernoff_surrogate} decays exponentially in the deviation.}
@@ -610,8 +640,60 @@ Fix a common rate $\beta^\star$ and, per mission, inflate the shape $\alpha_j$ u
 By Proposition~\ref{prop:st_closure} the accumulated surrogate is then $\widetilde{D} = \mathrm{Ga}(A,\beta^\star)$ with cumulative shape $A = \sum_{t,j} x_{ijt}\,\alpha_j$ linear in the schedule, the reliability constraint reduces to the scalar condition $A \le A^\star(\varepsilon)$, and the loop constraint to $A_{2H} \le A_H$ exactly as in Equation~\eqref{eq:loop_gamma}.
 The price is the slack introduced by the shared rate and the dominance margin.
 
-In summary, for the one-sided reliability constraint we use the Chernoff bound~\eqref{eq:chernoff_surrogate} (or Bernstein when a closed form without the $s$-optimisation is preferred); when an explicit surrogate law is required---notably for the loop constraint, a comparison of two survival functions---we use the dominating shared-rate Gamma of the last row, which lands on the tractable Gamma machinery of Section~\ref{sec:stoch_orders}.
+In summary, for the one-sided reliability constraint we use the count-weighted Chernoff bound~\eqref{eq:chernoff_permission}---which keeps each mission's own tail---or its per-term Hoeffding specialisation when only per-mission means and supports are trusted; when an explicit surrogate law is required---notably for the loop constraint, a comparison of two survival functions---we use the dominating shared-rate Gamma of the last row, which lands on the tractable Gamma machinery of Section~\ref{sec:stoch_orders}.
 The irreducible trade-off is that the bounds assume nothing about the shape but yield only a tail bound, whereas the dominating Gamma yields a propagatable law at the cost of a family commitment and some conservatism.
+
+\subsubsection{The loop constraint under the Route-I bounds}
+\label{sec:loop_routeI}
+
+The loop constraint~\eqref{eq:loop} requires $\Pr(D_{2H} > \tau) \le \Pr(D_H > \tau)$ so that concatenating the schedule keeps the failure probability below~$\varepsilon$ indefinitely.
+Under Route~I we never observe these probabilities; we have only an upper bound $U_k \ge \Pr(D_k > \tau)$ from the count-weighted Chernoff bound~\eqref{eq:chernoff_permission} or the Bernstein constraint~\eqref{eq:bernstein_constraint}.
+The tempting translation---replace both sides by their bounds and impose $U_{2H} \le U_H$---is \emph{not} sufficient for repeatability, and it is worth seeing precisely why.
+
+\paragraph{Why $U_{2H} \le U_H$ does not chain.}
+The bound $U$ is a many-to-one function of the state's parameters, and its level sets are not invariant under the dynamics.
+Bernstein's bound, for instance, depends on $\big(\mathbb{E}[D],\operatorname{Var}[D]\big)$ through a single scalar, so $U_{2H} = U_H$ can hold with $\big(\mathbb{E}[D_{2H}],\operatorname{Var}[D_{2H}]\big) \ne \big(\mathbb{E}[D_H],\operatorname{Var}[D_H]\big)$---a larger mean offset by a smaller variance, say.
+One further period of the dynamics maps these two distinct parameter points to \emph{different} bound values, so $U_{3H} > U_{2H} = U_H$ is possible: the certified bound can creep upward over repetitions, and the single-period inequality does not induct.
+Adding a fixed margin, $U_{2H} \le U_H - c$, does not repair this, because the defect is the non-invariance of the level sets, not a constant gap.
+
+\paragraph{The certificate stays valid at every period.}
+This is not an undetectable worsening.
+The functionals Route~I actually tracks---the moments $\mathbb{E}[D_k],\operatorname{Var}[D_k]$, or the cumulant generating function---are exact functionals of the true state and are \emph{closed} under the dynamics~\eqref{eq:dyn_full}: increments add them, imperfect repair scales them, replacement resets them.
+Consequently $U_k$ is a valid bound at \emph{every} period, $\Pr(D_{kH} > \tau) \le U_{kH}$, and the true probability can exceed~$\varepsilon$ only if $U_{kH}$ itself does.
+Repeatability therefore needs a loop condition that forces $U_{kH} \le \varepsilon$ for all~$k$, which means imposing it on a statistic that both determines $U$ and propagates monotonically---not on the lossy scalar~$U$.
+
+\paragraph{Looping on the moments (the native condition).}
+Impose the loop on the exactly tracked moments,
+\begin{equation}\label{eq:loop_moments}
+  \mathbb{E}[D_{2H}] \;\le\; \mathbb{E}[D_H]
+  \qquad\text{and}\qquad
+  \operatorname{Var}[D_{2H}] \;\le\; \operatorname{Var}[D_H].
+\end{equation}
+Under the dynamics, the mean and variance evolve by an increment ($\mathbb{E} \mathrel{+}= \sum_j n_{ij}\mu_{\ell j}$, $\operatorname{Var} \mathrel{+}= \sum_j n_{ij} v_{\ell j}$), by imperfect repair ($\mathbb{E} \mapsto (1-\rho)\,\mathbb{E}$, $\operatorname{Var} \mapsto (1-\rho)^2\operatorname{Var}$), or by replacement (reset to the constants of $D^{\mathrm{new}}$); each operation is non-decreasing in $\mathbb{E}$ and in $\operatorname{Var}$ separately, so the two moments evolve as independent monotone recursions.
+Componentwise domination therefore chains: writing $F$ for the once-per-period (second-half) map, \eqref{eq:loop_moments} states $F(\,\cdot\,)$ does not increase either moment, whence $\big(\mathbb{E}[D_{(m+1)H}],\operatorname{Var}[D_{(m+1)H}]\big) \le \big(\mathbb{E}[D_{mH}],\operatorname{Var}[D_{mH}]\big)$ for every~$m \ge 1$.
+Because the Bernstein bound~\eqref{eq:bernstein_constraint}---and likewise the Cantelli bound~\eqref{eq:cantelli_surrogate}---is increasing in both $\mathbb{E}[D]$ and $\operatorname{Var}[D]$, the certified risk is then non-increasing across periods, $U_{kH} \le U_H \le \varepsilon$, and the schedule is repeatable.
+Both inequalities in~\eqref{eq:loop_moments} are linear in the assignment and maintenance variables, adding two linear constraints; they are strictly stronger than the single relation $U_{2H} \le U_H$, and that strengthening is exactly what makes the induction valid.
+
+\paragraph{Looping on the cumulant, and why imperfect repair forbids it.}
+If reliability is instead certified by a fixed-$s$ Chernoff bound, the loop may be placed on the cumulant,
+\begin{equation}\label{eq:loop_cumulant}
+  \sum_j n^{(2H)}_{ij}\,\psi_{\ell j}(s_0) \;\le\; \sum_j n^{(H)}_{ij}\,\psi_{\ell j}(s_0),
+\end{equation}
+where $n^{(k)}_{ij}$ is the post-reset cumulative count of mission~$j$ up to day~$k$.
+This chains \emph{provided the repeated block contains only additive increments and full replacement}: there $M_{D}(s_0)$ propagates multiplicatively, $M_{D + \Delta D}(s_0) = M_D(s_0)\,M_{\Delta D}(s_0)$, so it is a self-propagating scalar and~\eqref{eq:loop_cumulant} induct.
+Imperfect (ARD) repair breaks this. With $D^+ = (1-\rho)D^-$,
+\begin{equation}\label{eq:mgf_rescale}
+  M_{D^+}(s_0) \;=\; \mathbb{E}\big[e^{s_0(1-\rho)D^-}\big] \;=\; M_{D^-}\big((1-\rho)s_0\big):
+\end{equation}
+the repaired state's transform at $s_0$ is the old transform at the \emph{shifted} argument $(1-\rho)s_0$, which is not determined by $M_{D^-}(s_0)$---the repair slides the state along the transform curve.
+The single scalar $M(s_0)$ is then no longer self-contained, the count-weighted cumulant ceases to be additive across the repair, and~\eqref{eq:loop_cumulant} no longer chains.
+The moments escape this because scaling acts on each of them by a fixed power, $\mathbb{E}\mapsto(1-\rho)\mathbb{E}$ and $\operatorname{Var}\mapsto(1-\rho)^2\operatorname{Var}$, keeping their recursion closed---which is why~\eqref{eq:loop_moments} is the form to use whenever imperfect repair appears inside the repeated block.
+
+\paragraph{Summary.}
+Under Route~I the loop constraint must be imposed on a sufficient, self-propagating statistic, never on the scalar bound~$U$.
+The componentwise moment condition~\eqref{eq:loop_moments} is the native choice: two linear constraints, valid for the Bernstein and Cantelli certificates and for every maintenance operator in~\eqref{eq:dyn_full}, imperfect repair included.
+The cumulant condition~\eqref{eq:loop_cumulant} is available when the certificate is the fixed-$s$ Chernoff bound and the repeated block is free of imperfect repair.
+In either case the guarantee is non-worsening of the \emph{certified} risk, hence $\Pr(D_{kH} > \tau) \le \varepsilon$ for all concatenations---the operative meaning of repeatability for a bound-based model.
 
 \subsection{Stochastic orderings}
 \label{sec:stoch_orders}
