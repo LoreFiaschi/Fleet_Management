@@ -2,8 +2,8 @@ F: 6          # Number of fleet members
 H: 10         # Half-horizon
 M: 3          # Missions
 L: 2          # Components per vehicle
-alpha: 1.0    # Shape rate
-epsilon: 0.1  # Reliability threshold
+alpha: 1.0    # threshold
+epsilon: 0.1  # 
 xi:           # Fraction of repairability in one maintenance day per car per component
 - - 0.8
   - 0.75
