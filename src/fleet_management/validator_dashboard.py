@@ -18,6 +18,7 @@ from pathlib import Path
 import pandas as pd
 import streamlit as st
 import matplotlib.pyplot as plt
+import numpy as np
 
 from fleet_management.validator import (
     build_assignment_feasibility_dataframe,
@@ -205,12 +206,13 @@ if not _path_exists(results_path):
     st.stop()
 
 
-tab_overview, tab_failed, tab_mission, tab_vehicle, tab_data = st.tabs(
+tab_overview, tab_failed, tab_mission, tab_vehicle, tab_component, tab_data = st.tabs(
     [
         "Overview",
         "Failed / critical assignments",
         "Mission damage analysis",
         "Vehicle damage timeline",
+        "Component comparison",
         "Raw data",
     ])
 
@@ -1189,6 +1191,346 @@ with tab_vehicle:
             largest_jumps,
             width="stretch",
             hide_index=True,
+        )
+
+
+with tab_component:
+    st.header("Component comparison across vehicles")
+
+    st.write(
+        "Select one component to compare the solver-reported damage trajectory "
+        "across all vehicles over the full horizon. This is useful for comparing "
+        "the same component type, for example all batteries of all vehicles."
+    )
+
+    try:
+        from fleet_management.validator import _read_results, _extract_results_parameters
+
+        results_data = _read_results(Path(results_path))
+        results_params = _extract_results_parameters(results_data)
+
+        mu_result = results_params["mu"]   # shape: F x L x 2H
+        x = results_params["x"]            # shape: F x (M+1) x 2H
+        alpha = float(results_params["alpha"])
+
+        F = int(results_params["F"])
+        L = int(results_params["L"])
+        H = int(results_params["H"])
+        horizon = 2 * H
+
+    except Exception as exc:
+        st.error("Could not read solver trajectory from results file.")
+        st.exception(exc)
+        st.stop()
+
+    loaded_paths = st.session_state.get("loaded_paths", {})
+    loaded_alpha_override = loaded_paths.get("alpha_override", None)
+
+    effective_alpha = (
+        float(loaded_alpha_override)
+        if loaded_alpha_override is not None
+        else alpha
+    )
+
+    st.subheader("Filters")
+
+    filter_col_1, filter_col_2, filter_col_3 = st.columns(3)
+
+    with filter_col_1:
+        selected_component = st.selectbox(
+            "Component",
+            options=list(range(L)),
+            format_func=lambda l: f"Component {l}",
+        )
+
+    with filter_col_2:
+        vehicle_filter = st.multiselect(
+            "Vehicles",
+            options=list(range(F)),
+            default=list(range(F)),
+            format_func=lambda i: f"Vehicle {i}",
+        )
+
+    with filter_col_3:
+        show_effective_alpha = st.checkbox(
+            "Show effective alpha",
+            value=True,
+        )
+
+    show_mean = st.checkbox(
+        "Show fleet mean trajectory",
+        value=True,
+    )
+
+    show_max = st.checkbox(
+        "Show fleet max trajectory",
+        value=False,
+    )
+
+    show_assignment_markers = st.checkbox(
+        "Show maintenance markers",
+        value=False,
+    )
+
+    if not vehicle_filter:
+        st.info("Select at least one vehicle.")
+        st.stop()
+
+    time_steps = list(range(horizon))
+
+    fig, ax = plt.subplots(figsize=(12, 5))
+
+    # Individual vehicle trajectories
+    for i in vehicle_filter:
+        ax.plot(
+            time_steps,
+            mu_result[i, selected_component, :],
+            marker="o",
+            linewidth=1.5,
+            label=f"Vehicle {i}",
+        )
+
+    selected_component_matrix = mu_result[
+        vehicle_filter,
+        selected_component,
+        :
+    ]
+
+    if show_mean:
+        mean_trajectory = selected_component_matrix.mean(axis=0)
+        ax.plot(
+            time_steps,
+            mean_trajectory,
+            linestyle="--",
+            linewidth=2.5,
+            label="Fleet mean",
+        )
+
+    if show_max:
+        max_trajectory = selected_component_matrix.max(axis=0)
+        ax.plot(
+            time_steps,
+            max_trajectory,
+            linestyle=":",
+            linewidth=2.5,
+            label="Fleet max",
+        )
+
+    ax.axhline(
+        alpha,
+        linestyle="--",
+        linewidth=1.5,
+        label=f"Original threshold α = {alpha:.3f}",
+    )
+
+    if show_effective_alpha and loaded_alpha_override is not None:
+        ax.axhline(
+            effective_alpha,
+            linestyle=":",
+            linewidth=2.0,
+            label=f"Override α = {effective_alpha:.3f}",
+        )
+
+    if show_assignment_markers:
+        y_min = float(selected_component_matrix.min())
+        y_max_candidates = [
+            float(selected_component_matrix.max()),
+            alpha,
+            effective_alpha,
+        ]
+        y_max = max(y_max_candidates)
+        y_range = max(y_max - y_min, 1e-6)
+
+        marker_y_base = y_min - 0.08 * y_range
+
+        for idx, i in enumerate(vehicle_filter):
+            marker_y = marker_y_base - idx * 0.04 * y_range
+
+            for k in range(horizon):
+                if abs(x[i, 0, k] - 1.0) <= tol:
+                    ax.text(
+                        k,
+                        marker_y,
+                        "M",
+                        ha="center",
+                        va="center",
+                        fontsize=8,
+                        bbox=dict(boxstyle="round,pad=0.2", alpha=0.2),
+                    )
+
+        ax.set_ylim(
+            marker_y_base - len(vehicle_filter) * 0.05 * y_range,
+            y_max + 0.12 * y_range,
+        )
+
+    ax.set_title(
+        f"Component {selected_component} damage trajectory across vehicles"
+    )
+    ax.set_xlabel("Time step k")
+    ax.set_ylabel("Damage / μ value")
+    ax.set_xticks(range(horizon))
+    ax.grid(True, alpha=0.3)
+    ax.legend(loc="best")
+
+    st.pyplot(fig)
+
+    st.caption(
+        "Each solid line is the solver-reported damage trajectory of the selected "
+        "component for one vehicle. Optional dashed/dotted lines show fleet mean, "
+        "fleet max, and threshold values."
+    )
+
+    # ------------------------------------------------------------------
+    # Summary table for selected component
+    # ------------------------------------------------------------------
+    st.subheader("Selected component summary by vehicle")
+
+    component_rows = []
+
+    for i in vehicle_filter:
+        trajectory = mu_result[i, selected_component, :]
+
+        max_idx = int(np.argmax(trajectory))
+        max_damage = float(trajectory[max_idx])
+        final_damage = float(trajectory[-1])
+        mean_damage = float(np.mean(trajectory))
+        min_margin = float(effective_alpha - max_damage)
+        max_utilization_percent = float(100.0 * max_damage / effective_alpha)
+
+        component_rows.append(
+            {
+                "vehicle": i,
+                "component": selected_component,
+                "mean_damage": mean_damage,
+                "max_damage": max_damage,
+                "time_of_max_damage": max_idx,
+                "final_damage": final_damage,
+                "min_margin_to_effective_alpha": min_margin,
+                "max_threshold_utilization_percent": max_utilization_percent,
+                "exceeds_effective_alpha": bool(max_damage > effective_alpha + tol),
+            }
+        )
+
+    component_summary = (
+        pd.DataFrame(component_rows)
+        .sort_values("max_damage", ascending=False)
+        .reset_index(drop=True)
+    )
+
+    st.dataframe(
+        component_summary,
+        width="stretch",
+        hide_index=True,
+        column_config={
+            "max_threshold_utilization_percent": st.column_config.NumberColumn(
+                "max threshold utilization",
+                format="%.1f%%",
+            ),
+        },
+    )
+
+    # ------------------------------------------------------------------
+    # Validator assignment rows for selected component
+    # ------------------------------------------------------------------
+    st.subheader("Assignment-level rows for selected component")
+
+    component_assignment_df = df[
+        (df["component"] == selected_component)
+        & (df["vehicle"].isin(vehicle_filter))
+    ].copy()
+
+    if component_assignment_df.empty:
+        st.info("No active mission assignments found for this component selection.")
+    else:
+        component_assignment_df["threshold_utilization_percent"] = (
+            100.0 * component_assignment_df["utilization_of_threshold"]
+        )
+
+        focus_mode = st.radio(
+            "Rows to show",
+            options=[
+                "Closest to threshold",
+                "Largest expected increments",
+                "Above effective alpha only",
+                "All selected rows",
+            ],
+            horizontal=True,
+        )
+
+        if focus_mode == "Closest to threshold":
+            shown_df = component_assignment_df.sort_values(
+                "margin_to_threshold",
+                ascending=True,
+            ).head(25)
+
+        elif focus_mode == "Largest expected increments":
+            shown_df = component_assignment_df.sort_values(
+                "expected_increment",
+                ascending=False,
+            ).head(25)
+
+        elif focus_mode == "Above effective alpha only":
+            shown_df = component_assignment_df[
+                component_assignment_df["damage_after"] > effective_alpha + tol
+            ].sort_values("damage_after", ascending=False)
+
+        else:
+            shown_df = component_assignment_df.sort_values(
+                ["vehicle", "time_step"],
+                ascending=True,
+            )
+
+        display_columns = [
+            "time_step",
+            "input_day",
+            "vehicle",
+            "mission",
+            "component",
+            "damage_before",
+            "expected_increment",
+            "damage_after",
+            "threshold",
+            "margin_to_threshold",
+            "threshold_utilization_percent",
+            "status",
+        ]
+
+        st.dataframe(
+            shown_df[display_columns].reset_index(drop=True),
+            width="stretch",
+            hide_index=True,
+            column_config={
+                "threshold_utilization_percent": st.column_config.NumberColumn(
+                    "threshold utilization",
+                    format="%.1f%%",
+                ),
+            },
+        )
+
+    # ------------------------------------------------------------------
+    # Export
+    # ------------------------------------------------------------------
+    st.subheader("Export")
+
+    export_col_1, export_col_2 = st.columns(2)
+
+    with export_col_1:
+        summary_csv = component_summary.to_csv(index=False).encode("utf-8")
+        st.download_button(
+            label="Download component summary as CSV",
+            data=summary_csv,
+            file_name=f"component_{selected_component}_vehicle_summary.csv",
+            mime="text/csv",
+        )
+
+    with export_col_2:
+        assignment_csv = component_assignment_df.to_csv(index=False).encode("utf-8")
+        st.download_button(
+            label="Download component assignment rows as CSV",
+            data=assignment_csv,
+            file_name=f"component_{selected_component}_assignment_rows.csv",
+            mime="text/csv",
+            disabled=component_assignment_df.empty,
         )
 
 

@@ -39,6 +39,31 @@ results_path="results/output_baseline.yaml",
 log_path="results/baseline_assignment_feasibility.log")
 ```
 
+## GUI usage
+
+```bash
+.venv/Scripts/activate
+```
+
+```bash
+streamlit run src/fleet_management/validator_dashboard.py
+```
+
+### Assigning the data files
+
+Firstly, the input file, solver results file and a path/name for the log file must be assigned in the GUI, then a custom alpha_override and degradation_scale can be chosen to stress-test the validator.
+
+After loading the data, the main window will show the overview with the most important data found by the validator, mainly feasible/infeasible assignments, threshold violations and danger zones reached by components.
+
+The second tab focuses on failed / critical assignments with damage breakdown, adjustable by filtering vehicles, components, missions.
+
+The third tab offers analytics about the missions by presenting mean, max and total damage increments.
+
+The fourth tab visualizes the vehicle damage timeline over the horizon with markers for missions and maintenance schedules.
+
+The fifth tab allows to compare components across vehicles.
+
+The final tab allows to access all data and manipulate/download for further presentation.
 
 ## API reference
 

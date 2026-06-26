@@ -5,6 +5,7 @@ input/*
 results/*
 CLAUDE*
 *.zip
+notes/*
 build/*
 test/*
 bkp/*
