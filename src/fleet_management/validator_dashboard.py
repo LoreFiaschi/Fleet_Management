@@ -18,7 +18,10 @@ from pathlib import Path
 import pandas as pd
 import streamlit as st
 import matplotlib.pyplot as plt
+import matplotlib.colors as mcolors
+import matplotlib.patches as mpatches
 import numpy as np
+import yaml
 
 from fleet_management.validator import (
     build_assignment_feasibility_dataframe,
@@ -40,6 +43,52 @@ def _format_float(value: float | None, digits: int = 4) -> str:
     if value is None:
         return "n/a"
     return f"{value:.{digits}f}"
+
+
+def _draw_gear(ax, cx, cy):
+    """Draw a simple gear icon (Unicode) at cell (cx, cy)."""
+    ax.text(
+        cx, cy, "\u2699",
+        ha="center", va="center",
+        fontsize=16, color="black",
+    )
+
+
+def _draw_threshold_violation(ax, cx, cy):
+    """Draw a high-contrast warning badge for a component threshold violation."""
+    ax.text(
+        cx,
+        cy,
+        "\u26A0",  # ⚠
+        ha="center",
+        va="center",
+        fontsize=11,
+        color="white",
+        fontweight="bold",
+        bbox=dict(
+            boxstyle="circle,pad=0.18",
+            facecolor="darkred",
+            edgecolor="white",
+            linewidth=0.8,
+            alpha=0.95,
+        ),
+        zorder=10,
+    )
+
+
+def _draw_sleep_cloud(ax, cx, cy):
+    """Draw a comic cloud with 'zzz' at cell (cx, cy)."""
+    cloud = mpatches.FancyBboxPatch(
+        (cx - 0.3, cy - 0.2), 0.6, 0.4,
+        boxstyle="round,pad=0.05",
+        facecolor="white", edgecolor="gray", linewidth=0.8, alpha=0.85,
+    )
+    ax.add_patch(cloud)
+    ax.text(
+        cx, cy, "zzz",
+        ha="center", va="center",
+        fontsize=8, fontstyle="italic", color="darkblue",
+    )
 
 
 @st.cache_data
@@ -115,14 +164,14 @@ with st.sidebar:
             "Effective alpha",
             min_value=1e-12,
             value=1.0,
-            format="%.6f",
+            format="%.3f",
         )
 
     degradation_scale = st.number_input(
         "Degradation scale",
         min_value=1e-12,
         value=1.0,
-        format="%.6f",
+        format="%.3f",
     )
 
     load_button = st.button("Load data", type="primary")
@@ -206,12 +255,13 @@ if not _path_exists(results_path):
     st.stop()
 
 
-tab_overview, tab_failed, tab_mission, tab_vehicle, tab_component, tab_data = st.tabs(
+tab_overview, tab_failed, tab_mission, tab_vehicle, tab_heatmap, tab_component, tab_data = st.tabs(
     [
         "Overview",
         "Failed / critical assignments",
         "Mission damage analysis",
         "Vehicle damage timeline",
+        "Heatmap plot",
         "Component comparison",
         "Raw data",
     ])
@@ -1192,6 +1242,173 @@ with tab_vehicle:
             width="stretch",
             hide_index=True,
         )
+
+
+with tab_heatmap:
+    st.header("Heatmap plot")
+
+    st.write(
+        "This tab shows the fleet management schedule as a coloured grid. Each cell (train i, time step k) is split into L horizontal strips, "
+        "one per component, coloured on a green-to-red heatmap (0 to alpha) "
+        "based on the component's degradation mean."
+    )
+
+    try:
+        from fleet_management.validator import _read_results, _extract_results_parameters
+
+        results_data = _read_results(Path(results_path))
+        results_params = _extract_results_parameters(results_data)
+
+        mu_result = results_params["mu"]   # shape: F x L x 2H
+        mu_0 = results_params["mu_0"]
+        x = results_params["x"]            # shape: F x (M+1) x 2H
+        alpha = float(results_params["alpha"])
+
+        F = int(results_params["F"])
+        L = int(results_params["L"])
+        H = int(results_params["H"])
+        M = int(results_params["M"])
+        horizon = 2 * H
+
+        # Handle legacy shapes (L=1 with no L dimension)
+        if mu_0.ndim == 1:
+            mu_0 = mu_0[:, np.newaxis]  # (F,) -> (F, 1)
+        #if mu_result.ndim == 2:
+        #    mu_result = mu_result[:, np.newaxis, :]   # (F, 2H) -> (F, 1, 2H)
+    
+    except:
+        st.error("Could not read solver trajectory from results file.")
+        st.exception(exc)
+        st.stop()
+
+    loaded_paths = st.session_state.get("loaded_paths", {})
+    loaded_alpha_override = loaded_paths.get("alpha_override", None)
+    effective_alpha = (
+        float(loaded_alpha_override)
+        if loaded_alpha_override is not None
+        else alpha
+    )
+
+    # --- Build grid values ---
+    # grid has shape (F, L, n_cols) where n_cols = 2H + 1
+    # column 0 = mu_0, columns 1..2H = mu
+    n_cols = 2 * H + 1
+    grid = np.zeros((F, L, n_cols))
+    grid[:, :, 0] = mu_0        # (F, L)
+    grid[:, :, 1:] = mu_result   # (F, L, 2H)
+
+    # --- Create plot ---
+    cmap = mcolors.LinearSegmentedColormap.from_list("gr", ["green", "red"])
+    cnorm = mcolors.Normalize(vmin=0, vmax=effective_alpha)
+    fig, ax = plt.subplots(figsize=(max(n_cols * 0.8, 6), max(F * 0.8, 4)))
+
+    # Draw coloured strips for each cell
+    strip_h = 1.0 / L
+    threshold_violations = []
+
+    for i in range(F):
+        for k in range(n_cols):
+            for l in range(L):
+                val = grid[i, l, k]
+                color = cmap(cnorm(val))
+
+                y0 = i - 0.5 + l * strip_h
+                y_center = y0 + 0.5 * strip_h
+
+                rect = mpatches.Rectangle(
+                    (k - 0.5, y0),
+                    1.0,
+                    strip_h,
+                    facecolor=color,
+                    edgecolor="none",
+                )
+                ax.add_patch(rect)
+
+                # Mark component-level threshold violations.
+                # Uses effective_alpha, so alpha_override is respected.
+                if val > effective_alpha + tol:
+                    threshold_violations.append((i, k, l, val, y_center))
+    
+    # Set axis limits (inverted y for origin upper)
+    ax.set_xlim(-0.5, n_cols - 0.5)
+    ax.set_ylim(F - 0.5, -0.5)
+
+    # Draw component separator lines within cells (only if L > 1)
+    if L > 1:
+        for i in range(F):
+            for l in range(1, L):
+                y = i - 0.5 + l * strip_h
+                ax.hlines(y, -0.5, n_cols - 0.5,
+                          colors="gray", linewidths=0.4, linestyle="--")
+    
+    # Cell annotations
+    for i in range(F):
+        for k in range(1, n_cols):
+            k_x = k - 1 # index into x array (0-based, range 0..2H-1)
+
+            if abs(x[i, 0, k_x] - 1.0) <= tol:
+                _draw_gear(ax, k, i)
+            else:
+                assigned_j = None
+                for j in range(1, M + 1):
+                    if abs(x[i, j, k_x] - 1.0) <= tol:
+                        assigned_j = j
+                        break
+                if assigned_j is not None:
+                    ax.text(
+                        k, i, str(assigned_j),
+                        ha="center", va="center",
+                        fontsize=10, fontweight="bold", color="black",
+                    )
+                else:
+                    # Idle: draw sleeping cloud with "zzz"
+                    _draw_sleep_cloud(ax, k, i)
+    
+    # Component-level threshold violation annotations.
+    # Draw after mission/maintenance/idle annotations so the warning is visible.
+    for i, k, l, val, y_center in threshold_violations:
+        # Slightly shift to the right so it does not fully overlap
+        # with mission numbers, gear, or sleep icons.
+        _draw_threshold_violation(ax, k + 0.28, y_center)
+    
+    # Axis labels
+    ax.set_xticks(range(n_cols))
+    ax.set_xticklabels(range(0, n_cols))
+    ax.set_yticks(range(F))
+    ax.set_yticklabels(range(0, F))
+    ax.set_xlabel("Time step k")
+    ax.set_ylabel("Vehicle i")
+
+    # Grid lines between cells
+    for i in range(F + 1):
+        ax.axhline(i - 0.5, color="black", linewidth=0.5)
+    for k in range(n_cols + 1):
+        ax.axvline(k - 0.5, color="black", linewidth=0.5)
+    
+    # Colorbar
+    sm = plt.cm.ScalarMappable(cmap=cmap, norm=cnorm)
+    sm.set_array([])
+    plt.colorbar(sm, ax=ax, label="\u03bc value", shrink=0.8)
+
+    fig.tight_layout()
+    st.pyplot(fig)
+
+    if threshold_violations:
+        st.warning(
+            f"{len(threshold_violations)} component-time entries exceed "
+            f"the effective threshold alpha = {effective_alpha:.3f}. "
+            "They are marked with ⚠ in the heatmap."
+        )
+    else:
+        st.success(
+            f"No component-time entries exceed the effective threshold "
+            f"alpha = {effective_alpha:.3f}."
+        )
+
+    st.caption(
+        "Symbols: ⚙ = maintenance, zzz = idle, numbers = assigned mission, "
+        "⚠ = component value above the effective threshold."
+    )
 
 
 with tab_component:
