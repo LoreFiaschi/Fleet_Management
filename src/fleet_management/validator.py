@@ -10,8 +10,16 @@ import numpy as np
 import yaml
 import pandas as pd
 
-from fleet_management.solver import _read_input, _extract_parameters
-
+from fleet_management.solver import _read_input # , _extract_parameters
+from fleet_management.model_registry import extract_degradation_parameters
+from fleet_management.gamma_process import (
+    mean_to_shape,
+    shape_to_mean,
+    shape_to_variance,
+    failure_probability,
+    reliability_passed,
+    loop_constraint_passed,
+)
 
 SUPPORTED_DEGRADATIONS = {"gaussian", "inverse_gaussian"}
 SUPPORTED_RESULT_EXTENSIONS = {".yaml", ".yml", ".json"}
@@ -99,7 +107,7 @@ def validate(
 
     # --- Read and parse input/results ---
     input_data = _read_input(input_file)
-    input_params = _extract_parameters(input_data, degradation_lower)
+    input_params = extract_degradation_parameters(input_data, degradation_lower)
 
     results_data = _read_results(results_file)
     results_params = _extract_results_parameters(results_data)
@@ -454,7 +462,7 @@ def build_assignment_feasibility_dataframe(
         raise FileNotFoundError(f"Result file not found: {results_path}")
 
     input_data = _read_input(input_file)
-    input_params = _extract_parameters(input_data, "gaussian")
+    input_params = extract_degradation_parameters(input_data, "gaussian")
 
     results_data = _read_results(results_file)
     results_params = _extract_results_parameters(results_data)
@@ -585,6 +593,429 @@ def build_assignment_feasibility_dataframe(
     ]
 
     return pd.DataFrame(rows, columns=columns)
+
+
+def build_gamma_diagnostic_dataframe(
+    input_path: str,
+    tol: float = 1e-6,
+) -> pd.DataFrame:
+    """
+    Build a component-level diagnostic dataframe for a synthetic Gamma-process
+    degradation instance.
+
+    This function does not call the solver. It reads a Gamma input file that
+    already contains a synthetic schedule x and propagates the Gamma damage
+    state along that schedule.
+
+    Convention
+    ----------
+    The Gamma process uses the shape-rate parameterisation:
+
+        D ~ Gamma(A, beta)
+        E[D]   = A / beta
+        Var[D] = A / beta**2
+
+    The input file stores expected damage increments mu[i,j,l,k]. These are
+    converted into Gamma shape increments by
+
+        A_increment[i,j,l,k] = beta[l] * mu[i,j,l,k]
+
+    because E[Delta D] = A_increment / beta.
+
+    Parameters
+    ----------
+    input_path : str
+        Path to a Gamma YAML/JSON input file containing:
+        F, M, L, H, tau, epsilon, gamma_beta, mu_0, mu, x.
+
+    tol : float
+        Numerical tolerance for detecting active binary assignments.
+
+    Returns
+    -------
+    pandas.DataFrame
+        Component-level diagnostic table. Each row corresponds to one
+        vehicle-component-time entry.
+    """
+
+    input_file = Path(input_path)
+
+    if not input_file.exists():
+        raise FileNotFoundError(f"Input file not found: {input_path}")
+
+    input_data = _read_input(input_file)
+
+    if input_data is None:
+        raise ValueError(
+            f"Input file is empty or contains only comments: {input_path}"
+        )
+
+    params = extract_degradation_parameters(input_data, "gamma")
+
+    maintenance_policy = str(input_data.get("maintenance_policy", "none")).lower()
+
+    supported_policies = {"none", "replacement"}
+
+    if maintenance_policy not in supported_policies:
+        raise ValueError(
+            f"Unsupported maintenance_policy '{maintenance_policy}'."
+            f"Supported policies: {sorted(supported_policies)}"
+        )
+
+    if "x" not in input_data:
+        raise KeyError(
+            "Gamma diagnostic input file must contain a synthetic schedule 'x'."
+        )
+
+    F = params["F"]
+    M = params["M"]
+    L = params["L"]
+    H = params["H"]
+
+    tau = params["tau"]
+    epsilon = params["epsilon"]
+    gamma_beta = params["gamma_beta"]      # shape: (L,)
+    mu_0 = params["mu_0"]                  # shape: (F, L)
+    mu_param = params["mu_param"]          # shape: (F, M, L, H)
+
+    x = np.asarray(input_data["x"], dtype=float)
+    expected_x_shape = (F, M + 1, 2 * H)
+
+    if x.shape != expected_x_shape:
+        raise ValueError(
+            f"'x' shape {x.shape} does not match expected shape "
+            f"{expected_x_shape}."
+        )
+
+    if np.any(x < -tol) or np.any(x > 1.0 + tol):
+        raise ValueError("'x' contains values outside [0, 1].")
+
+    horizon = 2 * H
+
+    # Initial expected damage mu_0 is converted to initial Gamma shape.
+    # beta has shape (L,), so NumPy broadcasts over vehicles.
+    current_shape = mean_to_shape(mu_0, gamma_beta)  # shape: (F, L)
+
+    rows = []
+
+    for k in range(horizon):
+        k_input = k % H
+
+        for i in range(F):
+            maintenance_or_idle = abs(x[i, 0, k] - 1.0) <= tol
+
+            active_missions = [
+                j for j in range(M)
+                if abs(x[i, j + 1, k] - 1.0) <= tol
+            ]
+
+            if maintenance_or_idle and active_missions:
+                raise ValueError(
+                    f"Invalid schedule at vehicle={i}, time_step={k}: "
+                    "maintenance/idle and mission are both active."
+                )
+
+            if len(active_missions) > 1:
+                raise ValueError(
+                    f"Invalid schedule at vehicle={i}, time_step={k}: "
+                    f"multiple missions active: {active_missions}."
+                )
+
+            if not maintenance_or_idle and len(active_missions) == 0:
+                raise ValueError(
+                    f"Invalid schedule at vehicle={i}, time_step={k}: "
+                    "no activity selected."
+                )
+
+            if maintenance_or_idle:
+                for l in range(L):
+                    shape_before = float(current_shape[i, l])
+                    mean_before = float(shape_to_mean(shape_before, gamma_beta[l]))
+
+                    if maintenance_policy == "replacement":
+                        # Synthetic full replacement:
+                        # reset accumulated Gamma shape to zero.
+                        shape_after = 0.0
+                        activity_name = "replacement"
+                    else:
+                        # No repair/replacement:
+                        # carry the state forward unchanged.
+                        shape_after = shape_before
+                        activity_name = "maintenance_or_idle"
+
+                    current_shape[i, l] = shape_after
+
+                    mean_after = float(shape_to_mean(shape_after, gamma_beta[l]))
+                    variance_after = float(
+                        shape_to_variance(shape_after, gamma_beta[l])
+                    )
+                    fail_prob_after = float(
+                        failure_probability(shape_after, gamma_beta[l], tau)
+                    )
+                    passed = bool(fail_prob_after <= epsilon + tol)
+
+                    rows.append(
+                        {
+                            "time_step": k,
+                            "input_day": k_input,
+                            "vehicle": i,
+                            "activity": activity_name,
+                            "mission": None,
+                            "component": l,
+                            "beta": float(gamma_beta[l]),
+                            "tau": float(tau),
+                            "epsilon": float(epsilon),
+                            "shape_before": shape_before,
+                            "shape_increment": -shape_before
+                            if maintenance_policy == "replacement"
+                            else 0.0,
+                            "shape_after": shape_after,
+                            "mean_before": mean_before,
+                            "mean_increment": -mean_before
+                            if maintenance_policy == "replacement"
+                            else 0.0,
+                            "mean_after": mean_after,
+                            "variance_after": variance_after,
+                            "failure_probability_after": fail_prob_after,
+                            "reliability_passed": passed,
+                            "status": (
+                                "OK"
+                                if passed
+                                else "FAILURE_PROBABILITY_ABOVE_EPSILON"
+                            ),
+                        }
+                    )
+
+                continue
+
+            # Exactly one mission is active.
+            mission = active_missions[0]
+
+            for l in range(L):
+                shape_before = float(current_shape[i, l])
+                mean_before = float(shape_to_mean(shape_before, gamma_beta[l]))
+
+                mean_increment = float(mu_param[i, mission, l, k_input])
+                shape_increment = float(
+                    mean_to_shape(mean_increment, gamma_beta[l])
+                )
+
+                shape_after = shape_before + shape_increment
+                current_shape[i, l] = shape_after
+
+                mean_after = float(shape_to_mean(shape_after, gamma_beta[l]))
+                variance_after = float(
+                    shape_to_variance(shape_after, gamma_beta[l])
+                )
+                fail_prob_after = float(
+                    failure_probability(shape_after, gamma_beta[l], tau)
+                )
+                passed = bool(fail_prob_after <= epsilon + tol)
+
+                rows.append(
+                    {
+                        "time_step": k,
+                        "input_day": k_input,
+                        "vehicle": i,
+                        "activity": "mission",
+                        "mission": mission,
+                        "component": l,
+                        "beta": float(gamma_beta[l]),
+                        "tau": float(tau),
+                        "epsilon": float(epsilon),
+                        "shape_before": shape_before,
+                        "shape_increment": shape_increment,
+                        "shape_after": float(shape_after),
+                        "mean_before": mean_before,
+                        "mean_increment": mean_increment,
+                        "mean_after": mean_after,
+                        "variance_after": variance_after,
+                        "failure_probability_after": fail_prob_after,
+                        "reliability_passed": passed,
+                        "status": (
+                            "OK"
+                            if passed
+                            else "FAILURE_PROBABILITY_ABOVE_EPSILON"
+                        ),
+                    }
+                )
+
+    return pd.DataFrame(rows)
+
+
+def validate_gamma_synthetic_diagnostic(
+    input_path: str,
+    log_path: str = "results/gamma_synthetic_diagnostic.log",
+    tol: float = 1e-6,
+) -> dict:
+    """
+    Run a diagnostic validation for a synthetic Gamma-process input file.
+
+    This function:
+    - reads the Gamma input file,
+    - propagates the Gamma shape state through the provided schedule x,
+    - checks P(D > tau) <= epsilon at every vehicle/component/time entry,
+    - checks the Gamma loop condition A_2H <= A_H,
+    - writes a human-readable log file,
+    - returns a summary report.
+    """
+
+    input_file = Path(input_path)
+    log_file = Path(log_path)
+
+    if not input_file.exists():
+        raise FileNotFoundError(f"Input file not found: {input_path}")
+
+    log_file.parent.mkdir(parents=True, exist_ok=True)
+
+    input_data = _read_input(input_file)
+
+    if input_data is None:
+        raise ValueError(
+            f"Input file is empty or contains only comments: {input_path}"
+        )
+
+    params = extract_degradation_parameters(input_data, "gamma")
+
+    maintenance_policy = str(
+        input_data.get("maintenance_policy", "none")
+    ).lower()
+
+    F = params["F"]
+    L = params["L"]
+    H = params["H"]
+    tau = params["tau"]
+    epsilon = params["epsilon"]
+
+    df = build_gamma_diagnostic_dataframe(input_path=input_path, tol=tol)
+
+    failed_df = df[~df["reliability_passed"]].copy()
+
+    # For the loop condition, compare shape at k = H-1 and k = 2H-1.
+    # These are the last stored states of the first and second half.
+    mid_df = df[df["time_step"] == H - 1]
+    end_df = df[df["time_step"] == 2 * H - 1]
+
+    shape_mid = (
+        mid_df
+        .sort_values(["vehicle", "component"])
+        ["shape_after"]
+        .to_numpy()
+        .reshape(F, L)
+    )
+
+    shape_end = (
+        end_df
+        .sort_values(["vehicle", "component"])
+        ["shape_after"]
+        .to_numpy()
+        .reshape(F, L)
+    )
+
+    loop_passed_matrix = loop_constraint_passed(
+        shape_mid_horizon=shape_mid,
+        shape_end_horizon=shape_end,
+        tol=tol,
+    )
+
+    loop_passed = bool(np.all(loop_passed_matrix))
+
+    lines = []
+    lines.append("=" * 88)
+    lines.append("Gamma synthetic diagnostic")
+    lines.append("=" * 88)
+    lines.append(f"Input file: {input_file}")
+    lines.append(f"maintenance_policy={maintenance_policy}")
+    lines.append(f"F={F}, L={L}, H={H}, output horizon={2 * H}")
+    lines.append(f"tau={tau}")
+    lines.append(f"epsilon={epsilon}")
+    lines.append("")
+    lines.append("-" * 88)
+    lines.append("Component-level trajectory checks")
+    lines.append("-" * 88)
+
+    for _, row in df.iterrows():
+        mission_text = (
+            "none"
+            if pd.isna(row["mission"])
+            else str(int(row["mission"]))
+        )
+
+        lines.append(
+            f"k={int(row['time_step']):02d}, "
+            f"input_day={int(row['input_day']):02d}, "
+            f"vehicle={int(row['vehicle'])}, "
+            f"component={int(row['component'])}, "
+            f"activity={row['activity']}, "
+            f"mission={mission_text}: {row['status']}"
+        )
+        lines.append(
+            f"    shape: before={row['shape_before']:.6f}, "
+            f"increment={row['shape_increment']:.6f}, "
+            f"after={row['shape_after']:.6f}, beta={row['beta']:.6f}"
+        )
+        lines.append(
+            f"    mean: before={row['mean_before']:.6f}, "
+            f"increment={row['mean_increment']:.6f}, "
+            f"after={row['mean_after']:.6f}, "
+            f"variance_after={row['variance_after']:.6f}"
+        )
+        lines.append(
+            f"    failure_probability_after="
+            f"{row['failure_probability_after']:.6e}, "
+            f"epsilon={row['epsilon']:.6e}"
+        )
+
+    lines.append("")
+    lines.append("-" * 88)
+    lines.append("Loop constraint")
+    lines.append("-" * 88)
+    lines.append("Gamma shared-rate loop condition: A_2H <= A_H")
+    lines.append(f"Loop passed: {loop_passed}")
+
+    for i in range(F):
+        for l in range(L):
+            status = "OK" if loop_passed_matrix[i, l] else "LOOP_VIOLATION"
+            lines.append(
+                f"vehicle={i}, component={l}: "
+                f"A_H={shape_mid[i,l]:.6f}, "
+                f"A_2H={shape_end[i,l]:.6f} -> {status}"
+            )
+
+    lines.append("")
+    lines.append("-" * 88)
+    lines.append("Summary")
+    lines.append("-" * 88)
+    lines.append(f"Rows checked: {len(df)}")
+    lines.append(f"Reliability failures: {len(failed_df)}")
+    lines.append(f"Loop passed: {loop_passed}")
+    lines.append("=" * 88)
+
+    with open(log_file, "w") as f:
+        f.write("\n".join(lines))
+
+    report = {
+        "passed": bool(len(failed_df) == 0 and loop_passed),
+        "rows_checked": int(len(df)),
+        "reliability_failures": int(len(failed_df)),
+        "loop_passed": loop_passed,
+        "tau": float(tau),
+        "epsilon": float(epsilon),
+        "log_path": str(log_file),
+    }
+
+    print("=" * 72)
+    print("Gamma synthetic diagnostic")
+    print("=" * 72)
+    print(f"Input file: {input_file}")
+    print(f"Log file:   {log_file}")
+    print(f"Rows checked: {report['rows_checked']}")
+    print(f"Reliability failures: {report['reliability_failures']}")
+    print(f"Loop passed: {report['loop_passed']}")
+    print(f"Overall passed: {report['passed']}")
+    print("=" * 72)
+
+    return report
 
 
 def _read_results(results_file: Path) -> dict:
