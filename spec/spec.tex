@@ -27,7 +27,8 @@
 \pagestyle{fancy}
 \fancyhf{}
 \rhead{\textit{Fleet Management --- SRS}}
-\lhead{\textit{v0.2 (revised) $\cdot$ \today}}
+%% --- CHANGE RF-001: version bump to 0.4 (running header) ---
+\lhead{\textit{v0.4 $\cdot$ \today}}
 \cfoot{\thepage}
 
 \definecolor{todo}{RGB}{180,0,0}
@@ -53,7 +54,8 @@
   \vspace{0.3cm}
   {\large Multi-Component Stochastic Degradation MILP\par}
   \vspace{1cm}
-  {\large Version 0.2 (revised) $\cdot$ \today\par}
+  %% --- CHANGE RF-002: version bump to 0.4 (title page) ---
+  {\large Version 0.4 $\cdot$ \today\par}
   \vfill
   {\small Prepared with spec-creator $\cdot$ Intended for Claude Code implementation}
 \end{titlepage}
@@ -76,6 +78,12 @@ may have its own degradation model, independently chosen from:
   \item \textbf{Wiener} (Brownian motion with drift; tracks mean and variance, but variance
         is a deterministic function of time with no repair effect)
   \item \textbf{Gamma} (Gamma random walk; tracks accumulated shape parameter)
+  %% --- CHANGE RF-003: add rainflow model bullet ---
+  \item \textbf{Rainflow} (distribution-free; the per-mission damage-increment law
+        is measured empirically by rainflow counting of load histories and enters
+        the model only through its mean, variance, and---for the Bernstein
+        certificate---support upper bound; tracks mean and variance; reliability
+        certified by a Cantelli or Bernstein tail bound)
 \end{itemize}
 
 %% --- CHANGE DOM-003: clarify Gaussian vs Wiener distinction ---
@@ -89,6 +97,22 @@ on variance. This makes the Wiener model simpler but restricts it to components 
 periodic full replacement is feasible (see Section~\ref{sec:dyn_wiener}). When in
 doubt, use the Gaussian model; the Wiener model is a specialisation for components
 with stationary, route-independent uncertainty.
+
+%% --- CHANGE RF-004: rainflow vs parametric models contrast remark ---
+\emph{Rainflow vs.\ the parametric models.}
+The rainflow model makes \textbf{no distributional assumption} on the damage
+increments: the per-mission increment law is measured (rainflow counting of
+recorded load histories) and is summarised only by its first two moments and,
+optionally, its support upper bound. Reliability
+$\Pr(D > \tau) \leq \varepsilon$ is certified by a distribution-free tail bound
+rather than by an exact parametric CDF, trading tightness for robustness: the
+certificate holds for \emph{every} increment law consistent with the measured
+summaries. Two bounds are offered via the \texttt{tail\_bound} input
+(Section~\ref{sec:dyn_rainflow}): \textbf{Cantelli}, which needs only the mean
+and variance and is the always-valid coarse option, and \textbf{Bernstein},
+which additionally exploits the mutual independence of the daily increments and
+their bounded support, and is tighter deep in the tail at the price of requiring
+support inputs.
 
 Each component also has an independently specified maintenance policy
 ($\mathrm{ARA}_1$ or $\mathrm{ARD}_1$, subject to model compatibility---see below)
@@ -123,8 +147,15 @@ is infeasible. This restriction should be verified at input validation time
 \begin{itemize}
   \item Routing decisions are not optimised (routes are an input).
   \item Continuous-time formulations are out of scope; all dynamics are discrete-time.
-  \item Linearisation of the reliability constraints is deferred to a later phase
-        (the current spec targets the exact, potentially non-linear formulation).
+  %% --- CHANGE RF-005: non-goals carve-out for rainflow linearisation ---
+  %% --- CHANGE RF-042 (panel): bullet reworded; linearisation is no longer deferred anywhere ---
+  \item Tightening of the linear reliability surrogates beyond their single-tangent
+        forms is deferred. Every model ships with fully specified constraint forms
+        in this document: Gaussian, Wiener, and rainflow have both an exact
+        (nonconvex quadratic) and a linear inner-approximation form
+        (Sections~\ref{sec:dyn_gaussian} and~\ref{sec:dyn_rainflow}); IG and Gamma
+        are linear by construction. The deferred item is the multi-tangent PWL
+        refinement listed in the Open Questions.
 \end{itemize}
 
 % ================================================================
@@ -148,6 +179,7 @@ $\ell \in \{1,\ldots,L\}$ & Component index \\
 % ================================================================
 
 \subsection{Scalar / Fleet-Level Parameters}
+\label{sec:input_scalars}
 
 \begin{longtable}{@{}llp{8cm}@{}}
 \toprule
@@ -170,15 +202,23 @@ $C_D$ & \texttt{float} & Damage regularisation coefficient \\
 \texttt{penalty\_type} & \texttt{str}, optional & Damage regularisation type:
   \texttt{"inf\_norm"} (default) or \texttt{"quadratic"}.
   Controls the form of the $C_D$ penalty term (see Section~\ref{sec:objective}) \\
+%% --- CHANGE RF-006: formulation token socp->exact; corrected SOC mislabel ---
 \texttt{formulation} & \texttt{str}, optional & Problem formulation:
-  \texttt{"socp"} (default) or \texttt{"lp"}.
-  \texttt{"socp"}: Gaussian and Wiener reliability constraints are rotated
-  second-order cone (exact).
+  \texttt{"exact"} (default) or \texttt{"lp"}.
+  \texttt{"exact"}: Gaussian, Wiener, and rainflow reliability constraints are
+  imposed in their exact squared form, a \emph{nonconvex} quadratic constraint
+  handled by Gurobi's nonconvex quadratic support (\texttt{NonConvex=2} where
+  not the default); see Section~\ref{sec:dyn_gaussian}.
   \texttt{"lp"}: all constraints are linear; Gaussian/Wiener reliability
   constraints use the inner approximation
   $(\Phi^{-1}(1-\varepsilon))^2 v_{i\ell k} + 2\tau\,\mu_{i\ell k} \leq \tau^2$
-  (conservative; approximation error $= \mu_{i\ell k}^2$, small when $\mu_{i\ell k} \ll \tau$).
-  \texttt{"quadratic"} penalty type is incompatible with \texttt{"lp"} \\
+  (conservative; approximation error $= \mu_{i\ell k}^2$, small when $\mu_{i\ell k} \ll \tau$),
+  and rainflow components use the analogous tangent surrogates of
+  Section~\ref{sec:dyn_rainflow}.
+  \texttt{"quadratic"} penalty type is incompatible with \texttt{"lp"}.
+  The legacy value \texttt{"socp"} is accepted as a deprecated alias for
+  \texttt{"exact"}: the parser maps it to \texttt{"exact"} and emits a
+  \texttt{UserWarning} \\
 \texttt{n\_workers} & \texttt{int}, optional & Number of parallel Gurobi solves.
   \texttt{1} = sequential (default). Each worker runs an independent Gurobi environment.
   Only meaningful when $H$ is an interval \\
@@ -194,9 +234,19 @@ $C_D$ & \texttt{float} & Damage regularisation coefficient \\
 \toprule
 Parameter & Shape & Description \\
 \midrule
+%% --- CHANGE RF-008: add rainflow to model strings ---
 \texttt{model} & $F \times L$ & Degradation model per train-component:
   one of \texttt{"gaussian"}, \texttt{"inverse\_gaussian"},
-  \texttt{"wiener"}, \texttt{"gamma"} \\
+  \texttt{"wiener"}, \texttt{"gamma"}, \texttt{"rainflow"} \\
+%% --- CHANGE RF-007: new tail_bound input ---
+%% --- CHANGE RF-044 (panel): tail_bound moved here from the scalar-parameter table (conditionally required, per-component) ---
+\texttt{tail\_bound} & \texttt{str} or $F \times L$ list of \texttt{str} &
+  Distribution-free tail bound used in the reliability constraint of rainflow
+  components: \texttt{"cantelli"} (default) or \texttt{"bernstein"}, either a
+  single string applied to all rainflow components or an $F \times L$
+  per-component list. Optional; read only when at least one component is
+  \texttt{"rainflow"}. Entries for non-rainflow components are ignored with a
+  \texttt{UserWarning}. See Section~\ref{sec:dyn_rainflow} \\
 \bottomrule
 \end{longtable}
 
@@ -207,12 +257,14 @@ Parameter & Shape & Description \\
 Parameter & Shape & Description \\
 \midrule
 $\mu_0$ & $F \times L$ & Initial mean degradation (all models); must satisfy $\mu_0 < \tau$ \\
-$v_0$ & $F \times L$ & Initial variance (Gaussian and Wiener only); must satisfy
+%% --- CHANGE RF-009: v_0 also applies to rainflow ---
+$v_0$ & $F \times L$ & Initial variance (Gaussian, Wiener, and Rainflow); must satisfy
   $\mu_0 \geq 3\sqrt{v_0}$ for Gaussian \\
 \bottomrule
 \end{longtable}
 
 \subsection{Mission- and Time-Dependent Degradation Parameters}
+\label{sec:input_increments}
 
 These tensors provide the degradation \emph{increment} parameters when train $i$
 performs mission $j$ on day $k$ for component $\ell$.
@@ -230,12 +282,16 @@ constraint-building code can assume full $(F, M, L, 2H)$ arrays.
 \toprule
 Parameter & Shape & Models & Description \\
 \midrule
-$\mu^{\mathrm{inc}}$ & $F \times M \times L \times H$ & Gaussian, IG, Wiener
+%% --- CHANGE RF-010: mu_inc/v_inc also for rainflow; new b_inc row ---
+$\mu^{\mathrm{inc}}$ & $F \times M \times L \times H$ & Gaussian, IG, Wiener, Rainflow
   & Mean increment per step \\
-$v^{\mathrm{inc}}$ & $F \times M \times L \times H$ & Gaussian only
+$v^{\mathrm{inc}}$ & $F \times M \times L \times H$ & Gaussian, Rainflow
   & Variance increment per step \\
 $\alpha^{\mathrm{inc}}$ & $F \times M \times L \times H$ & Gamma only
   & Shape increment per step \\
+$b^{\mathrm{inc}}$ & $F \times M \times L \times H$ & Rainflow (Bernstein only)
+  & Support upper bound of the empirical per-mission damage increment, from
+    rainflow counting; YAML key \texttt{b\_inc} \\
 \bottomrule
 \end{longtable}
 
@@ -256,8 +312,9 @@ $\eta$ & $F \times L$ & $\mu/\lambda$ ratio (IG only; must be positive).
 $\sigma$ & $F \times L$ & Diffusion constant (Wiener only; must be positive) \\
 $\beta$ & $F \times L$ & Scale parameter (Gamma only; must be positive) \\
 %% --- CHANGE DOM-026: user-defined variance upper bound ---
+%% --- CHANGE RF-011: V_max^user applicability extended to rainflow ---
 $V_{\max}^{\mathrm{user}}$ & $F \times L$, optional & User-defined variance upper bound
-  (Gaussian and Wiener components only). When specified, the constraint
+  (Gaussian, Wiener, and Rainflow components only). When specified, the constraint
   $v_{i\ell k} \leq V_{\max,i\ell}^{\mathrm{user}}$ is added for all $k$.
   Default: not applied (variance is bounded only by the reliability constraint) \\
 \bottomrule
@@ -275,12 +332,25 @@ $\rho$ & $F \times L$ & Repair efficiency $\in (0,1]$ \\
 $C_R$ & $F \times L$ & Repair cost (ARA/ARD maintenance) \\
 $C_{\mathrm{rep}}$ & $F \times L$ & Replacement cost \\
 $\mu^{\mathrm{new}}$ & $F \times L$ & Post-replacement mean (default: 0) \\
+%% --- CHANGE RF-012: v_new also for rainflow; new b_0 / b_new rows ---
 $v^{\mathrm{new}}$ & $F \times L$ & Post-replacement variance
-  (Gaussian and Wiener only; default: 0) \\
+  (Gaussian, Wiener, and Rainflow; default: 0) \\
+$b^{0}$ & $F \times L$ & Support upper bound of the initial damage state,
+  $D^{0}_{i\ell} \in [0, b^{0}_{i\ell}]$ a.s.\ (Rainflow with
+  \texttt{tail\_bound="bernstein"} only; YAML key \texttt{b\_0}).
+  Required iff at least one rainflow component uses the Bernstein bound \\
+$b^{\mathrm{new}}$ & $F \times L$ & Support upper bound of the post-replacement
+  damage state, $D^{\mathrm{new}}_{i\ell} \in [0, b^{\mathrm{new}}_{i\ell}]$ a.s.\
+  (Rainflow with \texttt{tail\_bound="bernstein"} only; YAML key
+  \texttt{b\_new}).
+  Read iff at least one rainflow component uses the Bernstein bound; if absent,
+  the default $0$ (deterministic like-new state, matching the
+  $\mu^{\mathrm{new}} = v^{\mathrm{new}} = 0$ defaults) is used \\
 \bottomrule
 \end{longtable}
 
 \subsection{Consistency Checks}
+\label{sec:consistency_checks}
 
 The solver must validate all of the following before building the model.
 Any violation raises an informative \texttt{ValueError}.
@@ -307,15 +377,59 @@ Any violation raises an informative \texttt{ValueError}.
   \item \textbf{IG:} $\eta > 0$ element-wise; \texttt{maintenance\_type} must be
         \texttt{"ARD1"} for all IG components.
   \item \textbf{Wiener:} $\sigma > 0$ element-wise; $v_0 > 0$ for Wiener components.
+  %% --- CHANGE RF-013: rainflow consistency checks ---
+  \item \textbf{Rainflow:} \texttt{maintenance\_type} must be \texttt{"ARD1"} for
+        all rainflow components (ARA1 is not supported for rainflow, for the same
+        reason as for Gaussian: the ARA1 variance semantics are unresolved; see
+        Section~\ref{sec:dyn_rainflow} and the Open Questions).
+  \item \texttt{tail\_bound} entries must be \texttt{"cantelli"} or
+        \texttt{"bernstein"} if specified (single string, or $F \times L$ list);
+        entries at non-rainflow positions are ignored with a \texttt{UserWarning}.
+        \texttt{"cantelli"} requires no support inputs
+        ($b^{\mathrm{inc}}$, $b^{0}$, $b^{\mathrm{new}}$ are not read).
+  \item \textbf{Rainflow with \texttt{tail\_bound="bernstein"}:} for every
+        applicable component,
+        \begin{itemize}[nosep]
+          \item $b^{\mathrm{inc}} \geq \mu^{\mathrm{inc}}$ element-wise
+                (the mean of a law on $[0, b]$ cannot exceed $b$);
+          \item $v^{\mathrm{inc}} \leq \mu^{\mathrm{inc}}
+                (b^{\mathrm{inc}} - \mu^{\mathrm{inc}})$ element-wise
+                (Bhatia--Davis: this is necessary for \emph{any} law supported on
+                $[0, b^{\mathrm{inc}}]$ with the given mean; a violation means the
+                measured moments and support are mutually inconsistent);
+          \item $b^{0} \geq \mu_0$ element-wise (if $v_0 = 0$,
+                $b^{0} = \mu_0$ is admissible); $b^{\mathrm{new}} \geq
+                \mu^{\mathrm{new}}$ element-wise; moreover
+                $v_0 \leq \mu_0\,(b^{0} - \mu_0)$ and
+                $v^{\mathrm{new}} \leq \mu^{\mathrm{new}}\,(b^{\mathrm{new}} -
+                \mu^{\mathrm{new}})$ element-wise (Bhatia--Davis, as for the
+                increments: a violation means the declared reset moments
+                contradict the support claim of assumption A2);
+          \item $\tau > 2\kappa\, b_{i\ell}/3$ with $\kappa = \ln(1/\varepsilon)$
+                and $b_{i\ell}$ the support constant of
+                Section~\ref{sec:dyn_rainflow}: otherwise the Bernstein
+                certificate admits no positive variance --- for
+                $\tau < 2\kappa b_{i\ell}/3$ it is infeasible even at zero damage
+                ($\mu = v = 0$ already requires the margin $2\kappa b_{i\ell}/3$),
+                and at equality only the degenerate point $\mu = v = 0$ survives,
+                with $V_{\max}^{\mathrm{RF}} = 0$ breaking the big-$M$ rows of
+                Section~\ref{sec:dyn_rainflow}.
+        \end{itemize}
   %% --- CHANGE MATH-002 option b: require C_D > 0 ---
   \item $C_D > 0$ (required for tightness of the one-sided big-M relaxation;
         see remark in Section~\ref{sec:dyn_gaussian}).
-  \item \texttt{model} entries must all be in
-        \texttt{\{"gaussian","inverse\_gaussian","wiener","gamma"\}}.
+  %% --- CHANGE RF-014: rainflow in allowed model set ---
+  \item \texttt{model} entries must all be one of \texttt{"gaussian"},
+        \texttt{"inverse\_gaussian"}, \texttt{"wiener"}, \texttt{"gamma"},
+        or \texttt{"rainflow"}.
   \item \texttt{maintenance\_type} entries must all be in \texttt{\{"ARA1","ARD1"\}}.
   \item \texttt{penalty\_type} must be \texttt{"inf\_norm"} or \texttt{"quadratic"}
         if specified.
-  \item \texttt{formulation} must be \texttt{"socp"} or \texttt{"lp"} if specified.
+  %% --- CHANGE RF-015: formulation token rename with deprecated alias ---
+  \item \texttt{formulation} must be \texttt{"exact"} or \texttt{"lp"} if
+        specified. The legacy value \texttt{"socp"} is accepted as a deprecated
+        alias: the parser maps it to \texttt{"exact"} and emits a
+        \texttt{UserWarning}.
   \item If \texttt{formulation="lp"} and \texttt{penalty\_type="quadratic"}:
         raise \texttt{ValueError} (quadratic penalty requires rotated SOC constraints).
   %% --- CHANGE CS-009: shape validation ---
@@ -323,8 +437,10 @@ Any violation raises an informative \texttt{ValueError}.
         $\mu^{\mathrm{inc}}$ must be $(F, M, L)$ or $(F, M, L, H)$;
         $v^{\mathrm{inc}}$ must be $(F, M, L)$ or $(F, M, L, H)$;
         $\alpha^{\mathrm{inc}}$ must be $(F, M, L)$ or $(F, M, L, H)$;
+        $b^{\mathrm{inc}}$ must be $(F, M, L)$ or $(F, M, L, H)$;
         $C_M, C_R, C_D$ must be scalar, $(F,)$, or $(F, L)$;
-        $\alpha_{\mathrm{target}}, \rho, \tau$ must be scalar or $(F, L)$.
+        $\alpha_{\mathrm{target}}, \rho, \tau$ must be scalar or $(F, L)$;
+        $b^{0}, b^{\mathrm{new}}$ must be scalar or $(F, L)$.
         Raise \texttt{ValueError} with a diagnostic message on shape mismatch.
         Do not rely on NumPy silent broadcasting.
   \item If $H$ is a list: must have exactly two elements; $H_{\min} \geq 1$;
@@ -333,9 +449,10 @@ Any violation raises an informative \texttt{ValueError}.
   \item If \texttt{warm\_start=True} and \texttt{n\_workers > 1}: raise
         \texttt{ValueError} (warm starting requires sequential execution).
   %% --- CHANGE DOM-026: V_max^user consistency check ---
+  %% --- CHANGE RF-016: V_max^user applicability extended to rainflow ---
   \item If $V_{\max}^{\mathrm{user}}$ is specified: must be positive element-wise;
         must satisfy $v_0 \leq V_{\max}^{\mathrm{user}}$ for all applicable components;
-        only applicable to Gaussian and Wiener components.
+        only applicable to Gaussian, Wiener, and Rainflow components.
 \end{itemize}
 
 % ================================================================
@@ -355,8 +472,9 @@ $x^r_{i\ell k}$ & $F \times L \times 2H$, binary
   & 1 if component $\ell$ of train $i$ is replaced on day $k$ \\
 $\mu_{i\ell k}$ & $F \times L \times 2H$, non-negative
   & Accumulated mean degradation (all models) \\
+%% --- CHANGE RF-017: v tracked by rainflow as well ---
 $v_{i\ell k}$ & $F \times L \times 2H$, non-negative
-  & Accumulated variance (Gaussian and Wiener only) \\
+  & Accumulated variance (Gaussian, Wiener, and Rainflow only) \\
 $\alpha_{i\ell k}$ & $F \times L \times 2H$, non-negative
   & Accumulated shape parameter (Gamma only);
     $\mu_{i\ell k} = \alpha_{i\ell k}\cdot\beta_{i\ell}$ recovered at post-processing \\
@@ -491,9 +609,10 @@ mechanisms:
   \item $C_P \cdot \mathcal{L}_{\mathrm{loop}}$: at half-horizon boundaries
         ($k=H$ and $k=2H$), any slack in $\mu$ worsens the loop penalty.
 \end{enumerate}
+%% --- CHANGE RF-018: SOC wording updated (exact form is not SOC) ---
 For the variance variable~$v$, tightness is enforced by the reliability constraint:
-an inflated $v$ tightens the upper bound on $\mu$ via the SOC or LP approximation,
-creating an indirect cost penalty.
+an inflated $v$ tightens the upper bound on $\mu$ via the exact or LP reliability
+form, creating an indirect cost penalty.
 
 %% --- CHANGE MATH-003: ARD1 deterministic variance scaling remark ---
 \emph{Remark (ARD1 variance scaling).}
@@ -544,7 +663,8 @@ No additional modelling assumption is required.
 \subsubsection{Reliability Constraint (Gaussian)}
 
 %% --- CHANGE MATH-006: mu <= tau remark ---
-\textbf{Exact form (rotated SOC, \texttt{formulation="socp"}):}
+%% --- CHANGE RF-019: formulation token socp->exact; rotated-SOC mislabel corrected ---
+\textbf{Exact form (nonconvex quadratic, \texttt{formulation="exact"}):}
 \begin{equation}
   \mu_{i\ell k} + \Phi^{-1}(1-\varepsilon)\,\sqrt{v_{i\ell k}} \leq \tau
   \qquad \forall\, i,\ell,k
@@ -554,10 +674,19 @@ and $\Phi^{-1}(1-\varepsilon) > 0$ since $\varepsilon \leq 0.01$):
 \begin{equation}
   (\Phi^{-1}(1-\varepsilon))^2\,v_{i\ell k} \leq (\tau - \mu_{i\ell k})^2
 \end{equation}
-This is a \textbf{rotated SOC constraint} in Gurobi's form $x \cdot y \geq \|z\|_2^2$ with
-$x = y = \tau - \mu_{i\ell k}$ (linear in $\mu_{i\ell k}$, non-negative by feasibility)
-and $\|z\|_2^2 = (\Phi^{-1}(1-\varepsilon))^2\,v_{i\ell k}$ (linear in $v_{i\ell k}$).
-Natively supported by Gurobi; no approximation needed.
+This squared form is exact but \textbf{not} a rotated second-order cone: since
+the variance $v_{i\ell k}$ is itself an (affine) decision quantity, the
+constraint reads $(\text{affine}) \leq (\text{affine})^2$, and the
+$\mu_{i\ell k}^2$ term enters with the wrong sign for convexity---the feasible
+set is the complement of a convex set. Concretely,
+$(\mu_{i\ell k}, v_{i\ell k}) = (\tau,\, 0)$ and
+$(0,\, \tau^2/(\Phi^{-1}(1-\varepsilon))^2)$ are both feasible while their
+midpoint $(\tau/2,\, \tau^2/(2(\Phi^{-1}(1-\varepsilon))^2))$ violates the
+constraint ($\tau^2/2 > \tau^2/4$). Gurobi handles the constraint through its
+nonconvex quadratic machinery (parameter \texttt{NonConvex=2} where not the
+default); the constraint remains exact---no approximation is introduced. The
+legacy value \texttt{formulation="socp"} is accepted as a deprecated alias for
+\texttt{"exact"} (Section~\ref{sec:input_scalars}).
 
 \emph{Remark.} The bound $\mu_{i\ell k} \leq \tau$ is guaranteed by $\mu_0 < \tau$,
 the non-negativity of degradation increments, and the dynamics constraints;
@@ -570,8 +699,9 @@ Expanding the right-hand side and dropping the non-negative term $\mu_{i\ell k}^
   \qquad \forall\, i,\ell,k
   \label{eq:g_lp_reliability}
 \end{equation}
+%% --- CHANGE RF-020: SOC wording updated in LP derivation and conservatism remark ---
 This is an \textbf{inner approximation}: any $(v_{i\ell k}, \mu_{i\ell k})$ satisfying
-Eq.~\eqref{eq:g_lp_reliability} also satisfies the true rotated SOC constraint,
+Eq.~\eqref{eq:g_lp_reliability} also satisfies the exact squared constraint,
 since $(\tau - \mu_{i\ell k})^2 = \tau^2 - 2\tau\,\mu_{i\ell k} + \mu_{i\ell k}^2
 \geq \tau^2 - 2\tau\,\mu_{i\ell k}$.
 The approximation error is $\mu_{i\ell k}^2$, which is small when $\mu_{i\ell k} \ll \tau$
@@ -580,13 +710,14 @@ No additional parameters are required.
 
 %% --- CHANGE DEV-007: quantify LP approximation conservatism ---
 \emph{Remark (LP approximation conservatism).}
-The LP inner approximation replaces the SOC constraint with a tangent hyperplane,
-yielding a feasible region that is a strict subset of the SOC feasible region.
-This means the LP relaxation may exclude some SOC-feasible points, potentially
+The LP inner approximation replaces the exact quadratic constraint with a tangent
+hyperplane, yielding a feasible region that is a strict subset of the exact
+feasible region.
+This means the LP relaxation may exclude some exact-feasible points, potentially
 increasing the objective value. The approximation is tightest when $v_{i\ell k}$
 is near the linearisation point and loosest at the boundaries of the variance domain.
-When solution quality is critical, the SOCP formulation should be preferred;
-the LP approximation is intended for solvers without conic support.
+When solution quality is critical, the exact formulation should be preferred;
+the LP approximation is intended for solvers without nonconvex-quadratic support.
 
 %% --- CHANGE DOM-026: user-defined variance upper bound constraint ---
 \textbf{User-defined variance upper bound (optional):}
@@ -847,15 +978,17 @@ tightness at optimality is guaranteed by the $C_D > 0$ requirement
 
 \subsubsection{Reliability Constraint (Wiener)}
 
-\textbf{Exact form (rotated SOC, \texttt{formulation="socp"}):} identical to Gaussian,
+%% --- CHANGE RF-021: formulation token socp->exact; rotated-SOC mislabel corrected (Wiener) ---
+\textbf{Exact form (nonconvex quadratic, \texttt{formulation="exact"}):} identical to Gaussian,
 \begin{equation}
   \mu_{i\ell k} + \Phi^{-1}(1-\varepsilon)\,\sqrt{v_{i\ell k}} \leq \tau
   \qquad \forall\, i,\ell,k
 \end{equation}
 Equivalently: $(\Phi^{-1}(1-\varepsilon))^2\,v_{i\ell k} \leq (\tau - \mu_{i\ell k})^2$,
-a rotated SOC constraint with $x = y = \tau - \mu_{i\ell k}$ and
-$\|z\|_2^2 = (\Phi^{-1}(1-\varepsilon))^2\,v_{i\ell k}$.
-Natively supported by Gurobi; no approximation needed.
+an exact \emph{nonconvex} quadratic constraint (the $\mu_{i\ell k}^2$ term enters
+with the wrong sign for convexity; see the corrected discussion in
+Section~\ref{sec:dyn_gaussian}). Handled by Gurobi's nonconvex quadratic support
+(\texttt{NonConvex=2} where not the default); no approximation is introduced.
 
 \textbf{LP approximation (\texttt{formulation="lp"}):} identical form to Gaussian,
 \begin{equation}
@@ -874,8 +1007,16 @@ If $V_{\max}^{\mathrm{user}}$ is specified for Wiener component $(i,\ell)$:
 
 \subsubsection{Loop Constraint (Wiener, hard + soft)}
 
-Strict FSD on both mean and variance is required to guarantee perpetual safety
-(see Section~\ref{sec:loop}). Since variance can only be reset by replacement,
+%% --- CHANGE RF-022: A-02 accepted review item applied (FSD wording corrected) ---
+The loop constraint bounds both tracked moments,
+$\mu_{i\ell,2H} \leq \mu_{i\ell,H}$ and $v_{i\ell,2H} \leq v_{i\ell,H}$, to
+guarantee perpetual safety (see Section~\ref{sec:loop}). For Gaussian marginals
+with $\mu < \tau$, bounding both moments implies the failure-probability
+comparison $\Pr(D_{2H} > \tau) \leq \Pr(D_H > \tau)$ at any threshold $\tau$,
+since $\Phi\bigl((\mu - \tau)/\sqrt{v}\bigr)$ is increasing in $\mu$ and, for
+$\mu < \tau$, increasing in $v$. It is \emph{not} first-order stochastic
+dominance: Gaussian CDFs with different variances cross, so no FSD relation
+holds between them. Since variance can only be reset by replacement,
 satisfying $v_{i\ell,2H} \leq v_{i\ell,H}$ may require replacement actions
 within $[H+1,2H]$; infeasibility is possible if $\sigma_{i\ell}$ is large relative
 to $v_{i\ell,H} - v^{\mathrm{new}}_{i\ell}$.
@@ -1050,6 +1191,363 @@ Loop penalty contribution:
 \end{equation}
 
 % ----------------------------------------------------------------
+%% --- CHANGE RF-023: new rainflow state-dynamics subsection ---
+\subsection{State Dynamics --- Rainflow Model}
+\label{sec:dyn_rainflow}
+% ----------------------------------------------------------------
+
+For components $(i,\ell)$ with \texttt{model} $=$ \texttt{rainflow}.
+\textbf{Only \texttt{ARD1} is supported} (consistency check must enforce this):
+as for the Gaussian model, an ARA1 extension acting on the variance state has no
+established semantics: ARA1 is defined in the maintenance literature through the
+virtual age, not through explicit variance tracking, so no principled
+post-repair variance rule is available (see the Open Questions).
+Both $\mu_{i\ell k}$ and $v_{i\ell k}$ are tracked.
+
+The rainflow model is \textbf{distribution-free}: the per-mission
+damage-increment law is measured empirically (rainflow counting of recorded load
+histories) and enters the model only through its per-mission mean
+$\mu^{\mathrm{inc}}_{ij\ell k}$, variance $v^{\mathrm{inc}}_{ij\ell k}$, and (for
+the Bernstein certificate) support upper bound $b^{\mathrm{inc}}_{ij\ell k}$; no
+parametric family is assumed. The reliability requirement
+$\Pr(D_{i\ell k} > \tau) \leq \varepsilon$ is certified by a distribution-free
+tail bound selected per component by the \texttt{tail\_bound} input
+(\texttt{"cantelli"}, the default, or
+\texttt{"bernstein"}).\footnote{The research grounding for this model---the
+selection of tail bounds, the curvature analysis of the resulting constraints,
+and the loop-on-moments argument---is developed in the project scoping
+document, subsection ``Conservative surrogates for the empirical
+damage-increment distribution''.}
+
+\textbf{Modelling assumptions (normative).}
+\begin{itemize}[leftmargin=1.5em]
+  \item \textbf{A1 (independence).} All mission increments are mutually
+        independent across days, independent of the initial damage state
+        $D^{0}_{i\ell}$ and of every replacement draw; each replacement installs
+        a fresh draw of $D^{\mathrm{new}}_{i\ell}$, independent of everything
+        else. Without A1 the variance recursion below and both tail certificates
+        are invalid.
+  \item \textbf{A2 (bounded supports; Bernstein only).}
+        $D^{0}_{i\ell} \in [0, b^{0}_{i\ell}]$ and
+        $D^{\mathrm{new}}_{i\ell} \in [0, b^{\mathrm{new}}_{i\ell}]$ almost
+        surely, with known finite bounds. Unbounded reset laws (e.g.\ a Gaussian
+        $D^{\mathrm{new}}$) are inadmissible under the Bernstein certificate;
+        the Cantelli certificate remains valid for them, needing only finite
+        variance.
+  \item \textbf{A3 (certificate coverage and periodicity).} The reliability
+        certificate is imposed at \emph{every} step $k = 1,\ldots,2H$ on the
+        tracked moments, and the per-mission increment parameters are
+        $H$-periodic in $k$ (the $k \bmod H$ wrap of
+        Section~\ref{sec:input_increments}). This
+        periodicity is load-bearing, not an implementation convenience: it is
+        what makes every future repetition of the second half execute the same
+        moment map, which the loop constraint below requires.
+\end{itemize}
+
+\textbf{Notation.}
+$\delta\mu_{i\ell k} = \sum_{j=1}^{M} x_{ijk}\,\mu^{\mathrm{inc}}_{ij\ell k}$,
+$\delta v_{i\ell k} = \sum_{j=1}^{M} x_{ijk}\,v^{\mathrm{inc}}_{ij\ell k}$
+(mission-induced increments; periodic extension for $k>H$), exactly as for the
+Gaussian model. $\kappa_C = \sqrt{(1-\varepsilon)/\varepsilon}$ (Cantelli);
+$\kappa = \ln(1/\varepsilon)$, $b_{i\ell}$, and
+$c_{i\ell} = \kappa\, b_{i\ell}/3$ (Bernstein; see the reliability subsection).
+Big-M values: $M_\mu = \tau$ (valid because the reliability constraint enforces
+$\mu_{i\ell k} \leq \tau$, indeed $\mu_{i\ell k} \leq \tau - c_{i\ell}$ under
+Bernstein) and $M_v = V_{\max}^{\mathrm{RF}}$ with
+\begin{equation}
+  V_{\max}^{\mathrm{RF}} =
+  \begin{cases}
+    \tau^2\,\varepsilon/(1-\varepsilon)
+      & \texttt{tail\_bound="cantelli"} \\[2pt]
+    \tau\,(\tau - 2\kappa\, b_{i\ell}/3)/(2\kappa)
+      & \texttt{tail\_bound="bernstein"}
+  \end{cases}
+  \label{eq:rf_vmax}
+\end{equation}
+Each value is the largest variance the respective exact reliability constraint
+admits, obtained at $\mu_{i\ell k} = 0$: for Cantelli,
+$\kappa_C^2\, v \leq \tau^2$ gives $v \leq \tau^2/\kappa_C^2 =
+\tau^2\varepsilon/(1-\varepsilon)$; for Bernstein,
+$2\kappa\, v \leq (\tau - c_{i\ell})^2 - c_{i\ell}^2 = \tau(\tau - 2c_{i\ell})$
+gives $v \leq \tau(\tau - 2\kappa\, b_{i\ell}/3)/(2\kappa)$.
+The consistency check $\tau > 2\kappa\, b_{i\ell}/3$
+(Section~\ref{sec:consistency_checks}) keeps the
+Bernstein value positive.
+
+\subsubsection{ARD1 Rainflow}
+
+The moment dynamics are identical to the ARD1 Gaussian dynamics of
+Section~\ref{sec:dyn_gaussian} (with $V_{\max}$ replaced by
+$V_{\max}^{\mathrm{RF}}$): they are pure moment-propagation bookkeeping and carry
+no distributional assumption.
+
+\textbf{Mean dynamics --- exact form:}
+\begin{equation}
+  \mu_{i\ell k} = \begin{cases}
+    \mu_{i\ell,k-1} + \delta\mu_{i\ell k} & \text{if } x^m_{i\ell k} = 0 \\
+    (1-\rho_{i\ell})\,\mu_{i\ell,k-1} & \text{if } x^m_{i\ell k} = 1
+  \end{cases}
+\end{equation}
+
+\textbf{Mean dynamics --- linearised (big-M):}
+\begin{align}
+  \mu_{i\ell k} &\geq \mu_{i\ell,k-1} + \delta\mu_{i\ell k} - \tau\,x^m_{i\ell k}
+    - \tau\,x^r_{i\ell k}
+    \label{eq:rf_ard_mu1} \\
+  \mu_{i\ell k} &\geq (1-\rho_{i\ell})\,\mu_{i\ell,k-1} - \tau(1-x^m_{i\ell k})
+    \label{eq:rf_ard_mu2}
+\end{align}
+
+\textbf{Variance dynamics --- exact form:}
+\begin{equation}
+  v_{i\ell k} = \begin{cases}
+    v_{i\ell,k-1} + \delta v_{i\ell k} & \text{if } x^m_{i\ell k} = 0 \\
+    (1-\rho_{i\ell})^2\,v_{i\ell,k-1} & \text{if } x^m_{i\ell k} = 1
+  \end{cases}
+\end{equation}
+
+\textbf{Variance dynamics --- linearised (big-M):}
+\begin{align}
+  v_{i\ell k} &\geq v_{i\ell,k-1} + \delta v_{i\ell k}
+    - V_{\max}^{\mathrm{RF}}\,x^m_{i\ell k}
+    - V_{\max}^{\mathrm{RF}}\,x^r_{i\ell k} \\
+  v_{i\ell k} &\geq (1-\rho_{i\ell})^2\,v_{i\ell,k-1}
+    - V_{\max}^{\mathrm{RF}}(1-x^m_{i\ell k})
+\end{align}
+
+\textbf{Replacement --- exact form:}
+\begin{equation}
+  (\mu_{i\ell k},\, v_{i\ell k}) = (\mu^{\mathrm{new}}_{i\ell},\, v^{\mathrm{new}}_{i\ell})
+  \quad \text{if } x^r_{i\ell k} = 1
+  \label{eq:rf_rep}
+\end{equation}
+
+\textbf{Replacement --- linearised (big-M):}
+\begin{align}
+  \mu_{i\ell k} &\leq \mu^{\mathrm{new}}_{i\ell} + \tau(1-x^r_{i\ell k}), \quad
+  \mu_{i\ell k} \geq \mu^{\mathrm{new}}_{i\ell} - \tau(1-x^r_{i\ell k}) \\
+  v_{i\ell k} &\leq v^{\mathrm{new}}_{i\ell} + V_{\max}^{\mathrm{RF}}(1-x^r_{i\ell k}), \quad
+  v_{i\ell k} \geq v^{\mathrm{new}}_{i\ell} - V_{\max}^{\mathrm{RF}}(1-x^r_{i\ell k})
+\end{align}
+
+\emph{Remark (moment exactness).}
+Under assumption A1 the tracked pair $(\mu_{i\ell k}, v_{i\ell k})$ equals the
+\emph{true} mean and variance of the accumulated damage state at every step,
+whatever the underlying increment laws: a mission day adds the increment's mean
+and variance (independence makes variances additive); ARD1 repair applies
+$D^+ = (1-\rho)\,D^-$, hence $\mu^+ = (1-\rho)\,\mu^-$ and
+$v^+ = (1-\rho)^2\,v^-$ exactly; replacement resets both moments to those of the
+fresh draw $(\mu^{\mathrm{new}}_{i\ell}, v^{\mathrm{new}}_{i\ell})$; idle days
+change nothing. The recursions are exact---not approximations---and the big-M
+linearisation is exact at binary points. The tightness argument of
+Section~\ref{sec:dyn_gaussian} (three cost mechanisms for $\mu$; reliability
+pressure for $v$) applies unchanged.
+
+\subsubsection{Reliability Constraint (Rainflow)}
+
+The certificate is selected per component by \texttt{tail\_bound} and imposed at
+every step $k = 1,\ldots,2H$ on the tracked moments
+$(\mu_{i\ell k}, v_{i\ell k})$. Because the tracked moments are exact (remark
+above), any point satisfying the constraint carries a valid distribution-free
+certificate $\Pr(D_{i\ell k} > \tau) \leq \varepsilon$.
+
+\textbf{Cantelli bound (\texttt{tail\_bound="cantelli"}).}
+For any law with mean $\mu$, variance $v$, and $\tau > \mu$, Cantelli's
+inequality gives $\Pr(D > \tau) \leq v/(v + (\tau - \mu)^2)$; this bound is at
+most $\varepsilon$ if and only if
+\begin{equation}
+  \mu_{i\ell k} + \kappa_C\,\sqrt{v_{i\ell k}} \leq \tau
+  \qquad \forall\, i,\ell,k,
+  \qquad \kappa_C = \sqrt{(1-\varepsilon)/\varepsilon}
+  \label{eq:rf_cantelli}
+\end{equation}
+(rearranging $v \leq \varepsilon\,(v + (\tau-\mu)^2)$ gives
+$(1-\varepsilon)\,v \leq \varepsilon\,(\tau-\mu)^2$, i.e.\
+$\tau - \mu \geq \kappa_C\sqrt{v}$). Only the two tracked moments are required;
+no independence or boundedness assumption enters the bound itself (assumption A1
+is still required for the tracked $v_{i\ell k}$ to equal the true variance).
+
+\emph{Exact form (\texttt{formulation="exact"}):}
+\begin{equation}
+  \kappa_C^2\, v_{i\ell k} \leq (\tau - \mu_{i\ell k})^2,
+  \qquad \mu_{i\ell k} \leq \tau
+  \qquad \forall\, i,\ell,k
+  \label{eq:rf_cantelli_exact}
+\end{equation}
+The linear row keeps $\tau - \mu_{i\ell k} \geq 0$, so the squared form is
+equivalent to Eq.~\eqref{eq:rf_cantelli}. This is structurally identical to the
+Gaussian exact form with $(\Phi^{-1}(1-\varepsilon))^2$ replaced by
+$\kappa_C^2 = (1-\varepsilon)/\varepsilon$, and, like it, is a \textbf{nonconvex
+quadratic} constraint, \emph{not} a rotated SOC (the $\mu_{i\ell k}^2$ term
+enters with the wrong sign for convexity; see the corrected discussion in
+Section~\ref{sec:dyn_gaussian}). Gurobi handles it via its nonconvex quadratic
+support (\texttt{NonConvex=2} where not the default); the certificate is exact.
+
+\emph{LP surrogate (\texttt{formulation="lp"}):} expanding
+$(\tau - \mu_{i\ell k})^2$ and dropping the non-negative term $\mu_{i\ell k}^2$:
+\begin{equation}
+  \kappa_C^2\, v_{i\ell k} + 2\tau\,\mu_{i\ell k} \leq \tau^2
+  \qquad \forall\, i,\ell,k
+  \label{eq:rf_cantelli_lp}
+\end{equation}
+This is an \textbf{inner approximation}, derived exactly as the Gaussian LP form
+(Eq.~\eqref{eq:g_lp_reliability}): any point satisfying
+Eq.~\eqref{eq:rf_cantelli_lp} satisfies Eq.~\eqref{eq:rf_cantelli_exact}, since
+$(\tau - \mu_{i\ell k})^2 = \tau^2 - 2\tau\,\mu_{i\ell k} + \mu_{i\ell k}^2
+\geq \tau^2 - 2\tau\,\mu_{i\ell k}$. The approximation error is exactly
+$\mu_{i\ell k}^2$, small when $\mu_{i\ell k} \ll \tau$. The conservatism remark
+of the Gaussian LP form applies verbatim: the surrogate may exclude
+exact-feasible points and can only increase the objective; it never invalidates
+the certificate.
+
+\textbf{Bernstein bound (\texttt{tail\_bound="bernstein"}).}
+Write $\kappa = \ln(1/\varepsilon)$ and define the per-component support
+constant
+\begin{equation}
+  b_{i\ell} = \max\Bigl\{\, b^{0}_{i\ell},\; b^{\mathrm{new}}_{i\ell},\;
+    \max_{j,k}\, b^{\mathrm{inc}}_{ij\ell k} \,\Bigr\},
+  \qquad
+  c_{i\ell} = \frac{\kappa\, b_{i\ell}}{3}.
+  \label{eq:rf_bsupport}
+\end{equation}
+$b_{i\ell}$ is a \textbf{precomputed constant}, not a decision variable: under
+ARD1, between replacements the damage state unrolls as a weighted sum
+$w_0\, D^{\mathrm{reset}} + \sum_t w_t\, \Delta D_t$ whose repair weights
+$w \in [0,1]$ only \emph{shrink} each summand's support, so every summand is
+bounded above by $b_{i\ell}$ regardless of the schedule. Taking the maximum over
+all admissible summands---initial state, replacement draws, and every mission
+increment---therefore yields a valid, schedule-independent support bound
+(conservative to the extent that the maximum ranges over missions not actually
+served).
+
+For a sum of mutually independent summands each bounded above by $b_{i\ell}$
+(assumptions A1--A2)---each summand is also non-negative, so its centered
+version satisfies $X - \mathbb{E}[X] \leq X \leq b_{i\ell}$ a fortiori, as
+Bernstein's inequality requires---with mean $\mu$ and variance $v$, Bernstein's
+inequality
+gives $\Pr(D > \tau) \leq
+\exp\bigl(-a^2/(2(v + b_{i\ell}\,a/3))\bigr)$ with $a = \tau - \mu > 0$.
+Requiring the right-hand side to be at most $\varepsilon$ is equivalent to
+$a^2 - 2c_{i\ell}\,a - 2\kappa\, v \geq 0$, i.e.\ (larger root of the quadratic)
+$a \geq c_{i\ell} + \sqrt{c_{i\ell}^2 + 2\kappa\, v}$, yielding the chance-bound
+form
+\begin{equation}
+  \mu_{i\ell k} + c_{i\ell}
+  + \sqrt{c_{i\ell}^2 + 2\kappa\, v_{i\ell k}} \;\leq\; \tau
+  \qquad \forall\, i,\ell,k,
+  \label{eq:rf_bernstein}
+\end{equation}
+which is sufficient for $\Pr(D_{i\ell k} > \tau) \leq \varepsilon$ (the
+precondition $a > 0$ is self-enforced, since the left-hand side exceeds
+$\mu_{i\ell k}$ whenever $b_{i\ell} > 0$ or $v_{i\ell k} > 0$).
+
+\emph{Exact form (\texttt{formulation="exact"}):}
+\begin{equation}
+  (\tau - c_{i\ell} - \mu_{i\ell k})^2 \geq c_{i\ell}^2 + 2\kappa\, v_{i\ell k},
+  \qquad \mu_{i\ell k} \leq \tau - c_{i\ell}
+  \qquad \forall\, i,\ell,k
+  \label{eq:rf_bernstein_exact}
+\end{equation}
+The linear row makes the bracket non-negative, so the squared form is equivalent
+to Eq.~\eqref{eq:rf_bernstein}. As for Cantelli, this is a nonconvex quadratic
+constraint; the same Gurobi note applies.
+
+\emph{LP surrogate (\texttt{formulation="lp"}):} expanding
+$(\tau - c_{i\ell} - \mu_{i\ell k})^2$ and dropping $\mu_{i\ell k}^2 \geq 0$,
+then using $(\tau - c_{i\ell})^2 - c_{i\ell}^2 = \tau\,(\tau - 2c_{i\ell})$:
+\begin{equation}
+  2(\tau - c_{i\ell})\,\mu_{i\ell k} + 2\kappa\, v_{i\ell k}
+  \;\leq\; \tau\,(\tau - 2c_{i\ell})
+  \qquad \forall\, i,\ell,k
+  \label{eq:rf_bernstein_lp}
+\end{equation}
+This is the tangent at $\mu_{i\ell k} = 0$ of the convex parabola (in
+$\mu_{i\ell k}$) defined by Eq.~\eqref{eq:rf_bernstein_exact}; the derivation
+and the conservatism are exactly parallel to the Cantelli and Gaussian LP forms,
+with approximation error again exactly $\mu_{i\ell k}^2$. The feasibility
+precondition $\tau > 2\kappa\, b_{i\ell}/3$
+(Section~\ref{sec:consistency_checks}) keeps the right-hand
+side positive.
+
+\emph{Remark (tighter piecewise-linear surrogates).}
+The single-tangent surrogates above can in principle be tightened to the
+pointwise minimum of several tangents, which is still a global over-estimator of
+the square root and hence still conservative. This, however, requires encoding
+the piecewise-linear function as an \emph{equality} (SOS2 $\lambda$-formulation
+or Gurobi's \texttt{addGenConstrPWL}): a mere conjunction of tangent
+inequalities on an auxiliary variable is either over-conservative (imposing
+$y \geq$ every tangent realises their pointwise \emph{maximum}, worse than any
+single tangent) or unsafe (imposing $y \leq$ every tangent lets the auxiliary
+under-estimate the square root, breaking conservatism). Deferred; see the Open
+Questions.
+
+\textbf{User-defined variance upper bound (optional):}
+If $V_{\max}^{\mathrm{user}}$ is specified for rainflow component $(i,\ell)$:
+\begin{equation}
+  v_{i\ell k} \leq V_{\max,i\ell}^{\mathrm{user}} \qquad \forall\, k
+\end{equation}
+
+\subsubsection{Loop Constraint (Rainflow, hard + soft)}
+
+Hard constraints:
+\begin{equation}
+  \mu_{i\ell,2H} \leq \mu_{i\ell,H}, \qquad
+  v_{i\ell,2H} \leq v_{i\ell,H}
+  \qquad \forall\,(i,\ell)\text{ s.t. model} = \mathrm{Rainflow}
+  \label{eq:rf_loop}
+\end{equation}
+Loop penalty contribution:
+\begin{equation}
+  \mathcal{L}^{\mathrm{Rainflow}}_{\mathrm{loop}} =
+    \sum_{(i,\ell)\,:\,\mathrm{Rainflow}}
+    \bigl[(\mu_{i\ell H} - \mu_{i\ell,2H}) + (v_{i\ell H} - v_{i\ell,2H})\bigr]
+\end{equation}
+
+\emph{Justification (moment domination chains; the scalar bound does not).}
+The certified failure-probability bound $U(\mu, v)$---Cantelli
+$v/(v + (\tau - \mu)^2)$ or Bernstein
+$\exp\bigl(-(\tau-\mu)^2/(2(v + b_{i\ell}(\tau-\mu)/3))\bigr)$---is increasing
+in $v$ and, for $\mu < \tau$, increasing in $\mu$. Every per-day moment
+operation is componentwise non-decreasing in $(\mu, v)$: a mission increment
+adds non-negative constants; ARD1 repair multiplies by the non-negative factors
+$(1-\rho)$ and $(1-\rho)^2$; replacement maps to constants; idle days are the
+identity. Compositions of componentwise non-decreasing maps are componentwise
+non-decreasing, so the second-half period map $\Phi$ (days $H{+}1,\ldots,2H$)
+and every prefix $\Phi_r$ of it are monotone. Eq.~\eqref{eq:rf_loop} states
+$\Phi(\mu_H, v_H) \leq (\mu_H, v_H)$ componentwise; under indefinite
+concatenation of the second half, induction gives
+$(\mu_{(m+1)H}, v_{(m+1)H}) = \Phi(\mu_{mH}, v_{mH}) \leq
+\Phi(\mu_{(m-1)H}, v_{(m-1)H}) = (\mu_{mH}, v_{mH})$ for every $m \geq 2$,
+the case $m = 1$ being precisely Eq.~\eqref{eq:rf_loop}; hence
+$(\mu_{mH}, v_{mH}) \leq (\mu_H, v_H)$ for all $m \geq 1$, and
+for intermediate days
+$(\mu_{mH+r}, v_{mH+r}) = \Phi_r(\mu_{mH}, v_{mH}) \leq
+\Phi_r(\mu_H, v_H) = (\mu_{H+r}, v_{H+r})$. Since the certificate is imposed at
+every nominal step $k = 1,\ldots,2H$ (assumption A3), every step of every
+future repetition carries a certified bound
+$U_{mH+r} \leq U_{H+r} \leq \varepsilon$. The $H$-periodicity of the increment
+parameters (A3) is what makes each repetition execute the same map $\Phi$.
+
+\emph{Warning (do not loop on the scalar bound).}
+Imposing the single comparison $U_{2H} \leq U_H$ in place of the two moment
+inequalities would \emph{not} chain: $U$ is a many-to-one function of
+$(\mu, v)$ whose level sets are not invariant under the dynamics, so
+$U_{2H} \leq U_H$ can hold with a larger mean offset by a smaller variance, and
+one further period can produce $U_{3H} > U_H$.\footnote{A concrete instance:
+$\tau = 10$, $\rho = 0.5$, repeated block $=$ one repair day followed by mission
+days with block totals $(\sum\delta\mu, \sum\delta v) = (3, 3.99)$; from
+$(\mu_H, v_H) = (4, 9)$ the Cantelli bound gives $U_H = 0.2000$ and
+$U_{2H} = 0.1997 \leq U_H$, yet $U_{3H} = 0.2151 > U_H$, with
+$U_{mH} \to 0.2495$. An analogous Bernstein instance ($b_{i\ell} = 3$, block
+variance $3.15$) also violates at $m = 3$. The moment condition
+Eq.~\eqref{eq:rf_loop} rejects both instances, since
+$\mu_{2H} = 5 > 4 = \mu_H$.} Eq.~\eqref{eq:rf_loop} is strictly stronger, and
+that strengthening is exactly what makes the induction valid. Note that
+Eq.~\eqref{eq:rf_loop} is a statement of \emph{moment domination} yielding a
+non-increasing certified failure-probability bound; it is not a
+stochastic-order (e.g.\ FSD) claim about the underlying damage laws.
+
+% ----------------------------------------------------------------
 \subsection{Damage Regularisation Variable}
 \label{sec:objective}
 % ----------------------------------------------------------------
@@ -1073,7 +1571,8 @@ This is linear in the decision variables; the problem remains an MILP.
 For Gamma components, $\mu_{i\ell k} = \alpha_{i\ell k}\cdot\beta_{i\ell}$
 is substituted directly.
 
-\subsubsection{\texttt{quadratic} (MI-RSOCP; requires \texttt{formulation="socp"})}
+%% --- CHANGE RF-024: formulation token socp->exact; penalty is genuinely convex SOC ---
+\subsubsection{\texttt{quadratic} (convex rotated SOC; requires \texttt{formulation="exact"})}
 
 \textbf{Exact form:}
 \begin{equation}
@@ -1087,10 +1586,16 @@ is substituted directly.
 Each constraint $u \geq \sum_\ell \mu_{i\ell k}^2$ is a rotated SOC constraint
 ($u \cdot 1 \geq \|\boldsymbol{\mu}_{ik}\|_2^2$ with $x=u$, $y=1$,
 $\|z\|_2^2 = \sum_\ell \mu_{i\ell k}^2$),
-natively supported by Gurobi. The problem becomes a
-Mixed-Integer Rotated Second-Order Cone Program (MI-RSOCP).
-Note that the Gaussian and Wiener reliability constraints are already rotated SOC,
-so this adds no new problem class when those models are present.
+natively supported by Gurobi. Unlike the exact reliability constraints of the
+Gaussian, Wiener, and rainflow models---which are \emph{nonconvex}
+quadratics (Section~\ref{sec:dyn_gaussian})---this penalty constraint is
+genuinely convex: the quadratic terms appear on the smaller side of the
+inequality. Under \texttt{formulation="exact"} the overall problem is already a
+nonconvex MIQCP \emph{when Gaussian, Wiener, or rainflow components are
+present}, so in that case the convex quadratic penalty adds no new problem
+class (with only IG/Gamma components it upgrades the otherwise-linear model to
+a convex MIQCP); it is incompatible with \texttt{formulation="lp"} because it
+is not linear.
 
 % ----------------------------------------------------------------
 \subsection{Repair Cost Variable}
@@ -1155,12 +1660,21 @@ Penalty:
 Hard constraint and penalty as defined in Section~\ref{sec:dyn_ig}.
 
 \subsubsection{Wiener}
+%% --- CHANGE RF-025: A-02 accepted review item applied (FSD wording corrected) ---
 Hard constraints and penalty as defined in Section~\ref{sec:dyn_wiener}.
-Strict FSD on both mean and variance is enforced; variance control requires
-replacement actions within $[H+1,2H]$.
+Both the mean and the variance state are bounded (implying a non-increasing
+failure probability for Gaussian marginals with $\mu < \tau$; not an FSD claim);
+variance control requires replacement actions within $[H+1,2H]$.
 
 \subsubsection{Gamma}
 Hard constraint and penalty as defined in Section~\ref{sec:dyn_gamma}.
+
+%% --- CHANGE RF-026: rainflow loop cross-reference and total penalty term ---
+\subsubsection{Rainflow}
+Hard constraints and penalty as defined in Section~\ref{sec:dyn_rainflow}.
+Both tracked moments are bounded, which guarantees a non-increasing
+\emph{certified} failure-probability bound under indefinite schedule
+concatenation (moment domination; not a distributional-order claim).
 
 The total loop penalty is:
 \begin{equation}
@@ -1169,6 +1683,7 @@ The total loop penalty is:
     + \mathcal{L}^{\mathrm{IG}}_{\mathrm{loop}}
     + \mathcal{L}^{\mathrm{Wiener}}_{\mathrm{loop}}
     + \mathcal{L}^{\mathrm{Gamma}}_{\mathrm{loop}}
+    + \mathcal{L}^{\mathrm{Rainflow}}_{\mathrm{loop}}
 \end{equation}
 
 %% --- CHANGE MATH-016: loop penalty non-negativity remark ---
@@ -1201,6 +1716,8 @@ Global constraints (assignment, mission coverage) add $O(F \times M \times 2H)$.
   IG--ARD1           & $M+1$ & $2 + M$ & $\sim 10$ \\
   Gamma--ARD1        & $M+1$ & $2 + M$ & $\sim 10$ \\
   Gamma--ARA1        & $M+1$ & $3 + M$ & $\sim 14$ \\
+  %% --- CHANGE RF-027: rainflow constraint-count row ---
+  Rainflow--ARD1     & $M+1$ & $3 + M$ & $\sim 12$ \\
   \bottomrule
 \end{tabular}
 \label{tab:constraint_count}
@@ -1211,12 +1728,24 @@ Global constraints (assignment, mission coverage) add $O(F \times M \times 2H)$.
 
 \textbf{Notation used below.}
 $\delta\mu_{i\ell k} = \sum_{j=1}^{M} x_{ijk}\,\mu^{\mathrm{inc}}_{ij\ell k}$;
-$\delta v_{i\ell k} = \sum_{j=1}^{M} x_{ijk}\,v^{\mathrm{inc}}_{ij\ell k}$ (Gaussian);
+%% --- CHANGE RF-028: rainflow notation in full problem ---
+$\delta v_{i\ell k} = \sum_{j=1}^{M} x_{ijk}\,v^{\mathrm{inc}}_{ij\ell k}$ (Gaussian, Rainflow);
 $\delta v^W_{i\ell k} = \sigma^2_{i\ell}\sum_{j=1}^{M} x_{ijk}$ (Wiener);
 $\delta\alpha_{i\ell k} = \sum_{j=1}^{M} x_{ijk}\,\alpha^{\mathrm{inc}}_{ij\ell k}$ (Gamma);
 $V_{\max} = \tau^2/(\Phi^{-1}(1-\varepsilon))^2$;
-$\bar{\alpha}_{i\ell} = \tau/\beta_{i\ell}$.
-Superscripts G, IG, W, $\Gamma$ restrict constraints to the respective model components.
+$\bar{\alpha}_{i\ell} = \tau/\beta_{i\ell}$;
+$\kappa_C = \sqrt{(1-\varepsilon)/\varepsilon}$,
+$\kappa = \ln(1/\varepsilon)$,
+$b_{i\ell} = \max\{b^{0}_{i\ell},\, b^{\mathrm{new}}_{i\ell},\,
+  \max_{j,k} b^{\mathrm{inc}}_{ij\ell k}\}$,
+$c_{i\ell} = \kappa\, b_{i\ell}/3$ (Rainflow);
+$V_{\max}^{\mathrm{RF}} = \tau^2\varepsilon/(1-\varepsilon)$ (Cantelli) or
+$\tau(\tau - 2c_{i\ell})/(2\kappa)$ (Bernstein).
+Superscripts G, IG, W, $\Gamma$, RF restrict constraints to the respective model components.
+For rainflow components, the Cantelli rows apply when
+\texttt{tail\_bound="cantelli"} and the Bernstein rows when
+\texttt{tail\_bound="bernstein"}; exact rows apply under
+\texttt{formulation="exact"}, LP rows under \texttt{formulation="lp"}.
 
 \vspace{0.5em}
 \noindent\textbf{Objective}
@@ -1263,8 +1792,9 @@ Superscripts G, IG, W, $\Gamma$ restrict constraints to the respective model com
   &v_{i\ell k} \leq v^{\mathrm{new}}_{i\ell} + V_{\max}(1-x^r_{i\ell k}),\quad
    v_{i\ell k} \geq v^{\mathrm{new}}_{i\ell} - V_{\max}(1-x^r_{i\ell k})
   &&\quad\forall\,k \tag{G: var.\ replacement} \\
+  %% --- CHANGE RF-029: reliability tag corrected (exact nonconvex quadratic, not SOC) ---
   &\mu_{i\ell k} + \Phi^{-1}(1-\varepsilon)\sqrt{v_{i\ell k}} \leq \tau
-  &&\quad\forall\,k \tag{G: reliability (rotated SOC)} \\
+  &&\quad\forall\,k \tag{G: reliability (exact, nonconvex quad.)} \\
   &(\Phi^{-1}(1-\varepsilon))^2 v_{i\ell k} + 2\tau\,\mu_{i\ell k} \leq \tau^2
   &&\quad\forall\,k \tag{G: reliability (LP approx., inner)} \\
   &\mu_{i\ell,2H} \leq \mu_{i\ell,H},\quad v_{i\ell,2H} \leq v_{i\ell,H}
@@ -1310,8 +1840,9 @@ Superscripts G, IG, W, $\Gamma$ restrict constraints to the respective model com
   &v_{i\ell k} \leq v^{\mathrm{new}}_{i\ell} + V_{\max}(1-x^r_{i\ell k}),\quad
    v_{i\ell k} \geq v^{\mathrm{new}}_{i\ell} - V_{\max}(1-x^r_{i\ell k})
   &&\quad\forall\,k \tag{W: var.\ replacement} \\
+  %% --- CHANGE RF-030: reliability tag corrected (exact nonconvex quadratic, not SOC) ---
   &\mu_{i\ell k} + \Phi^{-1}(1-\varepsilon)\sqrt{v_{i\ell k}} \leq \tau
-  &&\quad\forall\,k \tag{W: reliability (rotated SOC)} \\
+  &&\quad\forall\,k \tag{W: reliability (exact, nonconvex quad.)} \\
   &(\Phi^{-1}(1-\varepsilon))^2 v_{i\ell k} + 2\tau\,\mu_{i\ell k} \leq \tau^2
   &&\quad\forall\,k \tag{W: reliability (LP approx., inner)} \\
   &\mu_{i\ell,2H} \leq \mu_{i\ell,H},\quad v_{i\ell,2H} \leq v_{i\ell,H}
@@ -1349,6 +1880,44 @@ Superscripts G, IG, W, $\Gamma$ restrict constraints to the respective model com
   &&\tag{$\Gamma$: loop constraint}
 \end{alignat}
 
+%% --- CHANGE RF-031: rainflow dynamics block in full problem ---
+\vspace{0.3em}
+\noindent\textbf{Rainflow dynamics} ($\forall\,(i,\ell)$ s.t.\ model$=$RF; ARD1 only;
+tail-bound and formulation row selection per the notation paragraph above)
+\begin{alignat}{2}
+  &\mu_{i\ell k} \geq \mu_{i\ell,k-1} + \delta\mu_{i\ell k} - \tau\,x^m_{i\ell k}
+    - \tau\,x^r_{i\ell k}
+  &&\quad\forall\,k \tag{RF: mean accumulation} \\
+  &\mu_{i\ell k} \geq (1-\rho_{i\ell})\mu_{i\ell,k-1} - \tau(1-x^m_{i\ell k})
+  &&\quad\forall\,k \tag{RF: ARD1 mean repair} \\
+  &\mu_{i\ell k} \leq \mu^{\mathrm{new}}_{i\ell} + \tau(1-x^r_{i\ell k}),\quad
+   \mu_{i\ell k} \geq \mu^{\mathrm{new}}_{i\ell} - \tau(1-x^r_{i\ell k})
+  &&\quad\forall\,k \tag{RF: mean replacement} \\
+  &v_{i\ell k} \geq v_{i\ell,k-1} + \delta v_{i\ell k}
+    - V_{\max}^{\mathrm{RF}}\,x^m_{i\ell k}
+    - V_{\max}^{\mathrm{RF}}\,x^r_{i\ell k}
+  &&\quad\forall\,k \tag{RF: var.\ accumulation} \\
+  &v_{i\ell k} \geq (1-\rho_{i\ell})^2 v_{i\ell,k-1}
+    - V_{\max}^{\mathrm{RF}}(1-x^m_{i\ell k})
+  &&\quad\forall\,k \tag{RF: ARD1 var.\ repair} \\
+  &v_{i\ell k} \leq v^{\mathrm{new}}_{i\ell} + V_{\max}^{\mathrm{RF}}(1-x^r_{i\ell k}),\quad
+   v_{i\ell k} \geq v^{\mathrm{new}}_{i\ell} - V_{\max}^{\mathrm{RF}}(1-x^r_{i\ell k})
+  &&\quad\forall\,k \tag{RF: var.\ replacement} \\
+  &\kappa_C^2\, v_{i\ell k} \leq (\tau - \mu_{i\ell k})^2,\quad
+   \mu_{i\ell k} \leq \tau
+  &&\quad\forall\,k \tag{RF: reliability (Cantelli, exact)} \\
+  &\kappa_C^2\, v_{i\ell k} + 2\tau\,\mu_{i\ell k} \leq \tau^2
+  &&\quad\forall\,k \tag{RF: reliability (Cantelli, LP, inner)} \\
+  &(\tau - c_{i\ell} - \mu_{i\ell k})^2 \geq c_{i\ell}^2 + 2\kappa\,v_{i\ell k},\quad
+   \mu_{i\ell k} \leq \tau - c_{i\ell}
+  &&\quad\forall\,k \tag{RF: reliability (Bernstein, exact)} \\
+  &2(\tau - c_{i\ell})\,\mu_{i\ell k} + 2\kappa\,v_{i\ell k}
+    \leq \tau(\tau - 2c_{i\ell})
+  &&\quad\forall\,k \tag{RF: reliability (Bernstein, LP, inner)} \\
+  &\mu_{i\ell,2H} \leq \mu_{i\ell,H},\quad v_{i\ell,2H} \leq v_{i\ell,H}
+  &&\tag{RF: loop constraint}
+\end{alignat}
+
 \vspace{0.3em}
 \noindent\textbf{Repair cost} ($\forall\,i,\ell,k$; $\mu_{i\ell,k-1}=\alpha_{i\ell,k-1}\beta_{i\ell}$ for $\Gamma$; ARD1 form shown)
 \begin{alignat}{2}
@@ -1379,7 +1948,10 @@ Superscripts G, IG, W, $\Gamma$ restrict constraints to the respective model com
     + \sum_{(i,\ell):\mathrm{IG}}(\mu_{i\ell H}-\mu_{i\ell 2H}) \notag \\
   &\phantom{\mathcal{L}_{\mathrm{loop}} =\;}
     + \sum_{(i,\ell):\mathrm{W}}[(\mu_{i\ell H}-\mu_{i\ell 2H})+(v_{i\ell H}-v_{i\ell 2H})]
-    + \sum_{(i,\ell):\Gamma}(\alpha_{i\ell H}-\alpha_{i\ell 2H})
+    + \sum_{(i,\ell):\Gamma}(\alpha_{i\ell H}-\alpha_{i\ell 2H}) \notag \\
+  %% --- CHANGE RF-032: rainflow term in loop penalty ---
+  &\phantom{\mathcal{L}_{\mathrm{loop}} =\;}
+    + \sum_{(i,\ell):\mathrm{RF}}[(\mu_{i\ell H}-\mu_{i\ell 2H})+(v_{i\ell H}-v_{i\ell 2H})]
   &&\tag{loop penalty}
 \end{alignat}
 
@@ -1423,6 +1995,10 @@ Key & Shape & Description \\
 \texttt{u} & scalar & Damage regularisation variable value \\
 \texttt{z} & $F \times L \times 2H$ & Degradation removed by repair in mean units \\
 \texttt{model} & $F \times L$ & Model assignment (echo of input) \\
+%% --- CHANGE RF-033: tail_bound echoed in output for auditability ---
+\texttt{tail\_bound} & $F \times L$ list of \texttt{str} & Resolved tail bound per
+  component, echoed for auditability (rainflow components only; entries for
+  other components are \texttt{null}) \\
 \texttt{F}, \texttt{M}, \texttt{H}, \texttt{L} & \texttt{int} & Problem dimensions \\
 \bottomrule
 \end{longtable}
@@ -1488,6 +2064,7 @@ license tokens are available.
 \section{File \& Folder Structure}
 % ================================================================
 
+%% --- CHANGE RF-034: rainflow.py added to tree; rainflow params in base.py model_params ---
 \begin{lstlisting}
 fleet_management/
     pyproject.toml
@@ -1502,6 +2079,7 @@ fleet_management/
                 inverse_gaussian.py  # IG component MILP builder
                 wiener.py        # Wiener component MILP builder
                 gamma.py         # Gamma component MILP builder
+                rainflow.py      # Rainflow (distribution-free) component MILP builder
             maintenance/
                 ard1.py          # ARD1 dynamics (shared logic)
                 ara1.py          # ARA1 dynamics + big-M linearisation
@@ -1525,7 +2103,8 @@ def validate_inputs(
     tau: np.ndarray,          # (F, L)
     rho: np.ndarray,          # (F, L)
     alpha_target: np.ndarray, # (F, L)
-    **model_params            # model-specific (e.g., v_0, sigma, eta, beta)
+    **model_params            # model-specific (e.g., v_0, v_new, sigma, eta, beta;
+                              # rainflow: v_0, v_new, b_inc, b_0, b_new, tail_bound)
 ) -> None:                    # raises ValueError on invalid input
 
 def solve_fleet_management(
@@ -1579,7 +2158,9 @@ The plot is an $F \times 2H$ grid where:
         (green $= 0$, red $= \tau$). For Gamma components,
         $\mu_{i\ell k} = \alpha_{i\ell k}\cdot\beta_{i\ell}$ is used.
   \item A \textbf{thin border} around each strip indicates the degradation model:
-        solid (Gaussian), dashed (IG), dotted (Wiener), dash-dot (Gamma).
+        solid (Gaussian), dashed (IG), dotted (Wiener), dash-dot (Gamma),
+        %% --- CHANGE RF-043 (panel): fifth border style for rainflow ---
+        long-dash (Rainflow; e.g.\ matplotlib dash pattern \texttt{(0,\,(8,\,2))}).
 \end{itemize}
 
 Cell annotations (centred, applied to the full cell not individual strips):
@@ -1631,7 +2212,12 @@ HDF5 output files shall use the following structure:
     alpha_target    (float64, shape F x L)
     tau             (float64, shape F x L)
     rho             (float64, shape F x L)
+    tail_bound      (string, scalar or shape F x L; only if rainflow components present)
+    b_inc           (float64, shape F x M x L x H; rainflow + Bernstein only)
+    b_0             (float64, shape F x L; rainflow + Bernstein only)
+    b_new           (float64, shape F x L; rainflow + Bernstein only)
 \end{lstlisting}
+%% --- CHANGE RF-035: tail_bound persisted in HDF5 /parameters/ ---
 Dataset names use \texttt{snake\_case}. All arrays use C-contiguous (row-major) layout.
 Scalar attributes are stored as HDF5 attributes on the root group.
 
@@ -1652,8 +2238,10 @@ Field & Type / Shape & Description \\
 \texttt{C\_D} & \texttt{float} & Damage regularisation coefficient \\
 \texttt{penalty\_type} & \texttt{str}, optional & \texttt{"inf\_norm"} (default)
   or \texttt{"quadratic"} \\
-\texttt{formulation} & \texttt{str}, optional & \texttt{"socp"} (default)
-  or \texttt{"lp"} \\
+%% --- CHANGE RF-036: formulation token rename; tail_bound row; mu row applicability ---
+\texttt{formulation} & \texttt{str}, optional & \texttt{"exact"} (default)
+  or \texttt{"lp"}; \texttt{"socp"} accepted as a deprecated alias for
+  \texttt{"exact"} \\
 \texttt{model} & $F \times L$ list of str & Degradation model per component \\
 \texttt{maintenance\_type} & $F \times L$ list of str & \texttt{"ARA1"} or \texttt{"ARD1"} \\
 \texttt{rho} & $F \times L$ & Repair efficiency \\
@@ -1661,7 +2249,7 @@ Field & Type / Shape & Description \\
 \texttt{C\_rep} & $F \times L$ & Replacement cost \\
 \texttt{mu\_0} & $F \times L$ & Initial mean degradation \\
 \texttt{mu\_new} & $F \times L$ & Post-replacement mean (default: 0) \\
-\texttt{mu} & $F \times M \times L \times H$ & Mean increment (Gaussian, IG, Wiener) \\
+\texttt{mu} & $F \times M \times L \times H$ & Mean increment (Gaussian, IG, Wiener, Rainflow) \\
 \texttt{verbose} & \texttt{int}, optional & Gurobi verbosity (default: 1) \\
 \texttt{mip\_gap} & \texttt{float}, optional & MIP gap tolerance (default: Gurobi default) \\
 \texttt{n\_workers} & \texttt{int}, optional & Parallel workers (default: 1) \\
@@ -1671,39 +2259,55 @@ Field & Type / Shape & Description \\
 
 \subsection{Model-Specific Fields}
 
-Fields are required if and only if at least one component uses the corresponding model.
+Fields are required if and only if at least one component uses the corresponding
+model. For the rainflow \texttt{b\_*} fields the condition is two-level, as
+stated in the Required-for column: model \texttt{"rainflow"} \emph{and}
+\texttt{tail\_bound="bernstein"} for at least one component.
 
 \begin{longtable}{@{}lllp{5.5cm}@{}}
 \toprule
 Field & Shape & Required for & Description \\
 \midrule
-\texttt{v\_0} & $F \times L$ & Gaussian, Wiener & Initial variance \\
-\texttt{v\_new} & $F \times L$ & Gaussian, Wiener & Post-replacement variance (default: 0) \\
-\texttt{v} & $F \times M \times L \times H$ & Gaussian & Variance increment \\
+%% --- CHANGE RF-037: rainflow model-specific fields ---
+%% --- CHANGE RF-044 (panel): tail_bound moved here from Always-Present ---
+\texttt{tail\_bound} & \texttt{str} / $F {\times} L$ list & Rainflow &
+  \texttt{"cantelli"} (default) or \texttt{"bernstein"}; per-component
+  tail bound \\
+\texttt{v\_0} & $F \times L$ & Gaussian, Wiener, Rainflow & Initial variance \\
+\texttt{v\_new} & $F \times L$ & Gaussian, Wiener, Rainflow & Post-replacement variance (default: 0) \\
+\texttt{v} & $F \times M \times L \times H$ & Gaussian, Rainflow & Variance increment \\
 \texttt{alpha\_inc} & $F \times M \times L \times H$ & Gamma & Shape increment \\
 \texttt{eta} & $F \times L$ & IG & $\mu/\lambda$ ratio \\
 \texttt{sigma} & $F \times L$ & Wiener & Diffusion constant \\
 \texttt{beta} & $F \times L$ & Gamma & Scale parameter \\
+\texttt{b\_inc} & $F \times M \times L \times H$ & Rainflow (Bernstein) &
+  Increment support upper bound \\
+\texttt{b\_0} & $F \times L$ & Rainflow (Bernstein) &
+  Initial-state support upper bound \\
+\texttt{b\_new} & $F \times L$ & Rainflow (Bernstein) &
+  Post-replacement support upper bound (default: 0) \\
 %% --- CHANGE DOM-026: V_max_user in input schema ---
-\texttt{v\_max\_user} & $F \times L$, optional & Gaussian, Wiener &
+\texttt{v\_max\_user} & $F \times L$, optional & Gaussian, Wiener, Rainflow &
   User-defined variance upper bound \\
 \bottomrule
 \end{longtable}
 
 \subsection{YAML Example (Mixed Models)}
 
+%% --- CHANGE RF-038: rainflow component, tail_bound, b_* fields, formulation token in YAML example ---
 \begin{lstlisting}
 F: 4
 H: 10          # or H: [8, 12] for horizon loop
 M: 2
 L: 2
 tau: 1.0
-epsilon: 0.1
+epsilon: 0.01   # must lie in (0, 0.01]; with b_0=0.3, tau=1.0 the Bernstein
+                # precondition tau > 2*kappa*b/3 = 0.921 still holds
 C_M: 1.0
 C_P: 2.0
 C_D: 1.0
-penalty_type: inf_norm   # or "quadratic" (requires formulation="socp")
-formulation: socp        # or "lp" (fully supported for IG/Gamma only)
+penalty_type: inf_norm   # or "quadratic" (requires formulation="exact")
+formulation: exact       # or "lp"; "socp" is a deprecated alias for "exact"
 n_workers: 4
 warm_start: false
 verbose: 0
@@ -1713,13 +2317,19 @@ model:
   - ["gaussian", "inverse_gaussian"]   # train 1: Gaussian + IG
   - ["wiener",   "gamma"           ]   # train 2: Wiener + Gamma
   - ["gaussian", "wiener"          ]   # train 3: Gaussian + Wiener
-  - ["gamma",    "inverse_gaussian"]   # train 4: Gamma + IG
+  - ["rainflow", "inverse_gaussian"]   # train 4: Rainflow + IG
+
+tail_bound:              # rainflow components only; scalar or F x L list
+  - [null,        null]
+  - [null,        null]
+  - [null,        null]
+  - ["bernstein", null]  # train 4: rainflow uses the Bernstein bound
 
 maintenance_type:
   - ["ARD1", "ARD1"]    # train 1: Gaussian must be ARD1; IG must be ARD1
   - ["ARD1", "ARA1"]    # train 2: Wiener supports both; Gamma supports both
   - ["ARD1", "ARD1"]    # train 3: Gaussian must be ARD1; Wiener ARD1 here
-  - ["ARD1", "ARD1"]    # train 4: Gamma ARD1; IG must be ARD1
+  - ["ARD1", "ARD1"]    # train 4: Rainflow must be ARD1; IG must be ARD1
 
 rho:
   - [0.8, 0.7]
@@ -1751,19 +2361,20 @@ mu_new:
   - [0.0, 0.0]
   - [0.0, 0.0]
 
-# Gaussian / IG / Wiener: mean increment F x M x L x H
+# Gaussian / IG / Wiener / Rainflow: mean increment F x M x L x H
 mu:
   # ... (4 x 2 x 2 x 10 tensor)
 
-# Gaussian only: variance increment F x M x L x H
+# Gaussian / Wiener / Rainflow: initial variance F x L
 v_0:
   - [0.005, null]    # train 1: Gaussian needs v_0; IG does not
   - [0.006, null]    # train 2: Wiener needs v_0; Gamma does not
   - [0.004, 0.007]   # train 3: both Gaussian and Wiener need v_0
-  - [null,  null]    # train 4: Gamma and IG do not need v_0
+  - [0.006, null]    # train 4: Rainflow needs v_0; IG does not
 
+# Gaussian / Rainflow: variance increment F x M x L x H
 v:
-  # ... (only entries for Gaussian components)
+  # ... (only entries for Gaussian and rainflow components)
 
 # Wiener only: diffusion constant F x L
 sigma:
@@ -1781,7 +2392,7 @@ beta:
   - [null, null]
   - [null, 0.5 ]
   - [null, null]
-  - [0.4,  null]
+  - [null, null]
 
 # IG only: mu/lambda ratio F x L
 eta:
@@ -1789,6 +2400,24 @@ eta:
   - [null, null]
   - [null, null]
   - [null, 0.12]
+
+# Rainflow (Bernstein) only: increment support upper bound F x M x L x H
+b_inc:
+  # ... (only entries for rainflow components with tail_bound="bernstein")
+
+# Rainflow (Bernstein) only: initial-state support upper bound F x L
+b_0:
+  - [null, null]
+  - [null, null]
+  - [null, null]
+  - [0.3,  null]
+
+# Rainflow (Bernstein) only: post-replacement support upper bound F x L (default: 0)
+b_new:
+  - [null, null]
+  - [null, null]
+  - [null, null]
+  - [0.0,  null]
 \end{lstlisting}
 
 \textbf{Parser behaviour for null entries:} \texttt{null} values in model-specific
@@ -1801,8 +2430,9 @@ non-applicable positions trigger a \texttt{UserWarning} and are ignored.
 % ================================================================
 
 \begin{itemize}[leftmargin=1.5em]
-  \item[\checkmark] \textit{Resolved.} All four degradation models fully specified
-        (Gaussian, IG, Gamma, Wiener) with exact and linearised forms.
+  %% --- CHANGE RF-045 (panel): five models ---
+  \item[\checkmark] \textit{Resolved.} All five degradation models fully specified
+        (Gaussian, IG, Gamma, Wiener, Rainflow) with exact and linearised forms.
   \item[\checkmark] \textit{Resolved.} Repair cost proxy: $z_{i\ell k} = \rho_{i\ell}\,\mu_{i\ell,k-1}\,x^m_{i\ell k}$
         in mean units across all models; McCormick linearisation documented.
   \item[\checkmark] \textit{Resolved.} Fleet-availability constraint removed;
@@ -1824,14 +2454,26 @@ non-applicable positions trigger a \texttt{UserWarning} and are ignored.
         model-specific fields omitted when not needed (Option A);
         \texttt{null} entries ignored with \texttt{UserWarning};
         mixed-model YAML example provided.
-  \item[\checkmark] \textit{Resolved.} Problem class: Mixed-Integer Rotated SOCP
-        (MI-RSOCP) with \texttt{formulation="socp"} (default); pure MILP with
-        \texttt{formulation="lp"} (all models supported). Gaussian/Wiener LP
-        reliability constraint: inner approximation
+  %% --- CHANGE RF-039: problem class restated (nonconvex MIQCP, socp->exact) ---
+  \item[\checkmark] \textit{Resolved.} Problem class: nonconvex MIQCP with
+        \texttt{formulation="exact"} (default) when Gaussian, Wiener, or
+        rainflow components are present (an IG/Gamma-only fleet remains a pure
+        MILP, or a convex MIQCP if the \texttt{"quadratic"} penalty is
+        selected) --- the exact reliability
+        constraints of the Gaussian, Wiener, and rainflow models are
+        \emph{nonconvex} quadratics (Section~\ref{sec:dyn_gaussian}), handled by
+        Gurobi's nonconvex quadratic support, while the optional
+        \texttt{"quadratic"} damage penalty remains a genuinely convex rotated
+        SOC; pure MILP with \texttt{formulation="lp"} (all models supported).
+        Gaussian/Wiener LP reliability constraint: inner approximation
         $(\Phi^{-1}(1-\varepsilon))^2 v_{i\ell k} + 2\tau\,\mu_{i\ell k} \leq \tau^2$,
-        obtained by dropping $\mu_{i\ell k}^2 \geq 0$ from the squared SOC constraint;
-        error $= \mu_{i\ell k}^2$, small when $\mu_{i\ell k} \ll \tau$.
+        obtained by dropping $\mu_{i\ell k}^2 \geq 0$ from the exact squared
+        constraint; error $= \mu_{i\ell k}^2$, small when
+        $\mu_{i\ell k} \ll \tau$; rainflow LP surrogates analogous
+        (Section~\ref{sec:dyn_rainflow}).
         \texttt{"quadratic"} penalty incompatible with \texttt{"lp"}.
+        The legacy token \texttt{"socp"} is a deprecated alias for
+        \texttt{"exact"}.
   \item[\textbf{FUTURE}] \textbf{Hierarchical failure probability bounds.}
         Currently $\varepsilon$ is a single scalar bounding the probability of failure
         of each individual component: $\Pr(D_{i\ell k} > \tau) \leq \varepsilon$
@@ -1852,6 +2494,36 @@ non-applicable positions trigger a \texttt{UserWarning} and are ignored.
         The current component-level $\varepsilon$ remains a valid conservative proxy
         for both via the union bound: $\varepsilon \leq \varepsilon_{\mathrm{train}} / L$
         and $\varepsilon \leq \varepsilon_{\mathrm{fleet}} / (FL)$.
+  %% --- CHANGE RF-040: rainflow open questions ---
+  \item[\textbf{FUTURE}] \textbf{Schedule-dependent Bernstein support.} The
+        Bernstein constant $b_{i\ell}$ is the maximum over \emph{all} admissible
+        summands (initial state, replacement draws, and every mission
+        increment). A per-day weighted running maximum---tracking
+        $w_t\,b_t$ along the schedule actually chosen---would tighten the
+        constant, but requires nonlinear (running-max) state tracking;
+        deliberately not done in this revision.
+  \item[\textbf{FUTURE}] \textbf{Multi-tangent PWL tightening of the rainflow LP
+        surrogates.} The pointwise minimum of several tangents is a valid, less
+        conservative over-estimator, but it must be encoded as a PWL
+        \emph{equality} (SOS2 $\lambda$-formulation or
+        \texttt{addGenConstrPWL}); a conjunction of tangent inequalities on an
+        auxiliary variable is either over-conservative or unsafe (see the remark
+        in Section~\ref{sec:dyn_rainflow}).
+  \item[\textbf{FUTURE}] \textbf{ARA1 semantics for rainflow variance.} As for
+        the Gaussian model (DOM-009), the effect of ARA1 repair on the variance
+        state has no established basis; rainflow remains ARD1-only until this is
+        resolved.
+  \item[\textbf{FUTURE}] \textbf{Additional \texttt{tail\_bound} values.}
+        Count-weighted Chernoff/Hoeffding certificates (per-mission cumulant
+        generating functions, or per-mission supports only) are tighter deep in
+        the tail and retain per-mission support resolution; they require a fixed
+        conservative $s$ or a grid sweep, and the loop-on-moments argument of
+        Section~\ref{sec:dyn_rainflow} would need re-examination (imperfect
+        repair breaks the additivity of the cumulant at a fixed $s$).
+  \item[\textbf{FUTURE}] \textbf{Sampling error of the empirical moments.}
+        Rainflow counting yields \emph{estimates} of the per-mission mean,
+        variance, and support, not exact values; a guaranteed reliability bound
+        would require one-sided confidence margins on these inputs.
 \end{itemize}
 
 No blocking TODOs remain. The specification is complete pending implementation review.
@@ -1863,5 +2535,35 @@ to $F \times L \times 2H$ with NaN for non-variance components.
 $\varepsilon$ bound tightened from $(0, 0.5)$ to $(0, 0.01]$.
 IG FSD TODO replaced with verified Proposition (MLR proof).
 Tightness remark refined to three-mechanism argument.
+
+%% --- CHANGE RF-041: v0.4 changelog ---
+\emph{Change log (v0.4, rainflow extension).}
+Rainflow degradation model added: distribution-free, with per-mission empirical
+mean/variance/support inputs from rainflow counting; reliability certified by a
+Cantelli or Bernstein tail bound (new \texttt{tail\_bound} option,
+\texttt{"cantelli"} default); exact nonconvex-quadratic and conservative LP
+tangent formulations both specified; loop constraint imposed on both tracked
+moments, with the argument that moment domination chains across repetitions
+while the scalar bound comparison $U_{2H} \leq U_H$ does not; ARD1 only,
+mirroring the Gaussian precedent. \texttt{formulation} token renamed
+\texttt{"socp"} $\to$ \texttt{"exact"} (\texttt{"socp"} retained as a deprecated
+alias with a \texttt{UserWarning}); the previous identification of the
+Gaussian/Wiener exact reliability constraint as a rotated SOC was corrected---with
+the variance affine in the decisions, the squared form is a nonconvex quadratic,
+handled by Gurobi's \texttt{NonConvex=2} support (the \texttt{"quadratic"}
+damage penalty remains genuinely convex SOC). Wiener loop-constraint wording
+corrected per accepted review item A-02 (moment bounds, not FSD). Version
+reconciliation: the v0.3 change log above corresponds to the revision previously
+titled ``v0.2 (revised)'' on the title page.
+A post-draft panel pass (markers RF-042--RF-045 and in-place corrections)
+additionally fixed the loop-induction base case ($m \geq 2$ with
+Eq.~\eqref{eq:rf_loop} as the $m=1$ case), the boundary wording of the
+$\tau > 2\kappa b/3$ precondition, the a-fortiori centering step in the
+Bernstein application, and the problem-class qualifier for IG/Gamma-only
+fleets; extended the Bhatia--Davis consistency checks to the initial and
+replacement states and the shape-validation list to $b^{\mathrm{inc}}, b^{0},
+b^{\mathrm{new}}$; relocated \texttt{tail\_bound} to the model-specific
+schema tables; added the fifth plot border style; and corrected the YAML
+example's $\varepsilon$ to respect its own $(0, 0.01]$ bound.
 
 \end{document}

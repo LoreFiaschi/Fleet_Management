@@ -561,7 +561,7 @@ Cantelli
 Bernstein
   & per-mission mean, var, support $b_j$
   & Yes & No
-  & exploits independence; few parameters; linear in the counts
+  & exploits independence; few parameters; moment inputs linear in the counts
   & needs per-mission support; one-sided only
   & \cite{BoucheronLugosiMassart2013} \\[3pt]
 Chernoff
@@ -593,7 +593,7 @@ Applying Markov to $(D - \mathbb{E}[D] + c)^2$ and optimising over $c > 0$ gives
 \begin{equation}\label{eq:cantelli_surrogate}
   \Pr(D > \tau) \;\le\; \frac{\operatorname{Var}[D]}{\operatorname{Var}[D] + (\tau - \mathbb{E}[D])^2}.
 \end{equation}
-Both are the \emph{tight} bounds attainable from the first one and two moments, respectively~\cite{BertsimasPopescu2005}, and both are attained by two-point distributions---which is exactly why they ignore, and are loose under, the independent-sum structure.
+Both are the \emph{tight} bounds attainable from the first one and two moments, respectively~\cite{BertsimasPopescu2005}, and both are attained (for the closed event $D \ge \tau$) by two-point distributions---which is exactly why they ignore, and are loose under, the independent-sum structure.
 The exponential (Cram\'er--Chernoff) bound,
 \begin{equation}\label{eq:chernoff_surrogate}
   \Pr(D > \tau) \;\le\; \inf_{s > 0} e^{-s\tau} M_D(s)
@@ -620,7 +620,8 @@ Explicitly, with $\kappa = \ln(1/\varepsilon)$, the reliability constraint $\Pr(
   \;+\; \sqrt{ \Big( \tfrac{\kappa\, b_\ell}{3} \Big)^2 + 2\kappa \sum_j n_{ij}\, v_{\ell j} }
   \;\le\; \tau,
 \end{equation}
-a convex, second-order-cone-representable constraint in the assignment counts (equivalently $(\kappa b_\ell/3)^2 + 2\kappa\sum_j n_{ij} v_{\ell j} \le (\tau - \kappa b_\ell/3 - \sum_j n_{ij}\mu_{\ell j})^2$ with the bracket non-negative).
+a constraint whose left-hand side is \emph{concave} in the assignment counts (equivalently $(\kappa b_\ell/3)^2 + 2\kappa\sum_j n_{ij} v_{\ell j} \le (\tau - \kappa b_\ell/3 - \sum_j n_{ij}\mu_{\ell j})^2$ with the bracket non-negative): by~\eqref{eq:additive_functionals} the mean and the variance are \emph{affine} in the counts, so the square root is concave and the feasible set is reverse-convex rather than second-order-cone-representable---in the classical SOCP chance constraint the variance is a convex quadratic of the decisions, whereas here independence across days makes it affine, which flips the curvature.
+For the MILP this is a feature rather than an obstacle: every tangent line to the concave square root \emph{over}-estimates it, so replacing the square root in~\eqref{eq:bernstein_constraint} by a fixed tangent---or by the piecewise-linear pointwise minimum of several tangents, encoded exactly as a PWL equality (SOS2)---yields linear constraints in the counts that imply~\eqref{eq:bernstein_constraint} and therefore remain conservative.
 Retaining a per-mission support $b_{\ell j}$ in the correction is possible only by keeping the per-term cumulant sum $\sum_j n_{ij}\,(s^2 v_{\ell j}/2)/(1 - s\,b_{\ell j}/3)$ and minimising over~$s$---which is exactly the Chernoff/Bennett bound~\eqref{eq:chernoff_permission}.
 The $s$-free closed form~\eqref{eq:bernstein_constraint} and per-mission support resolution therefore cannot be obtained simultaneously.
 
@@ -653,7 +654,7 @@ The tempting translation---replace both sides by their bounds and impose $U_{2H}
 \paragraph{Why $U_{2H} \le U_H$ does not chain.}
 The bound $U$ is a many-to-one function of the state's parameters, and its level sets are not invariant under the dynamics.
 Bernstein's bound, for instance, depends on $\big(\mathbb{E}[D],\operatorname{Var}[D]\big)$ through a single scalar, so $U_{2H} = U_H$ can hold with $\big(\mathbb{E}[D_{2H}],\operatorname{Var}[D_{2H}]\big) \ne \big(\mathbb{E}[D_H],\operatorname{Var}[D_H]\big)$---a larger mean offset by a smaller variance, say.
-One further period of the dynamics maps these two distinct parameter points to \emph{different} bound values, so $U_{3H} > U_{2H} = U_H$ is possible: the certified bound can creep upward over repetitions, and the single-period inequality does not induct.
+One further period of the dynamics maps these two distinct parameter points to \emph{different} bound values, so $U_{3H} > U_{2H} = U_H$ is possible: the certified bound can creep upward over repetitions, and the single-period inequality does not induct.\footnote{A concrete instance: $\tau = 10$, $b_\ell = 3$, $\rho = 0.5$, repeated block $=$ one repair day followed by mission days with $\sum_j n_j\mu_{\ell j} = 3$ and $\sum_j n_j v_{\ell j} = 3.99$; from $\bigl(\mathbb{E}[D_H],\operatorname{Var}[D_H]\bigr) = (4,9)$ the Cantelli bound gives $U_H = 0.2000$ and $U_{2H} = 0.1997 \le U_H$, yet $U_{3H} = 0.2151 > U_H$, with $U_{mH} \to 0.2495$. An analogous Bernstein instance (block variance $3.15$) violates at $m=3$ as well. The moment condition~\eqref{eq:loop_moments} rejects both, since $\mathbb{E}[D_{2H}] = 5 > 4$. Test scripts are kept in the verification workspace.}
 Adding a fixed margin, $U_{2H} \le U_H - c$, does not repair this, because the defect is the non-invariance of the level sets, not a constant gap.
 
 \paragraph{The certificate stays valid at every period.}
@@ -672,7 +673,7 @@ Impose the loop on the exactly tracked moments,
 Under the dynamics, the mean and variance evolve by an increment ($\mathbb{E} \mathrel{+}= \sum_j n_{ij}\mu_{\ell j}$, $\operatorname{Var} \mathrel{+}= \sum_j n_{ij} v_{\ell j}$), by imperfect repair ($\mathbb{E} \mapsto (1-\rho)\,\mathbb{E}$, $\operatorname{Var} \mapsto (1-\rho)^2\operatorname{Var}$), or by replacement (reset to the constants of $D^{\mathrm{new}}$); each operation is non-decreasing in $\mathbb{E}$ and in $\operatorname{Var}$ separately, so the two moments evolve as independent monotone recursions.
 Componentwise domination therefore chains: writing $F$ for the once-per-period (second-half) map, \eqref{eq:loop_moments} states $F(\,\cdot\,)$ does not increase either moment, whence $\big(\mathbb{E}[D_{(m+1)H}],\operatorname{Var}[D_{(m+1)H}]\big) \le \big(\mathbb{E}[D_{mH}],\operatorname{Var}[D_{mH}]\big)$ for every~$m \ge 1$.
 Because the Bernstein bound~\eqref{eq:bernstein_constraint}---and likewise the Cantelli bound~\eqref{eq:cantelli_surrogate}---is increasing in both $\mathbb{E}[D]$ and $\operatorname{Var}[D]$, the certified risk is then non-increasing across periods, $U_{kH} \le U_H \le \varepsilon$, and the schedule is repeatable.
-Both inequalities in~\eqref{eq:loop_moments} are linear in the assignment and maintenance variables, adding two linear constraints; they are strictly stronger than the single relation $U_{2H} \le U_H$, and that strengthening is exactly what makes the induction valid.
+Both inequalities in~\eqref{eq:loop_moments} are linear in the tracked moment states $\bigl(\mathbb{E}[D_k],\operatorname{Var}[D_k]\bigr)$, which the model carries as auxiliary variables (the moment recursion couples the maintenance binaries to these states through products, linearised exactly by standard big-$M$ constructions), so the loop adds two linear constraints per component; they are strictly stronger than the single relation $U_{2H} \le U_H$, and that strengthening is exactly what makes the induction valid.
 
 \paragraph{Looping on the cumulant, and why imperfect repair forbids it.}
 If reliability is instead certified by a fixed-$s$ Chernoff bound, the loop may be placed on the cumulant,
