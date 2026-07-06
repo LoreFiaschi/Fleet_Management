@@ -756,6 +756,8 @@ def build_gamma_diagnostic_dataframe(
 
                     rows.append(
                         {
+                            "degradation": "gamma",
+                            "state_interpretation": "gamma_shape_rate",
                             "time_step": k,
                             "input_day": k_input,
                             "vehicle": i,
@@ -778,6 +780,18 @@ def build_gamma_diagnostic_dataframe(
                             "variance_after": variance_after,
                             "failure_probability_after": fail_prob_after,
                             "reliability_passed": passed,
+                            
+                            # Dashboard-compatible aliases / derived fields
+                            "damage_before": mean_before,
+                            "expected_increment": (-mean_before if maintenance_policy == "replacement" else 0.0),
+                            "damage_after": mean_after,
+                            "treshold": float(tau),
+                            "margin_to_threshold": float(tau - mean_after),
+                            "utilization_of_threshold": float (mean_after / tau),
+                            "threshold_utilization_percent": float(100.0 * mean_after / tau),
+                            "failure_probability_percent": float(100.0 * fail_prob_after),
+                            "feasible": passed,
+
                             "status": (
                                 "OK"
                                 if passed
@@ -814,6 +828,8 @@ def build_gamma_diagnostic_dataframe(
 
                 rows.append(
                     {
+                        "degradation": "gamma",
+                        "state_interpretation": "gamma_shape_rate",
                         "time_step": k,
                         "input_day": k_input,
                         "vehicle": i,
@@ -832,6 +848,18 @@ def build_gamma_diagnostic_dataframe(
                         "variance_after": variance_after,
                         "failure_probability_after": fail_prob_after,
                         "reliability_passed": passed,
+
+                        # Dashboard-compatible aliases / derived fields
+                        "damage_before": mean_before,
+                        "expected_increment": mean_increment,
+                        "damage_after": mean_after,
+                        "threshold": float(tau),
+                        "margin_to_threshold": float(tau - mean_after),
+                        "utilization_of_threshold": float(mean_after / tau),
+                        "threshold_utilization_percent": float(100.0 * mean_after / tau),
+                        "failure_probability_percent": float(100.0 * fail_prob_after),
+                        "feasible": passed,
+
                         "status": (
                             "OK"
                             if passed
@@ -840,7 +868,22 @@ def build_gamma_diagnostic_dataframe(
                     }
                 )
 
-    return pd.DataFrame(rows)
+    df = pd.DataFrame(rows)
+
+    if not df.empty:
+        df["assignment_feasible"] = (
+            df.groupby(["time_step", "vehicle"])["feasible"].transform("all").astype(bool)
+        )
+
+        violation_map = (
+            df.loc[~df["feasible"]].groupby(["time_step", "vehicle"])["component"].apply(lambda s: [int(x) for x in s.tolist()]).to_dict()
+        )
+
+        df["violating_components"] = df.apply(
+            lambda row: violation_map.get((row["time_step"], row["vehicle"]),[]), axis=1
+        )
+    
+    return df
 
 
 def validate_gamma_synthetic_diagnostic(
@@ -890,6 +933,24 @@ def validate_gamma_synthetic_diagnostic(
     df = build_gamma_diagnostic_dataframe(input_path=input_path, tol=tol)
 
     failed_df = df[~df["reliability_passed"]].copy()
+
+    # Summary diagnostics
+    max_failure_probability_idx = df["failure_probability_after"].idxmax()
+    max_failure_probability_row = df.loc[max_failure_probability_idx]
+
+    max_failure_probability = float(max_failure_probability_row["failure_probability_after"])
+
+    max_failure_probability_location = {
+        "time_step": int(max_failure_probability_row["time_step"]),
+        "input_day": int(max_failure_probability_row["input_day"]),
+        "vehicle": int(max_failure_probability_row["vehicle"]),
+        "component": int(max_failure_probability_row["component"]),
+        "activity": str(max_failure_probability_row["activity"]),
+        "mission": (None if pd.isna(max_failure_probability_row["mission"]) 
+                    else int(max_failure_probability_row["mission"])),
+    }
+
+    max_shape_after = float(df["shape_after"].max())
 
     # For the loop condition, compare shape at k = H-1 and k = 2H-1.
     # These are the last stored states of the first and second half.
@@ -989,6 +1050,17 @@ def validate_gamma_synthetic_diagnostic(
     lines.append(f"Rows checked: {len(df)}")
     lines.append(f"Reliability failures: {len(failed_df)}")
     lines.append(f"Loop passed: {loop_passed}")
+    lines.append(f"Max failure probability: {max_failure_probability:.3e}")
+    lines.append(f"Max shape after: {max_shape_after:.3f}")
+    lines.append(
+        "Max failure probability location: "
+        f"k={max_failure_probability_location['time_step']}, "
+        f"input_day={max_failure_probability_location['input_day']}, "
+        f"vehicle={max_failure_probability_location['vehicle']}, "
+        f"component={max_failure_probability_location['component']}, "
+        f"activity={max_failure_probability_location['activity']}, "
+        f"mission={max_failure_probability_location['mission']}"
+    )
     lines.append("=" * 88)
 
     with open(log_file, "w") as f:
@@ -1001,6 +1073,9 @@ def validate_gamma_synthetic_diagnostic(
         "loop_passed": loop_passed,
         "tau": float(tau),
         "epsilon": float(epsilon),
+        "max_failure_probability": max_failure_probability,
+        "max_failure_probability_location": max_failure_probability_location,
+        "max_shape_after": max_shape_after,
         "log_path": str(log_file),
     }
 
@@ -1012,6 +1087,8 @@ def validate_gamma_synthetic_diagnostic(
     print(f"Rows checked: {report['rows_checked']}")
     print(f"Reliability failures: {report['reliability_failures']}")
     print(f"Loop passed: {report['loop_passed']}")
+    print(f"Max failure probability: {report['max_failure_probability']:.3e}")
+    print(f"Max shape after: {report['max_shape_after']:.3f}")
     print(f"Overall passed: {report['passed']}")
     print("=" * 72)
 

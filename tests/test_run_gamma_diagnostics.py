@@ -1,3 +1,4 @@
+# DEPRECATED
 from fleet_management.validator import (
     build_gamma_diagnostic_dataframe,
     validate_gamma_synthetic_diagnostic,
