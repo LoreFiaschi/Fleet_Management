@@ -28,7 +28,8 @@
 \fancyhf{}
 \rhead{\textit{Fleet Management --- SRS}}
 %% --- CHANGE RF-001: version bump to 0.4 (running header) ---
-\lhead{\textit{v0.4 $\cdot$ \today}}
+%% --- CHANGE LPR-001: version bump to 0.5 (running header) ---
+\lhead{\textit{v0.5 $\cdot$ \today}}
 \cfoot{\thepage}
 
 \definecolor{todo}{RGB}{180,0,0}
@@ -55,7 +56,8 @@
   {\large Multi-Component Stochastic Degradation MILP\par}
   \vspace{1cm}
   %% --- CHANGE RF-002: version bump to 0.4 (title page) ---
-  {\large Version 0.4 $\cdot$ \today\par}
+  %% --- CHANGE LPR-002: version bump to 0.5 (title page) ---
+  {\large Version 0.5 $\cdot$ \today\par}
   \vfill
   {\small Prepared with spec-creator $\cdot$ Intended for Claude Code implementation}
 \end{titlepage}
@@ -140,8 +142,12 @@ The two imperfect-repair models used in this specification are:
 Because imperfect maintenance cannot reduce variance in the Wiener model, every
 Wiener-modelled component \textbf{must} undergo at least one full replacement
 ($x^r_{i\ell k}=1$) per horizon~$H$. Without this, the loop constraint on variance
-is infeasible. This restriction should be verified at input validation time
-(Section~3.7).
+is infeasible.
+%% --- CHANGE REV-001: replacement requirement is enforced by the loop constraint, not input validation (consistent with the resolved Open-Questions bullet) ---
+This is not an input-level validation check---no input quantity determines
+it. It is enforced automatically by the hard loop constraint on the variance
+(Section~\ref{sec:loop}), which renders infeasible any schedule that never
+replaces the component within $[H{+}1, 2H]$.
 
 \textbf{Non-goals.}
 \begin{itemize}
@@ -171,6 +177,17 @@ $i \in \{1,\ldots,F\}$ & Train index \\
 $j \in \{0,1,\ldots,M\}$ & Activity index ($j=0$: maintenance day; $j \in \{1,\ldots,M\}$: missions) \\
 $k \in \{1,\ldots,2H\}$ & Time step (day) index \\
 $\ell \in \{1,\ldots,L\}$ & Component index \\
+%% --- CHANGE REV-002: derived constants added to the notation table (kappa_C, kappa, b, c, V_max^RF, big-M symbols were previously defined only in-line) ---
+\midrule
+\multicolumn{2}{@{}l}{\emph{Derived constants (precomputed from inputs; defined where introduced):}} \\
+$\Phi^{-1}(1-\varepsilon)$ & Standard-normal quantile (Gaussian/Wiener reliability) \\
+$V_{\max} = \tau^2/(\Phi^{-1}(1-\varepsilon))^2$ & Variance big-M (Gaussian, Wiener) \\
+$\kappa_C = \sqrt{(1-\varepsilon)/\varepsilon}$ & Cantelli coefficient (Rainflow) \\
+$\kappa = \ln(1/\varepsilon)$ & Bernstein exponent constant (Rainflow) \\
+$b_{i\ell}$, $c_{i\ell} = \kappa\, b_{i\ell}/3$ & Bernstein support constant and margin (Rainflow, Eq.~\eqref{eq:rf_bsupport}) \\
+$V_{\max}^{\mathrm{RF}}$ & Variance big-M for rainflow components (Eq.~\eqref{eq:rf_vmax}) \\
+$\bar{\alpha}_{i\ell} = \tau/\beta_{i\ell}$, $\hat{\alpha}_{i\ell}$ & Gamma shape big-M and precomputed reliability cap \\
+$\bar{\mu}_{i\ell}$ & IG precomputed reliability cap (root of Eq.~\eqref{eq:ig_mubar}) \\
 \bottomrule
 \end{longtable}
 
@@ -191,13 +208,16 @@ $H$ & \texttt{int} or \texttt{[int, int]} & Half-horizon. Scalar: single solve s
   $H \in \{H_{\min},\ldots,H_{\max}\}$, producing one solve per value \\
 $M$ & \texttt{int} & Number of missions (must satisfy $F > M$) \\
 $L$ & \texttt{int} & Number of components per train \\
-$\tau$ & \texttt{float} & Degradation upper bound (must be positive) \\
+%% --- CHANGE REV-003: tau may be scalar or (F, L), consistent with the shape-validation list, the base.py signature, and the HDF5 schema; a scalar is broadcast ---
+$\tau$ & \texttt{float} or $F \times L$ & Degradation upper bound (must be positive
+  element-wise; a scalar is broadcast to $(F, L)$; the unsubscripted $\tau$ in the
+  constraint sections stands for the per-component value after broadcasting) \\
 $\varepsilon$ & \texttt{float} & Reliability threshold, $\varepsilon \in (0, 0.01]$.
   The upper bound $\varepsilon \leq 0.01$ prevents $\Phi^{-1}(1-\varepsilon)$ from
   approaching zero, which would cause $V_{\max} \to \infty$ and render the
   big-M constraints numerically ineffective \\
 $C_M$ & \texttt{float} & Maintenance cost coefficient \\
-$C_P$ & \texttt{float} & Loop-constraint penalty coefficient \\
+%% --- CHANGE LPR-003: C_P parameter removed (soft loop penalty dropped) ---
 $C_D$ & \texttt{float} & Damage regularisation coefficient \\
 \texttt{penalty\_type} & \texttt{str}, optional & Damage regularisation type:
   \texttt{"inf\_norm"} (default) or \texttt{"quadratic"}.
@@ -439,7 +459,8 @@ Any violation raises an informative \texttt{ValueError}.
         $\alpha^{\mathrm{inc}}$ must be $(F, M, L)$ or $(F, M, L, H)$;
         $b^{\mathrm{inc}}$ must be $(F, M, L)$ or $(F, M, L, H)$;
         $C_M, C_R, C_D$ must be scalar, $(F,)$, or $(F, L)$;
-        $\alpha_{\mathrm{target}}, \rho, \tau$ must be scalar or $(F, L)$;
+        %% --- CHANGE REV-004: stale legacy parameter alpha_target removed (it duplicated tau under its pre-v0.3 name and is defined nowhere in the input tables) ---
+        $\rho, \tau$ must be scalar or $(F, L)$;
         $b^{0}, b^{\mathrm{new}}$ must be scalar or $(F, L)$.
         Raise \texttt{ValueError} with a diagnostic message on shape mismatch.
         Do not rely on NumPy silent broadcasting.
@@ -482,14 +503,16 @@ $u$ & scalar, non-negative
   & Damage regularisation variable:
     $u = \max_{i,k}\sum_\ell \mu_{i\ell k}$ (\texttt{inf\_norm}) or
     $u = \max_{i,k}\sum_\ell \mu_{i\ell k}^2$ (\texttt{quadratic}) \\
+%% --- CHANGE REV-005: z formula qualified as the ARD1 form; mu_last / alpha_last applicability corrected (mu_last is Wiener-ARA1 only; Gamma-ARA1 tracks alpha_last) ---
 $z_{i\ell k}$ & $F \times L \times 2H$, non-negative
   & Degradation removed by repair in mean units:
-    $z_{i\ell k} = \rho_{i\ell}\,\mu_{i\ell,k-1}\,x^m_{i\ell k}$
+    $z_{i\ell k} = \rho_{i\ell}\,\mu_{i\ell,k-1}\,x^m_{i\ell k}$ (ARD1 form;
+    ARA1 subtracts the anchor, Section~\ref{sec:repair_proxy})
     (bilinear; linearised via McCormick envelope) \\
 $\mu^{\mathrm{last}}_{i\ell k}$ & $F \times L \times 2H$, non-negative
-  & Mean at last maintenance epoch (ARA1 components: Wiener, Gamma) \\
+  & Mean at last maintenance epoch (ARA1 Wiener components only) \\
 $\alpha^{\mathrm{last}}_{i\ell k}$ & $F \times L \times 2H$, non-negative
-  & Shape at last maintenance epoch (ARA1, Gamma only) \\
+  & Shape at last maintenance epoch (ARA1 Gamma components only) \\
 \bottomrule
 \end{longtable}
 
@@ -497,20 +520,23 @@ $\alpha^{\mathrm{last}}_{i\ell k}$ & $F \times L \times 2H$, non-negative
 \section{Objective Function}
 % ================================================================
 
+%% --- CHANGE LPR-004: soft loop penalty term C_P * L_loop removed from objective; prose reworded ---
 \begin{align}
 \min \quad
   & C_M \sum_{k=1}^{2H} \sum_{i=1}^{F} x_{i0k}
   + \sum_{k=1}^{2H} \sum_{i=1}^{F} \sum_{\ell=1}^{L} C_{R,i\ell}\, z_{i\ell k}
   + \sum_{k=1}^{2H} \sum_{i=1}^{F} \sum_{\ell=1}^{L} C_{\mathrm{rep},i\ell}\, x^r_{i\ell k} \notag \\
   & + C_D\, u
-  + C_P \cdot \mathcal{L}_{\mathrm{loop}}
 \end{align}
 
-where $z_{i\ell k} = \rho_{i\ell}\,\mu_{i\ell,k-1}\,x^m_{i\ell k}$ is the degradation
-removed by repair in mean units (see Section~\ref{sec:repair_proxy}),
-$\mathcal{L}_{\mathrm{loop}}$ is the loop-constraint penalty term defined per model
-in Section~\ref{sec:loop}, and $u$ is the damage regularisation variable defined by
-\texttt{penalty\_type} (see Section~\ref{sec:objective}).
+The objective comprises four cost terms: maintenance-day cost, repair cost,
+replacement cost, and the damage regularisation term, where
+$z_{i\ell k} = \rho_{i\ell}\,\mu_{i\ell,k-1}\,x^m_{i\ell k}$ is the degradation
+removed by repair in mean units (see Section~\ref{sec:repair_proxy}) and $u$ is
+the damage regularisation variable defined by \texttt{penalty\_type}
+(see Section~\ref{sec:objective}). Sustainability across the two half-horizons
+is enforced by the \emph{hard} loop constraints of Section~\ref{sec:loop}; it
+does not appear as an objective term.
 
 % ================================================================
 \section{Constraints}
@@ -531,6 +557,20 @@ Each mission is covered exactly once per day:
 Together these constraints guarantee that exactly $M$ trains are on missions at every
 step $k$, and each train performs at most one activity per day. The remaining $F - M$
 trains may be on maintenance or idle. No additional fleet-availability constraint is needed.
+
+%% --- CHANGE REV-006: idle-as-all-zeros semantics made explicit; C_M term is a genuine decision cost, not a constant ---
+\emph{Idle semantics.} Idleness is encoded as the all-zero assignment row:
+$x_{ijk} = 0$ for every $j \in \{0, 1, \ldots, M\}$ means train $i$ performs no
+mission and is \emph{not} on a maintenance day at step $k$ (idle days add no
+degradation increment, since $\delta\mu$, $\delta v$, $\delta\alpha$ sum over
+$j \geq 1$ only). A maintenance day must be selected explicitly by setting
+$x_{i0k} = 1$; the compatibility constraints below require this before any
+repair or replacement can occur. Consequently the objective term
+$C_M \sum_{i,k} x_{i0k}$ prices a genuine scheduling decision: because the
+one-activity constraint is an inequality, the number of maintenance days is a
+free, costed choice between idle and maintenance (under an equality convention
+$\sum_j x_{ijk} = 1$ it would instead be the constant $F - M$ per step,
+rendering the term vacuous).
 
 \subsection{Maintenance / Replacement Compatibility}
 
@@ -596,23 +636,64 @@ comes from the reliability constraint (Section~\ref{sec:dyn_gaussian}, Reliabili
 which enforces $\mu_{i\ell k} \leq \tau$ (or tighter, depending on $\alpha$).
 
 %% --- CHANGE MATH-004+DEV-001: refined three-mechanism tightness argument ---
+%% --- CHANGE LPR-005: rewritten as two-mechanism remark (C_P mechanism removed); slack-robustness argument added ---
 \emph{Remark (tightness of big-M relaxation at optimality).}
 The one-sided relaxation $\mu^+_{i\ell k} \leq \mu^-_{i\ell k}$ (instead of equality
-when $x^m_{i\ell k}=0$) is tight at any optimal solution, through three complementary
-mechanisms:
+when $x^m_{i\ell k}=0$) is kept tight at optimality through two complementary
+cost mechanisms:
 \begin{enumerate}[nosep]
   \item $C_D \cdot u$: at the arg-max $(i,k)$ pair where the damage penalty is binding,
         inflating $\mu$ directly increases cost.
   \item $C_R \cdot z_{i\ell k}$: for every subsequent maintenance step $k'>k$,
         forward propagation of an inflated $\mu_{i\ell k}$ through the degradation
         dynamics increases the repair cost $z_{i\ell k'}$.
-  \item $C_P \cdot \mathcal{L}_{\mathrm{loop}}$: at half-horizon boundaries
-        ($k=H$ and $k=2H$), any slack in $\mu$ worsens the loop penalty.
 \end{enumerate}
 %% --- CHANGE RF-018: SOC wording updated (exact form is not SOC) ---
 For the variance variable~$v$, tightness is enforced by the reliability constraint:
 an inflated $v$ tightens the upper bound on $\mu$ via the exact or LP reliability
 form, creating an indirect cost penalty.
+
+\emph{Remark (the loop guarantee is robust to slack).}
+Where neither cost mechanism bites, the tracked states may carry slack; this
+never endangers the perpetual-safety guarantee of the loop constraints. The
+dynamics rows are $\geq$-relaxations, so the tracked pair
+$(\mu_{i\ell k}, v_{i\ell k})$ is a valid componentwise \emph{upper} bound on
+the true moments: writing $\varphi_k$ for the exact one-step moment map induced
+by the schedule at step $k$ (add the mission increment; scale by
+$(1-\rho_{i\ell})$, resp.\ $(1-\rho_{i\ell})^2$, on repair; reset to
+$(\mu^{\mathrm{new}}_{i\ell}, v^{\mathrm{new}}_{i\ell})$ on replacement), each
+$\varphi_k$ is componentwise non-decreasing, every feasible point satisfies
+$(\mu_{i\ell k}, v_{i\ell k}) \geq
+\varphi_k(\mu_{i\ell,k-1}, v_{i\ell,k-1})$ row by row, and induction from the
+exact initial condition gives domination of the true moments at every step.
+Chaining these two facts over the second half yields
+$(\mu_{i\ell,2H}, v_{i\ell,2H}) \geq \Phi(\mu_{i\ell,H}, v_{i\ell,H})$, where
+$\Phi$ is the exact (monotone) second-half period map; combined with the hard
+loop constraint
+$(\mu_{i\ell,2H}, v_{i\ell,2H}) \leq (\mu_{i\ell,H}, v_{i\ell,H})$
+(Section~\ref{sec:loop}) this gives
+$\Phi(\mu_{i\ell,H}, v_{i\ell,H}) \leq (\mu_{i\ell,H}, v_{i\ell,H})$ --- exactly
+the induction premise of the repeatability argument spelled out in
+Section~\ref{sec:dyn_rainflow}, started from the envelope
+$(\mu_{i\ell,H}, v_{i\ell,H})$. Since the reliability certificate is imposed on
+the tracked states at every step $k = 1,\ldots,2H$ and is monotone in
+$(\mu, v)$, every step of every future repetition of the second half is
+dominated by a certified tracked point and therefore stays certified, even if
+the tracked states carry slack. Removing the former soft loop penalty thus
+costs only its tie-break toward larger sustainability margins among equal-cost
+schedules, never the guarantee. The same argument applies unchanged to the
+other model recursions and their loop constraints (IG mean-only, Gamma
+shape-only, Wiener and rainflow moment pairs), each of whose one-step maps and
+reliability certificates are likewise monotone in the tracked state.
+%% --- CHANGE REV-007: slack-robustness coverage extended to ARA1 components (full state including the anchor; see the anchor loop rows added by REV-008/REV-009) ---
+For ARA1 components the tracked state additionally includes the maintenance
+anchor ($\mu^{\mathrm{last}}$, resp.\ $\alpha^{\mathrm{last}}$): the per-day
+maps remain componentwise monotone in the \emph{full} state including the
+anchor, and the loop constraints bound the anchor as well
+(Sections~\ref{sec:dyn_wiener} and~\ref{sec:dyn_gamma}), so the premise
+$\Phi(s_H) \leq s_H$ again holds on the full state. The anchor update rows
+are two-sided, hence exact at binary points, and the domination induction
+goes through with the anchor pinned to the (dominating) tracked mean.
 
 %% --- CHANGE MATH-003: ARD1 deterministic variance scaling remark ---
 \emph{Remark (ARD1 variance scaling).}
@@ -811,7 +892,8 @@ use \texttt{scipy.stats.invgauss.cdf(x, mu=mu/lam, scale=lam)} with
 \texttt{scipy.optimize.brentq} for root-finding on
 Eq.~\eqref{eq:ig_mubar}.
 
-\subsubsection{Loop Constraint (IG, hard + soft)}
+%% --- CHANGE LPR-006: retitled hard-only; IG soft-penalty formula deleted below ---
+\subsubsection{Loop Constraint (IG, hard)}
 
 %% --- CHANGE MATH-001+DEV-005+DOM-012: replace TODO with verified proposition ---
 \emph{Proposition (IG FSD via MLR at constant $\eta$).}
@@ -834,16 +916,12 @@ establishing the monotone likelihood ratio (MLR) property. By the standard chain
 MLR $\Rightarrow$ HR $\Rightarrow$ FSD, the result follows.\hfill$\square$
 
 Since ARD1 repair scales both $\mu$ and $\lambda = \mu/\eta$ by the same factor
+%% --- CHANGE REV-008: duplicated sentence fragment removed ---
 $(1-\rho)$, the ratio $\eta$ is preserved identically. Therefore FSD reduces to the
 mean-only condition:
-FSD reduces to a mean-only condition:
 \begin{equation}
   \mu_{i\ell,2H} \leq \mu_{i\ell,H}
   \qquad \forall\,(i,\ell)\text{ s.t. model} = \mathrm{IG}
-\end{equation}
-\begin{equation}
-  \mathcal{L}^{\mathrm{IG}}_{\mathrm{loop}} =
-    \sum_{(i,\ell)\,:\,\mathrm{IG}} \bigl(\mu_{i\ell H} - \mu_{i\ell 2H}\bigr)
 \end{equation}
 
 % ----------------------------------------------------------------
@@ -904,8 +982,9 @@ The $x^r_{i\ell k}$ term allows replacement to reset variance; $x^m_{i\ell k}$
 does not appear since repair does not affect variance.
 
 %% --- CHANGE MATH-009: Wiener variance tightness via reliability ---
+%% --- CHANGE LPR-007: three cost mechanisms -> two (C_P mechanism removed) ---
 \emph{Remark (Wiener variance tightness).}
-Unlike the mean, whose tightness follows from the three cost mechanisms
+Unlike the mean, whose tightness follows from the two cost mechanisms
 (Section~\ref{sec:dyn_gaussian}, tightness remark), the Wiener variance
 $v_{i\ell k} = v_0 + k\sigma^2_{i\ell}$ is not directly penalised in the objective.
 Tightness of the variance relaxation is enforced indirectly by the reliability
@@ -1005,7 +1084,8 @@ If $V_{\max}^{\mathrm{user}}$ is specified for Wiener component $(i,\ell)$:
   v_{i\ell k} \leq V_{\max,i\ell}^{\mathrm{user}} \qquad \forall\, k
 \end{equation}
 
-\subsubsection{Loop Constraint (Wiener, hard + soft)}
+%% --- CHANGE LPR-008: retitled hard-only; Wiener soft-penalty formula deleted below ---
+\subsubsection{Loop Constraint (Wiener, hard)}
 
 %% --- CHANGE RF-022: A-02 accepted review item applied (FSD wording corrected) ---
 The loop constraint bounds both tracked moments,
@@ -1031,12 +1111,48 @@ Hard constraints:
   v_{i\ell,2H} \leq v_{i\ell,H}
   \qquad \forall\,(i,\ell)\text{ s.t. model} = \mathrm{Wiener}
 \end{equation}
-Loop penalty contribution:
+
+%% --- CHANGE REV-009: ARA1 anchor loop row added (closes the anchor gap: the chaining premise must hold on the full state, which for ARA1 includes mu_last) ---
+For \texttt{ARA1} Wiener components the state carried across the horizon
+boundary includes the maintenance anchor $\mu^{\mathrm{last}}$, so the loop
+premise must hold on the \emph{full} state. One additional hard row is
+imposed:
 \begin{equation}
-  \mathcal{L}^{\mathrm{Wiener}}_{\mathrm{loop}} =
-    \sum_{(i,\ell)\,:\,\mathrm{Wiener}}
-    \bigl[(\mu_{i\ell H} - \mu_{i\ell,2H}) + (v_{i\ell H} - v_{i\ell,2H})\bigr]
+  \mu^{\mathrm{last}}_{i\ell,2H} \leq \mu^{\mathrm{last}}_{i\ell,H}
+  \qquad \forall\,(i,\ell)\text{ s.t. model} = \mathrm{Wiener}
+  \text{ and \texttt{maintenance\_type} \texttt{=} \texttt{ARA1}}
+  \label{eq:w_loop_anchor}
 \end{equation}
+
+\emph{Remark (why the anchor row is needed and suffices: full-state
+monotonicity).}
+The chaining argument of Section~\ref{sec:dyn_rainflow} requires the premise
+$\Phi(s_H) \leq s_H$ componentwise on the full tracked state $s$, together
+with componentwise monotonicity of every per-day map. For ARA1 Wiener the
+state is $s = (\mu, \mu^{\mathrm{last}}, v)$, and, writing
+$a = \mu^{\mathrm{last}}$, the per-day maps of this section are:
+mission/idle days,
+$(\mu, a, v) \mapsto (\mu + \delta\mu,\; a,\; v + \delta v)$ (adds
+non-negative constants); repair days,
+$(\mu, a, v) \mapsto \bigl((1-\rho_{i\ell})\mu + \rho_{i\ell}\,a,\; \mu,\;
+v\bigr)$, whose coefficient matrix on $(\mu, a)$ is
+$\bigl(\begin{smallmatrix} 1-\rho_{i\ell} & \rho_{i\ell} \\ 1 & 0
+\end{smallmatrix}\bigr)$ with all entries non-negative for
+$\rho_{i\ell} \in (0,1]$; replacement days,
+$(\mu, a, v) \mapsto (\mu^{\mathrm{new}}_{i\ell},\; a,\;
+v^{\mathrm{new}}_{i\ell})$ (constant in $\mu, v$; identity in $a$). Every
+per-day map is therefore componentwise non-decreasing in the full state
+including the anchor, hence so is the second-half period map $\Phi$ and each
+of its prefixes. Together with Eq.~\eqref{eq:w_loop_anchor}, the three hard
+loop rows state exactly $\Phi(s_H) \leq s_H$, and the induction of
+Section~\ref{sec:dyn_rainflow} applies coordinatewise; the reliability
+certificate depends only on the $(\mu, v)$ coordinates and is monotone in
+them, so every step of every future repetition stays certified. Without
+Eq.~\eqref{eq:w_loop_anchor} the premise can fail on the $a$ coordinate: an
+anchor that has grown by $k = 2H$ weakens every subsequent repair (the
+post-repair mean $(1-\rho_{i\ell})\mu + \rho_{i\ell}\,a$ is increasing in
+$a$), and the half-to-half domination breaks down even when the $\mu$ and $v$
+rows hold.
 
 % ----------------------------------------------------------------
 \subsection{State Dynamics --- Gamma Model}
@@ -1172,7 +1288,8 @@ $g(\hat\alpha) = Q(\hat\alpha, \tau/\beta) - \varepsilon$.
 target is unachievable for this component given its degradation rate and threshold.
 The implementer should raise a diagnostic warning.
 
-\subsubsection{Loop Constraint (Gamma, hard + soft)}
+%% --- CHANGE LPR-009: retitled hard-only; Gamma soft-penalty formula deleted below ---
+\subsubsection{Loop Constraint (Gamma, hard)}
 
 %% --- CHANGE MATH-010: inline Gamma FSD proposition statement ---
 By the FSD ordering result for Gamma distributions (Proposition~\texttt{prop:gamma\_fsd}
@@ -1184,11 +1301,29 @@ Therefore, FSD at fixed $\beta$ reduces to a shape condition:
   \alpha_{i\ell,2H} \leq \alpha_{i\ell,H}
   \qquad \forall\,(i,\ell)\text{ s.t. model} = \mathrm{Gamma}
 \end{equation}
-Loop penalty contribution:
+
+%% --- CHANGE REV-010: ARA1 anchor loop row added (Gamma analogue of eq:w_loop_anchor) ---
+For \texttt{ARA1} Gamma components the tracked state additionally includes
+the anchor $\alpha^{\mathrm{last}}$, which must be bounded across the horizon
+boundary as well:
 \begin{equation}
-  \mathcal{L}^{\mathrm{Gamma}}_{\mathrm{loop}} =
-    \sum_{(i,\ell)\,:\,\mathrm{Gamma}} \bigl(\alpha_{i\ell H} - \alpha_{i\ell,2H}\bigr)
+  \alpha^{\mathrm{last}}_{i\ell,2H} \leq \alpha^{\mathrm{last}}_{i\ell,H}
+  \qquad \forall\,(i,\ell)\text{ s.t. model} = \mathrm{Gamma}
+  \text{ and \texttt{maintenance\_type} \texttt{=} \texttt{ARA1}}
+  \label{eq:gamma_loop_anchor}
 \end{equation}
+The justification is identical to the ARA1 Wiener case
+(Section~\ref{sec:dyn_wiener}, Eq.~\eqref{eq:w_loop_anchor}): the repair-day
+map $(\alpha, \alpha^{\mathrm{last}}) \mapsto
+\bigl((1-\rho_{i\ell})\alpha + \rho_{i\ell}\,\alpha^{\mathrm{last}},\;
+\alpha\bigr)$ has non-negative coefficients, mission/idle days add
+non-negative constants, and replacement is constant in $\alpha$ and the
+identity on $\alpha^{\mathrm{last}}$, so every per-day map---hence the
+second-half period map---is componentwise monotone in the full state
+$(\alpha, \alpha^{\mathrm{last}})$, and the two hard rows give
+$\Phi(s_H) \leq s_H$, the premise of the chaining argument of
+Section~\ref{sec:dyn_rainflow}. FSD along future repetitions then follows
+from the shape ordering at fixed $\beta$, exactly as for the ARD1 case.
 
 % ----------------------------------------------------------------
 %% --- CHANGE RF-023: new rainflow state-dynamics subsection ---
@@ -1340,7 +1475,8 @@ $v^+ = (1-\rho)^2\,v^-$ exactly; replacement resets both moments to those of the
 fresh draw $(\mu^{\mathrm{new}}_{i\ell}, v^{\mathrm{new}}_{i\ell})$; idle days
 change nothing. The recursions are exact---not approximations---and the big-M
 linearisation is exact at binary points. The tightness argument of
-Section~\ref{sec:dyn_gaussian} (three cost mechanisms for $\mu$; reliability
+%% --- CHANGE LPR-010: three cost mechanisms -> two (C_P mechanism removed) ---
+Section~\ref{sec:dyn_gaussian} (two cost mechanisms for $\mu$; reliability
 pressure for $v$) applies unchanged.
 
 \subsubsection{Reliability Constraint (Rainflow)}
@@ -1487,7 +1623,8 @@ If $V_{\max}^{\mathrm{user}}$ is specified for rainflow component $(i,\ell)$:
   v_{i\ell k} \leq V_{\max,i\ell}^{\mathrm{user}} \qquad \forall\, k
 \end{equation}
 
-\subsubsection{Loop Constraint (Rainflow, hard + soft)}
+%% --- CHANGE LPR-011: retitled hard-only; Rainflow soft-penalty formula deleted ---
+\subsubsection{Loop Constraint (Rainflow, hard)}
 
 Hard constraints:
 \begin{equation}
@@ -1495,12 +1632,6 @@ Hard constraints:
   v_{i\ell,2H} \leq v_{i\ell,H}
   \qquad \forall\,(i,\ell)\text{ s.t. model} = \mathrm{Rainflow}
   \label{eq:rf_loop}
-\end{equation}
-Loop penalty contribution:
-\begin{equation}
-  \mathcal{L}^{\mathrm{Rainflow}}_{\mathrm{loop}} =
-    \sum_{(i,\ell)\,:\,\mathrm{Rainflow}}
-    \bigl[(\mu_{i\ell H} - \mu_{i\ell,2H}) + (v_{i\ell H} - v_{i\ell,2H})\bigr]
 \end{equation}
 
 \emph{Justification (moment domination chains; the scalar bound does not).}
@@ -1614,10 +1745,17 @@ repair efficiency, the pre-repair mean, and the repair binary:
 \end{equation}
 
 \textbf{Exact (bilinear) form --- ARA1:}
+%% --- CHANGE REV-011: anchor index corrected k -> k-1 (the auxiliary update sets mu_last_k = mu_{k-1} on repair days, so the k-indexed difference would vanish identically; the k-1 index matches the ARA1 mean dynamics) ---
 \begin{equation}
-  z_{i\ell k} = \rho_{i\ell}\,(\mu^-_{i\ell,k} - \mu^{\mathrm{last}}_{i\ell,k})\,x^m_{i\ell k}
+  z_{i\ell k} = \rho_{i\ell}\,(\mu^-_{i\ell,k} - \mu^{\mathrm{last}}_{i\ell,k-1})\,x^m_{i\ell k}
   \qquad \forall\, i,\ell,k \text{ (ARA1 components)}
 \end{equation}
+Note the $k{-}1$ index on the anchor: the amount removed is measured against
+the anchor in force \emph{before} the day-$k$ update, matching the ARA1 mean
+dynamics $\mu_{i\ell k} = \mu_{i\ell,k-1} - \rho_{i\ell}(\mu_{i\ell,k-1} -
+\mu^{\mathrm{last}}_{i\ell,k-1})$. Using the day-$k$ anchor---which the
+auxiliary update sets to $\mu_{i\ell,k-1}$ on repair days---would make the
+product vanish identically.
 
 %% --- CHANGE MATH-012: Gamma alpha*beta substitution note ---
 \emph{Gamma substitution.} For Gamma components, $\mu_{i\ell,k-1}$ in the McCormick
@@ -1634,13 +1772,18 @@ model tracks the shape parameter $\alpha$ rather than the mean directly.
 Note: $\rho_{i\ell}\,\tau$ is a valid big-M since $\mu_{i\ell,k-1} \leq \tau$ always.
 
 % ----------------------------------------------------------------
-\subsection{Loop Constraint Penalty}
+%% --- CHANGE LPR-012: subsection restructured to hard constraints only; soft penalties, total L_loop sum, and MATH-016 remark deleted ---
+\subsection{Loop Constraints (hard)}
 \label{sec:loop}
 % ----------------------------------------------------------------
 
-The penalty $\mathcal{L}_{\mathrm{loop}}$ enforces sustainability over the two
-half-horizons $[1,H]$ and $[H{+}1,2H]$.
-Both a \textbf{hard constraint} and a \textbf{soft penalty} are applied for each model.
+The loop constraints enforce sustainability over the two half-horizons $[1,H]$
+and $[H{+}1,2H]$. A \textbf{hard constraint} is applied for each model,
+bounding the tracked state at $k = 2H$ by its value at $k = H$. The chaining
+argument showing that these constraints certify every future repetition of the
+second half is given in Section~\ref{sec:dyn_rainflow}; the slack-robustness
+remark in Section~\ref{sec:dyn_gaussian} shows the guarantee survives slack in
+the one-sided dynamics linearisation.
 
 \subsubsection{Gaussian}
 Hard constraints:
@@ -1649,50 +1792,34 @@ Hard constraints:
   v_{i\ell,2H} \leq v_{i\ell,H} \qquad
   \forall\, (i,\ell)\text{ s.t. model} = \mathrm{Gaussian}
 \end{equation}
-Penalty:
-\begin{equation}
-  \mathcal{L}^{\mathrm{Gauss}}_{\mathrm{loop}} =
-    \sum_{(i,\ell)\,:\,\mathrm{Gauss}}
-    \bigl[(\mu_{i\ell H} - \mu_{i\ell 2H}) + (v_{i\ell H} - v_{i\ell 2H})\bigr]
-\end{equation}
 
 \subsubsection{Inverse Gaussian}
-Hard constraint and penalty as defined in Section~\ref{sec:dyn_ig}.
+Hard constraint as defined in Section~\ref{sec:dyn_ig}.
 
 \subsubsection{Wiener}
 %% --- CHANGE RF-025: A-02 accepted review item applied (FSD wording corrected) ---
-Hard constraints and penalty as defined in Section~\ref{sec:dyn_wiener}.
+%% --- CHANGE REV-012: ARA1 anchor row mentioned (added by REV-009) ---
+Hard constraints as defined in Section~\ref{sec:dyn_wiener}.
 Both the mean and the variance state are bounded (implying a non-increasing
 failure probability for Gaussian marginals with $\mu < \tau$; not an FSD claim);
 variance control requires replacement actions within $[H+1,2H]$.
+For \texttt{ARA1} components the maintenance anchor is bounded as well,
+$\mu^{\mathrm{last}}_{i\ell,2H} \leq \mu^{\mathrm{last}}_{i\ell,H}$
+(Eq.~\eqref{eq:w_loop_anchor}), so the loop premise holds on the full state.
 
 \subsubsection{Gamma}
-Hard constraint and penalty as defined in Section~\ref{sec:dyn_gamma}.
+%% --- CHANGE REV-013: ARA1 anchor row mentioned (added by REV-010) ---
+Hard constraint as defined in Section~\ref{sec:dyn_gamma}; for \texttt{ARA1}
+components this includes the anchor row
+$\alpha^{\mathrm{last}}_{i\ell,2H} \leq \alpha^{\mathrm{last}}_{i\ell,H}$
+(Eq.~\eqref{eq:gamma_loop_anchor}).
 
 %% --- CHANGE RF-026: rainflow loop cross-reference and total penalty term ---
 \subsubsection{Rainflow}
-Hard constraints and penalty as defined in Section~\ref{sec:dyn_rainflow}.
+Hard constraints as defined in Section~\ref{sec:dyn_rainflow}.
 Both tracked moments are bounded, which guarantees a non-increasing
 \emph{certified} failure-probability bound under indefinite schedule
 concatenation (moment domination; not a distributional-order claim).
-
-The total loop penalty is:
-\begin{equation}
-  \mathcal{L}_{\mathrm{loop}} =
-    \mathcal{L}^{\mathrm{Gauss}}_{\mathrm{loop}}
-    + \mathcal{L}^{\mathrm{IG}}_{\mathrm{loop}}
-    + \mathcal{L}^{\mathrm{Wiener}}_{\mathrm{loop}}
-    + \mathcal{L}^{\mathrm{Gamma}}_{\mathrm{loop}}
-    + \mathcal{L}^{\mathrm{Rainflow}}_{\mathrm{loop}}
-\end{equation}
-
-%% --- CHANGE MATH-016: loop penalty non-negativity remark ---
-\emph{Remark (non-negativity of $\mathcal{L}_{\mathrm{loop}}$).}
-Each term $(\mu_{i\ell H} - \mu_{i\ell 2H})$ (and analogously for $v$ and $\alpha$)
-in the loop penalty is non-negative at any feasible point, because the hard loop
-constraints enforce $\mu_{i\ell,2H} \leq \mu_{i\ell,H}$ (and likewise for $v$, $\alpha$).
-The soft penalty therefore acts as a tie-breaker among feasible schedules, favouring
-those with the largest sustainability margin.
 
 % ================================================================
 \section{Full Optimization Problem (\texttt{inf\_norm}, linearised)}
@@ -1749,13 +1876,13 @@ For rainflow components, the Cantelli rows apply when
 
 \vspace{0.5em}
 \noindent\textbf{Objective}
+%% --- CHANGE LPR-013: C_P * L_loop term removed from (OBJ) ---
 \begin{align}
 \min\quad
   & C_M \sum_{k,i} x_{i0k}
   + \sum_{k,i,\ell} C_{R,i\ell}\,z_{i\ell k}
   + \sum_{k,i,\ell} C_{\mathrm{rep},i\ell}\,x^r_{i\ell k}
-  + C_D\,u
-  + C_P\,\mathcal{L}_{\mathrm{loop}} \tag{OBJ}
+  + C_D\,u \tag{OBJ}
 \end{align}
 
 \vspace{0.3em}
@@ -1846,7 +1973,10 @@ For rainflow components, the Cantelli rows apply when
   &(\Phi^{-1}(1-\varepsilon))^2 v_{i\ell k} + 2\tau\,\mu_{i\ell k} \leq \tau^2
   &&\quad\forall\,k \tag{W: reliability (LP approx., inner)} \\
   &\mu_{i\ell,2H} \leq \mu_{i\ell,H},\quad v_{i\ell,2H} \leq v_{i\ell,H}
-  &&\tag{W: loop constraint}
+  &&\tag{W: loop constraint} \\
+  %% --- CHANGE REV-014: ARA1 anchor loop row in the full-problem block (REV-009) ---
+  &\mu^{\mathrm{last}}_{i\ell,2H} \leq \mu^{\mathrm{last}}_{i\ell,H}
+  &&\quad\text{(ARA1 only)} \tag{W: loop constraint (anchor)}
 \end{alignat}
 
 \vspace{0.3em}
@@ -1877,7 +2007,10 @@ For rainflow components, the Cantelli rows apply when
   &\alpha_{i\ell k} \leq \hat{\alpha}_{i\ell}
   &&\quad\forall\,k \tag{$\Gamma$: reliability (precomputed)} \\
   &\alpha_{i\ell,2H} \leq \alpha_{i\ell,H}
-  &&\tag{$\Gamma$: loop constraint}
+  &&\tag{$\Gamma$: loop constraint} \\
+  %% --- CHANGE REV-015: ARA1 anchor loop row in the full-problem block (REV-010) ---
+  &\alpha^{\mathrm{last}}_{i\ell,2H} \leq \alpha^{\mathrm{last}}_{i\ell,H}
+  &&\quad\text{(ARA1 only)} \tag{$\Gamma$: loop constraint (anchor)}
 \end{alignat}
 
 %% --- CHANGE RF-031: rainflow dynamics block in full problem ---
@@ -1940,21 +2073,7 @@ tail-bound and formulation row selection per the notation paragraph above)
   &&\tag{damage reg.\ non-neg.}
 \end{alignat}
 
-\vspace{0.3em}
-\noindent\textbf{Loop penalty}
-\begin{alignat}{2}
-  &\mathcal{L}_{\mathrm{loop}} =
-    \sum_{(i,\ell):\mathrm{G}}[(\mu_{i\ell H}-\mu_{i\ell 2H})+(v_{i\ell H}-v_{i\ell 2H})]
-    + \sum_{(i,\ell):\mathrm{IG}}(\mu_{i\ell H}-\mu_{i\ell 2H}) \notag \\
-  &\phantom{\mathcal{L}_{\mathrm{loop}} =\;}
-    + \sum_{(i,\ell):\mathrm{W}}[(\mu_{i\ell H}-\mu_{i\ell 2H})+(v_{i\ell H}-v_{i\ell 2H})]
-    + \sum_{(i,\ell):\Gamma}(\alpha_{i\ell H}-\alpha_{i\ell 2H}) \notag \\
-  %% --- CHANGE RF-032: rainflow term in loop penalty ---
-  &\phantom{\mathcal{L}_{\mathrm{loop}} =\;}
-    + \sum_{(i,\ell):\mathrm{RF}}[(\mu_{i\ell H}-\mu_{i\ell 2H})+(v_{i\ell H}-v_{i\ell 2H})]
-  &&\tag{loop penalty}
-\end{alignat}
-
+%% --- CHANGE LPR-014: Loop penalty alignat block deleted (soft penalty removed; hard loop rows remain in the per-model blocks above) ---
 \vspace{0.3em}
 \noindent\textbf{Variable domains}
 \begin{alignat}{2}
@@ -2095,6 +2214,7 @@ fleet_management/
 Each degradation model module shall implement two functions with the following
 signatures:
 
+%% --- CHANGE REV-016: stale legacy parameter alpha_target removed from the signature (duplicate of tau under its pre-v0.3 name); replaced by epsilon, which the epsilon-range and Bernstein-precondition checks require ---
 \begin{lstlisting}[language=Python]
 def validate_inputs(
     F: int, H: int, M: int, L: int,
@@ -2102,7 +2222,7 @@ def validate_inputs(
     mu_0: np.ndarray,        # (F, L)
     tau: np.ndarray,          # (F, L)
     rho: np.ndarray,          # (F, L)
-    alpha_target: np.ndarray, # (F, L)
+    epsilon: float,           # reliability threshold
     **model_params            # model-specific (e.g., v_0, v_new, sigma, eta, beta;
                               # rainflow: v_0, v_new, b_inc, b_0, b_new, tail_bound)
 ) -> None:                    # raises ValueError on invalid input
@@ -2196,6 +2316,7 @@ components are ignored with a \texttt{UserWarning}.
 \subsection{HDF5 Schema}
 
 HDF5 output files shall use the following structure:
+%% --- CHANGE REV-017: stale alpha_target dataset removed (duplicate of tau under its pre-v0.3 name); epsilon persisted instead so the echoed parameters determine the reliability caps ---
 \begin{lstlisting}
 /metadata/
     status          (scalar, string)
@@ -2209,7 +2330,7 @@ HDF5 output files shall use the following structure:
     u               (float64, scalar)
     z               (float64, shape F x L x 2H)
 /parameters/
-    alpha_target    (float64, shape F x L)
+    epsilon         (scalar, float64)
     tau             (float64, shape F x L)
     rho             (float64, shape F x L)
     tail_bound      (string, scalar or shape F x L; only if rainflow components present)
@@ -2234,7 +2355,7 @@ Field & Type / Shape & Description \\
 \texttt{tau} & \texttt{float} & Degradation upper bound \\
 \texttt{epsilon} & \texttt{float} & Reliability threshold \\
 \texttt{C\_M} & \texttt{float} & Maintenance cost coefficient \\
-\texttt{C\_P} & \texttt{float} & Loop penalty coefficient \\
+%% --- CHANGE LPR-015: C_P row removed from Always-Present fields ---
 \texttt{C\_D} & \texttt{float} & Damage regularisation coefficient \\
 \texttt{penalty\_type} & \texttt{str}, optional & \texttt{"inf\_norm"} (default)
   or \texttt{"quadratic"} \\
@@ -2263,6 +2384,11 @@ Fields are required if and only if at least one component uses the corresponding
 model. For the rainflow \texttt{b\_*} fields the condition is two-level, as
 stated in the Required-for column: model \texttt{"rainflow"} \emph{and}
 \texttt{tail\_bound="bernstein"} for at least one component.
+%% --- CHANGE REV-018: optionality reconciled with Section 3 (tail_bound, v_new, b_new have defaults and may be omitted; v_max_user is always optional) ---
+Exceptions: \texttt{tail\_bound}, \texttt{v\_new}, and \texttt{b\_new} are
+\emph{optional} with the stated defaults even when their model condition
+holds (Sections~\ref{sec:input_scalars}ff.), and \texttt{v\_max\_user} is
+always optional (no constraint is added when it is absent).
 
 \begin{longtable}{@{}lllp{5.5cm}@{}}
 \toprule
@@ -2270,7 +2396,7 @@ Field & Shape & Required for & Description \\
 \midrule
 %% --- CHANGE RF-037: rainflow model-specific fields ---
 %% --- CHANGE RF-044 (panel): tail_bound moved here from Always-Present ---
-\texttt{tail\_bound} & \texttt{str} / $F {\times} L$ list & Rainflow &
+\texttt{tail\_bound} & \texttt{str} / $F {\times} L$ list & Rainflow (optional) &
   \texttt{"cantelli"} (default) or \texttt{"bernstein"}; per-component
   tail bound \\
 \texttt{v\_0} & $F \times L$ & Gaussian, Wiener, Rainflow & Initial variance \\
@@ -2295,6 +2421,7 @@ Field & Shape & Required for & Description \\
 \subsection{YAML Example (Mixed Models)}
 
 %% --- CHANGE RF-038: rainflow component, tail_bound, b_* fields, formulation token in YAML example ---
+%% --- CHANGE LPR-016: C_P line removed from YAML example ---
 \begin{lstlisting}
 F: 4
 H: 10          # or H: [8, 12] for horizon loop
@@ -2304,7 +2431,6 @@ tau: 1.0
 epsilon: 0.01   # must lie in (0, 0.01]; with b_0=0.3, tau=1.0 the Bernstein
                 # precondition tau > 2*kappa*b/3 = 0.921 still holds
 C_M: 1.0
-C_P: 2.0
 C_D: 1.0
 penalty_type: inf_norm   # or "quadratic" (requires formulation="exact")
 formulation: exact       # or "lp"; "socp" is a deprecated alias for "exact"
@@ -2440,7 +2566,11 @@ non-applicable positions trigger a \texttt{UserWarning} and are ignored.
   \item[\checkmark] \textit{Resolved.} Horizon loop: scalar or interval $H$;
         \texttt{n\_workers} parallelism; optional warm-start hinting.
   \item[\checkmark] \textit{Resolved.} Big-M values fully specified throughout.
-  \item[\checkmark] \textit{Resolved.} Loop constraints: hard $+$ soft for all models;
+  %% --- CHANGE LPR-017: loop-constraint bullet reworded hard-only (soft penalty removed in v0.5) ---
+  \item[\checkmark] \textit{Resolved.} Loop constraints: hard for all models
+        (the soft loop penalty and its coefficient $C_P$ were removed in v0.5;
+        the hard constraints alone carry the perpetual-safety guarantee, see the
+        slack-robustness remark in Section~\ref{sec:dyn_gaussian});
         Wiener variance controlled via replacement (multiple replacements per horizon
         allowed; no additional feasibility check needed).
   \item[\checkmark] \textit{Resolved.} Damage regularisation: $C_S$ and per-step $u_k$
@@ -2502,6 +2632,21 @@ non-applicable positions trigger a \texttt{UserWarning} and are ignored.
         $w_t\,b_t$ along the schedule actually chosen---would tighten the
         constant, but requires nonlinear (running-max) state tracking;
         deliberately not done in this revision.
+        %% --- CHANGE REV-019: FUTURE bullet expanded per the Route-I refinements report (schedule-dependent support) ---
+        A first-order version needing no running maximum is available: per-member
+        service indicators $\zeta_{ij} \ge x_{ijk}$ (all $k$) activate, for each
+        mission actually served, a conditional Bernstein row carrying that
+        mission's own constant
+        $\kappa \max\{\max_k b^{\mathrm{inc}}_{ij\ell k}, b^{0}_{i\ell},
+        b^{\mathrm{new}}_{i\ell}\}/3$ (indicator form for the LP surrogate, big-$M$
+        for the exact quadratic, whose body indicator constraints cannot carry),
+        and because the certified value $\mu + c + \sqrt{c^2 + 2\kappa v}$ is
+        increasing in $c$, this conjunction is exactly equivalent to
+        Eq.~\eqref{eq:rf_bsupport} with the maximum restricted to the missions
+        actually served---worked out, with a numerical example, in the project
+        scoping document, subsection ``Two refinements of the Route-I
+        constraints: schedule-dependent support and piecewise-linear
+        tightening''.
   \item[\textbf{FUTURE}] \textbf{Multi-tangent PWL tightening of the rainflow LP
         surrogates.} The pointwise minimum of several tangents is a valid, less
         conservative over-estimator, but it must be encoded as a PWL
@@ -2509,10 +2654,46 @@ non-applicable positions trigger a \texttt{UserWarning} and are ignored.
         \texttt{addGenConstrPWL}); a conjunction of tangent inequalities on an
         auxiliary variable is either over-conservative or unsafe (see the remark
         in Section~\ref{sec:dyn_rainflow}).
+        %% --- CHANGE REV-020: FUTURE bullet expanded per the Route-I refinements report (multi-tangent PWL) ---
+        The PWL equality realises the \emph{union} of the single-tangent regions
+        (equivalently encodable as a disjunction with one selector binary per
+        tangent point), never their conjunction, and its residual gap to the exact
+        constraint is exactly $\min_r (\mu_{i\ell k} - \mu_r)^2$---quadratic in the
+        distance to the nearest tangency point---as quantified with a worked
+        example in the project scoping document, subsection ``Two refinements of
+        the Route-I constraints: schedule-dependent support and piecewise-linear
+        tightening''.
   \item[\textbf{FUTURE}] \textbf{ARA1 semantics for rainflow variance.} As for
         the Gaussian model (DOM-009), the effect of ARA1 repair on the variance
         state has no established basis; rainflow remains ARD1-only until this is
         resolved.
+  %% --- CHANGE REV-021: ARA1 anchor convention flagged (pre- vs post-repair storage; no reset at replacement); found while closing the anchor loop gap ---
+  \item[\textbf{FUTURE}] \textbf{ARA1 anchor convention (pre- vs.\ post-repair)
+        and reset at replacement.} The auxiliary recursions of
+        Sections~\ref{sec:dyn_wiener} and~\ref{sec:dyn_gamma} store the
+        \emph{pre-repair} state at each maintenance epoch
+        ($\mu^{\mathrm{last}}_{i\ell k} = \mu_{i\ell,k-1}$ on repair days),
+        whereas the ARA1 definition in the Project Overview (following
+        Mercier \& Castro, 2019) takes $D^{\mathrm{last}}$ to be the
+        \emph{post-repair} level. Under the stored convention, ``degradation
+        accumulated since the last maintenance'' is measured from the higher
+        pre-repair baseline, so a repair scheduled before the state has
+        re-grown past the stored anchor has non-positive removal (the
+        optimiser avoids such repairs, which increase both cost and state,
+        but the semantics should be reconciled before implementation; storing
+        the post-repair value $\mu^{\mathrm{last}}_{i\ell k} = \mu_{i\ell k}$
+        on repair days keeps all rows linear and preserves the full-state
+        monotonicity of Section~\ref{sec:dyn_wiener}). Relatedly, the anchor
+        is \emph{not} reset at replacement ($x^r_{i\ell k}$ does not enter
+        the auxiliary update), so after a replacement the next ARA1 repair
+        measures accumulation against a stale anchor; resetting
+        $\mu^{\mathrm{last}}_{i\ell k} = \mu^{\mathrm{new}}_{i\ell}$ (resp.\
+        $\alpha^{\mathrm{last}}_{i\ell k} = \alpha^{\mathrm{new}}_{i\ell}$)
+        when $x^r_{i\ell k} = 1$ is the natural fix and, being a constant
+        map, also preserves the monotonicity argument. Neither issue affects
+        the validity of the loop-constraint chaining---the recursions as
+        written are componentwise monotone either way---but both affect model
+        fidelity.
   \item[\textbf{FUTURE}] \textbf{Additional \texttt{tail\_bound} values.}
         Count-weighted Chernoff/Hoeffding certificates (per-mission cumulant
         generating functions, or per-mission supports only) are tighter deep in
@@ -2565,5 +2746,37 @@ replacement states and the shape-validation list to $b^{\mathrm{inc}}, b^{0},
 b^{\mathrm{new}}$; relocated \texttt{tail\_bound} to the model-specific
 schema tables; added the fifth plot border style; and corrected the YAML
 example's $\varepsilon$ to respect its own $(0, 0.01]$ bound.
+
+%% --- CHANGE LPR-018: v0.5 changelog ---
+\emph{Change log (v0.5, loop-penalty removal).}
+The soft loop-constraint penalty $\mathcal{L}_{\mathrm{loop}}$ and its
+coefficient $C_P$ were removed throughout (objective, per-model penalty
+formulas, total penalty sum, input tables, YAML example, full-problem
+statement); the hard loop constraints are unchanged for all five models. The
+former three-mechanism big-M tightness remark was revised to its two remaining
+cost mechanisms ($C_D\,u$ and $C_R\,z$), and a slack-robustness argument was
+added: the tracked states are componentwise upper bounds on the true moments,
+each one-sided dynamics row dominates the exact monotone one-step map, so the
+hard loop constraint yields $\Phi(\cdot_H) \leq \cdot_H$ for the exact
+second-half period map $\Phi$ --- the induction premise of the repeatability
+argument --- and monotonicity of the reliability certificates keeps every
+future repetition certified even when the tracked states carry slack; the
+penalty's only role was a tie-break toward larger sustainability margins.
+%% --- CHANGE REV-022: v0.5 changelog extended with the final review pass ---
+A subsequent review pass (markers REV-001--REV-022) closed the ARA1
+loop-constraint anchor gap by adding the hard rows
+$\mu^{\mathrm{last}}_{2H} \leq \mu^{\mathrm{last}}_{H}$ (Wiener--ARA1) and
+$\alpha^{\mathrm{last}}_{2H} \leq \alpha^{\mathrm{last}}_{H}$ (Gamma--ARA1),
+with a full-state monotonicity derivation showing they restore the chaining
+premise $\Phi(s_H) \leq s_H$, and extended the slack-robustness remark
+accordingly. The same pass made the idle-as-all-zeros assignment semantics
+explicit (the $C_M$ term is a genuine decision cost, not a constant),
+corrected the ARA1 repair-cost anchor index ($k \to k{-}1$), removed the
+stale duplicate parameter \texttt{alpha\_target} (legacy name of $\tau$),
+reconciled the optionality of \texttt{tail\_bound} and the defaulted schema
+fields, added the derived constants to the notation table, expanded the two
+rainflow FUTURE bullets with pointers to the scoping document's Route-I
+refinements, and recorded the ARA1 anchor-convention questions (pre- vs.\
+post-repair storage; no reset at replacement) as open items.
 
 \end{document}

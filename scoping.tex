@@ -33,9 +33,8 @@
 \definecolor{br6}{RGB}{140,86,75}
 \hypersetup{colorlinks=true,linkcolor=br1,citecolor=br3,urlcolor=br4}
 \begin{document}
-% WRITER 1 OUTPUT: Preamble, Part I (Taxonomy I), Part II (Taxonomy II)
 
-\title{\textbf{Stochastic Degradation Aware Optimal Fleet management with Application to Electric Vehicles}\\[6pt]
+\title{\textbf{Stochastic Degradation-Aware Optimal Fleet Management with Application to Electric Vehicles}\\[6pt]
 {\normalsize A Comprehensive Reference Document}}
 \author{L.\ Fiaschi \\ \small ETH Z\"urich \\ \small \texttt{lfiaschi@ethz.ch}}
 \date{May 2026}
@@ -45,9 +44,9 @@
 This is a project scoping where I collect all the needed information to write an article.
 The goal is to develop a general purpose model and its algorithmic solver to address the management of a fleet during a certain horizon.
 Each member of the fleet is described as a collection of components.
-Each day, a member can be sent to serve a route, to maintenance (partial or full repair of each component), or left idle.
-The service of a route damages the components of the fleet member.
-Each component has its own stochastic degradation model, and the actual degradation changes according to the route served.
+Each day, a member can be sent to serve a mission (route), to maintenance (partial or full repair of each component), or left idle.
+The service of a mission damages the components of the fleet member.
+Each component has its own stochastic degradation model, and the actual degradation changes according to the mission served.
 We show a concrete application to the management of electric-vehicle fleets, such as buses and cars.
 \end{abstract}
 \tableofcontents
@@ -64,7 +63,7 @@ On a maintenance day, each component may independently undergo imperfect repair 
 
 The degradation state of component $\ell$ of fleet member $i$ at time $k$ is described by a random variable $D_{i\ell k}$, whose distribution belongs to a parametric family specified per component.
 A component is considered to have failed when $D_{i\ell k}$ exceeds a threshold $\tau$; the schedule must guarantee that the probability of this event remains below $\varepsilon$ at every time step.
-To ensure that the schedule can be repeated indefinitely, a \emph{loop constraint} requires that the degradation state at the end of the horizon stochastically dominates (in the sense of a lower probability of failure) the state at the mid-point: the second half of the schedule must leave the fleet in at least as good a condition as the first half did.
+To ensure that the schedule can be repeated indefinitely, a \emph{loop constraint} requires that the degradation state at the end of the horizon be stochastically no worse than the state at the mid-point---its probability of failure may not exceed the mid-point one: the second half of the schedule must leave the fleet in at least as good a condition as the first half did.
 
 Table~\ref{tab:notation} collects the notation used throughout this document.
 All variables are general and independent of any specific degradation model.
@@ -80,7 +79,7 @@ All variables are general and independent of any specific degradation model.
 \midrule
 \multicolumn{2}{@{}l}{\textit{Index sets}} \\
 $i \in \{1,\ldots,F\}$        & Fleet member \\
-$j \in \{0,1,\ldots,M\}$      & Activity ($j=0$: maintenance day; $j \ge 1$: mission) \\
+$j \in \{0,1,\ldots,M\}$      & Activity ($j=0$: depot day, i.e.\ maintenance or idle; $j \ge 1$: mission) \\
 $k \in \{1,\ldots,2H\}$       & Time step (day) \\
 $\ell \in \{1,\ldots,L\}$     & Component \\
 \midrule
@@ -89,11 +88,11 @@ $F$             & Number of fleet members \\
 $H$             & Half-horizon length (the full planning window spans $2H$ days) \\
 $M$             & Number of missions (must satisfy $F > M$) \\
 $L$             & Number of components per fleet member \\
-$\tau$          & Degradation failure threshold (component-level) \\
+$\tau$          & Degradation failure threshold, taken uniform across components ($\tau = 1$ in the Palmgren--Miner normalisation) \\
 $\varepsilon$   & Reliability threshold: $\Pr(D_{i\ell k} > \tau) \le \varepsilon$ for all $i,\ell,k$ \\
 \midrule
 \multicolumn{2}{@{}l}{\textit{Cost functions}} \\
-$C_M$           & Maintenance cost: $\{x_{i0k}\}_{i,k} \to \mathbb{R}_{\ge 0}$ \\
+$C_M$           & Maintenance cost: $\{y_{ik}\}_{i,k} \to \mathbb{R}_{\ge 0}$ \\
 $C_R$           & Repair cost: $\{z_{i\ell k}\}_{i,\ell,k} \to \mathbb{R}_{\ge 0}$ \\
 $C_{\mathrm{rep}}$ & Replacement cost: $\{x^r_{i\ell k}\}_{i,\ell,k} \to \mathbb{R}_{\ge 0}$ \\
 $C_D$           & Damage regularisation cost: $u \to \mathbb{R}_{\ge 0}$ \\
@@ -111,6 +110,7 @@ $\Delta D_{i\ell k}^{(j)}$ & Random damage increment to component $\ell$ of memb
 \midrule
 \multicolumn{2}{@{}l}{\textit{Decision variables}} \\
 $x_{ijk} \in \{0,1\}$         & $1$ if member $i$ is assigned to activity $j$ on day $k$ \\
+$y_{ik} \in \{0,1\}$          & $1$ if member $i$ spends day $k$ in maintenance (a depot day with at least one intervention) \\
 $x^m_{i\ell k} \in \{0,1\}$   & $1$ if component $\ell$ of member $i$ undergoes imperfect repair on day $k$ \\
 $x^r_{i\ell k} \in \{0,1\}$   & $1$ if component $\ell$ of member $i$ is replaced on day $k$ \\
 $z_{i\ell k} \ge 0$            & Degradation removed by imperfect repair (in expected-damage units) \\
@@ -131,18 +131,19 @@ and each mission must be covered by exactly one member,
 \begin{equation}\label{eq:mission_coverage}
   \sum_{i=1}^{F} x_{ijk} \;=\; 1 \qquad \forall\, j \ge 1,\,k.
 \end{equation}
-Since $F > M$, at least $F - M$ members are available for maintenance or idling at every step.
+Since $F > M$ and mission coverage holds with equality, exactly $F - M$ members are in the depot at every step; the depot headcount is fixed by \eqref{eq:one_activity}--\eqref{eq:mission_coverage}, so the cost model must distinguish \emph{maintenance} days (depot days with at least one intervention, flagged by $y_{ik}$) from idle days, which are free.
 
-On a maintenance day ($x_{i0k}=1$), the intervention on each component is controlled independently by two additional binary variables.
+On a depot day ($x_{i0k}=1$), the intervention on each component is controlled independently by two additional binary variables, and the \emph{maintenance-day indicator} $y_{ik}$ flags whether any intervention takes place.
 The \emph{repair variable} $x^m_{i\ell k}$ indicates whether component~$\ell$ undergoes imperfect repair, and the \emph{replacement variable} $x^r_{i\ell k}$ indicates full replacement.
 Both require a maintenance day and are mutually exclusive:
 \begin{equation}\label{eq:maint_compat}
-  x^m_{i\ell k} \;\le\; x_{i0k}, \qquad
-  x^r_{i\ell k} \;\le\; x_{i0k}, \qquad
-  x^m_{i\ell k} + x^r_{i\ell k} \;\le\; 1
+  x^m_{i\ell k} \;\le\; y_{ik}, \qquad
+  x^r_{i\ell k} \;\le\; y_{ik}, \qquad
+  x^m_{i\ell k} + x^r_{i\ell k} \;\le\; 1, \qquad
+  y_{ik} \;\le\; x_{i0k}
   \qquad \forall\, i,\,\ell,\,k.
 \end{equation}
-A component on a maintenance day with $x^m_{i\ell k} = x^r_{i\ell k} = 0$ receives no intervention (stays idle); its degradation state carries over unchanged.
+A component on a depot day with $x^m_{i\ell k} = x^r_{i\ell k} = 0$ receives no intervention (stays idle); its degradation state carries over unchanged.
 
 \subsection{Damage dynamics}
 
@@ -160,7 +161,7 @@ At each time step, exactly one of the following mutually exclusive cases applies
       D_{i\ell k} \;=\; D_{i\ell,k-1} \;+\; \Delta D_{i\ell k}^{(j)}.
     \end{equation}
 
-  \item \textbf{Imperfect repair.} The member is on a maintenance day ($x_{i0k}=1$) and component~$\ell$ undergoes imperfect repair ($x^m_{i\ell k}=1$).
+  \item \textbf{Imperfect repair.} The member is on a maintenance day ($y_{ik}=1$) and component~$\ell$ undergoes imperfect repair ($x^m_{i\ell k}=1$).
     The repair reduces the accumulated damage by a fraction determined by the repair efficiency~$\rho_{i\ell}$ and the specific maintenance policy in use.
     Abstractly:
     \begin{equation}\label{eq:dyn_repair}
@@ -173,6 +174,7 @@ At each time step, exactly one of the following mutually exclusive cases applies
       z_{i\ell k} \;=\; \mathbb{E}\bigl[D_{i\ell,k-1}\bigr] - \mathbb{E}\bigl[D_{i\ell k}\bigr],
       \qquad \text{when } x^m_{i\ell k}=1.
     \end{equation}
+    On days without repair the equality is not imposed and $z_{i\ell k}$ is a free non-negative variable driven to zero by the cost minimisation; equivalently, $z_{i\ell k} = 0$ when $x^m_{i\ell k} = 0$.
 
   \item \textbf{Full replacement.} The member is on a maintenance day and component~$\ell$ is replaced ($x^r_{i\ell k}=1$).
     The degradation is reset:
@@ -188,7 +190,7 @@ At each time step, exactly one of the following mutually exclusive cases applies
 \end{enumerate}
 
 Cases~(ii) and~(iii) are mutually exclusive: a component cannot be both repaired and replaced on the same day.
-Both require that the member be assigned to a maintenance day ($x_{i0k}=1$).
+Both require that the member be assigned to a maintenance day ($y_{ik}=1$).
 Since exactly one case applies at each step, the dynamics can be written as a single equation:
 \begin{equation}\label{eq:dyn_full}
   D_{i\ell k} \;=\;
@@ -210,7 +212,8 @@ We formalise this by requiring that the probability of failure at the end of the
   \qquad \forall\, i,\,\ell.
 \end{equation}
 Together with the reliability constraint $\Pr(D_{i\ell k} > \tau) \le \varepsilon$ enforced at every step, condition~\eqref{eq:loop} ensures that the second half of the schedule does not consume more reliability margin than the first half created.
-Concatenating copies of the schedule therefore yields an infinite-horizon policy whose failure probability never exceeds~$\varepsilon$.
+A single-threshold comparison of two survival functions is, however, a lossy summary of the state, and by itself it does not guarantee that the inequality persists when the schedule is repeated: the non-invariance that Section~\ref{sec:loop_routeI} exhibits for bound-based certificates arises already for the exact probabilities whenever the state distribution carries more than one free parameter---for a Gaussian state, a variance--mean trade-off can satisfy~\eqref{eq:loop} over one period while the failure probability $\Phi\bigl((\mu-\tau)/\sigma\bigr)$ creeps above~$\varepsilon$ at a later one.
+Concatenating copies of the schedule is guaranteed to keep the failure probability below~$\varepsilon$ whenever~\eqref{eq:loop} is certified through a statistic that determines the failure probability monotonically and propagates monotonically under the dynamics~\eqref{eq:dyn_full}: the cumulative shape for the shared-rate Gamma model, the cumulative mean for the shared-dispersion inverse Gaussian model, the componentwise moment condition~\eqref{eq:loop_moments}, or the stronger dominance requirement $D_{i\ell,2H} \le_{\mathrm{st}} D_{i\ell,H}$, which chains because the dynamics is a coordinatewise non-decreasing map of the state and independent randomness (Proposition~\ref{prop:st_closure}).
 
 \subsection{Cost function}
 
@@ -218,14 +221,14 @@ The objective is to minimise the total cost of operating the fleet over the plan
 Four terms contribute to the cost:
 \begin{align}\label{eq:objective}
 \min \quad
-  C_M \left(\{x_{i0k}\}_{i,k}\right)
+  C_M \left(\{y_{ik}\}_{i,k}\right)
   \;+\; C_{R} \left(\{z_{i\ell k}\}_{i,\ell,k}\right)
   \;+\; C_{\mathrm{rep}}\, (\{x^r_{i\ell k}\}_{i,\ell,k}) +\; C_D\,(u).
 \end{align}
 
 All four cost functions are assumed to be non-negative and non-decreasing in each of their arguments: scheduling more maintenance days, removing more degradation, replacing more components, or tolerating higher aggregate damage never decreases the cost.
 
-The first term charges for every maintenance day scheduled across the fleet; it penalises excessive depot usage.
+The first term charges for every maintenance day scheduled across the fleet; it penalises excessive maintenance-day usage (idle depot days are free).
 The second term accounts for imperfect repair: whenever a component is repaired, the cost grows with the amount of degradation removed~$z_{i\ell k}$.
 The third term charges for every full replacement.
 
@@ -243,8 +246,8 @@ Collecting the objective~\eqref{eq:objective}, the scheduling constraints~\eqref
 
 \begin{subequations}\label{eq:abstract}
 \begin{align}
-\min_{x,\,x^m,\,x^r,\,z,\,u} \quad
-  & C_M\!\bigl(\{x_{i0k}\}\bigr)
+\min_{x,\,y,\,x^m,\,x^r,\,z,\,u} \quad
+  & C_M\!\bigl(\{y_{ik}\}\bigr)
     + C_R\!\bigl(\{z_{i\ell k}\}\bigr)
     + C_{\mathrm{rep}}\!\bigl(\{x^r_{i\ell k}\}\bigr)
     + C_D(u)
@@ -257,7 +260,7 @@ Collecting the objective~\eqref{eq:objective}, the scheduling constraints~\eqref
   & \sum_{i=1}^{F} x_{ijk} = 1
     && \forall\, j \ge 1,\,k,
     \label{eq:abs_cover} \\
-  & x^m_{i\ell k} + x^r_{i\ell k} \le x_{i0k}
+  & x^m_{i\ell k} + x^r_{i\ell k} \le y_{ik} \le x_{i0k}
     && \forall\, i,\,\ell,\,k,
     \label{eq:abs_maint} \\[6pt]
 %
@@ -267,9 +270,9 @@ Collecting the objective~\eqref{eq:objective}, the scheduling constraints~\eqref
     + D^{\mathrm{new}}_{i\ell}\,x^r_{i\ell k}
     && \forall\, i,\,\ell,\,k,
     \label{eq:abs_dyn} \\
-  %& D_{i\ell,0} = D^{\mathrm{start}}_{i\ell}
-    %&& \forall\, i,\,\ell,
-    %\label{eq:abs_init} \\[6pt]
+  & D_{i\ell,0} = D^{\mathrm{start}}_{i\ell}
+    && \forall\, i,\,\ell,
+    \label{eq:abs_init} \\[6pt]
 %
   & \Pr(D_{i\ell k} > \tau) \le \varepsilon
     && \forall\, i,\,\ell,\,k,
@@ -280,7 +283,7 @@ Collecting the objective~\eqref{eq:objective}, the scheduling constraints~\eqref
 %
   & u = \max_{i,k}\;\phi\!\bigl(\mathbb{E}[D_{i1k}],\ldots,\mathbb{E}[D_{iLk}]\bigr),
     \label{eq:abs_u} \\
-  & x_{ijk},\, x^m_{i\ell k},\, x^r_{i\ell k} \in \{0,1\},\quad
+  & x_{ijk},\, y_{ik},\, x^m_{i\ell k},\, x^r_{i\ell k} \in \{0,1\},\quad
     z_{i\ell k} \ge 0,\quad u \ge 0.
     \label{eq:abs_domain}
 \end{align}
@@ -329,7 +332,7 @@ Inverse Gaussian process \cite{YeChen2014}
   & Yes
   & Same $\mu^2/\lambda$ \\[4pt]
 Compound Poisson \cite{EsaryMarshallProschan1973,Wang2022}
-  & $\sum_{n=1}^{N(t-s)} Y_n$
+  & $\sum_{n=N(s)+1}^{N(t)} Y_n$
   & $\mathrm{CP}(\nu t,\,F_Y)$
   & If $Y{\ge}0$
   & Always \\
@@ -392,7 +395,7 @@ Gaussian
   & Always \\[4pt]
 Inv.\ Gaussian
   & $\mathrm{IG}(\mu_t,\,\lambda_t)$
-  & $\mathrm{IG}\!\bigl(\sum_{t}\mu_t,\;\frac{(\sum_t \mu_t)^2}{ \sum_t(\mu_t^2/\lambda_t)}\bigr)$
+  & $\mathrm{IG}\!\bigl(\sum_{t}\mu_t,\;\frac{(\sum_t \mu_t)^3}{ \sum_t(\mu_t^3/\lambda_t)}\bigr)$
   & Same $\mu^2/\lambda$ \\[4pt]
 Compound Poisson
   & $\sum_{n=1}^{N_t} Y_n$
@@ -408,7 +411,7 @@ When it does not hold---for instance, summing Gamma increments with different ra
 
 In the fleet management problem of Section~\ref{sec:overview}, each day brings an increment with mission-dependent parameters.
 Closure therefore requires that the parameter shared across missions is indeed constant for a given component: the rate~$\beta$ for Gamma, or the dispersion $\mu^2/\lambda$ for Inverse Gaussian.
-The shape (or mean/variance) parameters may vary freely across missions; they simply accumulate additively.
+The shape (Gamma) and mean/variance (Gaussian) parameters may vary freely across missions and accumulate additively; for the Inverse Gaussian the means accumulate additively and the cumulative shape is induced by the shared dispersion, $\lambda = (\sum_t \mu_t)^2\big/(\mu^2/\lambda)$.
 For the Gaussian model, no restriction is needed: normal random variables are unconditionally closed under addition.
 
 \subsubsection{Remaining-life models: the S--N curve and Palmgren--Miner rule}
@@ -681,7 +684,7 @@ If reliability is instead certified by a fixed-$s$ Chernoff bound, the loop may 
   \sum_j n^{(2H)}_{ij}\,\psi_{\ell j}(s_0) \;\le\; \sum_j n^{(H)}_{ij}\,\psi_{\ell j}(s_0),
 \end{equation}
 where $n^{(k)}_{ij}$ is the post-reset cumulative count of mission~$j$ up to day~$k$.
-This chains \emph{provided the repeated block contains only additive increments and full replacement}: there $M_{D}(s_0)$ propagates multiplicatively, $M_{D + \Delta D}(s_0) = M_D(s_0)\,M_{\Delta D}(s_0)$, so it is a self-propagating scalar and~\eqref{eq:loop_cumulant} induct.
+This chains \emph{provided the repeated block contains only additive increments and full replacement}: there $M_{D}(s_0)$ propagates multiplicatively, $M_{D + \Delta D}(s_0) = M_D(s_0)\,M_{\Delta D}(s_0)$, so it is a self-propagating scalar and~\eqref{eq:loop_cumulant} inducts.
 Imperfect (ARD) repair breaks this. With $D^+ = (1-\rho)D^-$,
 \begin{equation}\label{eq:mgf_rescale}
   M_{D^+}(s_0) \;=\; \mathbb{E}\big[e^{s_0(1-\rho)D^-}\big] \;=\; M_{D^-}\big((1-\rho)s_0\big):
@@ -695,6 +698,130 @@ Under Route~I the loop constraint must be imposed on a sufficient, self-propagat
 The componentwise moment condition~\eqref{eq:loop_moments} is the native choice: two linear constraints, valid for the Bernstein and Cantelli certificates and for every maintenance operator in~\eqref{eq:dyn_full}, imperfect repair included.
 The cumulant condition~\eqref{eq:loop_cumulant} is available when the certificate is the fixed-$s$ Chernoff bound and the repeated block is free of imperfect repair.
 In either case the guarantee is non-worsening of the \emph{certified} risk, hence $\Pr(D_{kH} > \tau) \le \varepsilon$ for all concatenations---the operative meaning of repeatability for a bound-based model.
+
+\subsubsection{Two refinements of the Route-I constraints: schedule-dependent support and piecewise-linear tightening}
+\label{sec:routeI_refinements}
+
+Two identifiable sources of slack remain in the Route-I constraints, and both can be removed with standard mixed-integer constructions at a quantifiable price in binaries and rows.
+Neither touches the loop argument of Section~\ref{sec:loop_routeI}: the moment condition~\eqref{eq:loop_moments} acts on the exactly tracked moments and is agnostic to how tightly the certificate is enforced on them.\footnote{Every monotonicity and equivalence claim in this subsection, both worked examples, and the union-versus-intersection geometry are checked numerically; the test scripts and outputs are kept in the verification workspace (\texttt{refine\_schedule\_support}, \texttt{refine\_pwl\_tightening}).}
+
+\paragraph{Schedule-dependent Bernstein support.}
+The closed form~\eqref{eq:bernstein_constraint} carries the single constant $b_\ell = \max_j b_{\ell j}$ (joined, once resets enter the accumulation window, by the supports $b^{\mathrm{start}}_\ell$, $b^{\mathrm{new}}_\ell$ of the initial and replacement draws), so a component pays the most damaging mission's support even if the schedule never assigns it that mission.
+The effect is not marginal, because the correction $\kappa b_\ell/3$ enters twice at zero variance: even the empty schedule satisfies~\eqref{eq:bernstein_constraint} only if $2\kappa b_\ell/3 \le \tau$.
+Concretely, take $\varepsilon = 0.01$ ($\kappa = \ln 100 \approx 4.605$), $\tau = 1$, two missions with supports $b_{\ell 1} = 0.02$ and $b_{\ell 2} = 0.30$, reset supports $0.02$, and mission-1 per-day moments $\mu_{\ell 1} = 0.01$, $v_{\ell 1} = 4\cdot 10^{-6}$.
+For a component that never serves mission~2, the constant-$b$ constraint ($\kappa b_\ell/3 = 0.4605$) leaves a mean budget of $0.079$ and admits at most $n_{i1} = 7$ mission-1 days, whereas the same constraint evaluated with the supports actually present ($\kappa b_\ell/3 = 0.0307$) leaves $0.939$ and admits $n_{i1} = 90$---a $12.9\times$ gap attributable entirely to the unused $b_{\ell 2}$; and raising $b_{\ell 2}$ to $0.35$ makes $2\kappa b_\ell/3 = 1.075 > \tau$, so the constant-$b$ model becomes infeasible outright for a component that never touches mission~2.
+The tightened constant is $b_\ell(\zeta) = \max\bigl\{b^{\mathrm{start}}_\ell,\, b^{\mathrm{new}}_\ell,\, \max_{j:\,\zeta_{ij}=1} b_{\ell j}\bigr\}$, where $\zeta_{ij} \in \{0,1\}$ flags the missions member~$i$ actually serves ($\zeta_{ij} \ge x_{ijt}$ for all~$t$; only this forcing direction is needed): between resets the state unrolls as a $[0,1]$-weighted sum of one reset draw and of increments of \emph{served} missions only, so $b_\ell(\zeta)$ bounds every summand and Bernstein applies verbatim, at every step and under every concatenation of the schedule.
+What makes $b_\ell(\zeta)$ implementable without nonlinear max-tracking is a monotonicity observation: the certified value $\mu + c + \sqrt{c^2 + 2\kappa v}$ has $c$-derivative $1 + c/\sqrt{c^2 + 2\kappa v} \in [1,2]$, so it is increasing in the support constant, and the Bernstein row written for a larger constant implies every row written for a smaller one.
+Consequently, imposing the row with the per-mission constant $c_j = \kappa\max\{b_{\ell j}, b^{\mathrm{start}}_\ell, b^{\mathrm{new}}_\ell\}/3$ \emph{conditionally on} $\zeta_{ij} = 1$, together with one unconditional row at $c_0 = \kappa\max\{b^{\mathrm{start}}_\ell, b^{\mathrm{new}}_\ell\}/3$, is exactly equivalent to the single row with the schedule-dependent maximum: the active row with the largest constant dominates the rest, and that largest constant is precisely $\kappa b_\ell(\zeta)/3$.
+The price is one binary per member--mission pair ($F \cdot M$ in total), their linking rows, and per-mission conditional certificate rows, all linear in the new material: the tangent-surrogate rows attach to $\zeta_{ij}$ by indicator constraints or by big-$M$ (a uniform valid constant is $2\tau(\tau - c_0)$), whereas the exact quadratic rows must use big-$M$, because indicator constraints admit only linear bodies.
+Two side effects deserve record.
+First, big-$M$ constants derived from the largest admissible variance must be recomputed from $c_0$: the feasible region has grown, and a bound inherited from the old constant $b_\ell$ would cut it.
+Second, the feasibility precondition $2\kappa b_\ell/3 < \tau$ localises: it is required only of $c_0$, while a mission with $2c_j \ge \tau$ simply forces $\zeta_{ij} = 0$---that mission is automatically never assigned to that component, instead of rendering the whole model inconsistent.
+Deliberately \emph{not} captured: the repair weights further shrink each summand's support to $w_t\,b_{\ell j}$, but exploiting this requires a running maximum over schedule-dependent products of repair factors and mission indicators---a genuinely nonlinear refinement; the window-level $\zeta$ captures the first-order gap, namely missions never served at all.
+
+\paragraph{Piecewise-linear tightening of the tangent surrogates.}
+The linear surrogate obtained by fixing one tangent (the device noted after~\eqref{eq:bernstein_constraint}) is conservative in a way that grows quadratically with the mean.
+Cantelli's bound~\eqref{eq:cantelli_surrogate} is at most $\varepsilon$ iff $\mathbb{E}[D] + \kappa_C\sqrt{\operatorname{Var}[D]} \le \tau$ with $\kappa_C = \sqrt{(1-\varepsilon)/\varepsilon}$; writing $(\mu, v)$ for the tracked moments, the exact feasible set is $\kappa_C^2\, v \le f(\mu) := (\tau - \mu)^2$, and the tangent at $\mu_0 = 0$ gives the linear row $\kappa_C^2\, v \le \tau^2 - 2\tau\mu$.
+Since $f(\mu) - (\tau^2 - 2\tau\mu) = \mu^2$, the surrogate loses exactly $\mu^2/\kappa_C^2$ of admissible variance, reaches zero at $\mu = \tau/2$, and excludes \emph{every} point with $\mu > \tau/2$---a deterministic component included---while the exact set still admits $v = (\tau - \mu)^2/\kappa_C^2 > 0$ up to $\mu = \tau$.
+The refinement takes tangents at several points $\mu_r$: each row $\kappa_C^2\, v \le T_r(\mu) := (\tau - \mu_r)(\tau + \mu_r - 2\mu)$ is individually conservative, because tangents lie below the convex parabola.
+The directionality is the critical point: imposing all rows \emph{simultaneously} realises their intersection $\kappa_C^2 v \le \min_r T_r(\mu)$, which is \emph{more} conservative than any single tangent; the tightening is the \emph{union} of the single-tangent regions, $\kappa_C^2 v \le \max_r T_r(\mu)$---a disjunction.
+Two encodings realise it: (i)~one selector binary per tangent, $\sum_r \lambda_r = 1$, with indicator (or big-$M$) rows $\lambda_r = 1 \Rightarrow \kappa_C^2 v \le T_r(\mu)$; or (ii)~an auxiliary $y$ tied by a piecewise-linear \emph{equality} (SOS2 $\lambda$-formulation) to the pointwise minimum of the tangents to $\sqrt{v}$ at $v_r = (\tau - \mu_r)^2/\kappa_C^2$, followed by the single linear row $\mu + \kappa_C\, y \le \tau$.
+The two describe the same set: the $\mu$-side tangent at $\mu_r$ and the $v$-side tangent at $v_r$ bound the identical half-plane $\kappa_C^2 v \le (\tau - \mu_r)(\tau + \mu_r - 2\mu)$.
+The tempting shortcuts both fail: requiring $y \ge$ every tangent realises their pointwise \emph{maximum} (a region strictly inside the single-tangent one, worse than not refining), and requiring $y \le$ every tangent lets $y$ under-run $\sqrt{v}$ and destroys the certificate; likewise the equality must interpolate the vertices of the tangent envelope---consecutive tangents meet at $v = \sqrt{v_r v_{r+1}}$ with value $(\sqrt{v_r} + \sqrt{v_{r+1}})/2$, above the curve---not points on the curve, whose chords under-estimate the concave square root.
+The recovery is rapid, and exactly quantifiable because $f$ is quadratic: tangent~$r$'s gap is $f(\mu) - T_r(\mu) = (\mu - \mu_r)^2$, so the union's residual gap is $\min_r (\mu - \mu_r)^2$---quadratic in the distance to the nearest tangency, with worst case $(\Delta/2)^2$ for spacing $\Delta$, so doubling the tangents quarters it.
+With $\tau = 1$, $\varepsilon = 0.01$ ($\kappa_C^2 = 99$) and tangents at $\mu_r \in \{0, 0.25, 0.5, 0.75\}$, the admissible variance recovers as follows ($v \times 10^{3}$):
+\begin{center}
+\footnotesize
+\begin{tabular}{@{}lccccc@{}}
+\toprule
+$\mu$ & $0$ & $0.2$ & $0.4$ & $0.5$ & $0.6$ \\
+\midrule
+exact $(\tau-\mu)^2/\kappa_C^2$ & $10.10$ & $6.46$ & $3.64$ & $2.53$ & $1.62$ \\
+single tangent ($\mu_0 = 0$)    & $10.10$ & $6.06$ & $2.02$ & $0$    & infeasible \\
+four tangents (union)           & $10.10$ & $6.44$ & $3.54$ & $2.53$ & $1.52$ \\
+\bottomrule
+\end{tabular}
+\end{center}
+and the union recovers $94\%$ of the feasible-region area the single tangent forfeits.
+The construction transfers verbatim to Bernstein---the parabola $(\tau - \kappa b_\ell/3 - \mu)^2$ obeys the same gap law, and the tangents to the concave $\sqrt{(\kappa b_\ell/3)^2 + 2\kappa v}$ over-estimate it globally---and composes soundly with the schedule-dependent support above: each conditional row carries its own mission constant and remains conservative for it.
+
+\subsubsection{Random fatigue life in the Palmgren--Miner rule}
+\label{sec:miner_randomN}
+
+The rainflow pipeline of Section~\ref{sec:cons_surrogates} measures the law of the per-mission increment $\Delta D^{(j)}$ directly and nonparametrically.
+A complementary pipeline keeps the rainflow \emph{counts} deterministic and makes the fatigue life $N_f$ in Miner's rule~\eqref{eq:miner} the random object: one fits a scatter family of Table~\ref{tab:sn_scatter} to constant-amplitude test data or in-service failure records, tying the location to the stress amplitude through Basquin's law~\eqref{eq:basquin}---for the log-normal, $\ln N_f \sim \mathcal{N}(\mu(\sigma_a),\sigma^2)$ with $\mu(\sigma_a) = \ln C - m \ln \sigma_a$ and a stress-independent $\sigma$; for the Weibull, scale $\lambda(\sigma_a) = C\sigma_a^{-m}$ and common shape $k$; run-outs enter the likelihood as censored observations---and then \emph{derives} the increment from the mission's rainflow histogram $\{n^{(j)}_c\}$ as $\Delta D^{(j)} = \sum_c n^{(j)}_c / N_f(\sigma_c)$.
+The retrieval is the same in spirit---collect data, approximate a distribution---but dual in object and commitment: the empirical route is distribution-free and captures load and material variability jointly, whereas the random-$N_f$ route is parametric, pools information across stress levels, extrapolates to unobserved amplitudes through~\eqref{eq:basquin}, and separates the load spectrum (the counts) from the material scatter (the law of $N_f$).
+
+\paragraph{Inverse moments of the scatter families.}
+Everything the framework consumes downstream is a moment of $1/N_f$.
+For the three families of Table~\ref{tab:sn_scatter} and $r > 0$,
+\begin{equation}\label{eq:miner_invmom}
+  \mathbb{E}\big[N_f^{-r}\big] \;=\;
+  \begin{cases}
+    \exp\big({-r\mu + r^2\sigma^2/2}\big), & \ln N_f \sim \mathcal{N}(\mu,\sigma^2) \quad \text{(finite for all $r$)},\\[3pt]
+    \lambda^{-r}\,\Gamma(1 - r/k), & N_f \sim \mathrm{Wei}(k,\lambda) \quad \text{(finite iff $r < k$)},\\[3pt]
+    e^{-r\mu}\,\Gamma(1 - r\beta), & \ln N_f \sim \mathrm{Gumbel}_{\min}(\mu,\beta) \quad \text{(finite iff $r\beta < 1$)}.
+  \end{cases}
+\end{equation}
+The first line is the normal moment generating function at argument $-r$; the second follows from the substitution $u = (x/\lambda)^k$, which turns $\mathbb{E}[N_f^{-r}]$ into $\lambda^{-r}\int_0^\infty u^{-r/k}e^{-u}\,\mathrm{d}u$, divergent \emph{at the origin} when $r \ge k$; the third writes $\ln N_f = \mu + \beta G$ with $\Pr(G \le g) = 1 - e^{-e^{g}}$, whose transform $\mathbb{E}[e^{tG}] = \int_0^\infty u^{t}e^{-u}\,\mathrm{d}u = \Gamma(1+t)$ (substitute $u = e^g$) is finite iff $t > -1$.
+In particular $\operatorname{Var}[1/N_f]$ equals $e^{-2\mu+\sigma^2}(e^{\sigma^2}-1)$, $\lambda^{-2}\big[\Gamma(1-2/k)-\Gamma(1-1/k)^2\big]$, and $e^{-2\mu}\big[\Gamma(1-2\beta)-\Gamma(1-\beta)^2\big]$ respectively, matching the increment moments already recorded for the log-normal below Table~\ref{tab:sn_scatter}.
+
+\begin{remark}[Two tail behaviours, one real restriction]\label{rem:miner_tails}
+The Gumbel-minimum log-life is \emph{exactly} a Weibull life: $\Pr(N_f > x) = \exp\big(-e^{(\ln x - \mu)/\beta}\big) = \exp\big(-(x/e^{\mu})^{1/\beta}\big)$, i.e.\ $\mathrm{Wei}(k = 1/\beta,\ \lambda = e^{\mu})$, and the existence conditions in~\eqref{eq:miner_invmom} map onto each other.
+The three families of Table~\ref{tab:sn_scatter} therefore realise two tail behaviours for $1/N_f$: log-normal (all polynomial moments finite) and Fr\'echet-tailed with index $k$ (moments capped at order $k$).
+The latter is a genuine restriction, not a formality: the mean of the increment requires $k > 1$ and the variance---the input of the Cantelli certificate~\eqref{eq:cantelli_surrogate}---requires $k > 2$, so the fitted shape must be checked before the machinery is invoked; for $k \in (1,2]$ only the Markov bound survives, and for $k \le 1$ the untruncated model has an infinite mean increment and cannot enter the framework at all.
+Moreover, for \emph{all three} untruncated families $1/N_f$ has unbounded support and an infinite moment generating function, so the exponential certificates---Chernoff~\eqref{eq:chernoff_permission}, Bernstein~\eqref{eq:bernstein_constraint}, Hoeffding---are inadmissible; they are restored only by a physically defended lower life bound $N_{\min} > 0$ (truncated family), which yields the per-mission support $b_{\ell j} = n_j / N_{\min}$ and requires the moments to be recomputed under the truncated law (Gaussian-tail and incomplete-gamma closed forms).
+\end{remark}
+
+\paragraph{What ``random $N_f$'' means: two interpretations.}
+The marginal law of $N_f$ does not determine the model; the joint law of the scatter \emph{across days} must be chosen, and the two extremes lead to different mathematics.
+
+\emph{(I) Block-independent scatter.}
+Each execution of mission~$j$ draws a fresh, independent life---appropriate when cycle-to-cycle and day-to-day variability dominates and the component does not carry one fixed $N_f$.
+With a single dominant stress level per mission (for a binned spectrum the means add over bins, while the variance depends on the within-mission dependence assumption and is computed from~\eqref{eq:miner_invmom} in the same way), the per-mission inputs are
+\begin{equation}\label{eq:miner_routeI}
+  \mu_{\ell j} \;=\; n_j\,\mathbb{E}\big[N_f^{-1}\big],
+  \qquad
+  v_{\ell j} \;=\; n_j^2\,\operatorname{Var}\big[N_f^{-1}\big],
+\end{equation}
+and independence across days is precisely the hypothesis of Equation~\eqref{eq:additive_functionals}: the Cantelli certificate~\eqref{eq:cantelli_surrogate} and the moment loop~\eqref{eq:loop_moments} apply \emph{verbatim}, with parametric instead of empirical per-mission moments.
+This is the interpretation the rainflow route of Section~\ref{sec:cons_surrogates} already embodies; the random-$N_f$ model is then nothing but an alternative input pipeline for the same formulation, subject to the admissibility conditions of Remark~\ref{rem:miner_tails}.
+
+\emph{(II) Unit-specific scatter.}
+The component carries \emph{one} realisation of the scatter for its entire life.
+Under the stress-independent scale/shape of the fitted families this is a single multiplicative factor,
+\begin{equation}\label{eq:miner_unit}
+  N_{f,j} \;=\; A\,\bar N_j, \qquad A > 0 \ \text{drawn once at installation},
+\end{equation}
+with $\bar N_j$ the median (log-normal, Gumbel: $e^{\mu_j}$) or characteristic (Weibull: $\lambda_j$) life and $A \sim F_A$ the unit factor ($\ln A \sim \mathcal{N}(0,\sigma^2)$, $A \sim \mathrm{Wei}(k,1)$, or $A = e^{\beta G}$ respectively).
+This is exactly the ``random critical damage sum'' of source~(ii) above: dividing the Miner sum by $A$ is the same as comparing a deterministic sum to a random capacity.
+The damage state becomes $D_k = M_k / A$, where $M_k$ is the \emph{deterministic} Miner state with dynamics mirroring~\eqref{eq:dyn_full}: a mission day adds $\sum_j x_{ijk}\, n_j/\bar N_j$, ARD repair maps $M \mapsto (1-\rho)M$, and replacement resets $M$ to zero \emph{and redraws} $A$ (a new physical component carries a fresh factor with the same law).
+For continuous $F_A$ the reliability constraint is then \emph{exact}, deterministic, and linear in the assignment counts:
+\begin{equation}\label{eq:miner_quantile}
+  \Pr(D_k \ge 1) \;=\; \Pr(A \le M_k) \;=\; F_A(M_k) \;\le\; \varepsilon
+  \quad\Longleftrightarrow\quad
+  M_k \;\le\; q_\varepsilon \;:=\; F_A^{-1}(\varepsilon),
+\end{equation}
+with closed-form quantiles $q_\varepsilon = e^{\sigma\Phi^{-1}(\varepsilon)}$ (log-normal), $q_\varepsilon = (-\ln(1-\varepsilon))^{1/k}$ (Weibull), $q_\varepsilon = (-\ln(1-\varepsilon))^{\beta}$ (Gumbel-minimum); indeed no family is needed at all beyond one scalar---an empirical $\varepsilon$-quantile of $A$ with a confidence margin serves equally.
+Rewriting $M_k \le q_\varepsilon$ as $\sum_j n_{ij}/(q_\varepsilon \bar N_j) \le 1$ recovers the classical design practice of running deterministic Miner on the $\varepsilon$-percentile lives $N^{(\varepsilon)}_j = q_\varepsilon \bar N_j$ (these are exactly the $\varepsilon$-quantiles of $N_{f,j}$)---here as an \emph{exact} chance constraint rather than a heuristic, in the per-step sense of~\eqref{eq:abs_rel}.
+The loop constraint collapses likewise: $F_A$ is strictly increasing on $(0,\infty)$, so~\eqref{eq:loop} is equivalent to the single linear condition
+\begin{equation}\label{eq:miner_loop_det}
+  M_{2H} \;\le\; M_H,
+\end{equation}
+and---unlike the lossy scalar bound of Section~\ref{sec:loop_routeI}---it \emph{chains}: $M$ is a sufficient statistic (the failure probability is the fixed increasing function $F_A$ of the scalar state), and the second-half map $F$ is a composition of $m \mapsto m + c$ ($c \ge 0$), $m \mapsto (1-\rho)m$ and $m \mapsto 0$, each non-decreasing, so from $M_{2H} = F(M_H) \le M_H$ induction gives $M_{(m+1)H} = F(M_{mH}) \le F(M_{(m-1)H}) = M_{mH}$ for all $m$; the same monotonicity applied to the partial flows dominates every within-period trajectory by the period-two trajectory, so imposing~\eqref{eq:miner_quantile} on all $k = 1,\dots,2H$ extends the per-step reliability to every concatenation, replacements (which redraw $A$) included.
+
+\begin{remark}[The dichotomy is not a conservatism knob]\label{rem:miner_dichotomy}
+Interpretations~(I) and~(II) can share the \emph{same} per-day marginal law and differ only in dependence---zero versus perfect correlation of the scatter across days---yet they answer differently.
+Means coincide, while by Cauchy--Schwarz $\operatorname{Var}_{\mathrm{II}}/\operatorname{Var}_{\mathrm{I}} = \big(\sum_t m_t\big)^2 / \sum_t m_t^2$ (the number of days, for equal daily increments $m_t$): under~(II) the dispersion never averages out.
+In the small-$\varepsilon$ regime~(II) is by far the heavier-tailed---in a representative experiment (log-normal factor, $\sigma = 0.5$, fifty days, median Miner sum $0.6$) the failure probability was $0.15$ under~(II) and $\sim 10^{-6}$ under~(I)---while at high accumulated damage the ordering flips, so neither interpretation is uniformly conservative.\footnote{Test code and output (\texttt{miner\_a}--\texttt{miner\_c}) are kept in the verification workspace, covering the closed forms~\eqref{eq:miner_invmom}, the divergent sample variance at Weibull $k \le 2$, the exactness of~\eqref{eq:miner_quantile} along a schedule with repair and replacement, the chaining of~\eqref{eq:miner_loop_det}, and the size of the (I)/(II) gap.}
+The choice is an identification question: scatter traced to specimen-to-specimen variability (material batch, manufacturing) is unit-specific~(II); scatter from load-history randomness within a mission is block-independent~(I); rainflow-counted in-service data from a fleet mixes both, and a between-unit/within-unit variance decomposition of the recorded increments estimates the split.
+When both sources matter one writes $N_f = A\,\widetilde N_f$ with a unit factor and block-independent residuals; conservative composites exist---e.g.\ $\varepsilon$-splitting, $\Pr(\text{fail}) \le \delta + \Pr(\text{fail} \mid A = a_\delta)$ with $a_\delta$ the $\delta$-quantile of $A$, after which the increments are again independent across days with moments scaled by $a_\delta^{-1}$ and $a_\delta^{-2}$ and the Route-I machinery runs on the residual budget $\varepsilon - \delta$---but their calibration is left as an outlook.
+\end{remark}
+
+\paragraph{Implications for the abstract formulation.}
+Interpretation~(I) requires no change to Problem~\eqref{eq:abstract}: it supplies the per-mission moments~\eqref{eq:miner_routeI} to the same Route-I pipeline that consumes the rainflow-measured ones, and inherits its certificates and loop condition unchanged.
+Interpretation~(II) defines a strictly simpler model family: the stochastic state collapses to a deterministic scalar $M_{i\ell k}$ with linear dynamics, the chance constraint becomes the exact linear inequality~\eqref{eq:miner_quantile}, and the loop becomes the linear condition~\eqref{eq:miner_loop_det}---no moment tracking, no tail-bound slack, and no big-$M$ linearisation of a variance recursion---with the entire stochastic description compressed into one quantile $q_\varepsilon$ per component.
+It is therefore a natural candidate for a dedicated (deterministic-equivalent) model type alongside the process-based ones, with the caveat of Remark~\ref{rem:miner_dichotomy}: which interpretation matches a given component is an empirical question, not a formulation preference.
 
 \subsection{Stochastic orderings}
 \label{sec:stoch_orders}
@@ -739,11 +866,11 @@ Establishing the usual stochastic order is therefore a convenient sufficient con
 
 For the fleet management problem, the relevant comparison is between two damage states of the same component---for instance the state at mid-horizon versus end-of-horizon---both belonging to the same parametric family.
 Tables~\ref{tab:ordering_lr}--\ref{tab:ordering_st} give, for each family from Table~\ref{tab:deg_models}, the necessary and sufficient conditions for each of the three orderings.
-An entry marked ``---'' indicates that no simple closed-form characterisation is known to the author; in those cases the $\le_{\mathrm{lr}}$ conditions remain a valid sufficient condition via~\eqref{eq:order_implications}.
+An entry marked ``---'' indicates that no simple closed-form characterisation is known to the author; for the inverse Gaussian rows the $\le_{\mathrm{lr}}$ conditions remain a valid sufficient criterion via~\eqref{eq:order_implications}, while for the compound Poisson rows see the discussion below.
 
 \begin{table}[htbp]
 \centering
-\caption{Conditions for $X \le_{\mathrm{lr}} Y$ (likelihood ratio order) within each family.  All conditions are necessary and sufficient.}
+\caption{Conditions for $X \le_{\mathrm{lr}} Y$ (likelihood ratio order) within each family.  Conditions are necessary and sufficient except where noted.}
 \label{tab:ordering_lr}
 \small
 \begin{tabular}{@{}p{2.1cm}p{3.8cm}p{4.0cm}p{4.0cm}@{}}
@@ -765,7 +892,7 @@ Inv.\ Gaussian
 Comp.\ Poisson
   & $\mathrm{CP}(\nu_1,\,F_{Y_1})$
   & $\mathrm{CP}(\nu_2,\,F_{Y_2})$
-  & $\nu_1 \le \nu_2$, $F_{Y_1} = F_{Y_2}$, $Y \ge 0$ \\
+  & --- (can fail even for $F_{Y_1}{=}F_{Y_2}$, $\nu_1 \le \nu_2$; holds, e.g., for deterministic jumps; see text) \\
 \bottomrule
 \end{tabular}
 \end{table}
@@ -794,7 +921,7 @@ Inv.\ Gaussian
 Comp.\ Poisson
   & $\mathrm{CP}(\nu_1,\,F_{Y_1})$
   & $\mathrm{CP}(\nu_2,\,F_{Y_2})$
-  & --- (suf.: $\le_{\mathrm{lr}}$ conditions) \\
+  & --- (no general criterion; the $\le_{\mathrm{lr}}$ route is unavailable, see text) \\
 \bottomrule
 \end{tabular}
 \end{table}
@@ -823,7 +950,7 @@ Inv.\ Gaussian
 Comp.\ Poisson
   & $\mathrm{CP}(\nu_1,\,F_{Y_1})$
   & $\mathrm{CP}(\nu_2,\,F_{Y_2})$
-  & --- (suf.: $\le_{\mathrm{lr}}$ conditions) \\
+  & $\nu_1 \le \nu_2$, $F_{Y_1} = F_{Y_2}$, $Y \ge 0$ \\
 \bottomrule
 \end{tabular}
 \end{table}
@@ -851,16 +978,18 @@ Under the closure condition (same $\mu^2/\lambda$), these simplify to $\mu_1 \le
 For the general two-parameter case, closed-form necessary and sufficient conditions for $\le_{\mathrm{hr}}$ and $\le_{\mathrm{st}}$ do not appear in the standard references; the $\le_{\mathrm{lr}}$ conditions serve as a sufficient criterion.
 
 \paragraph{Compound Poisson.}
-With the same jump-size distribution~$F_Y$ ($Y \ge 0$), $\mathrm{CP}(\nu_1, F_Y) \le_{\mathrm{lr}} \mathrm{CP}(\nu_2, F_Y)$ when $\nu_1 \le \nu_2$: a higher arrival rate produces stochastically more shocks and hence more cumulative damage.
-When the jump-size distributions differ or are not constrained to be non-negative, the ordering conditions depend on the specific form of~$F_Y$ and no universal closed-form characterisation is available.
+With the same jump-size distribution~$F_Y$ ($Y \ge 0$), $\mathrm{CP}(\nu_1, F_Y) \le_{\mathrm{st}} \mathrm{CP}(\nu_2, F_Y)$ if and only if $\nu_1 \le \nu_2$ (provided $\Pr(Y>0) > 0$): sufficiency follows from the superposition coupling $\mathrm{CP}(\nu_2, F_Y) \stackrel{d}{=} \mathrm{CP}(\nu_1, F_Y) + \mathrm{CP}(\nu_2 - \nu_1, F_Y)$ with independent non-negative summands, and necessity from the atom at zero, $\Pr(X = 0) = e^{-\nu \Pr(Y > 0)}$.
+The stronger orders do \emph{not} follow in general: with $Y$ uniform on $\{1, 10\}$ and $\nu_1 = 0.1$, $\nu_2 = 0.2$, the likelihood ratio drops from ${\approx}463$ at $x = 9$ (reachable only by nine unit jumps) to ${\approx}1.8$ at $x = 10$ (reachable by a single large jump), so $\le_{\mathrm{lr}}$ fails, and the survival ratio is likewise non-monotone, so $\le_{\mathrm{hr}}$ fails as well; both hold in special cases such as deterministic jump sizes, where the process is a scaled Poisson.
+When the jump-size distributions differ, the ordering conditions depend on the specific form of~$F_Y$ and no universal closed-form characterisation is available.
 
 \paragraph{Implications for the fleet problem.}
-Under the closure conditions of Table~\ref{tab:discrete_models}, the cumulative damage $D_{i\ell k}$ depends on the schedule only through the sum of the mission-dependent shape (or mean) parameters.
-Stochastic ordering of two damage states therefore reduces to comparing scalar cumulative parameters:
-for Gamma, the total shape $\sum_t \alpha_t$;
-for Gaussian, the total mean $\sum_t \mu_t$ (the total variance $\sum_t \sigma_t^2$ is equal if the same missions are served in different order, or is irrelevant in the Wiener-process formulation where $\sigma^2$ is a fixed component parameter);
-for IG, the total mean $\sum_t \mu_t$.
-This scalar comparison is what makes the loop constraint~\eqref{eq:loop} tractable within each model family.
+Under the closure conditions of Table~\ref{tab:discrete_models}, the cumulative damage $D_{i\ell k}$ depends on the schedule only through cumulative parameters.
+For the one-parameter families the comparison of two damage states is scalar:
+for Gamma (shared rate~$\beta$), the total shape $\sum_t \alpha_t$;
+for IG (shared dispersion $\mu^2/\lambda$), the total mean $\sum_t \mu_t$.
+For the Gaussian family the state carries \emph{two} cumulative parameters, $\bigl(\sum_t \mu_t,\ \sum_t \sigma_t^2\bigr)$, and the variance is not schedule-independent: it accumulates with the mission days served and is reduced only by maintenance.
+Since the usual stochastic order between Gaussians requires equal variances (Table~\ref{tab:ordering_st}), the Gaussian comparison proceeds through the single-threshold condition~\eqref{eq:loop_gauss} or through componentwise domination of mean and variance, not through the mean alone.
+This parameter-level comparison---scalar for Gamma and IG, two-dimensional for Gaussian---is what makes the loop constraint~\eqref{eq:loop} tractable within each model family.
 
 \subsubsection{Loop constraint for each degradation model}
 
@@ -877,6 +1006,10 @@ Since $Q(a,x)$ is strictly increasing in~$a$ for fixed $x > 0$, the loop constra
   A_{2H} \;\le\; A_H.
 \end{equation}
 This is a linear constraint on the cumulative shape parameters, directly expressible in terms of the scheduling and maintenance decision variables.
+A caveat on maintenance: the \emph{pathwise} ARD repair $D \mapsto (1-\rho)D$ leaves the shared-rate sub-family, since $(1-\rho)\,\mathrm{Ga}(A,\beta) = \mathrm{Ga}\bigl(A,\,\beta/(1-\rho)\bigr)$.
+For the scalar reduction~\eqref{eq:loop_gamma} to remain exact, imperfect repair must be modelled in parameter space, as the shape reduction $A \mapsto (1-\rho)A$ at fixed rate~$\beta$---which matches ARD in expectation, $\mathbb{E}[D^+] = (1-\rho)\,\mathbb{E}[D^-]$, but is a distinct operator pathwise.
+The same applies to the inverse Gaussian model below: $c\,\mathrm{IG}(\mu,\lambda) = \mathrm{IG}(c\mu,\,c\lambda)$ multiplies the dispersion $\mu^2/\lambda$ by~$c$, so repair must act as $\mu \mapsto (1-\rho)\mu$ with $\lambda$ induced by the shared dispersion.
+The Gaussian family is closed under both readings, $(1-\rho)\,\mathcal{N}(\mu,\sigma^2) = \mathcal{N}\bigl((1-\rho)\mu,\,(1-\rho)^2\sigma^2\bigr)$.
 
 \paragraph{Gaussian.}
 Let $D_H \sim \mathcal{N}(\mu_H,\,\sigma_H^2)$ and $D_{2H} \sim \mathcal{N}(\mu_{2H},\,\sigma_{2H}^2)$.
@@ -886,8 +1019,9 @@ Since $\Phi$ is strictly increasing, the loop constraint is equivalent to
   \frac{\mu_{2H} - \tau}{\sigma_{2H}} \;\le\; \frac{\mu_H - \tau}{\sigma_H},
 \end{equation}
 or equivalently $(\tau - \mu_{2H})/\sigma_{2H} \ge (\tau - \mu_H)/\sigma_H$.
-When $\sigma_H = \sigma_{2H}$ (e.g.\ if the Wiener process uses a fixed per-step diffusion coefficient and the same number of mission days is served in each half), this reduces to $\mu_{2H} \le \mu_H$.
+Note that $\sigma_{2H} = \sigma_H$ does \emph{not} follow from serving the same missions in both halves: absent maintenance the variance accumulates, $\sigma^2_{2H} = \sigma^2_H + \sum_{k = H+1}^{2H} \sigma^2_k > \sigma^2_H$; equality requires the second half's repairs or replacements (which scale the variance by $(1-\rho)^2$ or reset it) to remove exactly the variance the mission days add, in which case~\eqref{eq:loop_gauss} reduces to $\mu_{2H} \le \mu_H$.
 In general, condition~\eqref{eq:loop_gauss} couples the mean and standard deviation: a higher variance at~$2H$ can be compensated by a sufficiently lower mean.
+Because~\eqref{eq:loop_gauss} constrains only the single scalar $(\mu - \tau)/\sigma$ of a two-parameter state, it does not by itself make the schedule repeatable (cf.\ Section~\ref{sec:loop_routeI}); repeatability is restored by the componentwise condition $\mu_{2H} \le \mu_H$ and $\sigma^2_{2H} \le \sigma^2_H$---the exact-law analogue of~\eqref{eq:loop_moments}---which implies~\eqref{eq:loop_gauss} whenever $\mu_H < \tau$ and chains because both moments propagate monotonically under the dynamics.
 
 \paragraph{Inverse Gaussian.}
 Let $D_H \sim \mathrm{IG}(\mu_H,\,\lambda_H)$ and $D_{2H} \sim \mathrm{IG}(\mu_{2H},\,\lambda_{2H})$.
@@ -914,27 +1048,9 @@ Conditioning on the number of shocks gives the series
 which can be evaluated numerically (it converges rapidly) or bounded.
 
 \paragraph{Upper bounds when no closed form is available.}
-When the survival function $\Pr(D > \tau)$ cannot be computed in closed form---as for the compound Poisson process, or when the closure condition fails and the marginal of the sum is not within a standard family---the loop constraint can still be enforced through conservative upper bounds on the failure probability.
-Three standard choices, in order of increasing tightness, are:
-\begin{enumerate}[label=(\roman*)]
-  \item \emph{Markov bound.}
-    $\Pr(D > \tau) \;\le\; \mathbb{E}[D]\,/\,\tau$.
-    Requires only the mean; very loose but always valid.
-
-  \item \emph{Cantelli bound} (one-sided Chebyshev).
-    For $\tau > \mathbb{E}[D]$:
-    \begin{equation}\label{eq:cantelli}
-      \Pr(D > \tau) \;\le\; \frac{\mathrm{Var}[D]}{\mathrm{Var}[D] + (\tau - \mathbb{E}[D])^2}.
-    \end{equation}
-    Requires the first two moments; tighter than Markov when $\tau$ is well above the mean.
-
-  \item \emph{Chernoff bound.}
-    $\Pr(D > \tau) \;\le\; \inf_{s > 0}\, e^{-s\tau}\,M_D(s)$,
-    where $M_D(s) = \mathbb{E}[e^{sD}]$ is the moment-generating function.
-    For the compound Poisson process, $M_D(s) = \exp\bigl(\nu(M_Y(s)-1)\bigr)$, which is available in closed form whenever $M_Y$ is.
-    This yields the tightest exponential bound but requires solving a one-dimensional optimisation over~$s$.
-\end{enumerate}
-In an optimisation setting, the Cantelli bound is often the most practical: the loop constraint reduces to a constraint on $\mathbb{E}[D_{2H}]$ and $\mathrm{Var}[D_{2H}]$ relative to $\mathbb{E}[D_H]$ and $\mathrm{Var}[D_H]$, both of which are additive over increments and therefore linear (or low-order polynomial) in the scheduling decisions.
+When the survival function $\Pr(D > \tau)$ cannot be computed in closed form---as for the compound Poisson process, or when the closure condition fails and the marginal of the sum is not within a standard family---the \emph{reliability} constraint can still be enforced through conservative upper bounds on the failure probability: Markov ($\Pr(D > \tau) \le \mathbb{E}[D]/\tau$), Cantelli~\eqref{eq:cantelli_surrogate}, and Chernoff~\eqref{eq:chernoff_surrogate}.
+Section~\ref{sec:cons_surrogates} develops these bounds in per-mission form, together with the Bernstein and Hoeffding refinements, their relative tightness in the small-$\varepsilon$ regime, and their MILP encodings; for the compound Poisson process the Chernoff bound is particularly convenient, since $M_D(s) = \exp\bigl(\nu\,(M_Y(s)-1)\bigr)$ is available in closed form whenever $M_Y$ is.
+The \emph{loop} constraint, by contrast, must not be translated into the same bounds: imposing $U_{2H} \le U_H$ on a scalar bound~$U$ does not make the schedule repeatable, and the loop is instead imposed on the componentwise moment condition~\eqref{eq:loop_moments}, whose two sides are additive over increments and therefore linear in the scheduling decisions (Section~\ref{sec:loop_routeI}).
 
 \subsection{Maintenance strategies}
 \label{sec:maint_strategies}
@@ -1003,7 +1119,7 @@ Doyen and Gaudoin~\cite{DoyenGaudoin2004} proposed a unifying taxonomy by distin
 Each class admits a memory-one variant (subscript~1) and an infinite-memory variant (subscript~$\infty$).
 
 \paragraph{Arithmetic Reduction of Damage / Age (ARD, ARA).}
-The repair removes a fraction~$\rho$ of the accumulated damage:
+The repair removes a fraction~$\rho$ of the accumulated damage (ARD) or virtual age (ARA):
 \begin{align}
   \text{ARD}_1: &\quad D^+ = D^- - \rho\,(D^- - D^{\mathrm{last}}), \label{eq:ard1} \\
   \text{ARA}_1: &\quad V^+ = V^- - \rho\,(V^- - V^{\mathrm{last}}), \label{eq:ara1} \\
@@ -1024,7 +1140,7 @@ They are in general not equivalent to ARA/ARD models: a reduction in intensity d
 
 \subsubsection{Connection to the fleet management formulation}
 
-The abstract repair operator $\mathcal{R}(D^-,\,\rho)$ introduced in Section~\ref{sec:overview} encompasses ARD, and replacement models.
+The abstract repair operator $\mathcal{R}(D^-,\,\rho)$ introduced in Section~\ref{sec:overview} encompasses ARD and replacement models.
 In particular:
 \begin{itemize}
   \item $\text{ARD}_\infty$: $\mathcal{R}(D^-,\rho) = (1-\rho)\,D^-$ (used in the scoping as the default ``ARD'' policy);
@@ -1058,7 +1174,7 @@ In the stochastic extension (scatter in $N_{f,i}$), the parametric ordering cond
     \item[$\checkmark$] Fatigue models (either damage accumulation or remaining life)
     \item[$\square$] Degradation-aware fleet management
     \item[$\checkmark$] Maintenance strategies
-    \item[$\square$] Stochastic orderings
+    \item[$\checkmark$] Stochastic orderings
     \item[$\square$] Similar applications
     \item[$\square$] Novelties of the project and its placement in the literature
 \end{itemize}
@@ -1264,8 +1380,8 @@ The calendar-ageing component of the traction battery is the one borderline case
 
 \paragraph{Remaining items for this section.}
 \begin{itemize}
-    \item[$\square$] Relevant components (mechanical and electrical) to model an electric vehicle
-    \item[$\square$] Typical degradation model for each component, and the operational assumptions under which it holds
+    \item[$\checkmark$] Relevant components (mechanical and electrical) to model an electric vehicle
+    \item[$\checkmark$] Typical degradation model for each component, and the operational assumptions under which it holds
 \end{itemize}
 
 \section{Optimization problem for a fleet of electric vehicles}
@@ -1297,7 +1413,7 @@ $C_{\mathrm{rep},i\ell}$     & Cost of full replacement of component $\ell$ of m
 With the cost parameters of Table~\ref{tab:notation_evs}, the abstract objective of Section~\ref{sec:overview} takes the form:
 \begin{align}\label{eq:objective_evs}
 \min \quad
-  & C_M \sum_{k=1}^{2H} \sum_{i=1}^{F} x_{i0k}
+  & C_M \sum_{k=1}^{2H} \sum_{i=1}^{F} y_{ik}
   \;+\; \sum_{k=1}^{2H} \sum_{i=1}^{F} \sum_{\ell=1}^{L} C_{R,i\ell}\, z_{i\ell k}
   \;+\; \sum_{k=1}^{2H} \sum_{i=1}^{F} \sum_{\ell=1}^{L} C_{\mathrm{rep},i\ell}\, x^r_{i\ell k} \notag \\
   & +\; C_D\, u.
