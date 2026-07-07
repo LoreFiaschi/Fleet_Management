@@ -1,6 +1,16 @@
 # Fleet Management
 
-Train fleet scheduling optimization with multi-component degradation models (Gaussian and inverse Gaussian), solved as a Mixed-Integer Linear Program (MILP) using Gurobi.
+Train fleet scheduling optimization with multi-component stochastic degradation, solved as a
+Mixed-Integer (Non-)Linear Program using Gurobi. Each component of each train may use its own
+degradation model, and may be repaired (imperfect maintenance) or fully replaced.
+
+Full specification: [`spec/spec.tex`](spec/spec.tex) (v0.5).
+
+**Status.** Currently implemented: **Gaussian** and **inverse Gaussian** degradation models,
+`ARD1` maintenance, replacement, mixed-model fleets, both the `exact` (nonconvex quadratic) and
+`lp` reliability formulations, and the scalar/interval horizon loop. **Wiener**, **Gamma**,
+**Rainflow**, and `ARA1` maintenance are recognized by the input schema but raise
+`NotImplementedError` — planned for a follow-up pass.
 
 ## Prerequisites
 
@@ -13,7 +23,7 @@ Train fleet scheduling optimization with multi-component degradation models (Gau
 pip install .
 ```
 
-For development (editable install):
+For development (editable install, needed to run the test suite):
 
 ```bash
 pip install -e ".[dev]"
@@ -24,30 +34,31 @@ pip install -e ".[dev]"
 ```python
 from fleet_management import solve, plot_management
 
-# 1. Solve with Gaussian degradation
-solve("input/data.yaml", degradation="gaussian", results_path="results/output.yaml")
+# The degradation model is per-component, read from the input file's 'model'
+# field -- there is no separate `degradation` argument.
+result = solve("input/data_example.yaml", results_path="results/output.yaml")
+print(result["status"], result["objective"])
 
-# 2. Solve with inverse Gaussian degradation
-solve("input/data_ig.yaml", degradation="inverse_gaussian", results_path="results/output_ig.yaml")
-
-# 3. Plot the resulting schedule
 plot_management("results/output.yaml", plot_file_path="results/schedule.png")
 ```
 
+For a horizon interval (`H: [H_min, H_max]`), `solve()` returns a dict keyed by `H`, and
+`plot_management` writes one image per `H` (`schedule_H5.png`, `schedule_H6.png`, ...). See
+[`input/data_example_loop.yaml`](input/data_example_loop.yaml).
+
 ## API reference
 
-### `solve(input_path, degradation, results_path=None)`
+### `solve(input_path, results_path="output.yaml") -> dict`
 
-Reads the problem data, solves the MILP, and writes the results to a file.
+Reads the problem data, solves the MILP, optionally writes the result, and always returns it.
 
 | Parameter | Type | Description |
 |---|---|---|
-| `input_path` | `str` | Path to the input data file. |
-| `degradation` | `str` | Degradation model. Supported: `"gaussian"`, `"inverse_gaussian"`. |
-| `results_path` | `str`, optional | Output file path. Defaults to `"output.yaml"`. |
+| `input_path` | `str` | Path to the input data file (YAML/JSON/HDF5). |
+| `results_path` | `str`, optional | Output file path. Pass `None` to skip writing. Defaults to `"output.yaml"`. |
 
-Supported input/output formats: **YAML** (`.yaml`, `.yml`), **JSON** (`.json`), **HDF5** (`.h5`, `.hdf5`).
-The output format is determined by the file extension of `results_path`.
+Supported input/output formats: **YAML** (`.yaml`, `.yml`), **JSON** (`.json`), **HDF5**
+(`.h5`, `.hdf5`). The output format is determined by the file extension of `results_path`.
 
 ### `plot_management(input_file_path, plot_file_path=None)`
 
@@ -55,128 +66,69 @@ Reads solver output and produces a colour-coded schedule grid.
 
 | Parameter | Type | Description |
 |---|---|---|
-| `input_file_path` | `str` | Path to a solver output file. |
-| `plot_file_path` | `str`, optional | Output image path. Defaults to `"output.png"`. |
+| `input_file_path` | `str` | Path to a solver output file (single- or multi-horizon). |
+| `plot_file_path` | `str`, optional | Output image path, or a filename *prefix* for multi-horizon output. Defaults to `"output.png"` / `"output"`. |
 
 Supported image formats: **PNG** (`.png`), **PDF** (`.pdf`).
 
-The plot is an F x (2H+1) grid where each cell is split into L horizontal strips (one per component), coloured on a green-to-red heatmap (0 to alpha) based on the component's degradation mean. When L=1, each cell shows a single colour as before. Cell annotations indicate:
+The plot is an F x 2H grid: each row is a train, each column a time step, each cell split into L
+horizontal strips (one per component) coloured green-to-red by `mu / tau`. Strip border style
+encodes the degradation model (solid=Gaussian, dashed=inverse Gaussian, dotted=Wiener,
+dash-dot=Gamma, long-dash=Rainflow). Cell annotations: a **number** for an assigned mission, a
+**gear** for a maintenance day with a repair, a red **R** circle for a replacement (may co-occur
+with the gear), and a **"zzz" cloud** for an idle day.
 
-- **Number** (j): mission j is assigned (`x[i,j,k] = 1`, j > 0)
-- **Gear icon**: maintenance is scheduled (`x[i,0,k] = 1`)
-- **"zzz" cloud**: the train is idle
+## Input file schema
 
-## Input file format
+See `spec/spec.tex` Sections "Input Specification" and "Input File Schema" for the full,
+authoritative schema (including consistency checks). Summary of the fields this release reads:
 
-### Common keys (both models)
+### Always present
 
-| Key | Type | Description |
+| Key | Shape | Description |
 |---|---|---|
-| `F` | int | Number of trains (must be > M) |
-| `H` | int | Time horizon (model spans 2H steps) |
-| `M` | int | Number of missions |
-| `L` | int, optional | Number of components per train. Default: 1 |
-| `mu` | array (F x M x L x H) or (F x M x L) | Mean degradation parameters (must be < alpha). If 3D, the same values are used for all time steps. When L=1, legacy shapes (F x M x H) and (F x M) are also accepted. |
-| `alpha` | float | Upper bound for degradation mean (must be positive) |
-| `epsilon` | float | Reliability threshold, in (0, 0.5) |
-| `xi` | array (F x L) | Fraction of damage repairable in one maintenance day per train and component, in (0, 1] element-wise. When L=1, a 1D array of length F is also accepted. |
-| `C_M` | float | Maintenance cost coefficient |
-| `C_R` | float | Repair cost coefficient |
-| `C_S` | float | Safety cost coefficient |
-| `C_P` | float | Penalty cost coefficient |
-| `mu_0` | array (F x L) | Initial mean degradation values per train and component (must be < alpha). When L=1, a 1D array of length F is also accepted. |
-| `verbose` | int, optional | Gurobi verbosity (0 = silent, 1 = normal). Default: 1 |
-| `mip_gap` | float, optional | Relative MIP optimality gap tolerance. Default: Gurobi default (1e-4) |
+| `F`, `M`, `L` | int | Trains, missions, components per train (`F > M`) |
+| `H` | int or `[H_min, H_max]` | Half-horizon; an interval solves once per `H` in range |
+| `tau` | float or (F, L) | Degradation upper bound |
+| `epsilon` | float | Reliability threshold, in `(0, 0.01]` |
+| `C_M`, `C_D` | float | Maintenance-day and damage-regularisation cost coefficients |
+| `penalty_type` | str, optional | `"inf_norm"` (default) or `"quadratic"` (requires `formulation: exact`) |
+| `formulation` | str, optional | `"exact"` (default, nonconvex quadratic reliability) or `"lp"` (linear inner approximation). `"socp"` is a deprecated alias for `"exact"` |
+| `n_workers`, `warm_start` | optional | Horizon-loop parallelism / sequential warm-starting |
+| `model` | (F, L) list of str | Per-component degradation model: `"gaussian"` or `"inverse_gaussian"` (see Status above) |
+| `maintenance_type` | (F, L) list of str | Only `"ARD1"` is implemented so far |
+| `rho` | float or (F, L) | Repair efficiency, in `(0, 1]` |
+| `C_R`, `C_rep` | float, (F,), or (F, L) | Repair and replacement cost |
+| `mu_0`, `mu_new` | (F, L) | Initial / post-replacement mean degradation |
+| `mu` | (F, M, L) or (F, M, L, H) | Mean increment per mission/step |
 
-### Gaussian-specific keys
+### Model-specific
 
-| Key | Type | Description |
+| Key | Applies to | Description |
 |---|---|---|
-| `v` | array (F x M x L x H) or (F x M x L) | Variance degradation parameters. If 3D, the same values are used for all time steps. When L=1, legacy shapes (F x M x H) and (F x M) are also accepted. |
-| `v_0` | array (F x L) | Initial variance values per train and component. When L=1, a 1D array of length F is also accepted. |
+| `v_0`, `v_new`, `v` | Gaussian | Initial/post-replacement variance, and variance increment `(F, M, L)`/`(F, M, L, H)` |
+| `eta` | Inverse Gaussian | `mu`/`lambda` ratio, must be positive |
+| `v_max_user` | Gaussian, optional | User-defined variance upper bound |
 
-Additional constraints: `mu >= 3*sqrt(v)` and `mu_0 >= 3*sqrt(v_0)`.
+Fields marked "null where not applicable" in the example files may contain `null` at positions
+whose component doesn't use that field's model; the parser ignores those entries.
 
-### Inverse Gaussian-specific keys
+See [`input/data_example.yaml`](input/data_example.yaml) (scalar `H`) and
+[`input/data_example_loop.yaml`](input/data_example_loop.yaml) (interval `H`) for complete,
+runnable examples of a mixed Gaussian + inverse Gaussian fleet.
 
-| Key | Type | Description |
-|---|---|---|
-| `c` | array (F x L) | Shape parameter per train and component (must be positive). When L=1, a 1D array of length F is also accepted. |
+## Output
 
-### YAML example
+`solve()` returns (and, if `results_path` is given, persists) a dict with `status`, `objective`,
+`H`, `F`, `M`, `L`, `model` (echoed), `tail_bound` (always `null` in this release -- reserved for
+the Rainflow model), `x` (F x (M+1) x 2H assignment), `x_m`/`x_r` (F x L x 2H repair/replacement
+binaries), `mu`/`v` (F x L x 2H; `v` is `NaN` for components that don't track variance, e.g.
+inverse Gaussian), `u` (scalar damage-regularisation value), and `z` (F x L x 2H degradation
+removed by repair). `tau` is also echoed (F x L) -- not part of the spec's literal output table,
+but needed by `plot_management` to normalize the heatmap.
 
-```yaml
-F: 6
-H: 10
-M: 3
-L: 2
-alpha: 1.0
-epsilon: 0.1
-xi:
-  - [0.8, 0.75]
-  - [0.75, 0.9]
-  - [0.9, 0.85]
-  - [0.85, 0.7]
-  - [0.7, 0.8]
-  - [0.8, 0.85]
-C_M: 1.0
-C_R: 2.0
-C_S: 1.5
-C_P: 3.0
-verbose: 1
-mip_gap: 0.12
-
-mu_0:
-  - [0.1341, 0.1200]
-  - [0.1113, 0.1050]
-  - [0.1925, 0.1800]
-  - [0.1877, 0.1750]
-  - [0.1258, 0.1100]
-  - [0.1660, 0.1500]
-v_0:
-  - [0.000799, 0.000640]
-  - [0.000551, 0.000490]
-  - [0.001647, 0.001440]
-  - [0.001566, 0.001361]
-  - [0.000703, 0.000538]
-  - [0.001225, 0.001000]
-
-mu:  # F x M x L x H tensor
-  - - - [0.1375, 0.1951, 0.1732, 0.1599, 0.1156, 0.1156, 0.1058, 0.1866, 0.1601, 0.1708]
-      - [0.1300, 0.1850, 0.1650, 0.1500, 0.1100, 0.1100, 0.1000, 0.1780, 0.1520, 0.1620]
-    - - [0.1021, 0.1970, 0.1832, 0.1212, 0.1182, 0.1183, 0.1304, 0.1525, 0.1432, 0.1291]
-      - [0.0970, 0.1870, 0.1740, 0.1150, 0.1120, 0.1130, 0.1240, 0.1450, 0.1360, 0.1230]
-    - - [0.1612, 0.1139, 0.1292, 0.1366, 0.1456, 0.1785, 0.1200, 0.1514, 0.1592, 0.1046]
-      - [0.1530, 0.1080, 0.1230, 0.1300, 0.1380, 0.1700, 0.1140, 0.1440, 0.1510, 0.0990]
-  # ... (6 x 3 x 2 x 10 tensor)
-
-v:  # F x M x L x H tensor
-  - - - [0.000840, 0.001692, 0.001333, 0.001136, 0.000594, 0.000594, 0.000497, 0.001548, 0.001139, 0.001297]
-      - [0.000751, 0.001521, 0.001200, 0.001000, 0.000538, 0.000538, 0.000444, 0.001408, 0.001027, 0.001167]
-    - - [0.000463, 0.001725, 0.001492, 0.000653, 0.000621, 0.000622, 0.000756, 0.001034, 0.000911, 0.000741]
-      - [0.000418, 0.001553, 0.001343, 0.000588, 0.000559, 0.000560, 0.000680, 0.000935, 0.000820, 0.000672]
-    - - [0.001155, 0.000577, 0.000742, 0.000829, 0.000942, 0.001416, 0.000640, 0.001019, 0.001126, 0.000486]
-      - [0.001040, 0.000519, 0.000668, 0.000751, 0.000848, 0.001284, 0.000576, 0.000921, 0.001013, 0.000438]
-  # ... (6 x 3 x 2 x 10 tensor)
-```
-
-## Output file contents
-
-The output file includes:
-
-| Key | Description |
-|---|---|
-| `status` | Solver status (`"optimal"` or Gurobi status code) |
-| `objective` | Optimal objective value (or `null`) |
-| `degradation` | Degradation model used |
-| `F`, `M`, `H`, `L` | Problem dimensions (trains, missions, time horizon, components) |
-| `alpha` | Upper bound for degradation mean |
-| `mu_0`, `v_0` | Initial conditions (`v_0` only for Gaussian), shape F x L |
-| `x` | Binary assignment solution (F x (M+1) x 2H) |
-| `mu` | Mean degradation solution (F x L x 2H) |
-| `v` | Variance degradation solution (F x L x 2H, Gaussian only) |
-| `u` | Max degradation mean per time step (2H) |
-| `z` | Degradation level at repair per train (F x 2H, non-zero only when maintenance is scheduled) |
+For an interval `H`, `solve()` returns a dict keyed by each `H` value, each mapping to the
+single-horizon dict described above.
 
 ## Project structure
 
@@ -186,9 +138,26 @@ Fleet_Management/
     README.md
     src/
         fleet_management/
-            __init__.py        # Public API: solve, plot_management
-            solver.py          # Mid-layer: I/O, validation, dispatch
-            gaussian.py        # Gaussian degradation MILP (Gurobi)
-            inverse_gaussian.py # Inverse Gaussian degradation MILP (Gurobi)
-            plotter.py         # Schedule visualisation
+            __init__.py           # Public API: solve, plot_management
+            solver.py             # I/O, validation, dispatch, horizon loop
+            models/
+                base.py            # Shared constraint-building helpers
+                gaussian.py        # Gaussian component builder
+                inverse_gaussian.py  # Inverse Gaussian component builder
+            maintenance/
+                ard1.py             # Shared ARD1 big-M accumulate/repair pattern
+            plotter.py             # Schedule visualisation
+    input/
+        data_example.yaml          # Example input (mixed models, scalar H)
+        data_example_loop.yaml     # Example input (mixed models, interval H)
+    test/                          # pytest suite (see test/TEST_DOCUMENTATION.md)
 ```
+
+## Running the tests
+
+```bash
+cd test && pytest -v
+```
+
+Most tests need a valid Gurobi license (they build and solve a real, tiny MILP); the
+parsing/validation/I/O and plotting tests do not. See `test/TEST_DOCUMENTATION.md` for the split.
