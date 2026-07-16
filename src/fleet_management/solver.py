@@ -8,9 +8,10 @@ dispatch to the correct model module, and the horizon loop (scalar or
 [H_min, H_max] interval, optionally parallel across workers with optional
 warm-start hinting).
 
-Currently implemented degradation models: "gaussian", "inverse_gaussian".
-"wiener", "gamma", and "rainflow" are recognized by the input schema but raise
-``NotImplementedError`` -- they are planned for a follow-up pass.
+Implements all five degradation models: "gaussian", "inverse_gaussian",
+"wiener", "gamma", "rainflow" -- and both maintenance types, "ARD1" (all five
+models) and "ARA1" (wiener, gamma only; the others reject it in their own
+``validate_inputs``, matching spec/spec.tex's per-model restrictions).
 """
 
 import json
@@ -27,17 +28,19 @@ import numpy as np
 import yaml
 from gurobipy import GRB
 
-from fleet_management.models import base, gaussian, inverse_gaussian
+from fleet_management.models import base, gamma, gaussian, inverse_gaussian, rainflow, wiener
 
 logger = logging.getLogger(__name__)
 
 SUPPORTED_EXTENSIONS = {".yaml", ".yml", ".json", ".h5", ".hdf5"}
 SUPPORTED_MODELS = {"gaussian", "inverse_gaussian", "wiener", "gamma", "rainflow"}
-IMPLEMENTED_MODELS = {"gaussian", "inverse_gaussian"}
 
 _DISPATCH = {
     gaussian.MODEL_NAME: gaussian.build_component,
     inverse_gaussian.MODEL_NAME: inverse_gaussian.build_component,
+    wiener.MODEL_NAME: wiener.build_component,
+    gamma.MODEL_NAME: gamma.build_component,
+    rainflow.MODEL_NAME: rainflow.build_component,
 }
 
 _GRB_STATUS_NAMES = {
@@ -174,13 +177,6 @@ def _parse_and_validate(data: dict) -> dict:
     unknown = sorted({m for m in model_assignment.ravel() if m not in SUPPORTED_MODELS})
     if unknown:
         raise ValueError(f"Unsupported degradation model(s) {unknown}. Supported: {sorted(SUPPORTED_MODELS)}.")
-    not_implemented = sorted(set(model_assignment.ravel()) - IMPLEMENTED_MODELS)
-    if not_implemented:
-        raise NotImplementedError(
-            f"Degradation model(s) {not_implemented} are not yet implemented in this "
-            f"release (planned for a follow-up pass). Currently supported: "
-            f"{sorted(IMPLEMENTED_MODELS)}."
-        )
 
     maintenance_type = np.array(data["maintenance_type"], dtype=object)
     if maintenance_type.shape != (F, L):
@@ -190,11 +186,10 @@ def _parse_and_validate(data: dict) -> dict:
     bad_mt = sorted({mt for mt in maintenance_type.ravel() if mt not in ("ARA1", "ARD1")})
     if bad_mt:
         raise ValueError(f"maintenance_type entries must be 'ARA1' or 'ARD1', got {bad_mt}.")
-    if np.any(maintenance_type == "ARA1"):
-        raise NotImplementedError(
-            "ARA1 maintenance is not yet implemented in this release (planned for a "
-            "follow-up pass). All components must use 'ARD1' for now."
-        )
+    # ARA1 is only valid for wiener/gamma; gaussian/inverse_gaussian/rainflow
+    # reject it in their own validate_inputs below (spec's per-model
+    # restriction, since no established basis exists for an ARA1 variance
+    # extension on those models).
 
     tau = _broadcast_FL(data["tau"], F, L, "tau")
     if not np.all(tau > 0):
@@ -208,36 +203,73 @@ def _parse_and_validate(data: dict) -> dict:
     if not np.all(mu_0 < tau):
         raise ValueError("mu_0 must be < tau element-wise.")
 
-    mu_inc_raw = _broadcast_increment_raw(data["mu"], F, M, L, H_period, "mu")
-
     mask_gaussian = model_assignment == "gaussian"
     mask_ig = model_assignment == "inverse_gaussian"
+    mask_wiener = model_assignment == "wiener"
+    mask_gamma = model_assignment == "gamma"
+    mask_rainflow = model_assignment == "rainflow"
+
+    # mu (mean increment): required unless every component is 'gamma' (which
+    # reads alpha_inc instead). Despite being listed under "Always-Present
+    # Fields" in the spec, its own description restricts applicability to
+    # "Gaussian, IG, Wiener, Rainflow" -- the same kind of table/prose
+    # mismatch already resolved for C_M/C_D.
+    mask_needs_mu_inc = mask_gaussian | mask_ig | mask_wiener | mask_rainflow
+    if np.any(mask_needs_mu_inc):
+        if "mu" not in data:
+            raise ValueError(
+                "'mu' is required: at least one component uses a model other than "
+                "'gamma' (gaussian/inverse_gaussian/wiener/rainflow all read the "
+                "mean increment from 'mu')."
+            )
+        mu_inc_raw = _broadcast_increment_raw_nullable(data["mu"], F, M, L, H_period, "mu")
+    else:
+        mu_inc_raw = None
 
     v_0 = np.full((F, L), np.nan)
     v_new = np.full((F, L), np.nan)
     v_inc_raw = None
     v_max_user = None
     eta = np.full((F, L), np.nan)
+    sigma = np.full((F, L), np.nan)
+    beta = np.full((F, L), np.nan)
+    alpha_inc_raw = None
+    b_inc_raw = None
+    b_0 = np.full((F, L), np.nan)
+    b_new = np.full((F, L), np.nan)
 
-    if np.any(mask_gaussian):
+    # v_0/v_new/v_max_user: Gaussian, Wiener, and Rainflow all track variance.
+    mask_needs_v0 = mask_gaussian | mask_wiener | mask_rainflow
+    if np.any(mask_needs_v0):
         if "v_0" not in data:
-            raise ValueError("'v_0' is required: at least one component uses the 'gaussian' model.")
+            raise ValueError(
+                "'v_0' is required: at least one component uses the 'gaussian', "
+                "'wiener', or 'rainflow' model."
+            )
         v_0_full = _broadcast_FL_nullable(data["v_0"], F, L, "v_0")
-        v_0[mask_gaussian] = v_0_full[mask_gaussian]
+        v_0[mask_needs_v0] = v_0_full[mask_needs_v0]
         v_new_full = _broadcast_FL_nullable(data.get("v_new", 0.0), F, L, "v_new")
-        v_new[mask_gaussian] = v_new_full[mask_gaussian]
-        if "v" not in data:
-            raise ValueError("'v' is required: at least one component uses the 'gaussian' model.")
-        v_inc_raw = _broadcast_increment_raw_nullable(data["v"], F, M, L, H_period, "v")
+        v_new[mask_needs_v0] = v_new_full[mask_needs_v0]
         if "v_max_user" in data and data["v_max_user"] is not None:
             v_max_user = np.full((F, L), np.nan)
             vmu_full = _broadcast_FL_nullable(data["v_max_user"], F, L, "v_max_user")
-            v_max_user[mask_gaussian] = vmu_full[mask_gaussian]
+            v_max_user[mask_needs_v0] = vmu_full[mask_needs_v0]
             applicable = v_max_user[~np.isnan(v_max_user)]
             if not np.all(applicable > 0):
                 raise ValueError("v_max_user must be positive element-wise where specified.")
-            if np.any(v_0[mask_gaussian] > v_max_user[mask_gaussian]):
+            if np.any(v_0[mask_needs_v0] > v_max_user[mask_needs_v0]):
                 raise ValueError("v_max_user must be >= v_0 for every applicable component.")
+
+    # v (variance increment): Gaussian and Rainflow only -- Wiener's variance
+    # comes from sigma, not a v tensor.
+    mask_needs_v_inc = mask_gaussian | mask_rainflow
+    if np.any(mask_needs_v_inc):
+        if "v" not in data:
+            raise ValueError(
+                "'v' is required: at least one component uses the 'gaussian' or "
+                "'rainflow' model."
+            )
+        v_inc_raw = _broadcast_increment_raw_nullable(data["v"], F, M, L, H_period, "v")
 
     if np.any(mask_ig):
         if "eta" not in data:
@@ -249,8 +281,54 @@ def _parse_and_validate(data: dict) -> dict:
         if not np.all(eta[mask_ig] > 0):
             raise ValueError("eta must be positive element-wise.")
 
+    if np.any(mask_wiener):
+        if "sigma" not in data:
+            raise ValueError("'sigma' is required: at least one component uses the 'wiener' model.")
+        sigma_full = _broadcast_FL_nullable(data["sigma"], F, L, "sigma")
+        sigma[mask_wiener] = sigma_full[mask_wiener]
+        if not np.all(sigma[mask_wiener] > 0):
+            raise ValueError("sigma must be positive element-wise.")
+
+    if np.any(mask_gamma):
+        if "beta" not in data:
+            raise ValueError("'beta' is required: at least one component uses the 'gamma' model.")
+        beta_full = _broadcast_FL_nullable(data["beta"], F, L, "beta")
+        beta[mask_gamma] = beta_full[mask_gamma]
+        if not np.all(beta[mask_gamma] > 0):
+            raise ValueError("beta must be positive element-wise.")
+        if "alpha_inc" not in data:
+            raise ValueError("'alpha_inc' is required: at least one component uses the 'gamma' model.")
+        alpha_inc_raw = _broadcast_increment_raw_nullable(data["alpha_inc"], F, M, L, H_period, "alpha_inc")
+
+    tail_bound = np.full((F, L), None, dtype=object)
+    if np.any(mask_rainflow):
+        tail_bound = _broadcast_tail_bound(data.get("tail_bound", "cantelli"), F, L, mask_rainflow)
+        mask_bernstein = mask_rainflow & (tail_bound == "bernstein")
+        if np.any(mask_bernstein):
+            if "b_inc" not in data:
+                raise ValueError(
+                    "'b_inc' is required: at least one rainflow component uses "
+                    "tail_bound='bernstein'."
+                )
+            b_inc_raw = _broadcast_increment_raw_nullable(data["b_inc"], F, M, L, H_period, "b_inc")
+            if "b_0" not in data:
+                raise ValueError(
+                    "'b_0' is required: at least one rainflow component uses "
+                    "tail_bound='bernstein'."
+                )
+            b_0_full = _broadcast_FL_nullable(data["b_0"], F, L, "b_0")
+            b_0[mask_bernstein] = b_0_full[mask_bernstein]
+            b_new_full = _broadcast_FL_nullable(data.get("b_new", 0.0), F, L, "b_new")
+            b_new[mask_bernstein] = b_new_full[mask_bernstein]
+
     gaussian.validate_inputs(mask_gaussian, mu_0, v_0, mu_inc_raw, v_inc_raw, tau, rho, maintenance_type)
     inverse_gaussian.validate_inputs(mask_ig, mu_0, mu_inc_raw, tau, rho, eta, maintenance_type)
+    wiener.validate_inputs(mask_wiener, mu_0, v_0, mu_inc_raw, tau, rho, sigma, maintenance_type)
+    gamma.validate_inputs(mask_gamma, mu_0, alpha_inc_raw, tau, rho, beta, maintenance_type)
+    rainflow.validate_inputs(
+        mask_rainflow, mu_0, v_0, mu_new, v_new, mu_inc_raw, v_inc_raw, tau, rho,
+        maintenance_type, tail_bound, epsilon, b_inc=b_inc_raw, b_0=b_0, b_new=b_new,
+    )
 
     return {
         "F": F, "M": M, "L": L, "H": H, "H_period": H_period,
@@ -263,6 +341,8 @@ def _parse_and_validate(data: dict) -> dict:
         "mu_0": mu_0, "mu_new": mu_new, "mu_inc_raw": mu_inc_raw,
         "v_0": v_0, "v_new": v_new, "v_inc_raw": v_inc_raw,
         "eta": eta, "v_max_user": v_max_user,
+        "sigma": sigma, "beta": beta, "alpha_inc_raw": alpha_inc_raw,
+        "tail_bound": tail_bound, "b_inc_raw": b_inc_raw, "b_0": b_0, "b_new": b_new,
     }
 
 
@@ -366,6 +446,45 @@ def _broadcast_increment_raw_nullable(raw, F: int, M: int, L: int, H: int, name:
     return _to_float_nullable(arr_obj)
 
 
+def _broadcast_tail_bound(raw, F: int, L: int, mask_rainflow: np.ndarray) -> np.ndarray:
+    """Resolve tail_bound to an (F, L) object array of 'cantelli'/'bernstein'/None.
+
+    Accepts a single string (applied to every rainflow position) or an (F, L)
+    nested list (str or null per position). Non-rainflow positions always
+    resolve to None; a non-null value there triggers a UserWarning and is
+    ignored (spec consistency check).
+    """
+    if isinstance(raw, str):
+        arr = np.full((F, L), raw, dtype=object)
+    else:
+        arr = np.array(raw, dtype=object)
+        if arr.shape != (F, L):
+            raise ValueError(
+                f"'tail_bound' must be a string or shape (F,L)=({F},{L}), got {arr.shape}."
+            )
+
+    result = np.full((F, L), None, dtype=object)
+    for i in range(F):
+        for l in range(L):
+            val = arr[i, l]
+            if mask_rainflow[i, l]:
+                if val is None:
+                    val = "cantelli"
+                if val not in ("cantelli", "bernstein"):
+                    raise ValueError(
+                        f"tail_bound[{i}][{l}] must be 'cantelli' or 'bernstein' "
+                        f"(got '{val}')."
+                    )
+                result[i, l] = val
+            elif val is not None:
+                warnings.warn(
+                    f"tail_bound[{i}][{l}]='{val}' specified for a non-rainflow "
+                    "component; ignored.",
+                    UserWarning,
+                )
+    return result
+
+
 # ======================================================================
 # Single-horizon model assembly and solve
 # ======================================================================
@@ -373,10 +492,15 @@ def _broadcast_increment_raw_nullable(raw, F: int, M: int, L: int, H: int, name:
 def _solve_single_horizon(H: int, shared: dict, warm_hint: dict = None) -> dict:
     F, M, L = shared["F"], shared["M"], shared["L"]
     two_h = 2 * H
-    mu_inc = _wrap_increment(shared["mu_inc_raw"], F, M, L, H)
-    v_inc = None
-    if shared["v_inc_raw"] is not None:
-        v_inc = _wrap_increment(shared["v_inc_raw"], F, M, L, H)
+
+    def wrap_if_present(key):
+        raw = shared[key]
+        return _wrap_increment(raw, F, M, L, H) if raw is not None else None
+
+    mu_inc = wrap_if_present("mu_inc_raw")
+    v_inc = wrap_if_present("v_inc_raw")
+    alpha_inc = wrap_if_present("alpha_inc_raw")
+    b_inc = wrap_if_present("b_inc_raw")
 
     model = gp.Model("fleet_management")
     model.Params.OutputFlag = int(shared["verbose"])
@@ -386,7 +510,11 @@ def _solve_single_horizon(H: int, shared: dict, warm_hint: dict = None) -> dict:
         model.Params.TimeLimit = shared["time_limit"]
 
     model_assignment = shared["model_assignment"]
-    if shared["formulation"] == "exact" and np.any(model_assignment == "gaussian"):
+    # Gaussian, Wiener, and Rainflow all have nonconvex-quadratic exact
+    # reliability constraints (Phi^-1/Cantelli/Bernstein squared forms).
+    if shared["formulation"] == "exact" and np.any(
+        np.isin(model_assignment, ["gaussian", "wiener", "rainflow"])
+    ):
         model.Params.NonConvex = 2
 
     x = model.addVars(F, M + 1, two_h, vtype=GRB.BINARY, name="x")
@@ -398,12 +526,16 @@ def _solve_single_horizon(H: int, shared: dict, warm_hint: dict = None) -> dict:
     ctx = SimpleNamespace(
         model=model, F=F, H=H, M=M, L=L, two_h=two_h,
         x=x, x_m=x_m, x_r=x_r, z=z, u=u,
-        mu={}, v={},
+        mu={}, v={}, mu_last={}, alpha_last={},
         tau=shared["tau"], rho=shared["rho"],
         mu_0=shared["mu_0"], v_0=shared["v_0"],
         mu_new=shared["mu_new"], v_new=shared["v_new"],
         mu_inc=mu_inc, v_inc=v_inc,
         eta=shared["eta"], v_max_user=shared["v_max_user"],
+        sigma=shared["sigma"], beta=shared["beta"], alpha_inc=alpha_inc,
+        tail_bound=shared["tail_bound"], b_inc=b_inc, b_0=shared["b_0"],
+        b_new=shared["b_new"],
+        maintenance_type=shared["maintenance_type"],
         phi_inv_sq=base.phi_inv_sq(shared["epsilon"]),
         epsilon=shared["epsilon"], formulation=shared["formulation"],
     )
@@ -459,12 +591,20 @@ def _status_name(status_code: int) -> str:
     return _GRB_STATUS_NAMES.get(status_code, f"status_code_{status_code}")
 
 
+def _value(expr):
+    """Extract a solved value from either a gurobipy Var (``.X``) or a
+    LinExpr (``.getValue()``) uniformly. Every model's ``ctx.mu`` entry is a
+    plain Var except Gamma's, which stores the linear expression
+    ``alpha * beta`` (see models/gamma.py)."""
+    return expr.X if hasattr(expr, "X") else expr.getValue()
+
+
 def _extract_result(model: "gp.Model", ctx: SimpleNamespace, shared: dict) -> dict:
     F, L, M, H, two_h = ctx.F, ctx.L, ctx.M, ctx.H, ctx.two_h
     result = {
         "H": H, "F": F, "M": M, "L": L,
         "model": shared["model_assignment"].tolist(),
-        "tail_bound": [[None] * L for _ in range(F)],
+        "tail_bound": shared["tail_bound"].tolist(),
         # Not part of the spec's literal Output Specification table, but the
         # plotter needs tau to normalize the mu/tau heatmap (spec's plot layout
         # section) and the output table otherwise has no per-component
@@ -493,7 +633,7 @@ def _extract_result(model: "gp.Model", ctx: SimpleNamespace, shared: dict) -> di
                 xm_sol[i, l, k] = ctx.x_m[i, l, k].X
                 xr_sol[i, l, k] = ctx.x_r[i, l, k].X
                 z_sol[i, l, k] = ctx.z[i, l, k].X
-                mu_sol[i, l, k] = ctx.mu[i, l, k].X
+                mu_sol[i, l, k] = _value(ctx.mu[i, l, k])
                 if (i, l, k) in ctx.v:
                     v_sol[i, l, k] = ctx.v[i, l, k].X
 
@@ -692,3 +832,14 @@ def _write_hdf5_single(root: "h5py.Group", res: dict, shared: dict) -> None:
     params.create_dataset(
         "model", data=np.array(shared["model_assignment"], dtype=h5py.string_dtype())
     )
+
+    mask_rainflow = shared["model_assignment"] == "rainflow"
+    if np.any(mask_rainflow):
+        tail_bound_str = np.where(shared["tail_bound"] == None, "", shared["tail_bound"])  # noqa: E711
+        params.create_dataset("tail_bound", data=tail_bound_str.astype(h5py.string_dtype()))
+        mask_bernstein = mask_rainflow & (shared["tail_bound"] == "bernstein")
+        if np.any(mask_bernstein):
+            if shared["b_inc_raw"] is not None:
+                params.create_dataset("b_inc", data=np.nan_to_num(shared["b_inc_raw"]))
+            params.create_dataset("b_0", data=np.nan_to_num(shared["b_0"]))
+            params.create_dataset("b_new", data=np.nan_to_num(shared["b_new"]))

@@ -70,13 +70,22 @@ def add_replacement_linear(model, var, new_val, x_r, big_m, name):
     model.addConstr(var >= new_val - big_m * (1 - x_r), name=f"{name}_rep_lb")
 
 
-def add_repair_cost_mccormick(model, z, prev_expr, rho, x_m, tau_big_m, name):
-    """McCormick envelope for z = rho * prev_expr * x_m (ARD1 repair-cost form)."""
-    model.addConstr(z <= rho * prev_expr, name=f"{name}_z1")
+def add_repair_cost_mccormick(model, z, prev_expr, rho, x_m, tau_big_m, name,
+                               anchor_prev_expr=0.0):
+    """McCormick envelope for z = rho * (prev_expr - anchor_prev_expr) * x_m.
+
+    ARD1's form (spec: z = rho * mu_prev * x_m) is exactly the anchor=0
+    special case of ARA1's form (spec: z = rho * (mu_prev - mu_last_prev) *
+    x_m, k-1-indexed anchor -- see "Repair Cost Variable"), since the gap
+    ``prev_expr - anchor_prev_expr`` is bounded in [0, tau_big_m/rho] either
+    way (ARD1: anchor=0, gap=prev_expr <= tau; ARA1: the accumulated-since-
+    last-maintenance invariant keeps the gap in the same range). One
+    implementation covers both maintenance types.
+    """
+    gap = prev_expr - anchor_prev_expr
+    model.addConstr(z <= rho * gap, name=f"{name}_z1")
     model.addConstr(z <= rho * tau_big_m * x_m, name=f"{name}_z2")
-    model.addConstr(
-        z >= rho * prev_expr - rho * tau_big_m * (1 - x_m), name=f"{name}_z3"
-    )
+    model.addConstr(z >= rho * gap - rho * tau_big_m * (1 - x_m), name=f"{name}_z3")
 
 
 def add_loop_constraint(model, var, i, l, H, name):

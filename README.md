@@ -6,11 +6,11 @@ degradation model, and may be repaired (imperfect maintenance) or fully replaced
 
 Full specification: [`spec/spec.tex`](spec/spec.tex) (v0.5).
 
-**Status.** Currently implemented: **Gaussian** and **inverse Gaussian** degradation models,
-`ARD1` maintenance, replacement, mixed-model fleets, both the `exact` (nonconvex quadratic) and
-`lp` reliability formulations, and the scalar/interval horizon loop. **Wiener**, **Gamma**,
-**Rainflow**, and `ARA1` maintenance are recognized by the input schema but raise
-`NotImplementedError` — planned for a follow-up pass.
+**Status.** All five degradation models are implemented: **Gaussian**, **inverse Gaussian**,
+**Wiener**, **Gamma**, and **Rainflow** (distribution-free, Cantelli/Bernstein tail bounds), with
+both `ARD1` and `ARA1` maintenance (`ARA1` for Wiener/Gamma only — Gaussian/IG/Rainflow are
+ARD1-only per spec), replacement, mixed-model fleets, both the `exact` (nonconvex quadratic) and
+`lp` reliability formulations, and the scalar/interval horizon loop.
 
 ## Prerequisites
 
@@ -95,37 +95,45 @@ authoritative schema (including consistency checks). Summary of the fields this 
 | `penalty_type` | str, optional | `"inf_norm"` (default) or `"quadratic"` (requires `formulation: exact`) |
 | `formulation` | str, optional | `"exact"` (default, nonconvex quadratic reliability) or `"lp"` (linear inner approximation). `"socp"` is a deprecated alias for `"exact"` |
 | `n_workers`, `warm_start` | optional | Horizon-loop parallelism / sequential warm-starting |
-| `model` | (F, L) list of str | Per-component degradation model: `"gaussian"` or `"inverse_gaussian"` (see Status above) |
-| `maintenance_type` | (F, L) list of str | Only `"ARD1"` is implemented so far |
+| `model` | (F, L) list of str | Per-component degradation model: `"gaussian"`, `"inverse_gaussian"`, `"wiener"`, `"gamma"`, `"rainflow"` |
+| `maintenance_type` | (F, L) list of str | `"ARD1"` (all models) or `"ARA1"` (wiener/gamma only) |
 | `rho` | float or (F, L) | Repair efficiency, in `(0, 1]` |
 | `C_R`, `C_rep` | float, (F,), or (F, L) | Repair and replacement cost |
-| `mu_0`, `mu_new` | (F, L) | Initial / post-replacement mean degradation |
-| `mu` | (F, M, L) or (F, M, L, H) | Mean increment per mission/step |
+| `mu_0`, `mu_new` | (F, L) | Initial / post-replacement mean degradation (all models, incl. gamma: `alpha_0 = mu_0/beta`) |
+| `mu` | (F, M, L) or (F, M, L, H) | Mean increment per mission/step; required unless every component is `"gamma"` |
 
 ### Model-specific
 
 | Key | Applies to | Description |
 |---|---|---|
-| `v_0`, `v_new`, `v` | Gaussian | Initial/post-replacement variance, and variance increment `(F, M, L)`/`(F, M, L, H)` |
+| `v_0`, `v_new` | Gaussian, Wiener, Rainflow | Initial / post-replacement variance |
+| `v` | Gaussian, Rainflow (not Wiener) | Variance increment `(F, M, L)`/`(F, M, L, H)` |
 | `eta` | Inverse Gaussian | `mu`/`lambda` ratio, must be positive |
-| `v_max_user` | Gaussian, optional | User-defined variance upper bound |
+| `sigma` | Wiener | Diffusion constant, must be positive |
+| `beta` | Gamma | Scale parameter, must be positive |
+| `alpha_inc` | Gamma | Shape increment `(F, M, L)`/`(F, M, L, H)` |
+| `tail_bound` | Rainflow, optional | `"cantelli"` (default) or `"bernstein"`, per component |
+| `b_inc`, `b_0`, `b_new` | Rainflow + `tail_bound="bernstein"` | Support upper bounds (increment/initial/post-replacement); `b_new` defaults to 0 |
+| `v_max_user` | Gaussian, Wiener, Rainflow, optional | User-defined variance upper bound |
 
 Fields marked "null where not applicable" in the example files may contain `null` at positions
 whose component doesn't use that field's model; the parser ignores those entries.
 
 See [`input/data_example.yaml`](input/data_example.yaml) (scalar `H`) and
 [`input/data_example_loop.yaml`](input/data_example_loop.yaml) (interval `H`) for complete,
-runnable examples of a mixed Gaussian + inverse Gaussian fleet.
+runnable examples of a fleet mixing all five models, both maintenance types, and both rainflow
+tail bounds.
 
 ## Output
 
 `solve()` returns (and, if `results_path` is given, persists) a dict with `status`, `objective`,
-`H`, `F`, `M`, `L`, `model` (echoed), `tail_bound` (always `null` in this release -- reserved for
-the Rainflow model), `x` (F x (M+1) x 2H assignment), `x_m`/`x_r` (F x L x 2H repair/replacement
-binaries), `mu`/`v` (F x L x 2H; `v` is `NaN` for components that don't track variance, e.g.
-inverse Gaussian), `u` (scalar damage-regularisation value), and `z` (F x L x 2H degradation
-removed by repair). `tau` is also echoed (F x L) -- not part of the spec's literal output table,
-but needed by `plot_management` to normalize the heatmap.
+`H`, `F`, `M`, `L`, `model` (echoed), `tail_bound` (resolved per rainflow component, `null`
+elsewhere), `x` (F x (M+1) x 2H assignment), `x_m`/`x_r` (F x L x 2H repair/replacement
+binaries), `mu`/`v` (F x L x 2H; for gamma, `mu` is the recovered `alpha*beta`; `v` is `NaN` for
+components that don't track variance, i.e. inverse Gaussian and gamma), `u` (scalar
+damage-regularisation value), and `z` (F x L x 2H degradation removed by repair). `tau` is also
+echoed (F x L) -- not part of the spec's literal output table, but needed by `plot_management` to
+normalize the heatmap.
 
 For an interval `H`, `solve()` returns a dict keyed by each `H` value, each mapping to the
 single-horizon dict described above.
@@ -144,8 +152,12 @@ Fleet_Management/
                 base.py            # Shared constraint-building helpers
                 gaussian.py        # Gaussian component builder
                 inverse_gaussian.py  # Inverse Gaussian component builder
+                wiener.py           # Wiener component builder (ARD1 + ARA1)
+                gamma.py            # Gamma component builder (ARD1 + ARA1)
+                rainflow.py         # Rainflow component builder (Cantelli/Bernstein)
             maintenance/
                 ard1.py             # Shared ARD1 big-M accumulate/repair pattern
+                ara1.py             # Shared ARA1 anchor-update + accumulate/repair pattern
             plotter.py             # Schedule visualisation
     input/
         data_example.yaml          # Example input (mixed models, scalar H)
