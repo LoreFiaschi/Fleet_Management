@@ -6,11 +6,27 @@ degradation model, and may be repaired (imperfect maintenance) or fully replaced
 
 Full specification: [`spec/spec.tex`](spec/spec.tex) (v0.5).
 
-**Status.** All five degradation models are implemented: **Gaussian**, **inverse Gaussian**,
+## Status
+
+All five degradation models are implemented: **Gaussian**, **inverse Gaussian**,
 **Wiener**, **Gamma**, and **Rainflow** (distribution-free, Cantelli/Bernstein tail bounds), with
 both `ARD1` and `ARA1` maintenance (`ARA1` for Wiener/Gamma only — Gaussian/IG/Rainflow are
 ARD1-only per spec), replacement, mixed-model fleets, both the `exact` (nonconvex quadratic) and
 `lp` reliability formulations, and the scalar/interval horizon loop.
+
+## Contents
+
+- [Prerequisites](#prerequisites)
+- [Installation](#installation)
+- [Quick start](#quick-start)
+- [API reference](#api-reference)
+  - [`solve`](#solve)
+  - [`plot_management`](#plot_management)
+- [Input file schema](#input-file-schema)
+- [Output](#output)
+- [Project structure](#project-structure)
+- [Running the tests](#running-the-tests)
+- [Further documentation](#further-documentation)
 
 ## Prerequisites
 
@@ -48,7 +64,11 @@ For a horizon interval (`H: [H_min, H_max]`), `solve()` returns a dict keyed by 
 
 ## API reference
 
-### `solve(input_path, results_path="output.yaml") -> dict`
+### solve
+
+```python
+solve(input_path, results_path="output.yaml") -> dict
+```
 
 Reads the problem data, solves the MILP, optionally writes the result, and always returns it.
 
@@ -60,7 +80,11 @@ Reads the problem data, solves the MILP, optionally writes the result, and alway
 Supported input/output formats: **YAML** (`.yaml`, `.yml`), **JSON** (`.json`), **HDF5**
 (`.h5`, `.hdf5`). The output format is determined by the file extension of `results_path`.
 
-### `plot_management(input_file_path, plot_file_path=None)`
+### plot_management
+
+```python
+plot_management(input_file_path, plot_file_path=None)
+```
 
 Reads solver output and produces a colour-coded schedule grid.
 
@@ -144,6 +168,9 @@ single-horizon dict described above.
 Fleet_Management/
     pyproject.toml
     README.md
+    spec/
+        spec.tex                   # Source of truth: full mathematical specification
+    ASSESSMENT.md                  # Historical gap analysis (closed, see Status above)
     src/
         fleet_management/
             __init__.py           # Public API: solve, plot_management
@@ -172,4 +199,13 @@ cd test && pytest -v
 ```
 
 Most tests need a valid Gurobi license (they build and solve a real, tiny MILP); the
-parsing/validation/I/O and plotting tests do not. See `test/TEST_DOCUMENTATION.md` for the split.
+parsing/validation/I/O and plotting tests do not. See
+[`test/TEST_DOCUMENTATION.md`](test/TEST_DOCUMENTATION.md) for the split.
+
+## Further documentation
+
+| Document | Purpose |
+|---|---|
+| [`spec/spec.tex`](spec/spec.tex) | The authoritative mathematical specification (v0.5) — every model's dynamics, reliability constraints, and the input/output schema in full. Read this first for anything the sections above summarize but don't fully define. |
+| [`test/TEST_DOCUMENTATION.md`](test/TEST_DOCUMENTATION.md) | What each test file covers, which tests need a Gurobi license, and the "dominates, not equals" design rationale behind the dynamics tests. |
+| [`ASSESSMENT.md`](ASSESSMENT.md) | Historical gap-analysis snapshot from before all five models were implemented. Kept for project history; superseded by the Status section above. |
