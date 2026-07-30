@@ -4,7 +4,7 @@ Train fleet scheduling optimization with multi-component degradation models (Gau
 
 ## Prerequisites
 
-- Python >= 3.9
+- Python >= 3.10
 - A valid [Gurobi](https://www.gurobi.com/) license (academic licenses are free)
 
 ## Installation
@@ -16,7 +16,7 @@ pip install .
 For development (editable install):
 
 ```bash
-pip install -e ".[dev]"
+pip install -e ".[dev,dashboard]"
 ```
 
 ## Quick start
@@ -32,11 +32,6 @@ solve("input/data_ig.yaml", degradation="inverse_gaussian", results_path="result
 
 # 3. Plot the resulting schedule
 plot_management("results/output.yaml", plot_file_path="results/schedule.png")
-
-# 4. Naive validate results
-validate_baseline_assignment_feasibility(input_path="input/data_test_baseline.yaml",
-results_path="results/output_baseline.yaml",
-log_path="results/baseline_assignment_feasibility.log")
 ```
 
 ## GUI usage
@@ -46,7 +41,7 @@ log_path="results/baseline_assignment_feasibility.log")
 ```
 
 ```bash
-streamlit run src/fleet_management/validator_dashboard.py
+python -m streamlit run src/fleet_management/validator_dashboard.py
 ```
 
 ### Assigning the data files
