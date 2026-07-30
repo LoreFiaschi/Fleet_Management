@@ -1,0 +1,2 @@
+This subfolder holds the new implementation of Gamma after the Midterm on 28.07.2026
+src/fleet_management still has dashboard_gamma.py, degradation_models.py, gamma_process.py, model_registry.py which are older and not supported at the moment.

@@ -10,12 +10,12 @@ from fleet_management.gaussian import solve_fleet_management as solve_gaussian
 from fleet_management.inverse_gaussian import (
     solve_fleet_management as solve_inverse_gaussian,
 )
-from fleet_management.model_registry import (
+"""from fleet_management.model_registry import (
     SUPPORTED_DEGRADATIONS,
     REQUIRED_KEYS_BY_DEGRADATION,
     extract_degradation_parameters,
     broadcast_4d_param,
-)
+)"""
 
 SUPPORTED_DEGRADATIONS = {"gaussian", "inverse_gaussian"}
 SUPPORTED_EXTENSIONS = {".yaml", ".yml", ".json", ".h5", ".hdf5"}
@@ -139,20 +139,18 @@ REQUIRED_KEYS_BY_DEGRADATION = {
 }
 
 
-def _extract_parameters(data: dict, degradation: str) -> dict:
-    """
-    Backward-compatible wrapper around the central degradation registry.
-
-    New code should prefer:
-
-        extract_degradation_parameters(data, degradation)
-
-    from fleet_management.degradation.model_registry.
-    """
-
-    return extract_degradation_parameters(data, degradation)
-
 """def _extract_parameters(data: dict, degradation: str) -> dict:
+    #Backward-compatible wrapper around the central degradation registry.
+
+    #New code should prefer:
+
+    #    extract_degradation_parameters(data, degradation)
+
+    #from fleet_management.degradation.model_registry.
+
+    return extract_degradation_parameters(data, degradation)"""
+
+def _extract_parameters(data: dict, degradation: str) -> dict:
     # Extract and validate all solver parameters from the parsed input data.
     required = REQUIRED_KEYS_BY_DEGRADATION[degradation]
     missing = required - set(data.keys())
@@ -237,17 +235,15 @@ def _extract_parameters(data: dict, degradation: str) -> dict:
             "mu_0": mu_0,
             "verbose": verbose,
             "mip_gap": mip_gap,
-        }"""
+        }
 
 
-def _broadcast_4d_param(value, F: int, M: int, L: int, H: int, name: str):
-    """
-    Backward-compatible wrapper around the central broadcast helper.
-    """
+"""def _broadcast_4d_param(value, F: int, M: int, L: int, H: int, name: str):
+    # Backward-compatible wrapper around the central broadcast helper.
 
-    return broadcast_4d_param(value, F, M, L, H, name)
+    return broadcast_4d_param(value, F, M, L, H, name)"""
 
-"""def _broadcast_4d_param(arr: np.ndarray, F: int, M: int, L: int, H: int,
+def _broadcast_4d_param(arr: np.ndarray, F: int, M: int, L: int, H: int,
                         name: str) -> np.ndarray:
     # Broadcast an array to shape (F, M, L, H), handling legacy shapes.
     #
@@ -269,7 +265,7 @@ def _broadcast_4d_param(value, F: int, M: int, L: int, H: int, name: str):
     raise ValueError(
         f"'{name}' shape {arr.shape} cannot be broadcast to "
         f"(F={F}, M={M}, L={L}, H={H})."
-    )"""
+    )
 
 
 def _save_results(result: dict, path: Path) -> None:
