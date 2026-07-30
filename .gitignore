@@ -9,3 +9,4 @@ build/*
 test/*
 bkp/*
 */*.pdf
+PlottingScripts/*

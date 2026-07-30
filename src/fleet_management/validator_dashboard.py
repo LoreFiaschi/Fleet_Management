@@ -28,12 +28,27 @@ from fleet_management.validator import (
     validate_baseline_assignment_feasibility,
 )
 
+from fleet_management.dashboard_gamma import render_gamma_diagnostic_dashboard
+
 
 st.set_page_config(
     page_title="Fleet Management Validator Dashboard",
     layout="wide",
 )
 
+st.sidebar.header("Dashboard mode")
+
+dashboard_mode = st.sidebar.selectbox(
+    "Mode",
+    options=[
+        "Baseline Gaussian validator",
+        "Gamma synthetic diagnostic",
+    ]
+)
+
+if dashboard_mode == "Gamma synthetic diagnostic":
+    render_gamma_diagnostic_dashboard()
+    st.stop()
 
 def _path_exists(path_str: str) -> bool:
     return Path(path_str).exists()
@@ -1248,7 +1263,7 @@ with tab_heatmap:
     st.header("Heatmap plot")
 
     st.write(
-        "This tab shows the fleet management schedule as a coloured grid. Each cell (train i, time step k) is split into L horizontal strips, "
+        "This tab shows the fleet management schedule as a coloured grid. Each cell (vehicle i, time step k) is split into L horizontal strips, "
         "one per component, coloured on a green-to-red heatmap (0 to alpha) "
         "based on the component's degradation mean."
     )
