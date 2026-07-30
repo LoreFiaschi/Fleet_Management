@@ -1,0 +1,9 @@
+- The targets are not trains but electric vehicles (like buses or cars)
+
+- Split the horizon search loop into two different tasks: search for the best transitory horizon and the best operating horizon. This will also impact the interface and formulation of the problem as we have two horizons now.
+
+- Visualization of the results must improve. For instance, don't show the type of degradation as box contours. A label at beginining of the row is probably better.
+
+- Tightening of the linear reliability surrogates beyond their single-tangent forms
+
+- Schedule-dependent Bernstein support
