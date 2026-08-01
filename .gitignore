@@ -10,3 +10,7 @@ test/*
 bkp/*
 */*.pdf
 PlottingScripts/*
+.venv/
+src/fleet_management/test.py*
+src/fleet_management/helper_inspector.py*
+src/fleet_management/tempCodeRunnerFile.py*

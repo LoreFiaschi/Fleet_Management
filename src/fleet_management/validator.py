@@ -21,7 +21,7 @@ from fleet_management.gamma_process import (
     loop_constraint_passed,
 )
 
-SUPPORTED_DEGRADATIONS = {"gaussian", "inverse_gaussian"}
+SUPPORTED_DEGRADATIONS = {"gaussian", "inverse_gaussian", "rainflow"}
 SUPPORTED_RESULT_EXTENSIONS = {".yaml", ".yml", ".json"}
 
 

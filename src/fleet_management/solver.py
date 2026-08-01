@@ -16,10 +16,21 @@ from fleet_management.model_registry import (
     extract_degradation_parameters,
     broadcast_4d_param,
 )
+from fleet_management.rainflow import solve_fleet_management as solve_rainflow
 
-SUPPORTED_DEGRADATIONS = {"gaussian", "inverse_gaussian"}
+SUPPORTED_DEGRADATIONS = {"gaussian", "inverse_gaussian", "rainflow"}
 SUPPORTED_EXTENSIONS = {".yaml", ".yml", ".json", ".h5", ".hdf5"}
 
+_COMMON_KEYS = {"F", "H", "M", "mu", "alpha", "epsilon", "xi", "C_M", "C_R", "C_S", "C_P", "mu_0"}
+_GAUSSIAN_KEYS = _COMMON_KEYS | {"v", "v_0"}
+_INVERSE_GAUSSIAN_KEYS = _COMMON_KEYS | {"c"}
+_RAINFLOW_KEYS = (_COMMON_KEYS - {"alpha"}) | {"v", "v_0"}
+
+REQUIRED_KEYS_BY_DEGRADATION = {
+    "gaussian": _GAUSSIAN_KEYS,
+    "inverse_gaussian": _INVERSE_GAUSSIAN_KEYS,
+    "rainflow": _RAINFLOW_KEYS
+}
 
 def solve(input_path: str, degradation: str, results_path: str = None) -> None:
     """
@@ -69,6 +80,8 @@ def solve(input_path: str, degradation: str, results_path: str = None) -> None:
         result = solve_gaussian(**params)
     elif degradation_lower == "inverse_gaussian":
         result = solve_inverse_gaussian(**params)
+    elif degradation_lower == "rainflow":
+        result = solve_rainflow(**params)
 
     result["degradation"] = degradation_lower
     result["mu_0"] = params["mu_0"]
@@ -129,30 +142,7 @@ def _resolve_results_path(results_path) -> Path:
     return p
 
 
-_COMMON_KEYS = {"F", "H", "M", "mu", "alpha", "epsilon", "xi", "C_M", "C_R", "C_S", "C_P", "mu_0"}
-_GAUSSIAN_KEYS = _COMMON_KEYS | {"v", "v_0"}
-_INVERSE_GAUSSIAN_KEYS = _COMMON_KEYS | {"c"}
-
-REQUIRED_KEYS_BY_DEGRADATION = {
-    "gaussian": _GAUSSIAN_KEYS,
-    "inverse_gaussian": _INVERSE_GAUSSIAN_KEYS,
-}
-
-
 def _extract_parameters(data: dict, degradation: str) -> dict:
-    """
-    Backward-compatible wrapper around the central degradation registry.
-
-    New code should prefer:
-
-        extract_degradation_parameters(data, degradation)
-
-    from fleet_management.degradation.model_registry.
-    """
-
-    return extract_degradation_parameters(data, degradation)
-
-"""def _extract_parameters(data: dict, degradation: str) -> dict:
     # Extract and validate all solver parameters from the parsed input data.
     required = REQUIRED_KEYS_BY_DEGRADATION[degradation]
     missing = required - set(data.keys())
@@ -163,16 +153,19 @@ def _extract_parameters(data: dict, degradation: str) -> dict:
     H = int(data["H"])
     M = int(data["M"])
     L = int(data.get("L", 1))
-    alpha = float(data["alpha"])
+    alpha = float(data["alpha"]) if "alpha" in data else None
     epsilon = float(data["epsilon"])
     C_M = float(data["C_M"])
     C_R = float(data["C_R"])
     C_S = float(data["C_S"])
     C_P = float(data["C_P"])
 
+    # Optional parameters with defaults
     verbose = int(data.get("verbose", 1))
     mip_gap_raw = data.get("mip_gap", None)
     mip_gap = float(mip_gap_raw) if mip_gap_raw is not None else None
+    tau = float(data.get("tau", 1.0))
+    # time_limit = int(data.get("time_limit", None))  # in seconds
 
     # --- Broadcast xi: accept (F,) when L=1, or (F, L) ---
     xi = np.array(data["xi"], dtype=float)
@@ -219,6 +212,61 @@ def _extract_parameters(data: dict, degradation: str) -> dict:
             "verbose": verbose,
             "mip_gap": mip_gap,
         }
+
+    elif degradation == "rainflow":
+        # Rainflow / remaining-life model. Same (mu, v) accumulated-damage state
+        # as the Gaussian model, but the threshold is `tau` (Palmgren-Miner
+        # limit) and reliability P(D > tau) <= eps is enforced by a concentration
+        # bound chosen via `method`. Variance is ALWAYS required (the solver
+        # tracks it for every method); `support` / `cgf` / `s` are only needed
+        # for the bounds that consume them, and the solver validates that.
+
+        # --- Broadcast v_0: accept (F,) when L=1, or (F, L) ---
+        v_0 = np.array(data["v_0"], dtype=float)
+        if L == 1 and v_0.shape == (F,):
+            v_0 = v_0[:, np.newaxis]
+        elif v_0.shape != (F, L):
+            raise ValueError(
+                f"'v_0' shape {v_0.shape} does not match (F={F}, L={L})."
+            )
+
+        # --- Broadcast v_param: accept multiple shapes ---
+        v_param = np.array(data["v"], dtype=float)
+        v_param = _broadcast_4d_param(v_param, F, M, L, H, "v")
+
+        # --- Reliability bound: markov | cantelli | hoeffding | bernstein | chernoff ---
+        method = str(data.get("method", "cantelli"))
+
+        # --- Optional per-mission support width (Hoeffding / Bernstein) ---
+        support_raw = data.get("support", data.get("support_param", None))
+        support_param = (
+            _broadcast_4d_param(np.array(support_raw, dtype=float), F, M, L, H, "support")
+            if support_raw is not None else None
+        )
+
+        # --- Optional per-mission CGF at s, and the tilt s (Chernoff) ---
+        cgf_raw = data.get("cgf", data.get("cgf_param", None))
+        cgf_param = (
+            _broadcast_4d_param(np.array(cgf_raw, dtype=float), F, M, L, H, "cgf")
+            if cgf_raw is not None else None
+        )
+        s_raw = data.get("s_chernoff", data.get("s", None))
+        s_chernoff = float(s_raw) if s_raw is not None else None
+
+        return {
+            "F": F, "H": H, "M": M, "L": L,
+            "mu_param": mu_param, "v_param": v_param,
+            "tau": tau, "epsilon": epsilon, "xi": xi,
+            "C_M": C_M, "C_R": C_R, "C_S": C_S, "C_P": C_P,
+            "mu_0": mu_0, "v_0": v_0,
+            "method": method,
+            "support_param": support_param,
+            "cgf_param": cgf_param,
+            "s_chernoff": s_chernoff,
+            "verbose": verbose,
+            "mip_gap": mip_gap,
+        }
+    
     else:  # inverse_gaussian
         # --- Broadcast c: accept (F,) when L=1, or (F, L) ---
         c = np.array(data["c"], dtype=float)
@@ -237,17 +285,15 @@ def _extract_parameters(data: dict, degradation: str) -> dict:
             "mu_0": mu_0,
             "verbose": verbose,
             "mip_gap": mip_gap,
-        }"""
+        }
 
 
-def _broadcast_4d_param(value, F: int, M: int, L: int, H: int, name: str):
-    """
-    Backward-compatible wrapper around the central broadcast helper.
-    """
+"""def _broadcast_4d_param(value, F: int, M: int, L: int, H: int, name: str):
+    # Backward-compatible wrapper around the central broadcast helper.
 
-    return broadcast_4d_param(value, F, M, L, H, name)
+    return broadcast_4d_param(value, F, M, L, H, name)"""
 
-"""def _broadcast_4d_param(arr: np.ndarray, F: int, M: int, L: int, H: int,
+def _broadcast_4d_param(arr: np.ndarray, F: int, M: int, L: int, H: int,
                         name: str) -> np.ndarray:
     # Broadcast an array to shape (F, M, L, H), handling legacy shapes.
     #
@@ -269,7 +315,7 @@ def _broadcast_4d_param(value, F: int, M: int, L: int, H: int, name: str):
     raise ValueError(
         f"'{name}' shape {arr.shape} cannot be broadcast to "
         f"(F={F}, M={M}, L={L}, H={H})."
-    )"""
+    )
 
 
 def _save_results(result: dict, path: Path) -> None:
@@ -296,7 +342,7 @@ def _build_serializable_output(result: dict) -> dict:
         "M": result["M"],
         "H": result["H"],
         "L": result["L"],
-        "alpha": result["alpha"],
+        "alpha": result.get("alpha", result.get("tau")),
         "mu_0": result["mu_0"].tolist(),
     }
     if "v_0" in result:
