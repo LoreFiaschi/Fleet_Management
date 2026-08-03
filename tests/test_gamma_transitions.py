@@ -2,6 +2,11 @@ import numpy as np
 import pytest
 
 from fleet_management.degradation.gamma import GammaAction, GammaModel
+from fleet_management.gamma_validator import (
+    _exact_repair_diagnostic,
+    _reconstruct_shapes,
+    _repair_cost_violation,
+)
 
 
 @pytest.fixture
@@ -91,16 +96,23 @@ def test_replacement_can_reset_to_zero(model: GammaModel):
     )
 
 
-def test_imperfect_repair_is_explicitly_rejected(model: GammaModel):
-    with pytest.raises(
-        NotImplementedError,
-        match="Scaling damage changes the Gamma rate",
-    ):
-        model.transition(
-            current_shape=[5.0],
-            action=GammaAction.IMPERFECT_REPAIR,
-            rho=0.45,
-        )
+def test_imperfect_repair_preserves_the_repaired_mean(model: GammaModel):
+    updated = model.transition(
+        current_shape=[5.0],
+        action=GammaAction.IMPERFECT_REPAIR,
+        rho=0.45,
+    )
+
+    np.testing.assert_allclose(updated, [2.75])
+    np.testing.assert_allclose(model.expected_damage(updated), [0.1375])
+
+
+@pytest.mark.parametrize("rho", [-0.01, 1.01, np.inf])
+def test_imperfect_repair_rejects_invalid_effectiveness(
+    model: GammaModel, rho: float
+):
+    with pytest.raises(ValueError, match="rho"):
+        model.imperfect_repair([5.0], rho=rho)
 
 
 def test_mission_requires_expected_increment(model: GammaModel):
@@ -177,3 +189,67 @@ def test_tail_probability_and_reliability(model: GammaModel):
     assert probability.shape == (1,)
     assert 0.0 <= probability[0] <= 1.0
     assert reliability.shape == (1,)
+
+
+def test_validator_reconstructs_repair_and_replacement_separately():
+    F, H, M, L = 2, 1, 1, 1
+    beta = np.array([20.0])
+    x = np.zeros((F, M + 1, 2 * H), dtype=int)
+    m = np.zeros((F, L, 2 * H), dtype=int)
+    r = np.zeros((F, L, 2 * H), dtype=int)
+
+    # Vehicle 0 is repaired before its mission. Vehicle 1 completes its
+    # mission first and is then replaced.
+    x[0, 0, 0] = 1
+    m[0, 0, 0] = 1
+    x[0, 1, 1] = 1
+    x[1, 1, 0] = 1
+    x[1, 0, 1] = 1
+    r[1, 0, 1] = 1
+
+    reconstructed = _reconstruct_shapes(
+        x=x,
+        m=m,
+        r=r,
+        F=F,
+        H=H,
+        M=M,
+        L=L,
+        beta=beta,
+        mu_param=np.full((F, M, L, H), 0.05),
+        mu_0=np.array([[0.20], [0.30]]),
+        replacement_mu=np.array([[0.01], [0.02]]),
+        repair_rho=np.array([0.50]),
+    )
+
+    np.testing.assert_allclose(reconstructed[:, 0, :], [[2.0, 3.0], [7.0, 0.4]])
+
+
+def test_repair_cost_tracks_removed_expected_damage_only():
+    m = np.zeros((1, 1, 2), dtype=int)
+    m[0, 0, 0] = 1
+    violation = _repair_cost_violation(
+        m=m,
+        z=np.array([[[0.10, 0.00]]]),
+        reconstructed_mu=np.array([[[0.10, 0.15]]]),
+        mu_0=np.array([[0.20]]),
+        repair_rho=np.array([0.50]),
+    )
+
+    assert violation == pytest.approx(0.0)
+
+
+def test_exact_scaled_repair_is_reported_as_offline_diagnostic():
+    diagnostic = _exact_repair_diagnostic(
+        m=np.ones((1, 1, 1), dtype=int),
+        reconstructed_A=np.array([[[2.0]]]),
+        initial_shape=np.array([[4.0]]),
+        beta=np.array([20.0]),
+        tau=np.array([0.20]),
+        repair_rho=np.array([0.50]),
+    )
+
+    assert diagnostic["repair_events"] == 1
+    assert diagnostic["maximum_absolute_tail_difference"] > 0.0
+    assert diagnostic["worst_event"]["vehicle"] == 0
+    assert diagnostic["worst_event"]["component"] == 0

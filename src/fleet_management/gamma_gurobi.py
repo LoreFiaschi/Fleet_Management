@@ -1,4 +1,4 @@
-"""Gurobi backend for exact constant-rate Gamma degradation.
+"""Gurobi backend for common-rate Gamma degradation.
 
 This backend is intentionally isolated from the Gaussian implementation.
 It stores the Gamma shape parameter ``A`` as the optimization state and uses
@@ -16,12 +16,15 @@ Idle
     The shape remains unchanged.
 Mission
     ``A_k = A_{k-1} + beta * mu_increment``.
+Imperfect repair
+    ``A_k = (1-rho) * A_{k-1}``, a mean-matched common-beta approximation.
 Replacement
     ``A_k = beta * replacement_mu``.
 
-The decision ``x[i, 0, k]`` is interpreted as replacement in this backend.
-Imperfect repair is not implemented because scaling a Gamma variable changes
-its rate and breaks the exact common-beta closure used by the MILP.
+``x[i, 0, k]`` grants maintenance access.  Separate component-level binary
+variables ``m[i,l,k]`` and ``r[i,l,k]`` select imperfect repair and full
+replacement.  The exact scaled-repair distribution is deliberately left to
+the independent offline validator.
 """
 
 # After Midterm 28.07.2026, required for degradation/gamma.py
@@ -47,12 +50,14 @@ def validate_inputs(
     gamma_beta: np.ndarray,
     C_M: float,
     C_R: float,
+    C_rep: float,
     C_S: float,
     C_P: float,
     mu_0: np.ndarray,
     replacement_mu: np.ndarray,
+    repair_rho: np.ndarray,
 ) -> None:
-    """Validate the exact constant-rate Gamma solver contract."""
+    """Validate the common-rate Gamma solver contract."""
 
     if F <= 0 or H <= 0 or M <= 0 or L <= 0:
         raise ValueError("F, H, M and L must be positive integers.")
@@ -60,7 +65,7 @@ def validate_inputs(
         raise ValueError(f"F must be greater than M (got F={F}, M={M}).")
     if not 0.0 < epsilon < 1.0:
         raise ValueError("epsilon must lie strictly between zero and one.")
-    if any(cost <= 0.0 for cost in (C_M, C_R, C_S, C_P)):
+    if any(cost <= 0.0 for cost in (C_M, C_R, C_rep, C_S, C_P)):
         raise ValueError("All cost coefficients must be positive.")
 
     expected_4d = (F, M, L, H)
@@ -77,6 +82,8 @@ def validate_inputs(
         raise ValueError(f"gamma_beta must have shape ({L},).")
     if tau.shape != (L,):
         raise ValueError(f"tau must have shape ({L},).")
+    if repair_rho.shape != (L,):
+        raise ValueError(f"repair_rho must have shape ({L},).")
 
     named_arrays = {
         "mu_param": mu_param,
@@ -84,6 +91,7 @@ def validate_inputs(
         "replacement_mu": replacement_mu,
         "gamma_beta": gamma_beta,
         "tau": tau,
+        "repair_rho": repair_rho,
     }
     for name, value in named_arrays.items():
         if np.any(~np.isfinite(value)):
@@ -99,6 +107,8 @@ def validate_inputs(
         raise ValueError("Every Gamma rate must be positive.")
     if np.any(tau <= 0.0):
         raise ValueError("Every failure threshold must be positive.")
+    if np.any((repair_rho < 0.0) | (repair_rho > 1.0)):
+        raise ValueError("Every repair effectiveness must lie in [0, 1].")
 
 
 def solve_fleet_management(
@@ -112,14 +122,16 @@ def solve_fleet_management(
     gamma_beta: np.ndarray,
     C_M: float,
     C_R: float,
+    C_rep: float,
     C_S: float,
     C_P: float,
     mu_0: np.ndarray,
     replacement_mu: np.ndarray,
+    repair_rho: np.ndarray,
     verbose: int = 1,
     mip_gap: float | None = None,
 ) -> dict:
-    """Solve the fleet problem with exact constant-rate Gamma degradation."""
+    """Solve the fleet problem with common-rate Gamma degradation."""
 
     validate_inputs(
         F=F,
@@ -132,10 +144,12 @@ def solve_fleet_management(
         gamma_beta=gamma_beta,
         C_M=C_M,
         C_R=C_R,
+        C_rep=C_rep,
         C_S=C_S,
         C_P=C_P,
         mu_0=mu_0,
         replacement_mu=replacement_mu,
+        repair_rho=repair_rho,
     )
 
     beta = np.asarray(gamma_beta, dtype=float)
@@ -162,24 +176,28 @@ def solve_fleet_management(
     if mip_gap is not None:
         model.Params.MIPGap = float(mip_gap)
 
-    # j=0 is full replacement; j=1,...,M are missions.
+    # j=0 grants maintenance access; j=1,...,M are missions.
     x = model.addVars(F, M + 1, 2 * H, vtype=GRB.BINARY, name="x")
+    m = model.addVars(F, L, 2 * H, vtype=GRB.BINARY, name="m")
+    r = model.addVars(F, L, 2 * H, vtype=GRB.BINARY, name="r")
+    # q means maintenance access without an action on this component.
+    q = model.addVars(F, L, 2 * H, vtype=GRB.BINARY, name="q")
     shape_var = model.addVars(
         F, L, 2 * H, vtype=GRB.CONTINUOUS, lb=0.0, name="A"
     )
     u_var = model.addVars(
         2 * H, vtype=GRB.CONTINUOUS, lb=0.0, name="u"
     )
-    z_var = model.addVars(
-        F, 2 * H, vtype=GRB.CONTINUOUS, lb=0.0, name="z"
-    )
+    z_var = model.addVars(F, L, 2 * H, vtype=GRB.CONTINUOUS, lb=0.0, name="z")
 
     objective = gp.LinExpr()
     for k in range(2 * H):
         objective += C_S * u_var[k]
         for i in range(F):
             objective += C_M * x[i, 0, k]
-            objective += C_R * z_var[i, k]
+            for l in range(L):
+                objective += C_R * z_var[i, l, k]
+                objective += C_rep * r[i, l, k]
     for i in range(F):
         for l in range(L):
             objective += (C_P / beta[l]) * (
@@ -214,17 +232,35 @@ def solve_fleet_management(
                     for j in range(1, M + 1)
                 )
 
-                # Exact transition if no replacement occurs. With no assigned
-                # mission this also represents the idle transition.
+                # With no maintenance access, accumulate the assigned mission
+                # increment (or preserve the state when idle).
                 model.addGenConstrIndicator(
                     x[i, 0, k],
                     False,
                     shape_var[i, l, k] == previous_shape + assigned_increment,
                     name=f"accumulate_or_idle_{i}_{l}_{k}",
                 )
-                # Exact full-replacement transition.
+                # During maintenance access, every component is unchanged,
+                # repaired, or replaced.
+                model.addConstr(
+                    q[i, l, k] + m[i, l, k] + r[i, l, k] == x[i, 0, k],
+                    name=f"maintenance_choice_{i}_{l}_{k}",
+                )
                 model.addGenConstrIndicator(
-                    x[i, 0, k],
+                    q[i, l, k],
+                    True,
+                    shape_var[i, l, k] == previous_shape,
+                    name=f"maintenance_idle_{i}_{l}_{k}",
+                )
+                model.addGenConstrIndicator(
+                    m[i, l, k],
+                    True,
+                    shape_var[i, l, k]
+                    == (1.0 - float(repair_rho[l])) * previous_shape,
+                    name=f"imperfect_repair_{i}_{l}_{k}",
+                )
+                model.addGenConstrIndicator(
+                    r[i, l, k],
                     True,
                     shape_var[i, l, k] == float(replacement_shape[i, l]),
                     name=f"replacement_{i}_{l}_{k}",
@@ -240,31 +276,20 @@ def solve_fleet_management(
                     name=f"u_bound_{i}_{l}_{k}",
                 )
 
-        for k in range(2 * H):
-            previous_expected_damage = gp.quicksum(
-                (
-                    float(initial_shape[i, l])
-                    if k == 0
-                    else shape_var[i, l, k - 1]
+                # z is expected degradation removed by imperfect repair only.
+                model.addGenConstrIndicator(
+                    m[i, l, k],
+                    False,
+                    z_var[i, l, k] == 0.0,
+                    name=f"no_repair_cost_{i}_{l}_{k}",
                 )
-                / beta[l]
-                for l in range(L)
-            )
-            replacement_expected_damage = float(np.sum(replacement_mu[i]))
-
-            model.addGenConstrIndicator(
-                x[i, 0, k],
-                False,
-                z_var[i, k] == 0.0,
-                name=f"no_replacement_cost_{i}_{k}",
-            )
-            model.addGenConstrIndicator(
-                x[i, 0, k],
-                True,
-                z_var[i, k]
-                >= previous_expected_damage - replacement_expected_damage,
-                name=f"replacement_cost_{i}_{k}",
-            )
+                model.addGenConstrIndicator(
+                    m[i, l, k],
+                    True,
+                    z_var[i, l, k]
+                    == float(repair_rho[l]) * previous_shape / beta[l],
+                    name=f"repair_cost_{i}_{l}_{k}",
+                )
 
     # Repeatability under a common beta is equivalent to comparing shapes.
     for i in range(F):
@@ -283,7 +308,9 @@ def solve_fleet_management(
                 name=f"assignment_{i}_{k}",
             )
 
-    # Each mission and the replacement slot are assigned exactly once.
+    # Each mission and one fleet-level maintenance opportunity are assigned
+    # exactly once.  Component-level m/r variables decide how that opportunity
+    # is used.
     for j in range(M + 1):
         for k in range(2 * H):
             model.addConstr(
@@ -295,19 +322,23 @@ def solve_fleet_management(
 
     if model.status == GRB.OPTIMAL:
         x_solution = np.zeros((F, M + 1, 2 * H))
+        m_solution = np.zeros((F, L, 2 * H))
+        r_solution = np.zeros((F, L, 2 * H))
         shape_solution = np.zeros((F, L, 2 * H))
         expected_solution = np.zeros((F, L, 2 * H))
         tail_solution = np.zeros((F, L, 2 * H))
         u_solution = np.zeros(2 * H)
-        z_solution = np.zeros((F, 2 * H))
+        z_solution = np.zeros((F, L, 2 * H))
 
         for k in range(2 * H):
             u_solution[k] = u_var[k].X
             for i in range(F):
-                z_solution[i, k] = z_var[i, k].X
                 for j in range(M + 1):
                     x_solution[i, j, k] = x[i, j, k].X
                 for l in range(L):
+                    m_solution[i, l, k] = m[i, l, k].X
+                    r_solution[i, l, k] = r[i, l, k].X
+                    z_solution[i, l, k] = z_var[i, l, k].X
                     shape = shape_var[i, l, k].X
                     shape_solution[i, l, k] = shape
                     expected_solution[i, l, k] = shape / beta[l]
@@ -328,8 +359,11 @@ def solve_fleet_management(
             "tau": tau,
             "gamma_beta": beta,
             "replacement_mu": replacement_mu,
+            "repair_rho": repair_rho,
             "maximum_shape": maximum_shape,
             "x": x_solution,
+            "m": m_solution,
+            "r": r_solution,
             "A": shape_solution,
             "mu": expected_solution,
             "tail_probability": tail_solution,
@@ -348,8 +382,11 @@ def solve_fleet_management(
         "tau": tau,
         "gamma_beta": beta,
         "replacement_mu": replacement_mu,
+        "repair_rho": repair_rho,
         "maximum_shape": maximum_shape,
         "x": None,
+        "m": None,
+        "r": None,
         "A": None,
         "mu": None,
         "tail_probability": None,

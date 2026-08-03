@@ -1,4 +1,4 @@
-"""Independent validator for constant-rate Gamma solver results.
+"""Independent validator for common-rate Gamma solver results.
 
 The validator deliberately does not use the Gurobi model.  It reads the
 original problem and the serialized solver result, reconstructs every Gamma
@@ -28,7 +28,7 @@ def validate_gamma_result(
     validation_path: str | None = None,
     tolerance: float = 1e-6,
 ) -> dict[str, Any]:
-    """Validate a saved exact-Gamma result without using the optimizer.
+    """Validate a saved common-beta Gamma result without using the optimizer.
 
     Parameters
     ----------
@@ -62,6 +62,7 @@ def validate_gamma_result(
     mu_param = np.asarray(params["mu_param"], dtype=float)
     mu_0 = np.asarray(params["mu_0"], dtype=float)
     replacement_mu = np.asarray(params["replacement_mu"], dtype=float)
+    repair_rho = np.asarray(params["repair_rho"], dtype=float)
 
     checks: list[dict[str, Any]] = []
 
@@ -95,11 +96,13 @@ def validate_gamma_result(
         return report
 
     x = _required_array(result, "x", (F, M + 1, 2 * H))
+    m = _required_array(result, "m", (F, L, 2 * H))
+    r = _required_array(result, "r", (F, L, 2 * H))
     saved_A = _required_array(result, "A", (F, L, 2 * H))
     saved_mu = _required_array(result, "mu", (F, L, 2 * H))
     saved_tail = _required_array(result, "tail_probability", (F, L, 2 * H))
     saved_u = _required_array(result, "u", (2 * H,))
-    saved_z = _required_array(result, "z", (F, 2 * H))
+    saved_z = _required_array(result, "z", (F, L, 2 * H))
 
     metadata_violation = 0.0
     for name, expected in (("F", F), ("H", H), ("M", M), ("L", L)):
@@ -113,10 +116,19 @@ def validate_gamma_result(
         0.0 if str(result.get("degradation", "gamma")).lower() == "gamma" else 1.0,
     )
 
-    integrality_error = float(np.max(np.abs(x - np.rint(x))))
-    bounds_error = max(float(np.max(-x)), float(np.max(x - 1.0)), 0.0)
-    add_check("assignment variables are binary", max(integrality_error, bounds_error))
+    binary_arrays = {"x": x, "m": m, "r": r}
+    integrality_error = max(
+        float(np.max(np.abs(value - np.rint(value))))
+        for value in binary_arrays.values()
+    )
+    bounds_error = max(
+        max(float(np.max(-value)), float(np.max(value - 1.0)), 0.0)
+        for value in binary_arrays.values()
+    )
+    add_check("decision variables are binary", max(integrality_error, bounds_error))
     x_binary = np.rint(x).astype(int)
+    m_binary = np.rint(m).astype(int)
+    r_binary = np.rint(r).astype(int)
 
     assignment_violation = float(
         np.max(np.maximum(np.sum(x_binary, axis=1) - 1, 0))
@@ -126,10 +138,25 @@ def validate_gamma_result(
     demand_violation = float(
         np.max(np.abs(np.sum(x_binary, axis=0) - 1))
     )
-    add_check("every mission and replacement slot is assigned", demand_violation)
+    add_check("every mission and maintenance opportunity is assigned", demand_violation)
+
+    maintenance_choice_violation = float(
+        np.max(
+            np.maximum(
+                m_binary + r_binary - x_binary[:, 0, :][:, np.newaxis, :],
+                0,
+            )
+        )
+    )
+    add_check(
+        "repair and replacement require maintenance access",
+        maintenance_choice_violation,
+    )
 
     reconstructed_A = _reconstruct_shapes(
         x=x_binary,
+        m=m_binary,
+        r=r_binary,
         F=F,
         H=H,
         M=M,
@@ -138,6 +165,7 @@ def validate_gamma_result(
         mu_param=mu_param,
         mu_0=mu_0,
         replacement_mu=replacement_mu,
+        repair_rho=repair_rho,
     )
     state_error = float(np.max(np.abs(saved_A - reconstructed_A)))
     add_check("Gamma state transitions", state_error)
@@ -182,14 +210,14 @@ def validate_gamma_result(
     )
     add_check("damage regularisation variable u", u_violation)
 
-    z_violation = _replacement_cost_violation(
-        x=x_binary,
+    z_violation = _repair_cost_violation(
+        m=m_binary,
         z=saved_z,
         reconstructed_mu=reconstructed_mu,
         mu_0=mu_0,
-        replacement_mu=replacement_mu,
+        repair_rho=repair_rho,
     )
-    add_check("replacement degradation variable z", z_violation)
+    add_check("repair degradation variable z", z_violation)
 
     maximum_shape = np.array(
         [
@@ -206,6 +234,7 @@ def validate_gamma_result(
 
     objective = _recompute_objective(
         x=x_binary,
+        r=r_binary,
         A=reconstructed_A,
         u=saved_u,
         z=saved_z,
@@ -213,6 +242,7 @@ def validate_gamma_result(
         H=H,
         C_M=float(params["C_M"]),
         C_R=float(params["C_R"]),
+        C_rep=float(params["C_rep"]),
         C_S=float(params["C_S"]),
         C_P=float(params["C_P"]),
     )
@@ -221,6 +251,14 @@ def validate_gamma_result(
 
     max_tail_index = np.unravel_index(
         int(np.argmax(reconstructed_tail)), reconstructed_tail.shape
+    )
+    repair_diagnostic = _exact_repair_diagnostic(
+        m=m_binary,
+        reconstructed_A=reconstructed_A,
+        initial_shape=mu_0 * beta[np.newaxis, :],
+        beta=beta,
+        tau=tau,
+        repair_rho=repair_rho,
     )
     summary = {
         "transitions_checked": int(F * L * 2 * H),
@@ -237,6 +275,7 @@ def validate_gamma_result(
         },
         "recomputed_objective": objective,
         "saved_objective": saved_objective,
+        "exact_scaled_repair_comparison": repair_diagnostic,
     }
     report = _finish_report(
         checks=checks,
@@ -252,6 +291,8 @@ def validate_gamma_result(
 def _reconstruct_shapes(
     *,
     x: np.ndarray,
+    m: np.ndarray,
+    r: np.ndarray,
     F: int,
     H: int,
     M: int,
@@ -260,6 +301,7 @@ def _reconstruct_shapes(
     mu_param: np.ndarray,
     mu_0: np.ndarray,
     replacement_mu: np.ndarray,
+    repair_rho: np.ndarray,
 ) -> np.ndarray:
     reconstructed = np.zeros((F, L, 2 * H), dtype=float)
     initial_shape = mu_0 * beta[np.newaxis, :]
@@ -268,8 +310,27 @@ def _reconstruct_shapes(
     for k in range(2 * H):
         for i in range(F):
             previous = initial_shape[i] if k == 0 else reconstructed[i, :, k - 1]
+            if np.any(r[i, :, k]):
+                reconstructed[i, :, k] = np.where(
+                    r[i, :, k] == 1,
+                    replacement_shape[i],
+                    previous,
+                )
+                repaired = m[i, :, k] == 1
+                reconstructed[i, repaired, k] = (
+                    (1.0 - repair_rho[repaired]) * previous[repaired]
+                )
+                continue
+            if np.any(m[i, :, k]):
+                reconstructed[i, :, k] = previous
+                repaired = m[i, :, k] == 1
+                reconstructed[i, repaired, k] = (
+                    (1.0 - repair_rho[repaired]) * previous[repaired]
+                )
+                continue
             if x[i, 0, k] == 1:
-                reconstructed[i, :, k] = replacement_shape[i]
+                # Maintenance access can be unused for a component.
+                reconstructed[i, :, k] = previous
                 continue
             increment = np.zeros(L, dtype=float)
             for j in range(1, M + 1):
@@ -294,30 +355,33 @@ def _tail_probabilities(A: np.ndarray, beta: np.ndarray, tau: np.ndarray) -> np.
     return tail
 
 
-def _replacement_cost_violation(
+def _repair_cost_violation(
     *,
-    x: np.ndarray,
+    m: np.ndarray,
     z: np.ndarray,
     reconstructed_mu: np.ndarray,
     mu_0: np.ndarray,
-    replacement_mu: np.ndarray,
+    repair_rho: np.ndarray,
 ) -> float:
     violation = float(np.max(np.maximum(-z, 0.0)))
     F, _, horizon = reconstructed_mu.shape
     for i in range(F):
         for k in range(horizon):
-            if x[i, 0, k] == 0:
-                violation = max(violation, abs(float(z[i, k])))
-                continue
             previous = mu_0[i] if k == 0 else reconstructed_mu[i, :, k - 1]
-            required = float(np.sum(previous) - np.sum(replacement_mu[i]))
-            violation = max(violation, max(required - float(z[i, k]), 0.0))
+            for l in range(reconstructed_mu.shape[1]):
+                required = (
+                    float(repair_rho[l] * previous[l])
+                    if m[i, l, k] == 1
+                    else 0.0
+                )
+                violation = max(violation, abs(required - float(z[i, l, k])))
     return violation
 
 
 def _recompute_objective(
     *,
     x: np.ndarray,
+    r: np.ndarray,
     A: np.ndarray,
     u: np.ndarray,
     z: np.ndarray,
@@ -325,12 +389,14 @@ def _recompute_objective(
     H: int,
     C_M: float,
     C_R: float,
+    C_rep: float,
     C_S: float,
     C_P: float,
 ) -> float:
     objective = C_S * float(np.sum(u))
     objective += C_M * float(np.sum(x[:, 0, :]))
     objective += C_R * float(np.sum(z))
+    objective += C_rep * float(np.sum(r))
     objective += C_P * float(
         np.sum(
             (A[:, :, H - 1] - A[:, :, 2 * H - 1])
@@ -338,6 +404,76 @@ def _recompute_objective(
         )
     )
     return objective
+
+
+def _exact_repair_diagnostic(
+    *,
+    m: np.ndarray,
+    reconstructed_A: np.ndarray,
+    initial_shape: np.ndarray,
+    beta: np.ndarray,
+    tau: np.ndarray,
+    repair_rho: np.ndarray,
+) -> dict[str, Any]:
+    """Compare common-beta repair with exact scaled repair at each repair event.
+
+    If ``D^- ~ Gamma(A^-, beta)`` and repair scales damage by ``1-rho``,
+    the exact repaired state is ``Gamma(A^-, beta/(1-rho))``.  The solver uses
+    the mean-matched common-beta approximation
+    ``Gamma((1-rho) A^-, beta)``.  This comparison is diagnostic only.
+    """
+
+    event_count = 0
+    maximum_difference = 0.0
+    worst: dict[str, Any] | None = None
+    F, L, horizon = m.shape
+    for i in range(F):
+        for l in range(L):
+            for k in range(horizon):
+                if m[i, l, k] != 1:
+                    continue
+                event_count += 1
+                previous_shape = (
+                    float(initial_shape[i, l])
+                    if k == 0
+                    else float(reconstructed_A[i, l, k - 1])
+                )
+                remaining = 1.0 - float(repair_rho[l])
+                if remaining == 0.0 or previous_shape == 0.0:
+                    exact_tail = 0.0
+                    approximate_tail = 0.0
+                else:
+                    exact_tail = float(
+                        gamma.sf(
+                            tau[l],
+                            a=previous_shape,
+                            scale=remaining / beta[l],
+                        )
+                    )
+                    approximate_tail = float(
+                        gamma.sf(
+                            tau[l],
+                            a=remaining * previous_shape,
+                            scale=1.0 / beta[l],
+                        )
+                    )
+                difference = abs(approximate_tail - exact_tail)
+                if worst is None or difference > maximum_difference:
+                    maximum_difference = difference
+                    worst = {
+                        "vehicle": i,
+                        "component": l,
+                        "step": k,
+                        "threshold": float(tau[l]),
+                        "exact_tail_probability": exact_tail,
+                        "common_beta_tail_probability": approximate_tail,
+                    }
+    return {
+        "repair_events": event_count,
+        "maximum_absolute_tail_difference": maximum_difference,
+        "worst_event": worst,
+        "note": "diagnostic only; exact scaled repair is not used by the solver",
+    }
 
 
 def _required_array(result: dict[str, Any], name: str, shape: tuple[int, ...]) -> np.ndarray:
@@ -405,7 +541,7 @@ def _extract_gamma_contract(data: dict[str, Any]) -> dict[str, Any]:
 
     required = {
         "F", "H", "M", "mu", "tau", "gamma_beta", "epsilon",
-        "C_M", "C_R", "C_S", "C_P", "mu_0",
+        "C_M", "C_R", "C_rep", "C_S", "C_P", "mu_0", "repair_rho",
     }
     missing = required - set(data)
     if missing:
@@ -438,9 +574,12 @@ def _extract_gamma_contract(data: dict[str, Any]) -> dict[str, Any]:
     )
     beta = _validator_component_array(data["gamma_beta"], L, "gamma_beta")
     tau = _validator_component_array(data["tau"], L, "tau")
+    repair_rho = _validator_component_array(data["repair_rho"], L, "repair_rho")
 
     if np.any(beta <= 0.0) or np.any(tau <= 0.0):
         raise ValueError("gamma_beta and tau must be positive.")
+    if np.any((repair_rho < 0.0) | (repair_rho > 1.0)):
+        raise ValueError("repair_rho must lie in [0, 1].")
     if np.any(mu_param < 0.0) or np.any(mu_0 < 0.0) or np.any(replacement_mu < 0.0):
         raise ValueError("Gamma damage inputs cannot be negative.")
 
@@ -455,10 +594,12 @@ def _extract_gamma_contract(data: dict[str, Any]) -> dict[str, Any]:
         "gamma_beta": beta,
         "C_M": float(data["C_M"]),
         "C_R": float(data["C_R"]),
+        "C_rep": float(data["C_rep"]),
         "C_S": float(data["C_S"]),
         "C_P": float(data["C_P"]),
         "mu_0": mu_0,
         "replacement_mu": replacement_mu,
+        "repair_rho": repair_rho,
     }
 
 
@@ -505,7 +646,7 @@ def _finish_report(
     summary: dict[str, Any],
 ) -> dict[str, Any]:
     return {
-        "validator": "independent constant-beta Gamma result validator",
+        "validator": "independent common-beta Gamma result validator",
         "passed": bool(all(check["passed"] for check in checks)),
         "solver_status": str(result.get("status", "missing")),
         "solver_objective": result.get("objective"),

@@ -24,9 +24,15 @@ Replacement:
     A_k = A_new
     A_new = beta * expected_damage_new
 
-Imperfect repair is intentionally not supported. Scaling a Gamma-distributed
-damage state changes its rate parameter and therefore generally breaks the
-common-beta closure assumption.
+Imperfect repair uses a documented common-beta approximation.  For repair
+effectiveness ``rho``, the shape is updated as
+
+    A_plus = (1-rho) * A_minus.
+
+This preserves the mean of the exact scaled repair while retaining the shared
+rate required by the optimization model.  It does not preserve the exact
+post-repair variance; validators should compare it with the exact scaled
+Gamma distribution offline.
 """
 
 from dataclasses import dataclass
@@ -214,7 +220,7 @@ class GammaModel:
         return self.shape_from_expected_damage(expected_damage_new)
 
     def imperfect_repair(self, current_shape: ArrayLike, rho: float) -> FloatArray:
-        """Reject imperfect repair in constant-beta exact-closure mode.
+        """Apply the mean-matched common-beta imperfect-repair approximation.
 
         If D_plus = (1-rho) * D_minus and
 
@@ -224,13 +230,12 @@ class GammaModel:
 
             D_plus ~ Gamma(A, beta / (1-rho)).
 
-        The rate changes, so the repaired state no longer shares the original
-        beta unless rho = 0. A later approximation policy may implement this,
-        but it must not be presented as exact constant-beta Gamma closure.
+        The exact repaired variable has rate ``beta / (1-rho)``.  The solver
+        instead keeps ``beta`` and reduces the shape to ``(1-rho)A``.  Both
+        representations have the same repaired mean, but different variance.
         """
 
-        # Validate inputs so invalid calls fail with informative errors.
-        self._nonnegative_array(current_shape, name="current_shape")
+        current = self._nonnegative_array(current_shape, name="current_shape")
 
         if not np.isfinite(rho):
             raise ValueError("Repair effectiveness rho must be finite.")
@@ -238,12 +243,7 @@ class GammaModel:
         if rho < 0.0 or rho > 1.0:
             raise ValueError("Repair effectiveness rho must lie in [0, 1].")
 
-        raise NotImplementedError(
-            "Imperfect repair is not supported by the exact constant-beta "
-            "Gamma model. Scaling damage changes the Gamma rate parameter. "
-            "Use replacement, or implement an explicitly documented "
-            "approximation policy."
-        )
+        return (1.0 - rho) * current
 
     def transition(
         self,
@@ -267,8 +267,7 @@ class GammaModel:
             Expected initial damage of the installed component. Required for
             replacement.
         rho:
-            Repaired fraction. Accepted for API completeness, but imperfect
-            repair currently raises NotImplementedError.
+            Fraction of expected damage removed by imperfect repair.
         """
 
         try:

@@ -111,11 +111,11 @@ def _read_hdf5(path: Path) -> dict:
     data = {}
     scalar_keys = {
         "F", "H", "M", "L", "alpha", "epsilon",
-        "C_M", "C_R", "C_S", "C_P", "verbose", "mip_gap",
+        "C_M", "C_R", "C_rep", "C_S", "C_P", "verbose", "mip_gap",
     }
     array_keys = {
         "mu", "v", "mu_0", "v_0", "c", "xi", "replacement_mu",
-        "tau", "gamma_beta",
+        "tau", "gamma_beta", "repair_rho",
     }
 
     with h5py.File(path, "r") as f:
@@ -150,7 +150,7 @@ _GAUSSIAN_KEYS = _COMMON_KEYS | {"v", "v_0"}
 _INVERSE_GAUSSIAN_KEYS = _COMMON_KEYS | {"c"}
 _GAMMA_KEYS = {
     "F", "H", "M", "mu", "tau", "gamma_beta", "epsilon",
-    "C_M", "C_R", "C_S", "C_P", "mu_0",
+    "C_M", "C_R", "C_rep", "C_S", "C_P", "mu_0", "repair_rho",
 }
 
 REQUIRED_KEYS_BY_DEGRADATION = {
@@ -206,8 +206,12 @@ def _extract_parameters(data: dict, degradation: str) -> dict:
     mu_param = _broadcast_4d_param(mu_param, F, M, L, H, "mu")
 
     if degradation == "gamma":
+        C_rep = float(data["C_rep"])
         gamma_beta = _broadcast_component_param(
             data["gamma_beta"], L, "gamma_beta"
+        )
+        repair_rho = _broadcast_component_param(
+            data["repair_rho"], L, "repair_rho"
         )
         tau = _broadcast_component_param(data["tau"], L, "tau")
         replacement_mu = np.array(
@@ -224,8 +228,10 @@ def _extract_parameters(data: dict, degradation: str) -> dict:
             "F": F, "H": H, "M": M, "L": L,
             "mu_param": mu_param, "tau": tau,
             "epsilon": epsilon, "gamma_beta": gamma_beta,
-            "C_M": C_M, "C_R": C_R, "C_S": C_S, "C_P": C_P,
+            "C_M": C_M, "C_R": C_R, "C_rep": C_rep,
+            "C_S": C_S, "C_P": C_P,
             "mu_0": mu_0, "replacement_mu": replacement_mu,
+            "repair_rho": repair_rho,
             "verbose": verbose, "mip_gap": mip_gap,
         }
 
@@ -359,6 +365,7 @@ def _build_serializable_output(result: dict) -> dict:
         output["tau"] = result["tau"].tolist()
         output["gamma_beta"] = result["gamma_beta"].tolist()
         output["replacement_mu"] = result["replacement_mu"].tolist()
+        output["repair_rho"] = result["repair_rho"].tolist()
         output["maximum_shape"] = result["maximum_shape"].tolist()
     if "v_0" in result:
         output["v_0"] = result["v_0"].tolist()
@@ -368,6 +375,8 @@ def _build_serializable_output(result: dict) -> dict:
         if "A" in result:
             output["A"] = result["A"].tolist()
             output["tail_probability"] = result["tail_probability"].tolist()
+            output["m"] = result["m"].tolist()
+            output["r"] = result["r"].tolist()
         if "v" in result:
             output["v"] = result["v"].tolist()
         output["u"] = result["u"].tolist()
@@ -403,6 +412,7 @@ def _save_hdf5(result: dict, path: Path) -> None:
             f.create_dataset("tau", data=result["tau"])
             f.create_dataset("gamma_beta", data=result["gamma_beta"])
             f.create_dataset("replacement_mu", data=result["replacement_mu"])
+            f.create_dataset("repair_rho", data=result["repair_rho"])
             f.create_dataset("maximum_shape", data=result["maximum_shape"])
         f.create_dataset("mu_0", data=result["mu_0"])
         if "v_0" in result:
@@ -415,6 +425,8 @@ def _save_hdf5(result: dict, path: Path) -> None:
                 f.create_dataset(
                     "tail_probability", data=result["tail_probability"]
                 )
+                f.create_dataset("m", data=result["m"])
+                f.create_dataset("r", data=result["r"])
             if "v" in result:
                 f.create_dataset("v", data=result["v"])
             f.create_dataset("u", data=result["u"])
