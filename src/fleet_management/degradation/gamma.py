@@ -69,10 +69,7 @@ class GammaModel:
     # Parameter conversions
     # ------------------------------------------------------------------
 
-    def increment_parameter(
-        self,
-        expected_damage: ArrayLike,
-    ) -> FloatArray:
+    def increment_parameter(self, expected_damage: ArrayLike) -> FloatArray:
         """Convert expected damage increments into Gamma shapes.
 
         For a common rate beta,
@@ -87,37 +84,24 @@ class GammaModel:
 
         return self.beta * expected_damage_array
 
-    def shape_from_expected_damage(
-        self,
-        expected_damage: ArrayLike,
-    ) -> FloatArray:
+    def shape_from_expected_damage(self, expected_damage: ArrayLike) -> FloatArray:
         """Alias for increment_parameter for readability."""
 
         return self.increment_parameter(expected_damage)
 
-    def expected_damage(
-        self,
-        shape: ArrayLike,
-    ) -> FloatArray:
+    def expected_damage(self, shape: ArrayLike) -> FloatArray:
         """Return the expected damage represented by a Gamma shape."""
 
         shape_array = self._nonnegative_array(shape, name="shape")
         return shape_array / self.beta
 
-    def variance(
-        self,
-        shape: ArrayLike,
-    ) -> FloatArray:
+    def variance(self, shape: ArrayLike) -> FloatArray:
         """Return the variance represented by a Gamma shape."""
 
         shape_array = self._nonnegative_array(shape, name="shape")
         return shape_array / self.beta**2
 
-    def accumulate(
-        self,
-        current_shape: ArrayLike,
-        increment_shape: ArrayLike,
-    ) -> FloatArray:
+    def accumulate(self, current_shape: ArrayLike, increment_shape: ArrayLike) -> FloatArray:
         """Add shapes belonging to independent Gamma variables.
 
         This operation is exact only because both variables use this model's
@@ -137,19 +121,14 @@ class GammaModel:
             return current + increment
         except ValueError as error:
             raise ValueError(
-                "current_shape and increment_shape cannot be broadcast to "
-                "compatible shapes."
+                "current_shape and increment_shape cannot be broadcast to compatible shapes."
             ) from error
 
     # ------------------------------------------------------------------
     # Probability calculations
     # ------------------------------------------------------------------
 
-    def tail_probability(
-        self,
-        shape: ArrayLike,
-        threshold: float,
-    ) -> FloatArray:
+    def tail_probability(self, shape: ArrayLike, threshold: float) -> FloatArray:
         """Return P(D > threshold).
 
         A zero shape is interpreted as the deterministic undamaged state D=0.
@@ -168,11 +147,7 @@ class GammaModel:
         probabilities = np.zeros_like(shape_array, dtype=float)
         positive_shape = shape_array > 0.0
 
-        probabilities[positive_shape] = gamma.sf(
-            threshold,
-            a=shape_array[positive_shape],
-            scale=1.0 / self.beta,
-        )
+        probabilities[positive_shape] = gamma.sf(threshold, a=shape_array[positive_shape], scale=1.0 / self.beta)
 
         # For a positive-shape Gamma variable, P(D > 0) = 1.
         if threshold == 0.0:
@@ -205,62 +180,40 @@ class GammaModel:
     # State transitions
     # ------------------------------------------------------------------
 
-    def idle(
-        self,
-        current_shape: ArrayLike,
-    ) -> FloatArray:
+    def idle(self, current_shape: ArrayLike) -> FloatArray:
         """Apply an idle step: no degradation is added."""
 
-        current = self._nonnegative_array(
-            current_shape,
-            name="current_shape",
-        )
+        current = self._nonnegative_array(current_shape, name="current_shape")
 
         # Return a copy so the caller cannot accidentally modify the old state.
         return current.copy()
 
-    def mission(
-        self,
-        current_shape: ArrayLike,
-        expected_increment: ArrayLike,
-    ) -> FloatArray:
+    def mission(self, current_shape: ArrayLike, expected_increment: ArrayLike) -> FloatArray:
         """Apply a mission damage increment.
 
         The increment has the same rate beta as the current state. Therefore,
         exact Gamma closure under addition applies and the shapes can be added.
         """
 
-        current = self._nonnegative_array(
-            current_shape,
-            name="current_shape",
-        )
+        current = self._nonnegative_array(current_shape, name="current_shape")
         increment_shape = self.increment_parameter(expected_increment)
 
         try:
             return current + increment_shape
         except ValueError as error:
             raise ValueError(
-                "current_shape and expected_increment cannot be broadcast "
-                "to compatible shapes."
+                "current_shape and expected_increment cannot be broadcast to compatible shapes."
             ) from error
 
-    def replacement(
-        self,
-        expected_damage_new: ArrayLike,
-    ) -> FloatArray:
+    def replacement(self, expected_damage_new: ArrayLike) -> FloatArray:
         """Replace the component and reset it to a new initial state.
-
         expected_damage_new may be zero for an ideal new component, or positive
         if newly installed components have nonzero initial damage.
         """
 
         return self.shape_from_expected_damage(expected_damage_new)
 
-    def imperfect_repair(
-        self,
-        current_shape: ArrayLike,
-        rho: float,
-    ) -> FloatArray:
+    def imperfect_repair(self, current_shape: ArrayLike, rho: float) -> FloatArray:
         """Reject imperfect repair in constant-beta exact-closure mode.
 
         If D_plus = (1-rho) * D_minus and
@@ -354,10 +307,7 @@ class GammaModel:
             )
             self._reject_unexpected_argument(rho, "rho", selected_action)
 
-            return self.mission(
-                current_shape=current_shape,
-                expected_increment=expected_increment,
-            )
+            return self.mission(current_shape=current_shape, expected_increment=expected_increment)
 
         if selected_action == GammaAction.REPLACEMENT:
             if expected_damage_new is None:
@@ -374,18 +324,13 @@ class GammaModel:
 
             # current_shape is intentionally not used in the result, but it is
             # validated because it is part of the common transition contract.
-            self._nonnegative_array(
-                current_shape,
-                name="current_shape",
-            )
+            self._nonnegative_array(current_shape, name="current_shape")
 
             return self.replacement(expected_damage_new)
 
         if selected_action == GammaAction.IMPERFECT_REPAIR:
             if rho is None:
-                raise ValueError(
-                    "rho is required for an imperfect-repair transition."
-                )
+                raise ValueError("rho is required for an imperfect-repair transition.")
 
             self._reject_unexpected_argument(
                 expected_increment,
@@ -398,10 +343,7 @@ class GammaModel:
                 selected_action,
             )
 
-            return self.imperfect_repair(
-                current_shape=current_shape,
-                rho=rho,
-            )
+            return self.imperfect_repair(current_shape=current_shape, rho=rho)
 
         # The Enum conversion above should make this unreachable.
         raise RuntimeError("Unhandled Gamma transition.")
@@ -411,10 +353,7 @@ class GammaModel:
     # ------------------------------------------------------------------
 
     @staticmethod
-    def _nonnegative_array(
-        value: ArrayLike,
-        name: str,
-    ) -> FloatArray:
+    def _nonnegative_array(value: ArrayLike, name: str) -> FloatArray:
         """Convert a value to a finite, nonnegative float array."""
 
         array = np.asarray(value, dtype=float)
@@ -514,11 +453,7 @@ def maximum_reliable_shape(
         if shape == 0.0:
             return -epsilon
 
-        tail_probability = gamma.sf(
-            threshold,
-            a=shape,
-            scale=1.0 / beta,
-        )
+        tail_probability = gamma.sf(threshold, a=shape, scale=1.0 / beta)
 
         if not np.isfinite(tail_probability):
             raise RuntimeError(
