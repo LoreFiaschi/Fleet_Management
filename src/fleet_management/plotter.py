@@ -21,6 +21,11 @@ def plot_management(input_file_path: str, plot_file_path: str = None) -> None:
     one per component, coloured on a green-to-red heatmap (0 to alpha)
     based on the component's degradation mean.
 
+    Supports both a single horizon (T = 2H) and a two-horizon rainflow
+    schedule (transitory H1 + operating H2, T = H1 + H2); the number of time
+    columns is taken from the solution itself, and a divider marks the
+    transitory/operating boundary.
+
     Parameters
     ----------
     input_file_path : str
@@ -55,26 +60,30 @@ def plot_management(input_file_path: str, plot_file_path: str = None) -> None:
     data = _read_input(input_file)
     F = int(data["F"])
     M = int(data["M"])
-    H = int(data["H"])
     L = int(data.get("L", 1))
-    alpha = float(data["alpha"])
+    # rainflow output stores the threshold as `tau`; Gaussian/IG as `alpha`.
+    alpha = float(data.get("alpha", data.get("tau", 1.0)))
     mu_0 = np.array(data["mu_0"], dtype=float)
     mu = np.array(data["mu"], dtype=float)
     x = np.array(data["x"], dtype=float)
 
     # Handle legacy shapes (L=1 with no L dimension)
     if mu_0.ndim == 1:
-        mu_0 = mu_0[:, np.newaxis]  # (F,) -> (F, 1)
+        mu_0 = mu_0[:, np.newaxis]       # (F,) -> (F, 1)
     if mu.ndim == 2:
-        mu = mu[:, np.newaxis, :]  # (F, 2H) -> (F, 1, 2H)
+        mu = mu[:, np.newaxis, :]        # (F, T) -> (F, 1, T)
+
+    T = mu.shape[-1]
+    H1 = int(data.get("H1", data.get("H", (T + 1) // 2)))
+    H2 = int(data.get("H2", T - H1))
 
     # --- Build grid values ---
-    # grid has shape (F, L, n_cols) where n_cols = 2H + 1
-    # Column 0 = mu_0, columns 1..2H = mu
-    n_cols = 2 * H + 1
+    # grid has shape (F, L, n_cols) where n_cols = T + 1
+    # Column 0 = mu_0, columns 1..T = mu
+    n_cols = T + 1
     grid = np.zeros((F, L, n_cols))
-    grid[:, :, 0] = mu_0  # (F, L)
-    grid[:, :, 1:] = mu   # (F, L, 2H)
+    grid[:, :, 0] = mu_0             # (F, L)
+    grid[:, :, 1:] = mu             # (F, L, T)
 
     # --- Create plot ---
     cmap = mcolors.LinearSegmentedColormap.from_list("gr", ["green", "red"])
@@ -110,7 +119,7 @@ def plot_management(input_file_path: str, plot_file_path: str = None) -> None:
     # Cell annotations
     for i in range(F):
         for k in range(1, n_cols):
-            k_x = k - 1  # index into x array (0-based, range 0..2H-1)
+            k_x = k - 1  # index into x array (0-based, range 0..T-1)
 
             if x[i, 0, k_x] == 1:
                 # Maintenance: draw gear
@@ -145,6 +154,15 @@ def plot_management(input_file_path: str, plot_file_path: str = None) -> None:
         ax.axhline(i - 0.5, color="black", linewidth=0.5)
     for k in range(n_cols + 1):
         ax.axvline(k - 0.5, color="black", linewidth=0.5)
+
+    # Transitory | operating phase divider (between mu-column H1 and H1+1).
+    # Transitory steps k=0..H1-1 map to columns 1..H1; operating to H1+1..T.
+    if 0 < H1 < T:
+        ax.axvline(H1 + 0.5, color="tab:blue", linewidth=2.2, linestyle="--")
+        ax.text(H1 * 0.5 + 0.5, -0.62, "transitory",
+                ha="center", va="bottom", fontsize=8, color="tab:blue")
+        ax.text(H1 + 0.5 + H2 * 0.5, -0.62, "operating",
+                ha="center", va="bottom", fontsize=8, color="tab:blue")
 
     # Colorbar
     sm = plt.cm.ScalarMappable(cmap=cmap, norm=cnorm)
@@ -181,7 +199,7 @@ def _read_input(input_file: Path) -> dict:
 
 def _read_hdf5(path: Path) -> dict:
     data = {}
-    scalar_keys = {"F", "H", "M", "L", "alpha"}
+    scalar_keys = {"F", "H", "H1", "H2", "T", "M", "L", "alpha", "tau"}
     array_keys = {"mu", "mu_0", "x"}
 
     with h5py.File(path, "r") as f:

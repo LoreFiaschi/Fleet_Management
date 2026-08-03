@@ -21,7 +21,18 @@ helper that receives a shared ``_RFModel`` context:
     _add_base_constraints       assignment, depot capacity, aggregate cap, safety u
     _add_maintenance_constraints gating (eq. 3) + state recursion / ARD1 / replace / z
     _add_reliability_constraints per-step  P(D > tau) <= eps  (method-dependent)
-    _add_repeatability_constraints  loop the moments (+ descriptors)  H vs 2H
+    _add_repeatability_constraints  loop the moments (+ descriptors)  H1 vs T
+
+Two horizons
+------------
+The time axis has two phases of possibly different length:
+  * transitory horizon  H1 : steps 0 .. H1-1, the run-up from the initial
+    condition mu_0 into the steady operating regime.
+  * operating horizon   H2 : steps H1 .. H1+H2-1, the repeatable cycle.
+T = H1 + H2.  Repeatability loops the *operating* horizon: the state at the end
+of the operating phase must not exceed the state entering it (state(T-1) <=
+state(H1-1)), so it can be repeated indefinitely with period H2.  Passing a
+single int H recovers the classic model with H1 = H2 = H and T = 2H.
 
 Maintenance formulation (reference doc, Sec. 1.1-1.2, 2.3):
 
@@ -68,7 +79,7 @@ _REPAIR_MODELS = ("ard1", "ardinf")
 class _RFModel:
     """Everything the constraint helpers need, built once and passed around."""
     model: gp.Model
-    F: int; H: int; M: int; L: int; T: int
+    F: int; H1: int; H2: int; M: int; L: int; T: int
     # decision variables / states
     x: gp.tupledict
     m_rep: gp.tupledict
@@ -94,13 +105,14 @@ class _RFModel:
     repair_model: str
     s_chernoff: Optional[float]
     support_param: Optional[np.ndarray]
+    support_max: Optional[float]           # max support over both phases (Bernstein b)
     Le: float
     ln_eps: float
     # build-configuration flags
     track_v: bool                          # variance participates in the model
     use_latch: bool                        # ARD1 latch is present
     allow_replacement: bool
-    # per-mission increment accessors (k wraps with period H)
+    # per-mission increment accessors (phase-aware: local time within H1 / H2)
     mu_inc: Callable[[int, int, int, int], float]
     v_inc: Callable[[int, int, int, int], float]
     w2_inc: Callable[[int, int, int, int], float]
@@ -108,13 +120,15 @@ class _RFModel:
 
 
 def validate_inputs(
-    F, H, M, L, mu_param, v_param, tau, epsilon, xi,
+    F, H1, H2, M, L, mu_param, v_param, tau, epsilon, xi,
     C_M, C_R, C_S, C_P, mu_0, v_0, method,
     support_param=None, cgf_param=None, s_chernoff=None,
     repair_model="ard1", C_rep=None, mu_new=None, v_new=None,
+    mu_param_trans=None, v_param_trans=None,
+    support_param_trans=None, cgf_param_trans=None,
 ) -> None:
-    if F <= 0 or H <= 0 or M <= 0 or L <= 0:
-        raise ValueError("F, H, M, L must be positive integers.")
+    if F <= 0 or H1 <= 0 or H2 <= 0 or M <= 0 or L <= 0:
+        raise ValueError("F, H1, H2, M, L must be positive integers.")
     if tau <= 0:
         raise ValueError("tau (damage threshold) must be positive.")
     if not (0.0 < epsilon < 1.0):
@@ -126,10 +140,11 @@ def validate_inputs(
     if F <= M:
         raise ValueError(f"F must be greater than M (got F={F}, M={M}).")
 
-    if mu_param.shape != (F, M, L, H):
-        raise ValueError(f"mu_param shape must be {(F, M, L, H)}, got {mu_param.shape}.")
-    if v_param.shape != (F, M, L, H):
-        raise ValueError(f"v_param shape must be {(F, M, L, H)}, got {v_param.shape}.")
+    # Operating-phase increment profiles are indexed over the operating period H2.
+    if mu_param.shape != (F, M, L, H2):
+        raise ValueError(f"mu_param shape must be {(F, M, L, H2)} (operating period H2), got {mu_param.shape}.")
+    if v_param.shape != (F, M, L, H2):
+        raise ValueError(f"v_param shape must be {(F, M, L, H2)} (operating period H2), got {v_param.shape}.")
 
     if xi.shape != (F, L):
         raise ValueError(f"xi must have shape {(F, L)}.")
@@ -159,20 +174,36 @@ def validate_inputs(
     if method in _NEEDS_SUPPORT:
         if support_param is None:
             raise ValueError(f"method='{method}' requires support_param.")
-        if support_param.shape != (F, M, L, H):
-            raise ValueError(f"support_param shape must be {(F, M, L, H)}.")
+        if support_param.shape != (F, M, L, H2):
+            raise ValueError(f"support_param shape must be {(F, M, L, H2)}.")
         if not np.all(support_param > 0):
             raise ValueError("support_param must be positive element-wise.")
 
     if method in _NEEDS_CGF:
         if cgf_param is None or s_chernoff is None:
             raise ValueError("method='chernoff' requires cgf_param and s_chernoff > 0.")
-        if cgf_param.shape != (F, M, L, H):
-            raise ValueError(f"cgf_param shape must be {(F, M, L, H)}.")
+        if cgf_param.shape != (F, M, L, H2):
+            raise ValueError(f"cgf_param shape must be {(F, M, L, H2)}.")
         if not np.all(cgf_param > 0):
             raise ValueError("cgf_param must be positive element-wise.")
         if s_chernoff <= 0:
             raise ValueError("s_chernoff must be positive.")
+
+    # Optional transitory-phase profiles (indexed over the transitory period H1).
+    # When omitted, the transitory phase reuses the operating profile.
+    def _check_trans(arr, name, need):
+        if arr is None:
+            return
+        if arr.shape != (F, M, L, H1):
+            raise ValueError(f"{name} shape must be {(F, M, L, H1)} (transitory period H1), got {arr.shape}.")
+        if not np.all(arr > 0):
+            raise ValueError(f"{name} must be positive element-wise.")
+    _check_trans(mu_param_trans, "mu_param_trans", True)
+    _check_trans(v_param_trans, "v_param_trans", True)
+    if method in _NEEDS_SUPPORT:
+        _check_trans(support_param_trans, "support_param_trans", False)
+    if method in _NEEDS_CGF:
+        _check_trans(cgf_param_trans, "cgf_param_trans", False)
 
 
 # ---------------------------------------------------------------------------
@@ -181,7 +212,7 @@ def validate_inputs(
 def _build_objective(ctx: _RFModel, C_M, C_R, C_S, C_P, C_rep) -> None:
     """C_M per depot-day, C_R per unit removed by repair, C_rep per replacement,
     C_S on worst aggregate damage, C_P periodicity slack."""
-    md, F, L, T, H = ctx.model, ctx.F, ctx.L, ctx.T, ctx.H
+    md, F, L, T, H1 = ctx.model, ctx.F, ctx.L, ctx.T, ctx.H1
     obj = gp.LinExpr()
     for k in range(T):
         obj += C_S * ctx.u_var[k]
@@ -191,11 +222,13 @@ def _build_objective(ctx: _RFModel, C_M, C_R, C_S, C_P, C_rep) -> None:
                 obj += C_R * ctx.z_var[i, l, k]
                 if ctx.allow_replacement:
                     obj += C_rep * ctx.r_rep[i, l, k]
+    # periodicity slack over the operating cycle: end of operating (T-1) vs its
+    # start (end of transitory, H1-1)
     for i in range(F):
         for l in range(L):
-            obj += C_P * (ctx.mu_var[i, l, H - 1] - ctx.mu_var[i, l, T - 1])
+            obj += C_P * (ctx.mu_var[i, l, H1 - 1] - ctx.mu_var[i, l, T - 1])
             if ctx.track_v:
-                obj += C_P * (ctx.v_var[i, l, H - 1] - ctx.v_var[i, l, T - 1])
+                obj += C_P * (ctx.v_var[i, l, H1 - 1] - ctx.v_var[i, l, T - 1])
     md.setObjective(obj, GRB.MINIMIZE)
 
 
@@ -384,7 +417,7 @@ def _add_reliability_constraints(ctx: _RFModel) -> None:
                     md.addQConstr((tau - mu_ik) * (tau - mu_ik) >= 0.5 * Le * R_var[i, l, k],
                                   name=rname)
                 elif method == "bernstein":
-                    b = float(ctx.support_param.max())
+                    b = float(ctx.support_max)
                     t = tau - mu_ik
                     md.addConstr(mu_ik <= tau, name=f"{rname}_gap")
                     md.addQConstr(0.5 * t * t - (Le * b / 3.0) * t - Le * v_var[i, l, k] >= 0, name=rname)
@@ -396,19 +429,20 @@ def _add_reliability_constraints(ctx: _RFModel) -> None:
 # Repeatability constraints: loop the moments (+ descriptors), H vs 2H.
 # ---------------------------------------------------------------------------
 def _add_repeatability_constraints(ctx: _RFModel) -> None:
-    md, F, L, H, T = ctx.model, ctx.F, ctx.L, ctx.H, ctx.T
+    md, F, L, H1, T = ctx.model, ctx.F, ctx.L, ctx.H1, ctx.T
     mu_var, v_var, R_var, K_var = ctx.mu_var, ctx.v_var, ctx.R_var, ctx.K_var
     method = ctx.method
 
+    # loop the operating horizon: end-of-operating (T-1) <= end-of-transitory (H1-1)
     for i in range(F):
         for l in range(L):
-            md.addConstr(mu_var[i, l, T - 1] <= mu_var[i, l, H - 1], name=f"repeat_mu_{i}_{l}")
+            md.addConstr(mu_var[i, l, T - 1] <= mu_var[i, l, H1 - 1], name=f"repeat_mu_{i}_{l}")
             if ctx.track_v:
-                md.addConstr(v_var[i, l, T - 1] <= v_var[i, l, H - 1], name=f"repeat_v_{i}_{l}")
+                md.addConstr(v_var[i, l, T - 1] <= v_var[i, l, H1 - 1], name=f"repeat_v_{i}_{l}")
             if method == "hoeffding":
-                md.addConstr(R_var[i, l, T - 1] <= R_var[i, l, H - 1], name=f"repeat_R_{i}_{l}")
+                md.addConstr(R_var[i, l, T - 1] <= R_var[i, l, H1 - 1], name=f"repeat_R_{i}_{l}")
             if method == "chernoff":
-                md.addConstr(K_var[i, l, T - 1] <= K_var[i, l, H - 1], name=f"repeat_K_{i}_{l}")
+                md.addConstr(K_var[i, l, T - 1] <= K_var[i, l, H1 - 1], name=f"repeat_K_{i}_{l}")
 
 
 # ---------------------------------------------------------------------------
@@ -461,6 +495,8 @@ def solve_fleet_management(
     repair_model="ard1",
     C_rep=None,
     mu_new=None, v_new=None,
+    mu_param_trans=None, v_param_trans=None,
+    support_param_trans=None, cgf_param_trans=None,
     depot_capacity=None,
     allow_replacement=True,
     fast=True,
@@ -469,6 +505,21 @@ def solve_fleet_management(
 ) -> dict:
     """
     Solve the rainflow (accumulated-damage) fleet-management problem.
+
+    Two horizons
+    ------------
+    H : int or (H1, H2)
+        A single int gives the classic model: transitory = operating = H, T = 2H.
+        A pair (H1, H2) sets an unequal transitory horizon H1 (run-up from mu_0)
+        and operating horizon H2 (repeatable cycle); T = H1 + H2 and repeatability
+        loops the operating horizon (state(T-1) <= state(H1-1)).
+    mu_param, v_param, support_param, cgf_param : shape (F, M, L, H2)
+        Per-mission increment profiles for the OPERATING period H2.  By default
+        the transitory phase reuses these (wrapped over its own local time).
+    mu_param_trans, v_param_trans, support_param_trans, cgf_param_trans :
+        Optional shape (F, M, L, H1) profiles used during the transitory phase
+        only, for a genuinely different run-up regime.  Omit to reuse the
+        operating profiles.
 
     Performance-related parameters
     ------------------------------
@@ -496,10 +547,21 @@ def solve_fleet_management(
     ``xi`` is the per-component repair efficiency ``rho`` in (0, 1].  Returns a
     dict; solution arrays are populated whenever a feasible incumbent exists.
     """
-    validate_inputs(F, H, M, L, mu_param, v_param, tau, epsilon, xi,
+    # ---- resolve the two horizons --------------------------------------
+    if isinstance(H, (tuple, list)):
+        if len(H) != 2:
+            raise ValueError("H must be an int or a 2-tuple (H1, H2).")
+        H1, H2 = int(H[0]), int(H[1])
+    else:
+        H1 = H2 = int(H)
+    T = H1 + H2
+
+    validate_inputs(F, H1, H2, M, L, mu_param, v_param, tau, epsilon, xi,
                     C_M, C_R, C_S, C_P, mu_0, v_0, method,
                     support_param, cgf_param, s_chernoff,
-                    repair_model, C_rep, mu_new, v_new)
+                    repair_model, C_rep, mu_new, v_new,
+                    mu_param_trans, v_param_trans,
+                    support_param_trans, cgf_param_trans)
 
     # ---- defaults -------------------------------------------------------
     rho = xi
@@ -514,27 +576,46 @@ def solve_fleet_management(
 
     Le = math.log(1.0 / epsilon)
     ln_eps = math.log(epsilon)
-    T = 2 * H
 
     # ---- build configuration -------------------------------------------
     track_v = method in ("cantelli", "bernstein")   # only these use variance
     use_latch = (repair_model == "ard1")            # ARD-inf needs no D_last latch
 
+    # ---- phase-aware increment accessors --------------------------------
+    # Transitory phase (k < H1) uses the *_trans profile if given (local time
+    # k % H1), else the operating profile (k % H2).  Operating phase (k >= H1)
+    # uses the operating profile over local time (k - H1) % H2.  With H1 == H2
+    # and no *_trans arrays this reduces to the classic k % H indexing.
+    def _make_acc(op, tr, transform=lambda a: a):
+        def acc(i, j, l, k):
+            if k < H1:
+                if tr is not None:
+                    return float(transform(tr[i, j, l, k % H1]))
+                return float(transform(op[i, j, l, k % H2]))
+            return float(transform(op[i, j, l, (k - H1) % H2]))
+        return acc
+
+    mu_inc = _make_acc(mu_param, mu_param_trans)
+    v_inc = _make_acc(v_param, v_param_trans)
+    w2_inc = _make_acc(support_param, support_param_trans, transform=lambda a: a * a)
+    cgf_inc = _make_acc(cgf_param, cgf_param_trans)
+
+    # combined maxima over both phases (for valid bounds / Bernstein b)
+    def _amax(op, tr):
+        m = float(op.max())
+        return max(m, float(tr.max())) if tr is not None else m
+
     # ---- tight, valid variable bounds (strengthen the relaxation) -------
     mu_ub = float(epsilon * tau) if method == "markov" else float(tau)
     z_ub = float(tau)
-    v_reach = float(v_0.max() + T * v_param.max())
+    v_reach = float(v_0.max()) + T * _amax(v_param, v_param_trans)
     if method == "cantelli":
         v_ub = min(v_reach, float(epsilon / (1.0 - epsilon) * tau * tau))
     else:
         v_ub = v_reach
-    R_ub = float(T * (support_param.max() ** 2)) if method == "hoeffding" else None
-    K_ub = float(T * cgf_param.max()) if method == "chernoff" else None
-
-    def mu_inc(i, j, l, k):  return float(mu_param[i, j, l, k % H])
-    def v_inc(i, j, l, k):   return float(v_param[i, j, l, k % H])
-    def w2_inc(i, j, l, k):  return float(support_param[i, j, l, k % H] ** 2)
-    def cgf_inc(i, j, l, k): return float(cgf_param[i, j, l, k % H])
+    R_ub = float(T * (_amax(support_param, support_param_trans) ** 2)) if method == "hoeffding" else None
+    K_ub = float(T * _amax(cgf_param, cgf_param_trans)) if method == "chernoff" else None
+    support_max = _amax(support_param, support_param_trans) if support_param is not None else None
 
     # ---- model + variables ----------------------------------------------
     model = gp.Model("fleet_management_rainflow")
@@ -559,13 +640,13 @@ def solve_fleet_management(
     K_var = model.addVars(F, L, T, lb=0.0, ub=K_ub, name="K") if method == "chernoff" else None
 
     ctx = _RFModel(
-        model=model, F=F, H=H, M=M, L=L, T=T,
+        model=model, F=F, H1=H1, H2=H2, M=M, L=L, T=T,
         x=x, m_rep=m_rep, r_rep=r_rep, nb=nb,
         mu_var=mu_var, v_var=v_var, gmu=gmu, gv=gv, z_var=z_var, u_var=u_var,
         R_var=R_var, K_var=K_var,
         mu_0=mu_0, v_0=v_0, rho=rho, mu_new=mu_new, v_new=v_new,
         tau=tau, epsilon=epsilon, method=method, repair_model=repair_model,
-        s_chernoff=s_chernoff, support_param=support_param,
+        s_chernoff=s_chernoff, support_param=support_param, support_max=support_max,
         Le=Le, ln_eps=ln_eps,
         track_v=track_v, use_latch=use_latch, allow_replacement=allow_replacement,
         mu_inc=mu_inc, v_inc=v_inc, w2_inc=w2_inc, cgf_inc=cgf_inc,
@@ -616,7 +697,7 @@ def solve_fleet_management(
             "status": status_str, "objective": model.ObjVal,
             "mip_gap": gap, "bound": bound,
             "method": method, "repair_model": repair_model,
-            "F": F, "H": H, "M": M, "L": L, "tau": tau,
+            "F": F, "H": H1, "H1": H1, "H2": H2, "T": T, "M": M, "L": L, "tau": tau,
             "x": x_sol, "mu": mu_sol, "v": v_sol, "z": z_sol,
             "m": m_sol, "r": r_sol, "u": u_sol, "model": model,
         }
@@ -625,7 +706,7 @@ def solve_fleet_management(
         "status": status_str, "objective": None,
         "mip_gap": None, "bound": None,
         "method": method, "repair_model": repair_model,
-        "F": F, "H": H, "M": M, "L": L, "tau": tau,
+        "F": F, "H": H1, "H1": H1, "H2": H2, "T": T, "M": M, "L": L, "tau": tau,
         "x": None, "mu": None, "v": None, "z": None,
         "m": None, "r": None, "u": None, "model": model,
     }
@@ -635,20 +716,27 @@ def solve_fleet_management(
 # Runnable demo
 # ---------------------------------------------------------------------------
 if __name__ == "__main__":
-    print("Fleet management (rainflow, ARD1 maintenance) demo")
-    F, H, M, L = 3, 4, 1, 1
+    print("Fleet management (rainflow, ARD1 maintenance) demo -- two horizons")
+    F, M, L = 3, 1, 1
+    H2 = 4                                   # operating period
     tau, epsilon = 0.30, 0.10
-    mu_param = np.full((F, M, L, H), 0.06)
-    v_param = np.full((F, M, L, H), 0.0015)
+    mu_param = np.full((F, M, L, H2), 0.06)  # profiles are sized to H2
+    v_param = np.full((F, M, L, H2), 0.0015)
     xi = np.full((F, L), 0.6)
     mu_0 = np.full((F, L), 0.02)
     v_0 = np.full((F, L), 4e-4)
     C_M, C_R, C_S, C_P = 1.0, 0.5, 2.0, 1.0
 
+    # equal horizons: H = 4  (== classic T = 2H = 8)
     res = solve_fleet_management(
-        F, H, M, L, mu_param, v_param, tau, epsilon, xi,
+        F, 4, M, L, mu_param, v_param, tau, epsilon, xi,
         C_M, C_R, C_S, C_P, mu_0, v_0,
         method="cantelli", repair_model="ard1", verbose=0, time_limit=30)
-    print("status   :", res["status"])
-    print("objective:", res["objective"])
-    print("mip_gap  :", res["mip_gap"])
+    print(f"equal   H1=H2=4  -> status={res['status']}, T={res['T']}, obj={res['objective']}")
+
+    # unequal horizons: long transitory run-up, short operating cycle
+    res2 = solve_fleet_management(
+        F, (6, 4), M, L, mu_param, v_param, tau, epsilon, xi,
+        C_M, C_R, C_S, C_P, mu_0, v_0,
+        method="cantelli", repair_model="ard1", verbose=0, time_limit=30)
+    print(f"unequal H1=6,H2=4 -> status={res2['status']}, T={res2['T']}, obj={res2['objective']}")

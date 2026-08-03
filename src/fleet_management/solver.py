@@ -116,10 +116,18 @@ def _read_hdf5(path: Path) -> dict:
     - Array parameters (mu, v, mu_0, v_0, c, xi) stored as datasets.
     """
     data = {}
-    scalar_keys = {"F", "H", "M", "L", "alpha", "epsilon", "C_M", "C_R", "C_S", "C_P", "verbose", "mip_gap"}
-    array_keys = {"mu", "v", "mu_0", "v_0", "c", "xi"}
+    scalar_keys = {"F", "M", "L", "alpha", "epsilon", "C_M", "C_R", "C_S", "C_P", "verbose", "mip_gap"}
+    array_keys = {"mu", "v", "mu_0", "v_0", "c", "xi",
+                  "support", "cgf", "mu_trans", "v_trans", "support_trans", "cgf_trans"}
 
     with h5py.File(path, "r") as f:
+        # H may be a scalar (single horizon) or a 2-element [H1, H2].
+        if "H" in f:
+            hval = f["H"][()]
+            data["H"] = hval.tolist() if np.ndim(hval) > 0 else float(hval)
+        elif "H" in f.attrs:
+            hval = f.attrs["H"]
+            data["H"] = hval.tolist() if np.ndim(hval) > 0 else float(hval)
         for key in scalar_keys:
             if key in f.attrs:
                 data[key] = float(f.attrs[key])
@@ -142,6 +150,27 @@ def _resolve_results_path(results_path) -> Path:
     return p
 
 
+def _parse_horizon(data: dict):
+    """Read H as either a single int or a two-element [H1, H2].
+
+    Returns (H_value, H1, H2) where:
+      * H_value is what gets passed to the solver: an int for a single horizon,
+        or a (H1, H2) tuple for a transitory + operating split.
+      * H2 is the OPERATING period (the length the per-mission profiles are
+        broadcast to); for a single horizon H1 == H2 == H.
+    """
+    H_raw = data["H"]
+    if isinstance(H_raw, (list, tuple)):
+        if len(H_raw) != 2:
+            raise ValueError("'H' must be an int or a two-element list [H1, H2].")
+        H1, H2 = int(H_raw[0]), int(H_raw[1])
+        if H1 <= 0 or H2 <= 0:
+            raise ValueError(f"H1 and H2 must be positive (got {H1}, {H2}).")
+        return (H1, H2), H1, H2
+    H = int(H_raw)
+    return H, H, H
+
+
 def _extract_parameters(data: dict, degradation: str) -> dict:
     # Extract and validate all solver parameters from the parsed input data.
     required = REQUIRED_KEYS_BY_DEGRADATION[degradation]
@@ -150,7 +179,7 @@ def _extract_parameters(data: dict, degradation: str) -> dict:
         raise KeyError(f"Missing required keys in input file: {sorted(missing)}")
 
     F = int(data["F"])
-    H = int(data["H"])
+    H_value, H1, H2 = _parse_horizon(data)
     M = int(data["M"])
     L = int(data.get("L", 1))
     alpha = float(data["alpha"]) if "alpha" in data else None
@@ -160,12 +189,21 @@ def _extract_parameters(data: dict, degradation: str) -> dict:
     C_S = float(data["C_S"])
     C_P = float(data["C_P"])
 
+    # Two-horizon (H = [H1, H2]) is only supported by the rainflow solver; the
+    # Gaussian / inverse-Gaussian solvers expect a single scalar horizon.
+    if isinstance(H_value, tuple) and degradation != "rainflow":
+        raise ValueError(
+            "A two-horizon 'H' (list [H1, H2]) is only supported for the "
+            "'rainflow' degradation model."
+        )
+
     # Optional parameters with defaults
     verbose = int(data.get("verbose", 1))
     mip_gap_raw = data.get("mip_gap", None)
     mip_gap = float(mip_gap_raw) if mip_gap_raw is not None else None
     tau = float(data.get("tau", 1.0))
-    time_limit = int(data.get("time_limit", None))  # in seconds
+    time_limit_raw = data.get("time_limit", None)          # in seconds
+    time_limit = int(time_limit_raw) if time_limit_raw is not None else None
 
     # --- Broadcast xi: accept (F,) when L=1, or (F, L) ---
     xi = np.array(data["xi"], dtype=float)
@@ -185,9 +223,9 @@ def _extract_parameters(data: dict, degradation: str) -> dict:
             f"'mu_0' shape {mu_0.shape} does not match (F={F}, L={L})."
         )
 
-    # --- Broadcast mu_param: accept multiple shapes ---
+    # --- Broadcast mu_param: accept multiple shapes (operating period H2) ---
     mu_param = np.array(data["mu"], dtype=float)
-    mu_param = _broadcast_4d_param(mu_param, F, M, L, H, "mu")
+    mu_param = _broadcast_4d_param(mu_param, F, M, L, H2, "mu")
 
     if degradation == "gaussian":
         # --- Broadcast v_0: accept (F,) when L=1, or (F, L) ---
@@ -201,10 +239,10 @@ def _extract_parameters(data: dict, degradation: str) -> dict:
 
         # --- Broadcast v_param: accept multiple shapes ---
         v_param = np.array(data["v"], dtype=float)
-        v_param = _broadcast_4d_param(v_param, F, M, L, H, "v")
+        v_param = _broadcast_4d_param(v_param, F, M, L, H2, "v")
 
         return {
-            "F": F, "H": H, "M": M, "L": L,
+            "F": F, "H": H_value, "M": M, "L": L,
             "mu_param": mu_param, "v_param": v_param,
             "alpha": alpha, "epsilon": epsilon, "xi": xi,
             "C_M": C_M, "C_R": C_R, "C_S": C_S, "C_P": C_P,
@@ -230,9 +268,9 @@ def _extract_parameters(data: dict, degradation: str) -> dict:
                 f"'v_0' shape {v_0.shape} does not match (F={F}, L={L})."
             )
 
-        # --- Broadcast v_param: accept multiple shapes ---
+        # --- Broadcast v_param: accept multiple shapes (operating period H2) ---
         v_param = np.array(data["v"], dtype=float)
-        v_param = _broadcast_4d_param(v_param, F, M, L, H, "v")
+        v_param = _broadcast_4d_param(v_param, F, M, L, H2, "v")
 
         # --- Reliability bound: markov | cantelli | hoeffding | bernstein | chernoff ---
         method = str(data.get("method", "cantelli"))
@@ -240,21 +278,41 @@ def _extract_parameters(data: dict, degradation: str) -> dict:
         # --- Optional per-mission support width (Hoeffding / Bernstein) ---
         support_raw = data.get("support", data.get("support_param", None))
         support_param = (
-            _broadcast_4d_param(np.array(support_raw, dtype=float), F, M, L, H, "support")
+            _broadcast_4d_param(np.array(support_raw, dtype=float), F, M, L, H2, "support")
             if support_raw is not None else None
         )
 
         # --- Optional per-mission CGF at s, and the tilt s (Chernoff) ---
         cgf_raw = data.get("cgf", data.get("cgf_param", None))
         cgf_param = (
-            _broadcast_4d_param(np.array(cgf_raw, dtype=float), F, M, L, H, "cgf")
+            _broadcast_4d_param(np.array(cgf_raw, dtype=float), F, M, L, H2, "cgf")
             if cgf_raw is not None else None
         )
         s_raw = data.get("s_chernoff", data.get("s", None))
         s_chernoff = float(s_raw) if s_raw is not None else None
 
+        # --- Optional transitory-phase profiles (broadcast to H1) ---------
+        # Used only when H is a two-element [H1, H2]; give the transitory run-up
+        # a different regime.  When omitted the transitory phase reuses the
+        # operating profiles.
+        def _opt_trans(key_names, name):
+            raw = None
+            for kn in key_names:
+                if kn in data and data[kn] is not None:
+                    raw = data[kn]
+                    break
+            if raw is None:
+                return None
+            return _broadcast_4d_param(np.array(raw, dtype=float), F, M, L, H1, name)
+
+        mu_param_trans = _opt_trans(("mu_trans", "mu_param_trans"), "mu_trans")
+        v_param_trans = _opt_trans(("v_trans", "v_param_trans"), "v_trans")
+        support_param_trans = _opt_trans(
+            ("support_trans", "support_param_trans"), "support_trans")
+        cgf_param_trans = _opt_trans(("cgf_trans", "cgf_param_trans"), "cgf_trans")
+
         return {
-            "F": F, "H": H, "M": M, "L": L,
+            "F": F, "H": H_value, "M": M, "L": L,
             "mu_param": mu_param, "v_param": v_param,
             "tau": tau, "epsilon": epsilon, "xi": xi,
             "C_M": C_M, "C_R": C_R, "C_S": C_S, "C_P": C_P,
@@ -263,6 +321,10 @@ def _extract_parameters(data: dict, degradation: str) -> dict:
             "support_param": support_param,
             "cgf_param": cgf_param,
             "s_chernoff": s_chernoff,
+            "mu_param_trans": mu_param_trans,
+            "v_param_trans": v_param_trans,
+            "support_param_trans": support_param_trans,
+            "cgf_param_trans": cgf_param_trans,
             "verbose": verbose,
             "mip_gap": mip_gap,
             "time_limit": time_limit,
@@ -279,7 +341,7 @@ def _extract_parameters(data: dict, degradation: str) -> dict:
             )
 
         return {
-            "F": F, "H": H, "M": M, "L": L,
+            "F": F, "H": H_value, "M": M, "L": L,
             "mu_param": mu_param, "c": c,
             "alpha": alpha, "epsilon": epsilon, "xi": xi,
             "C_M": C_M, "C_R": C_R, "C_S": C_S, "C_P": C_P,
@@ -346,15 +408,23 @@ def _build_serializable_output(result: dict) -> dict:
         "alpha": result.get("alpha", result.get("tau")),
         "mu_0": result["mu_0"].tolist(),
     }
+    # two-horizon / rainflow extras (only present for those results)
+    for key in ("H1", "H2", "T", "method", "repair_model"):
+        if key in result and result[key] is not None:
+            output[key] = result[key]
     if "v_0" in result:
         output["v_0"] = result["v_0"].tolist()
     if result["x"] is not None:
         output["x"] = result["x"].tolist()
         output["mu"] = result["mu"].tolist()
-        if "v" in result:
+        if "v" in result and result["v"] is not None:
             output["v"] = result["v"].tolist()
         output["u"] = result["u"].tolist()
         output["z"] = result["z"].tolist()
+        if result.get("m") is not None:
+            output["m"] = result["m"].tolist()
+        if result.get("r") is not None:
+            output["r"] = result["r"].tolist()
     return output
 
 
@@ -380,14 +450,22 @@ def _save_hdf5(result: dict, path: Path) -> None:
         f.attrs["M"] = result["M"]
         f.attrs["H"] = result["H"]
         f.attrs["L"] = result["L"]
-        f.attrs["alpha"] = result["alpha"]
+        # rainflow carries `tau` rather than `alpha`; fall back gracefully.
+        f.attrs["alpha"] = result.get("alpha", result.get("tau"))
+        for key in ("H1", "H2", "T", "method", "repair_model"):
+            if key in result and result[key] is not None:
+                f.attrs[key] = result[key]
         f.create_dataset("mu_0", data=result["mu_0"])
         if "v_0" in result:
             f.create_dataset("v_0", data=result["v_0"])
         if result["x"] is not None:
             f.create_dataset("x", data=result["x"])
             f.create_dataset("mu", data=result["mu"])
-            if "v" in result:
+            if "v" in result and result["v"] is not None:
                 f.create_dataset("v", data=result["v"])
             f.create_dataset("u", data=result["u"])
             f.create_dataset("z", data=result["z"])
+            if result.get("m") is not None:
+                f.create_dataset("m", data=result["m"])
+            if result.get("r") is not None:
+                f.create_dataset("r", data=result["r"])
