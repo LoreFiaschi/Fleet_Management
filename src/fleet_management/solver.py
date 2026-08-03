@@ -165,7 +165,7 @@ def _extract_parameters(data: dict, degradation: str) -> dict:
     mip_gap_raw = data.get("mip_gap", None)
     mip_gap = float(mip_gap_raw) if mip_gap_raw is not None else None
     tau = float(data.get("tau", 1.0))
-    # time_limit = int(data.get("time_limit", None))  # in seconds
+    time_limit = int(data.get("time_limit", None))  # in seconds
 
     # --- Broadcast xi: accept (F,) when L=1, or (F, L) ---
     xi = np.array(data["xi"], dtype=float)
@@ -265,6 +265,7 @@ def _extract_parameters(data: dict, degradation: str) -> dict:
             "s_chernoff": s_chernoff,
             "verbose": verbose,
             "mip_gap": mip_gap,
+            "time_limit": time_limit,
         }
     
     else:  # inverse_gaussian
