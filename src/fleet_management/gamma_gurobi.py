@@ -33,6 +33,7 @@ from __future__ import annotations
 
 import gurobipy as gp
 import numpy as np
+import time                             # performance measurement
 from gurobipy import GRB
 from scipy.stats import gamma
 
@@ -132,6 +133,8 @@ def solve_fleet_management(
     mip_gap: float | None = None,
 ) -> dict:
     """Solve the fleet problem with common-rate Gamma degradation."""
+
+    backend_start = time.perf_counter()         # performance measurement
 
     validate_inputs(
         F=F,
@@ -318,8 +321,20 @@ def solve_fleet_management(
                 name=f"demand_{j}_{k}",
             )
 
-    model.optimize()
+    model.update()                                                  # begin performance measurement
+    construction_seconds = time.perf_counter() - backend_start
 
+    optimizer_start = time.perf_counter()
+    model.optimize()
+    optimizer_call_seconds = time.perf_counter() - optimizer_start
+
+    performance = _collect_model_performance(
+        model=model,
+        construction_seconds=construction_seconds,
+        optimizer_call_seconds=optimizer_call_seconds,
+    )                                                               # end performance measurement
+
+    extraction_start = time.perf_counter()
     if model.status == GRB.OPTIMAL:
         x_solution = np.zeros((F, M + 1, 2 * H))
         m_solution = np.zeros((F, L, 2 * H))
@@ -349,6 +364,13 @@ def solve_fleet_management(
                             scale=1.0 / beta[l],
                         )
 
+        performance["solution_extraction_seconds"] = (          # performance measurement
+            time.perf_counter() - extraction_start
+        )
+        performance["backend_wall_seconds"] = (                 # performance measurement
+            time.perf_counter() - backend_start
+        )
+
         return {
             "status": "optimal",
             "objective": model.ObjVal,
@@ -370,7 +392,12 @@ def solve_fleet_management(
             "u": u_solution,
             "z": z_solution,
             "model": model,
+            "performance": performance,                 # performance measurement
         }
+
+    performance["backend_wall_seconds"] = (             # performance measurement
+        time.perf_counter() - backend_start
+    )
 
     return {
         "status": model.status,
@@ -393,4 +420,63 @@ def solve_fleet_management(
         "u": None,
         "z": None,
         "model": model,
+        "performance": performance,                     # performance measurement
+    }
+
+
+def _collect_model_performance(                         # performance measurement
+    *,
+    model: gp.Model,
+    construction_seconds: float,
+    optimizer_call_seconds: float,
+) -> dict[str, object]:
+    """Collect solver-size and runtime diagnostics after optimization."""
+
+    solution_exists = int(model.SolCount) > 0
+
+    objective_value = None
+    objective_bound = None
+    relative_mip_gap = None
+
+    if solution_exists:
+        objective_value = float(model.ObjVal)
+        objective_bound = float(model.ObjBound)
+
+        # MIPGap is meaningful for MIP models with an incumbent solution.
+        if int(model.NumIntVars) > 0:
+            relative_mip_gap = float(model.MIPGap)
+
+    return {
+        "gurobi_version": ".".join(
+            str(part) for part in gp.gurobi.version()
+        ),
+        "status_code": int(model.Status),
+        "solutions_found": int(model.SolCount),
+
+        # Model scale
+        "variables": int(model.NumVars),
+        "continuous_variables": int(model.NumVars - model.NumIntVars),
+        "integer_variables": int(model.NumIntVars),
+        "binary_variables": int(model.NumBinVars),
+        "linear_constraints": int(model.NumConstrs),
+        "general_constraints": int(model.NumGenConstrs),
+        "nonzeros": int(model.NumNZs),
+
+        # Timing
+        "model_construction_seconds": float(construction_seconds),
+        "optimizer_call_seconds": float(optimizer_call_seconds),
+        "gurobi_runtime_seconds": float(model.Runtime),
+        "solution_extraction_seconds": 0.0,
+        "backend_wall_seconds": 0.0,
+
+        # Optimization work
+        "branch_and_bound_nodes": float(model.NodeCount),
+        "simplex_iterations": float(model.IterCount),
+        "barrier_iterations": float(model.BarIterCount),
+        "work_units": float(model.Work),
+
+        # Solution quality
+        "objective_value": objective_value,
+        "objective_bound": objective_bound,
+        "relative_mip_gap": relative_mip_gap,
     }

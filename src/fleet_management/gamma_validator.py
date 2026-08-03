@@ -14,6 +14,7 @@ from typing import Any
 
 import numpy as np
 import yaml
+import time                         # performance measurement
 from scipy.stats import gamma
 
 from fleet_management.degradation.gamma import maximum_reliable_shape
@@ -41,6 +42,8 @@ def validate_gamma_result(
     tolerance:
         Numerical tolerance used for equality and inequality checks.
     """
+
+    validation_start = time.perf_counter()                              # performance measurement
 
     if tolerance <= 0.0:
         raise ValueError("tolerance must be positive.")
@@ -90,7 +93,9 @@ def validate_gamma_result(
             result=result,
             dimensions={"F": F, "H": H, "M": M, "L": L},
             tolerance=tolerance,
-            summary={"reason": "No optimal solution arrays can be validated."},
+            summary={"reason": "No optimal solution arrays can be validated.",
+                     "validation_wall_seconds": float(time.perf_counter() - validation_start),              # performance measurement
+            },
         )
         _save_report_if_requested(report, validation_path)
         return report
@@ -276,6 +281,7 @@ def validate_gamma_result(
         "recomputed_objective": objective,
         "saved_objective": saved_objective,
         "exact_scaled_repair_comparison": repair_diagnostic,
+        "validation_wall_seconds": float(time.perf_counter() - validation_start),                # performance measurement
     }
     report = _finish_report(
         checks=checks,

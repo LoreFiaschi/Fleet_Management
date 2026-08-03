@@ -24,7 +24,7 @@ SUPPORTED_DEGRADATIONS = {"gamma", "gaussian", "inverse_gaussian"}
 SUPPORTED_EXTENSIONS = {".yaml", ".yml", ".json", ".h5", ".hdf5"}
 
 
-def solve(input_path: str, degradation: str, results_path: str = None) -> None:
+def solve(input_path: str, degradation: str, results_path: str = None) -> dict:         # was -> None, now -> dict for performance measurement
     """
     Mid-layer between the user and the fleet-management solvers.
 
@@ -76,6 +76,7 @@ def solve(input_path: str, degradation: str, results_path: str = None) -> None:
     else:  # gamma
         result = solve_gamma(**params)
 
+    performance = result.setdefault("performance", {})          # performance measurement
     result["degradation"] = degradation_lower
     result["mu_0"] = params["mu_0"]
     if "v_0" in params:
@@ -83,6 +84,8 @@ def solve(input_path: str, degradation: str, results_path: str = None) -> None:
 
     # --- Save results ---
     _save_results(result, results_path)
+
+    return result                                               # performance measurement
 
 
 def _read_input(input_file: Path) -> dict:
@@ -381,8 +384,29 @@ def _build_serializable_output(result: dict) -> dict:
             output["v"] = result["v"].tolist()
         output["u"] = result["u"].tolist()
         output["z"] = result["z"].tolist()
+    if "performance" in result:                                         # performance measurement
+        output["performance"] = _to_builtin(result["performance"])      # performance measurement
     return output
 
+def _to_builtin(value):                                                 # performance measurement
+    """Convert NumPy values and nested containers to serializable Python types."""
+
+    if isinstance(value, dict):
+        return {
+            str(key): _to_builtin(item)
+            for key, item in value.items()
+        }
+
+    if isinstance(value, (list, tuple)):
+        return [_to_builtin(item) for item in value]
+
+    if isinstance(value, np.ndarray):
+        return [_to_builtin(item) for item in value.tolist()]
+
+    if isinstance(value, np.generic):
+        return value.item()
+
+    return value
 
 def _save_yaml(result: dict, path: Path) -> None:
     output = _build_serializable_output(result)

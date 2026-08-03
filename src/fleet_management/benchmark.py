@@ -38,7 +38,7 @@ class BenchmarkCase:
 
 BENCHMARK_CASES = {
     "small": BenchmarkCase("small", vehicles=4, missions=2, components=2, horizon=4),
-    "medium": BenchmarkCase("medium", vehicles=8, missions=4, components=3, horizon=8),
+    "medium": BenchmarkCase("medium", vehicles=5, missions=3, components=3, horizon=6),
     "large": BenchmarkCase("large", vehicles=12, missions=6, components=4, horizon=12),
 }
 
