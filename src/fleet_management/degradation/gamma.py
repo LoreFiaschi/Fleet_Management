@@ -113,6 +113,34 @@ class GammaModel:
         shape_array = self._nonnegative_array(shape, name="shape")
         return shape_array / self.beta**2
 
+    def accumulate(
+        self,
+        current_shape: ArrayLike,
+        increment_shape: ArrayLike,
+    ) -> FloatArray:
+        """Add shapes belonging to independent Gamma variables.
+
+        This operation is exact only because both variables use this model's
+        common rate ``beta``. The rate is attached to the model rather than
+        passed per increment, preventing accidental mixed-rate accumulation.
+        """
+
+        current = self._nonnegative_array(
+            current_shape,
+            name="current_shape",
+        )
+        increment = self._nonnegative_array(
+            increment_shape,
+            name="increment_shape",
+        )
+        try:
+            return current + increment
+        except ValueError as error:
+            raise ValueError(
+                "current_shape and increment_shape cannot be broadcast to "
+                "compatible shapes."
+            ) from error
+
     # ------------------------------------------------------------------
     # Probability calculations
     # ------------------------------------------------------------------

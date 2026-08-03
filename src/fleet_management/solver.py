@@ -10,6 +10,9 @@ from fleet_management.gaussian import solve_fleet_management as solve_gaussian
 from fleet_management.inverse_gaussian import (
     solve_fleet_management as solve_inverse_gaussian,
 )
+from fleet_management.gamma_gurobi import (
+    solve_fleet_management as solve_gamma,
+)
 """from fleet_management.model_registry import (
     SUPPORTED_DEGRADATIONS,
     REQUIRED_KEYS_BY_DEGRADATION,
@@ -17,7 +20,7 @@ from fleet_management.inverse_gaussian import (
     broadcast_4d_param,
 )"""
 
-SUPPORTED_DEGRADATIONS = {"gaussian", "inverse_gaussian"}
+SUPPORTED_DEGRADATIONS = {"gamma", "gaussian", "inverse_gaussian"}
 SUPPORTED_EXTENSIONS = {".yaml", ".yml", ".json", ".h5", ".hdf5"}
 
 
@@ -31,7 +34,8 @@ def solve(input_path: str, degradation: str, results_path: str = None) -> None:
         Path to an input file containing the problem data.
         Supported formats: YAML (.yaml/.yml), JSON (.json), HDF5 (.h5/.hdf5).
     degradation : str
-        Type of degradation model. Currently supported: "gaussian", "inverse_gaussian".
+        Type of degradation model. Supported values are "gamma", "gaussian"
+        and "inverse_gaussian".
     results_path : str, optional
         Path where results will be saved. Defaults to "output.yaml".
         If provided without an extension, ".yaml" is appended.
@@ -69,6 +73,8 @@ def solve(input_path: str, degradation: str, results_path: str = None) -> None:
         result = solve_gaussian(**params)
     elif degradation_lower == "inverse_gaussian":
         result = solve_inverse_gaussian(**params)
+    else:  # gamma
+        result = solve_gamma(**params)
 
     result["degradation"] = degradation_lower
     result["mu_0"] = params["mu_0"]
@@ -103,8 +109,14 @@ def _read_hdf5(path: Path) -> dict:
     - Array parameters (mu, v, mu_0, v_0, c, xi) stored as datasets.
     """
     data = {}
-    scalar_keys = {"F", "H", "M", "L", "alpha", "epsilon", "C_M", "C_R", "C_S", "C_P", "verbose", "mip_gap"}
-    array_keys = {"mu", "v", "mu_0", "v_0", "c", "xi"}
+    scalar_keys = {
+        "F", "H", "M", "L", "alpha", "epsilon",
+        "C_M", "C_R", "C_S", "C_P", "verbose", "mip_gap",
+    }
+    array_keys = {
+        "mu", "v", "mu_0", "v_0", "c", "xi", "replacement_mu",
+        "tau", "gamma_beta",
+    }
 
     with h5py.File(path, "r") as f:
         for key in scalar_keys:
@@ -114,7 +126,11 @@ def _read_hdf5(path: Path) -> dict:
                 data[key] = float(f[key][()])
         for key in array_keys:
             if key in f:
-                data[key] = f[key][()].tolist()
+                value = f[key][()]
+                data[key] = value.tolist() if np.ndim(value) else float(value)
+            elif key in f.attrs:
+                value = f.attrs[key]
+                data[key] = value.tolist() if np.ndim(value) else float(value)
 
     return data
 
@@ -132,8 +148,13 @@ def _resolve_results_path(results_path) -> Path:
 _COMMON_KEYS = {"F", "H", "M", "mu", "alpha", "epsilon", "xi", "C_M", "C_R", "C_S", "C_P", "mu_0"}
 _GAUSSIAN_KEYS = _COMMON_KEYS | {"v", "v_0"}
 _INVERSE_GAUSSIAN_KEYS = _COMMON_KEYS | {"c"}
+_GAMMA_KEYS = {
+    "F", "H", "M", "mu", "tau", "gamma_beta", "epsilon",
+    "C_M", "C_R", "C_S", "C_P", "mu_0",
+}
 
 REQUIRED_KEYS_BY_DEGRADATION = {
+    "gamma": _GAMMA_KEYS,
     "gaussian": _GAUSSIAN_KEYS,
     "inverse_gaussian": _INVERSE_GAUSSIAN_KEYS,
 }
@@ -161,7 +182,6 @@ def _extract_parameters(data: dict, degradation: str) -> dict:
     H = int(data["H"])
     M = int(data["M"])
     L = int(data.get("L", 1))
-    alpha = float(data["alpha"])
     epsilon = float(data["epsilon"])
     C_M = float(data["C_M"])
     C_R = float(data["C_R"])
@@ -171,15 +191,6 @@ def _extract_parameters(data: dict, degradation: str) -> dict:
     verbose = int(data.get("verbose", 1))
     mip_gap_raw = data.get("mip_gap", None)
     mip_gap = float(mip_gap_raw) if mip_gap_raw is not None else None
-
-    # --- Broadcast xi: accept (F,) when L=1, or (F, L) ---
-    xi = np.array(data["xi"], dtype=float)
-    if L == 1 and xi.shape == (F,):
-        xi = xi[:, np.newaxis]
-    elif xi.shape != (F, L):
-        raise ValueError(
-            f"'xi' shape {xi.shape} does not match (F={F}, L={L})."
-        )
 
     # --- Broadcast mu_0: accept (F,) when L=1, or (F, L) ---
     mu_0 = np.array(data["mu_0"], dtype=float)
@@ -193,6 +204,41 @@ def _extract_parameters(data: dict, degradation: str) -> dict:
     # --- Broadcast mu_param: accept multiple shapes ---
     mu_param = np.array(data["mu"], dtype=float)
     mu_param = _broadcast_4d_param(mu_param, F, M, L, H, "mu")
+
+    if degradation == "gamma":
+        gamma_beta = _broadcast_component_param(
+            data["gamma_beta"], L, "gamma_beta"
+        )
+        tau = _broadcast_component_param(data["tau"], L, "tau")
+        replacement_mu = np.array(
+            data.get("replacement_mu", np.zeros((F, L))), dtype=float
+        )
+        if L == 1 and replacement_mu.shape == (F,):
+            replacement_mu = replacement_mu[:, np.newaxis]
+        elif replacement_mu.shape != (F, L):
+            raise ValueError(
+                "'replacement_mu' shape "
+                f"{replacement_mu.shape} does not match (F={F}, L={L})."
+            )
+        return {
+            "F": F, "H": H, "M": M, "L": L,
+            "mu_param": mu_param, "tau": tau,
+            "epsilon": epsilon, "gamma_beta": gamma_beta,
+            "C_M": C_M, "C_R": C_R, "C_S": C_S, "C_P": C_P,
+            "mu_0": mu_0, "replacement_mu": replacement_mu,
+            "verbose": verbose, "mip_gap": mip_gap,
+        }
+
+    alpha = float(data["alpha"])
+
+    # xi belongs to the repair-based legacy backends, not exact Gamma.
+    xi = np.array(data["xi"], dtype=float)
+    if L == 1 and xi.shape == (F,):
+        xi = xi[:, np.newaxis]
+    elif xi.shape != (F, L):
+        raise ValueError(
+            f"'xi' shape {xi.shape} does not match (F={F}, L={L})."
+        )
 
     if degradation == "gaussian":
         # --- Broadcast v_0: accept (F,) when L=1, or (F, L) ---
@@ -268,6 +314,19 @@ def _broadcast_4d_param(arr: np.ndarray, F: int, M: int, L: int, H: int,
     )
 
 
+def _broadcast_component_param(value, L: int, name: str) -> np.ndarray:
+    """Accept a scalar or one value per component."""
+
+    array = np.asarray(value, dtype=float)
+    if array.ndim == 0:
+        return np.full(L, float(array))
+    if array.shape == (L,):
+        return array
+    raise ValueError(
+        f"'{name}' shape {array.shape} must be scalar or ({L},)."
+    )
+
+
 def _save_results(result: dict, path: Path) -> None:
     """Save solver results to a file (YAML, JSON, or HDF5)."""
     ext = path.suffix.lower()
@@ -292,14 +351,23 @@ def _build_serializable_output(result: dict) -> dict:
         "M": result["M"],
         "H": result["H"],
         "L": result["L"],
-        "alpha": result["alpha"],
         "mu_0": result["mu_0"].tolist(),
     }
+    if "alpha" in result:
+        output["alpha"] = result["alpha"]
+    if "tau" in result:
+        output["tau"] = result["tau"].tolist()
+        output["gamma_beta"] = result["gamma_beta"].tolist()
+        output["replacement_mu"] = result["replacement_mu"].tolist()
+        output["maximum_shape"] = result["maximum_shape"].tolist()
     if "v_0" in result:
         output["v_0"] = result["v_0"].tolist()
     if result["x"] is not None:
         output["x"] = result["x"].tolist()
         output["mu"] = result["mu"].tolist()
+        if "A" in result:
+            output["A"] = result["A"].tolist()
+            output["tail_probability"] = result["tail_probability"].tolist()
         if "v" in result:
             output["v"] = result["v"].tolist()
         output["u"] = result["u"].tolist()
@@ -329,13 +397,24 @@ def _save_hdf5(result: dict, path: Path) -> None:
         f.attrs["M"] = result["M"]
         f.attrs["H"] = result["H"]
         f.attrs["L"] = result["L"]
-        f.attrs["alpha"] = result["alpha"]
+        if "alpha" in result:
+            f.attrs["alpha"] = result["alpha"]
+        if "tau" in result:
+            f.create_dataset("tau", data=result["tau"])
+            f.create_dataset("gamma_beta", data=result["gamma_beta"])
+            f.create_dataset("replacement_mu", data=result["replacement_mu"])
+            f.create_dataset("maximum_shape", data=result["maximum_shape"])
         f.create_dataset("mu_0", data=result["mu_0"])
         if "v_0" in result:
             f.create_dataset("v_0", data=result["v_0"])
         if result["x"] is not None:
             f.create_dataset("x", data=result["x"])
             f.create_dataset("mu", data=result["mu"])
+            if "A" in result:
+                f.create_dataset("A", data=result["A"])
+                f.create_dataset(
+                    "tail_probability", data=result["tail_probability"]
+                )
             if "v" in result:
                 f.create_dataset("v", data=result["v"])
             f.create_dataset("u", data=result["u"])

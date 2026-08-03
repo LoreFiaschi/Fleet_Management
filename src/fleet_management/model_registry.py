@@ -5,7 +5,7 @@ This module is intended to be the single place where new degradation families
 are registered. Solver, validator, and dashboard code should use this module
 instead of duplicating degradation-specific parsing logic.
 """
-
+# DEPRECATED
 from __future__ import annotations
 
 from dataclasses import dataclass

@@ -30,7 +30,10 @@ solve("input/data.yaml", degradation="gaussian", results_path="results/output.ya
 # 2. Solve with inverse Gaussian degradation
 solve("input/data_ig.yaml", degradation="inverse_gaussian", results_path="results/output_ig.yaml")
 
-# 3. Plot the resulting schedule
+# 3. Solve with Gamma degradation
+solve("input/tiny_gamma.yaml", degradation="gamma", results_path="results/output_tiny_gamma.yaml")
+
+# 4. Plot the resulting schedule
 plot_management("results/output.yaml", plot_file_path="results/schedule.png")
 ```
 
