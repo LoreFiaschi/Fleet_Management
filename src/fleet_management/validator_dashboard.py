@@ -1052,7 +1052,7 @@ with tab_vehicle:
 
     # Read result data directly to access the full solver trajectory.
     try:
-        from fleet_management.validator.validator import _read_results, _extract_results_parameters
+        from fleet_management.validation.validator import _read_results, _extract_results_parameters
 
         results_data = _read_results(Path(results_path))
         results_params = _extract_results_parameters(results_data)
@@ -1275,7 +1275,7 @@ with tab_heatmap:
     )
 
     try:
-        from fleet_management.validator.validator import _read_results, _extract_results_parameters
+        from fleet_management.validation.validator import _read_results, _extract_results_parameters
 
         results_data = _read_results(Path(results_path))
         results_params = _extract_results_parameters(results_data)
@@ -1442,7 +1442,7 @@ with tab_component:
     )
 
     try:
-        from fleet_management.validator.validator import _read_results, _extract_results_parameters
+        from fleet_management.validation.validator import _read_results, _extract_results_parameters
 
         results_data = _read_results(Path(results_path))
         results_params = _extract_results_parameters(results_data)
