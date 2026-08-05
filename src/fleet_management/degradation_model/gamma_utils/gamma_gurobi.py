@@ -37,7 +37,7 @@ import time                             # performance measurement
 from gurobipy import GRB
 from scipy.stats import gamma
 
-from fleet_management.degradation.gamma import maximum_reliable_shape
+from fleet_management.degradation_model.gamma import maximum_reliable_shape
 
 
 def validate_inputs(

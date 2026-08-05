@@ -1,4 +1,4 @@
-from fleet_management.validator import validate
+from fleet_management.validator.validator import validate
 
 
 def test_validator_accepts_valid_baseline():

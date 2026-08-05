@@ -468,7 +468,7 @@ def _read_input_extras(input_path, res):
     F, M, H, L = res["F"], res["M"], res["H"], res["L"]
     try:
         from fleet_management.solver import _read_input
-        from fleet_management.model_registry import extract_degradation_parameters
+        from fleet_management.utils.model_registry import extract_degradation_parameters
         data = _read_input(Path(input_path))
         p = extract_degradation_parameters(data, "rainflow")
         eps = p.get("epsilon")

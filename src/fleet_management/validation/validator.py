@@ -11,8 +11,8 @@ import yaml
 import pandas as pd
 
 from fleet_management.solver import _read_input # , _extract_parameters
-from fleet_management.model_registry import extract_degradation_parameters
-from fleet_management.gamma_process import (
+from fleet_management.utils.model_registry import extract_degradation_parameters
+from fleet_management.degradation_model.gamma_utils.gamma_process import (
     mean_to_shape,
     shape_to_mean,
     shape_to_variance,

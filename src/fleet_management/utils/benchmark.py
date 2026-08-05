@@ -148,7 +148,7 @@ def run_gamma_benchmarks(
     profile_names = tuple(profiles)
 
     # Lazy imports keep instance generation usable without a Gurobi install.
-    from fleet_management.gamma_validator import validate_gamma_result
+    from fleet_management.degradation_model.gamma.gamma_validator import validate_gamma_result
     from fleet_management.solver import solve
 
     destination = Path(output_dir)

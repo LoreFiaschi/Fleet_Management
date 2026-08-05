@@ -17,7 +17,7 @@ import yaml
 import time                         # performance measurement
 from scipy.stats import gamma
 
-from fleet_management.degradation.gamma import maximum_reliable_shape
+from fleet_management.degradation_model.gamma import maximum_reliable_shape
 
 
 SUPPORTED_RESULT_EXTENSIONS = {".yaml", ".yml", ".json", ".h5", ".hdf5"}

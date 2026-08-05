@@ -6,20 +6,10 @@ import h5py
 import numpy as np
 import yaml
 
-from fleet_management.gaussian import solve_fleet_management as solve_gaussian
-from fleet_management.inverse_gaussian import (
-    solve_fleet_management as solve_inverse_gaussian,
-)
-from fleet_management.gamma_gurobi import (
-    solve_fleet_management as solve_gamma,
-)
-"""from fleet_management.model_registry import (
-    SUPPORTED_DEGRADATIONS,
-    REQUIRED_KEYS_BY_DEGRADATION,
-    extract_degradation_parameters,
-    broadcast_4d_param,
-)"""
-from fleet_management.rainflow import solve_fleet_management as solve_rainflow
+from fleet_management.degradation_model.gaussian import solve_fleet_management as solve_gaussian
+from fleet_management.degradation_model.inverse_gaussian import solve_fleet_management as solve_inverse_gaussian
+from fleet_management.degradation_model.gamma_utils.gamma_gurobi import solve_fleet_management as solve_gamma
+from fleet_management.degradation_model.rainflow import solve_fleet_management as solve_rainflow
 
 SUPPORTED_DEGRADATIONS = {"gaussian", "inverse_gaussian", "rainflow", "gamma"}
 SUPPORTED_EXTENSIONS = {".yaml", ".yml", ".json", ".h5", ".hdf5"}
