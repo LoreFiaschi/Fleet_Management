@@ -29,6 +29,7 @@ from fleet_management.validator import (
 )
 
 from fleet_management.dashboard_gamma import render_gamma_diagnostic_dashboard
+from fleet_management.dashboard_rainflow import render_rainflow_inspector_dashboard
 
 
 st.set_page_config(
@@ -43,11 +44,16 @@ dashboard_mode = st.sidebar.selectbox(
     options=[
         "Baseline Gaussian validator",
         "Gamma synthetic diagnostic",
+        "Rainflow Inspector",
     ]
 )
 
 if dashboard_mode == "Gamma synthetic diagnostic":
     render_gamma_diagnostic_dashboard()
+    st.stop()
+
+if dashboard_mode == "Rainflow Inspector":
+    render_rainflow_inspector_dashboard()
     st.stop()
 
 def _path_exists(path_str: str) -> bool:

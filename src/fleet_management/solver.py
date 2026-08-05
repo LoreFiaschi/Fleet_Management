@@ -19,10 +19,26 @@ from fleet_management.gamma_gurobi import (
     extract_degradation_parameters,
     broadcast_4d_param,
 )"""
+from fleet_management.rainflow import solve_fleet_management as solve_rainflow
 
-SUPPORTED_DEGRADATIONS = {"gamma", "gaussian", "inverse_gaussian"}
+SUPPORTED_DEGRADATIONS = {"gaussian", "inverse_gaussian", "rainflow", "gamma"}
 SUPPORTED_EXTENSIONS = {".yaml", ".yml", ".json", ".h5", ".hdf5"}
 
+_COMMON_KEYS = {"F", "H", "M", "mu", "alpha", "epsilon", "xi", "C_M", "C_R", "C_S", "C_P", "mu_0"}
+_GAUSSIAN_KEYS = _COMMON_KEYS | {"v", "v_0"}
+_INVERSE_GAUSSIAN_KEYS = _COMMON_KEYS | {"c"}
+_RAINFLOW_KEYS = (_COMMON_KEYS - {"alpha"}) | {"v", "v_0"}
+_GAMMA_KEYS = {
+    "F", "H", "M", "mu", "tau", "gamma_beta", "epsilon",
+    "C_M", "C_R", "C_rep", "C_S", "C_P", "mu_0", "repair_rho",
+}
+
+REQUIRED_KEYS_BY_DEGRADATION = {
+    "gaussian": _GAUSSIAN_KEYS,
+    "inverse_gaussian": _INVERSE_GAUSSIAN_KEYS,
+    "rainflow": _RAINFLOW_KEYS,
+    "gamma": _GAMMA_KEYS,
+}
 
 def solve(input_path: str, degradation: str, results_path: str = None) -> dict:         # was -> None, now -> dict for performance measurement
     """
@@ -73,6 +89,8 @@ def solve(input_path: str, degradation: str, results_path: str = None) -> dict: 
         result = solve_gaussian(**params)
     elif degradation_lower == "inverse_gaussian":
         result = solve_inverse_gaussian(**params)
+    elif degradation_lower == "rainflow":
+        result = solve_rainflow(**params)
     else:  # gamma
         result = solve_gamma(**params)
 
@@ -113,15 +131,53 @@ def _read_hdf5(path: Path) -> dict:
     """
     data = {}
     scalar_keys = {
-        "F", "H", "M", "L", "alpha", "epsilon",
-        "C_M", "C_R", "C_rep", "C_S", "C_P", "verbose", "mip_gap",
+    "F",
+    "H",
+    "M",
+    "L",
+    "alpha",
+    "epsilon",
+    "C_M",
+    "C_R",
+    "C_rep",
+    "C_S",
+    "C_P",
+    "verbose",
+    "mip_gap",
     }
+
     array_keys = {
-        "mu", "v", "mu_0", "v_0", "c", "xi", "replacement_mu",
-        "tau", "gamma_beta", "repair_rho",
+        # Shared parameters
+        "mu",
+        "v",
+        "mu_0",
+        "v_0",
+        "c",
+        "xi",
+
+        # Parameters used by the gamma method
+        "replacement_mu",
+        "tau",
+        "gamma_beta",
+        "repair_rho",
+
+        # Parameters used by the rainflow method
+        "support",
+        "cgf",
+        "mu_trans",
+        "v_trans",
+        "support_trans",
+        "cgf_trans",
     }
 
     with h5py.File(path, "r") as f:
+        # H may be a scalar (single horizon) or a 2-element [H1, H2].
+        if "H" in f:
+            hval = f["H"][()]
+            data["H"] = hval.tolist() if np.ndim(hval) > 0 else float(hval)
+        elif "H" in f.attrs:
+            hval = f.attrs["H"]
+            data["H"] = hval.tolist() if np.ndim(hval) > 0 else float(hval)
         for key in scalar_keys:
             if key in f.attrs:
                 data[key] = float(f.attrs[key])
@@ -148,31 +204,26 @@ def _resolve_results_path(results_path) -> Path:
     return p
 
 
-_COMMON_KEYS = {"F", "H", "M", "mu", "alpha", "epsilon", "xi", "C_M", "C_R", "C_S", "C_P", "mu_0"}
-_GAUSSIAN_KEYS = _COMMON_KEYS | {"v", "v_0"}
-_INVERSE_GAUSSIAN_KEYS = _COMMON_KEYS | {"c"}
-_GAMMA_KEYS = {
-    "F", "H", "M", "mu", "tau", "gamma_beta", "epsilon",
-    "C_M", "C_R", "C_rep", "C_S", "C_P", "mu_0", "repair_rho",
-}
+def _parse_horizon(data: dict):
+    """Read H as either a single int or a two-element [H1, H2].
 
-REQUIRED_KEYS_BY_DEGRADATION = {
-    "gamma": _GAMMA_KEYS,
-    "gaussian": _GAUSSIAN_KEYS,
-    "inverse_gaussian": _INVERSE_GAUSSIAN_KEYS,
-}
+    Returns (H_value, H1, H2) where:
+      * H_value is what gets passed to the solver: an int for a single horizon,
+        or a (H1, H2) tuple for a transitory + operating split.
+      * H2 is the OPERATING period (the length the per-mission profiles are
+        broadcast to); for a single horizon H1 == H2 == H.
+    """
+    H_raw = data["H"]
+    if isinstance(H_raw, (list, tuple)):
+        if len(H_raw) != 2:
+            raise ValueError("'H' must be an int or a two-element list [H1, H2].")
+        H1, H2 = int(H_raw[0]), int(H_raw[1])
+        if H1 <= 0 or H2 <= 0:
+            raise ValueError(f"H1 and H2 must be positive (got {H1}, {H2}).")
+        return (H1, H2), H1, H2
+    H = int(H_raw)
+    return H, H, H
 
-
-"""def _extract_parameters(data: dict, degradation: str) -> dict:
-    #Backward-compatible wrapper around the central degradation registry.
-
-    #New code should prefer:
-
-    #    extract_degradation_parameters(data, degradation)
-
-    #from fleet_management.degradation.model_registry.
-
-    return extract_degradation_parameters(data, degradation)"""
 
 def _extract_parameters(data: dict, degradation: str) -> dict:
     # Extract and validate all solver parameters from the parsed input data.
@@ -182,18 +233,31 @@ def _extract_parameters(data: dict, degradation: str) -> dict:
         raise KeyError(f"Missing required keys in input file: {sorted(missing)}")
 
     F = int(data["F"])
-    H = int(data["H"])
+    H_value, H1, H2 = _parse_horizon(data)
     M = int(data["M"])
     L = int(data.get("L", 1))
+    alpha = float(data["alpha"]) if "alpha" in data else None
     epsilon = float(data["epsilon"])
     C_M = float(data["C_M"])
     C_R = float(data["C_R"])
     C_S = float(data["C_S"])
     C_P = float(data["C_P"])
 
+    # Two-horizon (H = [H1, H2]) is only supported by the rainflow solver; the
+    # Gaussian / inverse-Gaussian solvers expect a single scalar horizon.
+    if isinstance(H_value, tuple) and degradation != "rainflow":
+        raise ValueError(
+            "A two-horizon 'H' (list [H1, H2]) is only supported for the "
+            "'rainflow' degradation model."
+        )
+
+    # Optional parameters with defaults
     verbose = int(data.get("verbose", 1))
     mip_gap_raw = data.get("mip_gap", None)
     mip_gap = float(mip_gap_raw) if mip_gap_raw is not None else None
+    tau = float(data.get("tau", 1.0))
+    time_limit_raw = data.get("time_limit", None)          # in seconds
+    time_limit = int(time_limit_raw) if time_limit_raw is not None else None
 
     # --- Broadcast mu_0: accept (F,) when L=1, or (F, L) ---
     mu_0 = np.array(data["mu_0"], dtype=float)
@@ -204,9 +268,9 @@ def _extract_parameters(data: dict, degradation: str) -> dict:
             f"'mu_0' shape {mu_0.shape} does not match (F={F}, L={L})."
         )
 
-    # --- Broadcast mu_param: accept multiple shapes ---
+    # --- Broadcast mu_param: accept multiple shapes (operating period H2) ---
     mu_param = np.array(data["mu"], dtype=float)
-    mu_param = _broadcast_4d_param(mu_param, F, M, L, H, "mu")
+    mu_param = _broadcast_4d_param(mu_param, F, M, L, H2, "mu")
 
     if degradation == "gamma":
         C_rep = float(data["C_rep"])
@@ -228,7 +292,7 @@ def _extract_parameters(data: dict, degradation: str) -> dict:
                 f"{replacement_mu.shape} does not match (F={F}, L={L})."
             )
         return {
-            "F": F, "H": H, "M": M, "L": L,
+            "F": F, "H": H1, "M": M, "L": L,
             "mu_param": mu_param, "tau": tau,
             "epsilon": epsilon, "gamma_beta": gamma_beta,
             "C_M": C_M, "C_R": C_R, "C_rep": C_rep,
@@ -238,7 +302,6 @@ def _extract_parameters(data: dict, degradation: str) -> dict:
             "verbose": verbose, "mip_gap": mip_gap,
         }
 
-    alpha = float(data["alpha"])
 
     # xi belongs to the repair-based legacy backends, not exact Gamma.
     xi = np.array(data["xi"], dtype=float)
@@ -250,6 +313,7 @@ def _extract_parameters(data: dict, degradation: str) -> dict:
         )
 
     if degradation == "gaussian":
+        alpha = float(data["alpha"])
         # --- Broadcast v_0: accept (F,) when L=1, or (F, L) ---
         v_0 = np.array(data["v_0"], dtype=float)
         if L == 1 and v_0.shape == (F,):
@@ -261,10 +325,10 @@ def _extract_parameters(data: dict, degradation: str) -> dict:
 
         # --- Broadcast v_param: accept multiple shapes ---
         v_param = np.array(data["v"], dtype=float)
-        v_param = _broadcast_4d_param(v_param, F, M, L, H, "v")
+        v_param = _broadcast_4d_param(v_param, F, M, L, H2, "v")
 
         return {
-            "F": F, "H": H, "M": M, "L": L,
+            "F": F, "H": H_value, "M": M, "L": L,
             "mu_param": mu_param, "v_param": v_param,
             "alpha": alpha, "epsilon": epsilon, "xi": xi,
             "C_M": C_M, "C_R": C_R, "C_S": C_S, "C_P": C_P,
@@ -272,6 +336,86 @@ def _extract_parameters(data: dict, degradation: str) -> dict:
             "verbose": verbose,
             "mip_gap": mip_gap,
         }
+
+    elif degradation == "rainflow":
+        # Rainflow / remaining-life model. Same (mu, v) accumulated-damage state
+        # as the Gaussian model, but the threshold is `tau` (Palmgren-Miner
+        # limit) and reliability P(D > tau) <= eps is enforced by a concentration
+        # bound chosen via `method`. Variance is ALWAYS required (the solver
+        # tracks it for every method); `support` / `cgf` / `s` are only needed
+        # for the bounds that consume them, and the solver validates that.
+
+        # --- Broadcast v_0: accept (F,) when L=1, or (F, L) ---
+        v_0 = np.array(data["v_0"], dtype=float)
+        if L == 1 and v_0.shape == (F,):
+            v_0 = v_0[:, np.newaxis]
+        elif v_0.shape != (F, L):
+            raise ValueError(
+                f"'v_0' shape {v_0.shape} does not match (F={F}, L={L})."
+            )
+
+        # --- Broadcast v_param: accept multiple shapes (operating period H2) ---
+        v_param = np.array(data["v"], dtype=float)
+        v_param = _broadcast_4d_param(v_param, F, M, L, H2, "v")
+
+        # --- Reliability bound: markov | cantelli | hoeffding | bernstein | chernoff ---
+        method = str(data.get("method", "cantelli"))
+
+        # --- Optional per-mission support width (Hoeffding / Bernstein) ---
+        support_raw = data.get("support", data.get("support_param", None))
+        support_param = (
+            _broadcast_4d_param(np.array(support_raw, dtype=float), F, M, L, H2, "support")
+            if support_raw is not None else None
+        )
+
+        # --- Optional per-mission CGF at s, and the tilt s (Chernoff) ---
+        cgf_raw = data.get("cgf", data.get("cgf_param", None))
+        cgf_param = (
+            _broadcast_4d_param(np.array(cgf_raw, dtype=float), F, M, L, H2, "cgf")
+            if cgf_raw is not None else None
+        )
+        s_raw = data.get("s_chernoff", data.get("s", None))
+        s_chernoff = float(s_raw) if s_raw is not None else None
+
+        # --- Optional transitory-phase profiles (broadcast to H1) ---------
+        # Used only when H is a two-element [H1, H2]; give the transitory run-up
+        # a different regime.  When omitted the transitory phase reuses the
+        # operating profiles.
+        def _opt_trans(key_names, name):
+            raw = None
+            for kn in key_names:
+                if kn in data and data[kn] is not None:
+                    raw = data[kn]
+                    break
+            if raw is None:
+                return None
+            return _broadcast_4d_param(np.array(raw, dtype=float), F, M, L, H1, name)
+
+        mu_param_trans = _opt_trans(("mu_trans", "mu_param_trans"), "mu_trans")
+        v_param_trans = _opt_trans(("v_trans", "v_param_trans"), "v_trans")
+        support_param_trans = _opt_trans(
+            ("support_trans", "support_param_trans"), "support_trans")
+        cgf_param_trans = _opt_trans(("cgf_trans", "cgf_param_trans"), "cgf_trans")
+
+        return {
+            "F": F, "H": H_value, "M": M, "L": L,
+            "mu_param": mu_param, "v_param": v_param,
+            "tau": tau, "epsilon": epsilon, "xi": xi,
+            "C_M": C_M, "C_R": C_R, "C_S": C_S, "C_P": C_P,
+            "mu_0": mu_0, "v_0": v_0,
+            "method": method,
+            "support_param": support_param,
+            "cgf_param": cgf_param,
+            "s_chernoff": s_chernoff,
+            "mu_param_trans": mu_param_trans,
+            "v_param_trans": v_param_trans,
+            "support_param_trans": support_param_trans,
+            "cgf_param_trans": cgf_param_trans,
+            "verbose": verbose,
+            "mip_gap": mip_gap,
+            "time_limit": time_limit,
+        }
+    
     else:  # inverse_gaussian
         # --- Broadcast c: accept (F,) when L=1, or (F, L) ---
         c = np.array(data["c"], dtype=float)
@@ -283,7 +427,7 @@ def _extract_parameters(data: dict, degradation: str) -> dict:
             )
 
         return {
-            "F": F, "H": H, "M": M, "L": L,
+            "F": F, "H": H_value, "M": M, "L": L,
             "mu_param": mu_param, "c": c,
             "alpha": alpha, "epsilon": epsilon, "xi": xi,
             "C_M": C_M, "C_R": C_R, "C_S": C_S, "C_P": C_P,
@@ -354,7 +498,11 @@ def _build_serializable_output(result: dict) -> dict:
     """Build a plain dict from solver results for text-based formats."""
     output = {
         "status": result["status"],
-        "objective": float(result["objective"]) if result["objective"] is not None else None,
+        "objective": (
+            float(result["objective"])
+            if result["objective"] is not None
+            else None
+        ),
         "degradation": result["degradation"],
         "F": result["F"],
         "M": result["M"],
@@ -362,30 +510,51 @@ def _build_serializable_output(result: dict) -> dict:
         "L": result["L"],
         "mu_0": result["mu_0"].tolist(),
     }
-    if "alpha" in result:
+
+    # Optional scalar parameters
+    if result.get("alpha") is not None:
         output["alpha"] = result["alpha"]
-    if "tau" in result:
-        output["tau"] = result["tau"].tolist()
-        output["gamma_beta"] = result["gamma_beta"].tolist()
-        output["replacement_mu"] = result["replacement_mu"].tolist()
-        output["repair_rho"] = result["repair_rho"].tolist()
-        output["maximum_shape"] = result["maximum_shape"].tolist()
-    if "v_0" in result:
+
+    # Two-horizon / rainflow metadata
+    for key in ("H1", "H2", "T", "method", "repair_model"):
+        if result.get(key) is not None:
+            output[key] = result[key]
+
+    # Optional method-specific arrays
+    for key in (
+        "tau",
+        "gamma_beta",
+        "replacement_mu",
+        "repair_rho",
+        "maximum_shape",
+    ):
+        if result.get(key) is not None:
+            output[key] = _to_builtin(result[key])
+
+    if result.get("v_0") is not None:
         output["v_0"] = result["v_0"].tolist()
-    if result["x"] is not None:
+
+    if result.get("x") is not None:
         output["x"] = result["x"].tolist()
         output["mu"] = result["mu"].tolist()
-        if "A" in result:
-            output["A"] = result["A"].tolist()
-            output["tail_probability"] = result["tail_probability"].tolist()
-            output["m"] = result["m"].tolist()
-            output["r"] = result["r"].tolist()
-        if "v" in result:
-            output["v"] = result["v"].tolist()
         output["u"] = result["u"].tolist()
         output["z"] = result["z"].tolist()
-    if "performance" in result:                                         # performance measurement
-        output["performance"] = _to_builtin(result["performance"])      # performance measurement
+
+        # Optional solution arrays
+        for key in (
+            "v",
+            "A",
+            "tail_probability",
+            "m",
+            "r",
+        ):
+            if result.get(key) is not None:
+                output[key] = _to_builtin(result[key])
+
+    # Performance measurements may exist even without a solution.
+    if result.get("performance") is not None:
+        output["performance"] = _to_builtin(result["performance"])
+
     return output
 
 def _to_builtin(value):                                                 # performance measurement
@@ -422,36 +591,59 @@ def _save_json(result: dict, path: Path) -> None:
 
 def _save_hdf5(result: dict, path: Path) -> None:
     with h5py.File(path, "w") as f:
-        f.attrs["status"] = result["status"] if isinstance(result["status"], str) else str(result["status"])
-        if result["objective"] is not None:
+        f.attrs["status"] = (
+            result["status"]
+            if isinstance(result["status"], str)
+            else str(result["status"])
+        )
+
+        if result.get("objective") is not None:
             f.attrs["objective"] = float(result["objective"])
+
         f.attrs["degradation"] = result["degradation"]
         f.attrs["F"] = result["F"]
         f.attrs["M"] = result["M"]
         f.attrs["H"] = result["H"]
         f.attrs["L"] = result["L"]
-        if "alpha" in result:
+
+        # Optional scalar parameter
+        if result.get("alpha") is not None:
             f.attrs["alpha"] = result["alpha"]
-        if "tau" in result:
-            f.create_dataset("tau", data=result["tau"])
-            f.create_dataset("gamma_beta", data=result["gamma_beta"])
-            f.create_dataset("replacement_mu", data=result["replacement_mu"])
-            f.create_dataset("repair_rho", data=result["repair_rho"])
-            f.create_dataset("maximum_shape", data=result["maximum_shape"])
+
+        # Two-horizon / rainflow metadata
+        for key in ("H1", "H2", "T", "method", "repair_model"):
+            if result.get(key) is not None:
+                f.attrs[key] = result[key]
+
+        # Method-specific arrays
+        for key in (
+            "tau",
+            "gamma_beta",
+            "replacement_mu",
+            "repair_rho",
+            "maximum_shape",
+        ):
+            if result.get(key) is not None:
+                f.create_dataset(key, data=result[key])
+
         f.create_dataset("mu_0", data=result["mu_0"])
-        if "v_0" in result:
+
+        if result.get("v_0") is not None:
             f.create_dataset("v_0", data=result["v_0"])
-        if result["x"] is not None:
+
+        if result.get("x") is not None:
             f.create_dataset("x", data=result["x"])
             f.create_dataset("mu", data=result["mu"])
-            if "A" in result:
-                f.create_dataset("A", data=result["A"])
-                f.create_dataset(
-                    "tail_probability", data=result["tail_probability"]
-                )
-                f.create_dataset("m", data=result["m"])
-                f.create_dataset("r", data=result["r"])
-            if "v" in result:
-                f.create_dataset("v", data=result["v"])
             f.create_dataset("u", data=result["u"])
             f.create_dataset("z", data=result["z"])
+
+            # Optional solution arrays
+            for key in (
+                "v",
+                "A",
+                "tail_probability",
+                "m",
+                "r",
+            ):
+                if result.get(key) is not None:
+                    f.create_dataset(key, data=result[key])

@@ -11,3 +11,11 @@ tests/*
 bkp/*
 */*.pdf
 PlottingScripts/*
+.venv/
+src/fleet_management/test.py*
+src/fleet_management/helper_inspector.py*
+src/fleet_management/tempCodeRunnerFile.py*
+src/fleet_management/opt_analysis.py*
+src/fleet_management/analysis.py*
+__pycache__/
+*.py[cod]
