@@ -8,6 +8,7 @@ CLAUDE*
 build/*
 test/*
 tests/*
+examples/*
 bkp/*
 */*.pdf
 PlottingScripts/*
