@@ -68,21 +68,28 @@ def plot_management(input_file_path: str, plot_file_path: str = None) -> None:
 
     thresholds = np.asarray(threshold_value, dtype=float)
 
+    # Normalise the threshold into a per-cell (F, L) grid so each component
+    # strip is scaled by its own tau/alpha. Accepts a scalar, a per-component
+    # (L,) vector, a per-vehicle (F,) vector, or a full per-cell (F, L) array
+    # (the modular solver writes tau per cell as (F, L)).
     if thresholds.ndim == 0 or thresholds.size == 1:
-        # One threshold shared by all components
-        thresholds = np.full(L, float(thresholds.reshape(-1)[0]))
+        tau_grid = np.full((F, L), float(thresholds.reshape(-1)[0]))
+    elif thresholds.ndim == 1 and thresholds.size == L:
+        tau_grid = np.tile(thresholds.reshape(1, L), (F, 1))
+    elif thresholds.ndim == 1 and thresholds.size == F:
+        tau_grid = np.tile(thresholds.reshape(F, 1), (1, L))
+    elif thresholds.ndim == 2 and thresholds.shape == (F, L):
+        tau_grid = thresholds.astype(float)
     else:
-        thresholds = thresholds.reshape(-1)
-
-        if thresholds.size != L:
-            raise ValueError(
-                f"Expected alpha/tau to contain either 1 or L={L} values, "
-                f"but received {thresholds.size}: {thresholds.tolist()}"
-            )
-
-    if np.any(thresholds <= 0):
         raise ValueError(
-            f"All alpha/tau thresholds must be positive: {thresholds.tolist()}"
+            f"Expected alpha/tau to be a scalar, a length-{L} (per-component) "
+            f"or length-{F} (per-vehicle) vector, or an (F, L)=({F}, {L}) array; "
+            f"got shape {thresholds.shape}: {thresholds.tolist()}"
+        )
+
+    if np.any(tau_grid <= 0):
+        raise ValueError(
+            f"All alpha/tau thresholds must be positive: {tau_grid.tolist()}"
         )
     mu_0 = np.array(data["mu_0"], dtype=float)
     mu = np.array(data["mu"], dtype=float)
@@ -117,7 +124,7 @@ def plot_management(input_file_path: str, plot_file_path: str = None) -> None:
         for k in range(n_cols):
             for l in range(L):
                 val = grid[i, l, k]
-                normalized_value = val / thresholds[l]
+                normalized_value = val / tau_grid[i, l]
                 color = cmap(cnorm(normalized_value))
                 rect = mpatches.Rectangle(
                     (k - 0.5, i - 0.5 + l * strip_h),

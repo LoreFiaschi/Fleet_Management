@@ -6,8 +6,10 @@ import h5py
 import numpy as np
 import yaml
 
+# gamma is still solved through the existing backend (its modular block is WIP);
+# rainflow (and any rainflow-containing fleet) goes through the modular builder.
 from fleet_management.degradation_model.gamma_utils.gamma_gurobi import solve_fleet_management as solve_gamma
-from fleet_management.degradation_model.rainflow import solve_fleet_management as solve_rainflow
+from fleet_management.degradation_model.rainflow import solve as rainflow_solve
 
 from fleet_management.config import load_config, FleetConfig
 
@@ -70,44 +72,31 @@ def solve(input_path: str, results_path: str = None) -> dict:   # was -> None, n
 def _solve_mixed(cfg: "FleetConfig") -> dict:
     """Solve a normalized FleetConfig.
 
-    A genuinely mixed fleet (more than one degradation model across the (F, L)
-    cells) needs the modular per-cell builder (Step 2).  A *uniform* single-model
-    fleet is bridged here to the existing backend, so the input format is already
-    usable for single-model problems.
+    * gamma-only fleet  -> existing gamma backend (its modular block is WIP);
+    * everything else   -> the modular rainflow builder (``rainflow.solve``),
+      which fully handles all-rainflow fleets and raises a clear
+      ``NotImplementedError`` at a gamma / unsupported cell.
     """
-    if not cfg.is_single_model:
-        # TODO Modular builder
-        raise NotImplementedError(
-            "Mixed per-cell fleets (more than one degradation model) require the "
-            "modular builder (Step 2). The FleetConfig is fully validated and "
-            "cfg.cell(i, l) exposes each cell for that builder."
-        )
-    model = cfg.models[0]
-    if model == "rainflow":
-        result = solve_rainflow(**_cfg_to_rainflow_kwargs(cfg))
-        result["mu_0"] = cfg.mu_0
-        result["v_0"] = cfg.v_0
-    elif model == "gamma":
+    models = set(cfg.models)
+    if models == {"gamma"}:
         result = solve_gamma(**_cfg_to_gamma_kwargs(cfg))
         result["mu_0"] = cfg.mu_0
-    else:
-        raise NotImplementedError(
-            f"model '{model}' is not wired to a backend yet (only 'rainflow' and "
-            "'gamma' are); it will be handled by the Step-2 modular builder."
-        )
-    result["degradation"] = model
+        result["degradation"] = "gamma"
+        return result
+
+    result = rainflow_solve(cfg)
+    result["degradation"] = "rainflow" if models == {"rainflow"} else "mixed"
     return result
 
 
 def _require_uniform(arr, name):
-    """Collapse a per-cell (F, L) array to the single value the existing backend
-    expects, or explain that per-cell variation needs the Step-2 builder."""
+    """Collapse a per-cell (F, L) array to the single value the gamma backend
+    expects, or explain that per-cell variation needs the modular builder."""
     vals = np.unique(np.asarray(arr))
     if vals.size != 1:
         raise NotImplementedError(
-            f"the existing backend takes a single '{name}', but it varies per "
-            f"cell ({vals.tolist()}); per-cell '{name}' lands with the Step-2 "
-            "mixed builder."
+            f"the gamma backend takes a single '{name}', but it varies per "
+            f"cell ({vals.tolist()}); per-cell '{name}' needs the modular builder."
         )
     return vals.reshape(-1)[0]
 
@@ -122,48 +111,6 @@ def _uniform_over_vehicles(arr, name):
             "per vehicle here; per-vehicle variation needs the Step-2 builder."
         )
     return a[0, :]
-
-
-def _cfg_to_rainflow_kwargs(cfg: "FleetConfig") -> dict:
-    """Translate a uniform single-model rainflow FleetConfig into solve_rainflow
-    kwargs.  Increment profiles are transposed from the config's (F, L, M, H)
-    layout to the backend's (F, M, L, H)."""
-    def tr(a):
-        return None if a is None else np.transpose(a, (0, 2, 1, 3))
-
-    kw = {
-        "F": cfg.F, "H": cfg.H, "M": cfg.M, "L": cfg.L,
-        "mu_param": tr(cfg.mu), "v_param": tr(cfg.v),
-        "tau": float(_require_uniform(cfg.tau, "tau")),
-        "epsilon": float(_require_uniform(cfg.epsilon, "epsilon")),
-        "xi": cfg.rho, "mu_0": cfg.mu_0, "v_0": cfg.v_0,
-        "C_M": cfg.costs["C_M"], "C_R": cfg.costs["C_R"],
-        "C_S": cfg.costs["C_S"], "C_P": cfg.costs["C_P"],
-        "method": str(_require_uniform(cfg.bound_method, "bound_method")),
-        "repair_model": str(_require_uniform(cfg.repair_model, "repair_model")),
-    }
-    if cfg.support is not None:
-        kw["support_param"] = tr(cfg.support)
-    if cfg.cgf is not None:
-        kw["cgf_param"] = tr(cfg.cgf)
-    if cfg.s_chernoff is not None:
-        kw["s_chernoff"] = float(_require_uniform(cfg.s_chernoff, "s_chernoff"))
-    if "C_rep" in cfg.costs:
-        kw["C_rep"] = cfg.costs["C_rep"]
-    if cfg.replacement_mu is not None:
-        kw["mu_new"] = cfg.replacement_mu
-    if cfg.replacement_v is not None:
-        kw["v_new"] = cfg.replacement_v
-    for name, arr in (("mu_param_trans", cfg.mu_trans), ("v_param_trans", cfg.v_trans),
-                      ("support_param_trans", cfg.support_trans),
-                      ("cgf_param_trans", cfg.cgf_trans)):
-        if arr is not None:
-            kw[name] = tr(arr)
-    for opt in ("verbose", "mip_gap", "time_limit", "fast",
-                "allow_replacement", "depot_capacity", "gurobi_params"):
-        if opt in cfg.options:
-            kw[opt] = cfg.options[opt]
-    return kw
 
 
 def _cfg_to_gamma_kwargs(cfg: "FleetConfig") -> dict:
@@ -205,7 +152,6 @@ def _read_input(input_file: Path) -> dict:
         with open(input_file, "r") as f:
             return json.load(f)
     elif ext in (".h5", ".hdf5"):
-        raise NotImplementedError("HDF5 input is not yet supported; please use YAML or JSON.")
         return _read_hdf5(input_file)
     else:
         raise ValueError(f"Unsupported input file type: {ext}")
@@ -294,6 +240,7 @@ def _resolve_results_path(results_path) -> Path:
     return p
 
 
+
 def _save_results(result: dict, path: Path) -> None:
     """Save solver results to a file (YAML, JSON, or HDF5)."""
     ext = path.suffix.lower()
@@ -330,9 +277,9 @@ def _build_serializable_output(result: dict) -> dict:
         output["alpha"] = result["alpha"]
 
     # Two-horizon / rainflow metadata
-    for key in ("H1", "H2", "T", "method", "repair_model"):
+    for key in ("H1", "H2", "T", "method", "bound_method", "repair_model"):
         if result.get(key) is not None:
-            output[key] = result[key]
+            output[key] = _to_builtin(result[key])
 
     # Optional method-specific arrays
     for key in (
@@ -371,7 +318,6 @@ def _build_serializable_output(result: dict) -> dict:
 
     return output
 
-
 def _to_builtin(value):                                                 # performance measurement
     """Convert NumPy values and nested containers to serializable Python types."""
 
@@ -392,11 +338,13 @@ def _to_builtin(value):                                                 # perfor
 
     return value
 
-
 def _save_yaml(result: dict, path: Path) -> None:
     output = _build_serializable_output(result)
     with open(path, "w") as f:
-        yaml.dump(output, f, default_flow_style=False, sort_keys=False)
+        # safe_dump emits only plain YAML (no !!python/object tags), so the file
+        # round-trips through yaml.safe_load; it also fails loudly if any NumPy
+        # object slipped through _build_serializable_output.
+        yaml.safe_dump(output, f, default_flow_style=False, sort_keys=False)
 
 
 def _save_json(result: dict, path: Path) -> None:

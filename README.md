@@ -1,6 +1,22 @@
 # Fleet Management
 
-Train fleet scheduling optimization with multi-component degradation models (Gaussian and inverse Gaussian), solved as a Mixed-Integer Linear Program (MILP) using Gurobi.
+Vehicle/train fleet scheduling optimization with **per-cell** multi-component
+degradation models, solved with Gurobi. Each (vehicle, component) *cell* can use
+its own degradation model, reliability bound, and maintenance (repair) model.
+
+Every input is **self-describing**: a top-level `model:` key selects the
+degradation model, so `solve()` no longer takes a `degradation` argument.
+
+### Degradation models
+
+| Model | Status | Notes |
+|---|---|---|
+| `rainflow` | **Implemented** (modular, per-cell) | Palmgren–Miner accumulated damage tracked via mean/variance (+ descriptors); distribution-free reliability bounds with selectable constraint *implementations*. |
+| `gamma` | **Implemented via backend** | Solved through the existing gamma backend for gamma-only fleets. A modular per-cell gamma block is a work-in-progress placeholder. |
+| `gaussian`, `inverse_gaussian` | **Reserved** | Accepted by the schema but not currently wired through the self-describing entry point (they raise `NotImplementedError`).
+
+Depending on the reliability-constraint implementation, the program is a **MILP**
+(linear bounds/surrogates) or a **nonconvex MIQCP** (exact quadratic bounds).
 
 ## Prerequisites
 
@@ -21,62 +37,131 @@ pip install -e ".[dev,dashboard]"
 
 ## Quick start
 
+The model is read from the input file's `model:` key — do **not** pass a
+`degradation` argument.
+
 ```python
-from fleet_management import solve, plot_management, validate
+from fleet_management import solve, plot_management
 
-# 1. Solve with Gaussian degradation
-solve("input/data.yaml", degradation="gaussian", results_path="results/output.yaml")
+# Solve (model chosen inside the input file via `model: rainflow` / `gamma`)
+solve("input/data.yaml", results_path="results/output.yaml")
 
-# 2. Solve with inverse Gaussian degradation
-solve("input/data_ig.yaml", degradation="inverse_gaussian", results_path="results/output_ig.yaml")
-
-# 3. Solve with Gamma degradation
-solve("input/tiny_gamma.yaml", degradation="gamma", results_path="results/output_tiny_gamma.yaml")
-
-# 4. Plot the resulting schedule
+# Plot the resulting schedule
 plot_management("results/output.yaml", plot_file_path="results/schedule.png")
 ```
 
-## GUI usage
+## Input file format
 
-```bash
-.venv/Scripts/activate
+Inputs are normalized by a config layer (`config.py`) that validates every field
+and broadcasts scalars to full per-cell arrays. Full details and the annotated
+template are in `docs/config_and_solver.md` and `spec/input_template.yaml` described.
+
+### Required keys (all models)
+
+| Key | Type | Description |
+|---|---|---|
+| `model` | str or per-cell array `(F,L)` | Degradation model per cell: `rainflow`, `gamma`, `gaussian`, `inverse_gaussian`. A single string applies to the whole fleet. |
+| `F` | int | Number of vehicles (must be > M) |
+| `M` | int | Number of missions |
+| `H` | int or `[H1, H2]` | Horizon. An int gives transitory = operating = H, `T = 2H`. A pair sets an unequal transitory `H1` (run-up from `mu_0`) and operating `H2` (repeatable cycle), `T = H1 + H2`. |
+| `L` | int | Components per vehicle. Inferred from `model`; required only when `model` is a single string and `L > 1`. |
+| `tau` | scalar / `(L,)` / `(F,L)` | Failure threshold (> 0). |
+| `epsilon` | scalar / `(L,)` / `(F,L)` | Reliability level in (0, 1). |
+| `rho` | scalar / `(L,)` / `(F,L)` | Repair efficiency in (0, 1]. |
+| `mu_0` | scalar / `(L,)` / `(F,L)` | Initial mean damage. |
+| `mu` | scalar / `(M,)` / `(L,M)` / `(L,M,H)` / `(F,L,M)` / `(F,L,M,H)` | Mean damage increment per mission (> 0), broadcast to `(F,L,M,H)`. |
+| `C_M`, `C_R`, `C_S`, `C_P` | float | Cost coefficients (maintenance / repair / safety / periodicity). |
+
+### Per-cell selectors
+
+`model`, `bound_method`, and `repair_model` are `(F, L)` string arrays; give a
+scalar (whole fleet), a length-`L` vector (per component), or a full `(F, L)`
+array (per cell).
+
+### Rainflow-specific keys
+
+| Key | Type | Description |
+|---|---|---|
+| `bound_method` | str / `(L,)` / `(F,L)` | `markov` \| `cantelli` (default) \| `hoeffding` \| `bernstein` \| `chernoff`.|
+| `repair_model` | str / `(L,)` / `(F,L)` | `ard1` (default) or `ardinf`. |
+| `v` | scalar / `(M,)` … / `(F,L,M,H)` | Variance increment (> 0); required by cantelli/bernstein. |
+| `v_0` | scalar / `(L,)` / `(F,L)` | Initial variance (>= 0). Default 0. |
+| `support` | scalar / … | Per-mission increment support width; required by hoeffding/bernstein. |
+| `cgf`, `s_chernoff` | scalar / … | Per-mission CGF and tilt; required by chernoff. |
+| `replacement_mu`, `replacement_v` | scalar / `(L,)` / `(F,L)` | Post-replacement state (aliases `mu_new`, `v_new`). Default 0. |
+| `*_trans` | `(F,L,M,H1)` | Optional transitory-phase profiles (`mu_trans`, `v_trans`, `support_trans`, `cgf_trans`); default reuse the operating profiles. |
+
+### Gamma-specific keys
+
+| Key | Type | Description |
+|---|---|---|
+| `gamma_beta` | scalar / `(L,)` / `(F,L)` | Gamma scale parameter (> 0). |
+| `C_rep` | float | Replacement cost (required for gamma). |
+
+### Options
+
+Optional, passed to the solver (top level of the input, or `solve()` kwargs):
+`verbose`, `mip_gap`, `time_limit`, `fast`, `allow_replacement`,
+`depot_capacity`, `gurobi_params`, and the Step-3 knobs `reliability_impl`
+(`exact` \| `tangent` \| `pwl`), `pwl_points` (default 8), `tangent_ref`
+(default 0.5).
+
+### YAML example (rainflow, uniform fleet)
+
+```yaml
+model: rainflow            # change to `gamma` to use the gamma backend
+F: 6
+H: 10                      # int -> H1 = H2 = 10, T = 20; or [H1, H2]
+M: 3
+L: 2
+
+tau: 1.0
+epsilon: 0.1
+rho:                       # (F, L) repair efficiency
+  - [0.80, 0.75]
+  - [0.75, 0.90]
+  - [0.90, 0.85]
+  - [0.85, 0.70]
+  - [0.70, 0.80]
+  - [0.80, 0.85]
+
+bound_method: cantelli     # per-fleet; or per-component [.., ..]; or (F, L)
+repair_model: ard1
+
+mu_0: 0.02                 # scalar broadcast to every cell
+mu: 0.06                   # scalar broadcast to (F, L, M, H); or give a tensor
+v: 1.5e-3
+v_0: 4.0e-4
+
+C_M: 1.0
+C_R: 2.0
+C_S: 1.5
+C_P: 3.0
+
+# optional
+reliability_impl: exact    # exact | tangent | pwl
+verbose: 1
+mip_gap: 0.12
 ```
 
-```bash
-python -m streamlit run src/fleet_management/validator_dashboard.py
-```
+Larger inputs specify `mu`/`v` as `(F, L, M, H)` tensors; see
+`spec/input_template.yaml`.
 
-### Assigning the data files
-
-Firstly, the input file, solver results file and a path/name for the log file must be assigned in the GUI, then a custom alpha_override and degradation_scale can be chosen to stress-test the validator.
-
-After loading the data, the main window will show the overview with the most important data found by the validator, mainly feasible/infeasible assignments, threshold violations and danger zones reached by components.
-
-The second tab focuses on failed / critical assignments with damage breakdown, adjustable by filtering vehicles, components, missions.
-
-The third tab offers analytics about the missions by presenting mean, max and total damage increments.
-
-The fourth tab visualizes the vehicle damage timeline over the horizon with markers for missions and maintenance schedules.
-
-The fifth tab allows to compare components across vehicles.
-
-The final tab allows to access all data and manipulate/download for further presentation.
+Supported input/output formats: **YAML** (`.yaml`, `.yml`), **JSON** (`.json`),
+**HDF5** (`.h5`, `.hdf5`). The output format follows the extension of
+`results_path`.
 
 ## API reference
 
-### `solve(input_path, degradation, results_path=None)`
+### `solve(input_path, results_path=None)`
 
-Reads the problem data, solves the MILP, and writes the results to a file.
+Reads the problem, chooses the degradation model from the input's `model:` key,
+solves, and writes the results.
 
 | Parameter | Type | Description |
 |---|---|---|
 | `input_path` | `str` | Path to the input data file. |
-| `degradation` | `str` | Degradation model. Supported: `"gaussian"`, `"inverse_gaussian"`. |
-| `results_path` | `str`, optional | Output file path. Defaults to `"output.yaml"`. |
-
-Supported input/output formats: **YAML** (`.yaml`, `.yml`), **JSON** (`.json`), **HDF5** (`.h5`, `.hdf5`).
-The output format is determined by the file extension of `results_path`.
+| `results_path` | `str`, optional | Output file path. Defaults to `"output.yaml"`; a bare name gets `.yaml`. |
 
 ### `plot_management(input_file_path, plot_file_path=None)`
 
@@ -85,153 +170,104 @@ Reads solver output and produces a colour-coded schedule grid.
 | Parameter | Type | Description |
 |---|---|---|
 | `input_file_path` | `str` | Path to a solver output file. |
-| `plot_file_path` | `str`, optional | Output image path. Defaults to `"output.png"`. |
+| `plot_file_path` | `str`, optional | Output image path. Defaults to `"output.png"`; a bare name gets `.png`. |
+
+The plot is an `F x (T+1)` grid; each cell is split into `L` horizontal strips
+(one per component), coloured green→red by `mu / tau`. It reads a per-cell
+`(F, L)` threshold (or scalar / per-component). A blue divider marks the
+transitory/operating boundary for two-horizon schedules. Cell annotations:
+mission number `j` (assigned), gear (maintenance), or "zzz" cloud (idle).
 
 Supported image formats: **PNG** (`.png`), **PDF** (`.pdf`).
 
-The plot is an F x (2H+1) grid where each cell is split into L horizontal strips (one per component), coloured on a green-to-red heatmap (0 to alpha) based on the component's degradation mean. When L=1, each cell shows a single colour as before. Cell annotations indicate:
-
-- **Number** (j): mission j is assigned (`x[i,j,k] = 1`, j > 0)
-- **Gear icon**: maintenance is scheduled (`x[i,0,k] = 1`)
-- **"zzz" cloud**: the train is idle
-
-## Input file format
-
-### Common keys (both models)
-
-| Key | Type | Description |
-|---|---|---|
-| `F` | int | Number of trains (must be > M) |
-| `H` | int | Time horizon (model spans 2H steps) |
-| `M` | int | Number of missions |
-| `L` | int, optional | Number of components per train. Default: 1 |
-| `mu` | array (F x M x L x H) or (F x M x L) | Mean degradation parameters (must be < alpha). If 3D, the same values are used for all time steps. When L=1, legacy shapes (F x M x H) and (F x M) are also accepted. |
-| `alpha` | float | Upper bound for degradation mean (must be positive) |
-| `epsilon` | float | Reliability threshold, in (0, 0.5) |
-| `xi` | array (F x L) | Fraction of damage repairable in one maintenance day per train and component, in (0, 1] element-wise. When L=1, a 1D array of length F is also accepted. |
-| `C_M` | float | Maintenance cost coefficient |
-| `C_R` | float | Repair cost coefficient |
-| `C_S` | float | Safety cost coefficient |
-| `C_P` | float | Penalty cost coefficient |
-| `mu_0` | array (F x L) | Initial mean degradation values per train and component (must be < alpha). When L=1, a 1D array of length F is also accepted. |
-| `verbose` | int, optional | Gurobi verbosity (0 = silent, 1 = normal). Default: 1 |
-| `mip_gap` | float, optional | Relative MIP optimality gap tolerance. Default: Gurobi default (1e-4) |
-
-### Gaussian-specific keys
-
-| Key | Type | Description |
-|---|---|---|
-| `v` | array (F x M x L x H) or (F x M x L) | Variance degradation parameters. If 3D, the same values are used for all time steps. When L=1, legacy shapes (F x M x H) and (F x M) are also accepted. |
-| `v_0` | array (F x L) | Initial variance values per train and component. When L=1, a 1D array of length F is also accepted. |
-
-Additional constraints: `mu >= 3*sqrt(v)` and `mu_0 >= 3*sqrt(v_0)`.
-
-### Inverse Gaussian-specific keys
-
-| Key | Type | Description |
-|---|---|---|
-| `c` | array (F x L) | Shape parameter per train and component (must be positive). When L=1, a 1D array of length F is also accepted. |
-
-### YAML example
-
-```yaml
-F: 6
-H: 10
-M: 3
-L: 2
-alpha: 1.0
-epsilon: 0.1
-xi:
-  - [0.8, 0.75]
-  - [0.75, 0.9]
-  - [0.9, 0.85]
-  - [0.85, 0.7]
-  - [0.7, 0.8]
-  - [0.8, 0.85]
-C_M: 1.0
-C_R: 2.0
-C_S: 1.5
-C_P: 3.0
-verbose: 1
-mip_gap: 0.12
-
-mu_0:
-  - [0.1341, 0.1200]
-  - [0.1113, 0.1050]
-  - [0.1925, 0.1800]
-  - [0.1877, 0.1750]
-  - [0.1258, 0.1100]
-  - [0.1660, 0.1500]
-v_0:
-  - [0.000799, 0.000640]
-  - [0.000551, 0.000490]
-  - [0.001647, 0.001440]
-  - [0.001566, 0.001361]
-  - [0.000703, 0.000538]
-  - [0.001225, 0.001000]
-
-mu:  # F x M x L x H tensor
-  - - - [0.1375, 0.1951, 0.1732, 0.1599, 0.1156, 0.1156, 0.1058, 0.1866, 0.1601, 0.1708]
-      - [0.1300, 0.1850, 0.1650, 0.1500, 0.1100, 0.1100, 0.1000, 0.1780, 0.1520, 0.1620]
-    - - [0.1021, 0.1970, 0.1832, 0.1212, 0.1182, 0.1183, 0.1304, 0.1525, 0.1432, 0.1291]
-      - [0.0970, 0.1870, 0.1740, 0.1150, 0.1120, 0.1130, 0.1240, 0.1450, 0.1360, 0.1230]
-    - - [0.1612, 0.1139, 0.1292, 0.1366, 0.1456, 0.1785, 0.1200, 0.1514, 0.1592, 0.1046]
-      - [0.1530, 0.1080, 0.1230, 0.1300, 0.1380, 0.1700, 0.1140, 0.1440, 0.1510, 0.0990]
-  # ... (6 x 3 x 2 x 10 tensor)
-
-v:  # F x M x L x H tensor
-  - - - [0.000840, 0.001692, 0.001333, 0.001136, 0.000594, 0.000594, 0.000497, 0.001548, 0.001139, 0.001297]
-      - [0.000751, 0.001521, 0.001200, 0.001000, 0.000538, 0.000538, 0.000444, 0.001408, 0.001027, 0.001167]
-    - - [0.000463, 0.001725, 0.001492, 0.000653, 0.000621, 0.000622, 0.000756, 0.001034, 0.000911, 0.000741]
-      - [0.000418, 0.001553, 0.001343, 0.000588, 0.000559, 0.000560, 0.000680, 0.000935, 0.000820, 0.000672]
-    - - [0.001155, 0.000577, 0.000742, 0.000829, 0.000942, 0.001416, 0.000640, 0.001019, 0.001126, 0.000486]
-      - [0.001040, 0.000519, 0.000668, 0.000751, 0.000848, 0.001284, 0.000576, 0.000921, 0.001013, 0.000438]
-  # ... (6 x 3 x 2 x 10 tensor)
-```
-
 ## Output file contents
-
-The output file includes:
 
 | Key | Description |
 |---|---|
-| `status` | Solver status (`"optimal"` or Gurobi status code) |
-| `objective` | Optimal objective value (or `null`) |
-| `degradation` | Degradation model used |
-| `F`, `M`, `H`, `L` | Problem dimensions (trains, missions, time horizon, components) |
-| `alpha` | Upper bound for degradation mean |
-| `mu_0`, `v_0` | Initial conditions (`v_0` only for Gaussian), shape F x L |
-| `x` | Binary assignment solution (F x (M+1) x 2H) |
-| `mu` | Mean degradation solution (F x L x 2H) |
-| `v` | Variance degradation solution (F x L x 2H, Gaussian only) |
-| `u` | Max degradation mean per time step (2H) |
-| `z` | Degradation level at repair per train (F x 2H, non-zero only when maintenance is scheduled) |
+| `status` | Solver status (`"optimal"`, `"time_limit"`, …) |
+| `objective` | Optimal objective (or `null`) |
+| `degradation` | `rainflow`, `gamma`, or `mixed` |
+| `F`, `M`, `H`, `L`, `H1`, `H2`, `T` | Dimensions and horizons |
+| `tau` | Failure threshold, `(F, L)` |
+| `bound_method`, `repair_model` | Per-cell selectors (scalar when uniform, else nested list) |
+| `reliability_impl` | Reliability implementation used (scalar when uniform) |
+| `mu_0`, `v_0` | Initial conditions, `(F, L)` |
+| `x` | Binary assignment solution, `(F, M+1, T)` |
+| `mu` | Mean-damage solution, `(F, L, T)` |
+| `v` | Variance solution, `(F, L, T)` (variance-using bounds) |
+| `u` | Max aggregate mean per step, `(T,)` |
+| `z` | Removed expected damage on maintenance steps, `(F, L, T)` |
+| `m`, `r` | Repair / replacement decisions, `(F, L, T)` |
+| `mip_gap`, `bound` | Final MIP gap and best bound (when a solution exists) |
+
+Results serialize to plain YAML/JSON (`yaml.safe_load`-compatible).
+
+## GUI usage
+
+> Note: the dashboard and validator below were built for the earlier
+> Gaussian/IG input format and may need updating for the self-describing schema
+> (`model:`, `tau`, `rho`, per-cell arrays).
+
+```bash
+.venv/Scripts/activate
+python -m streamlit run src/fleet_management/validator_dashboard.py
+```
+
+Assign the input file, solver-results file, and a log path in the GUI; optional
+`alpha_override` / `degradation_scale` stress-test the validator. Tabs cover: an
+overview (feasible/infeasible assignments, threshold violations, danger zones);
+failed/critical assignments with damage breakdown; per-mission analytics; a
+per-vehicle damage timeline with mission/maintenance markers; cross-vehicle
+component comparison; and a raw-data/export view.
 
 ## Validation
 
-### validate_baseline_assignment_feasibility(input_path, results_path, log_path)
+> Also predates the new schema; treat as legacy until re-aligned.
+
+### `validate_baseline_assignment_feasibility(input_path, results_path, log_path)`
 
 | Parameter | Type | Description |
 |---|---|---|
 | `input_path` | `str` | Path to the input data file. |
 | `results_path` | `str` | Results file path. |
-| `log_path` | `str` | Validation file path, defaults to `"baseline_assignment_feasibility.log"` |
+| `log_path` | `str` | Validation log path, default `"baseline_assignment_feasibility.log"`. |
 
+Writes file paths, fleet parameters, failure threshold, degradation scale, the
+actual solver assignment (damage state + increment + threshold check), and a
+summary (assigned missions, feasible/infeasible entries, scheduled maintenance).
+Supported input formats: YAML, JSON.
 
-Supported input/output formats: **YAML** (`.yaml`, `.yml`), **JSON** (`.json`)
+## Reliability bounds and implementations
 
-### Validation file contents
+The reliability requirement `P(D > tau) <= epsilon` is enforced per step by a
+distribution-free **bound**, selected per cell via `bound_method`:
 
-The validation file includes:
-
-| Key | Type | Description |
+| Bound | Information used | Constraint type |
 |---|---|---|
-| `File paths` | `str` | Input and Result files used for validator |
-| `Fleet parameters` | `int` | Define vehicles, missions, components, horizon |
-| `Failure threshold` | `float` | Can be manipulated to corrupt result and test validator |
-| `Degradation scale` | `float` | Can be manipulated to corrupt result and test validator |
-| `Actual solver assignment` | `array` | Damage state + Damage increment and threshold check |
-| `Summary` | `array` | assigned missions, feasible entries, infeasible (if damage increment would violate threshold), maintenance scheduled by solver |
+| `markov` | mean | linear |
+| `cantelli` | mean, variance | quadratic |
+| `hoeffding` | mean, support | quadratic |
+| `bernstein` | mean, variance, support | quadratic |
+| `chernoff` | cumulant generating function (fixed tilt `s`) | linear |
+
+Bounds are listed in increasing tightness (each uses more information). See
+`reliability_bounds.md` for the exact inequalities.
+
+The three quadratic bounds additionally offer a choice of **implementation** —
+how the (nonconvex) inequality is encoded — via `reliability_impl`:
+
+| `reliability_impl` | Encoding | Validity | Solver class |
+|---|---|---|---|
+| `exact` (default) | nonconvex quadratic, as written | exact | MIQCP (`NonConvex=2`) |
+| `tangent` | one supporting tangent of the convex cap | safe (inner) | MILP |
+| `pwl` | piecewise tangent over `pwl_points` segments | safe (inner) | MILP + segment binaries |
+
+`tangent` and `pwl` are conservative (their feasible set is a subset of the exact
+one — they never accept an unsafe schedule), trading a little optimality for a
+linear model. `pwl` tightens toward `exact` as `pwl_points` grows. Markov and
+Chernoff are already linear, so they ignore this option. See
+`reliability_implementations.md` and `compare_reliability_impls.py`.
+
 
 ## Project structure
 
@@ -239,11 +275,35 @@ The validation file includes:
 Fleet_Management/
     pyproject.toml
     README.md
+    reliability_bounds.md              # the five bounds (math reference)
+    spec/
+        input_template.yaml            # annotated input template
+    input/
+        test_switch_model.yaml         # flip model: rainflow <-> gamma
+    docs/
+        config_and_solver.md           # schema, config, solver, FleetConfig API
+        reliability_implementations.md # bounds x implementations (Step 3)
+    compare_reliability_impls.py       # exact/tangent/pwl comparison harness
     src/
         fleet_management/
-            __init__.py        # Public API: solve, plot_management
-            solver.py          # Mid-layer: I/O, validation, dispatch
-            gaussian.py        # Gaussian degradation MILP (Gurobi)
-            inverse_gaussian.py # Inverse Gaussian degradation MILP (Gurobi)
-            plotter.py         # Schedule visualisation
+            __init__.py                # Public API: solve, plot_management
+            config.py                  # self-describing schema -> FleetConfig
+            solver.py                  # I/O, dispatch, serialization
+            degradation_model/
+                rainflow.py            # modular per-cell rainflow MILP/MIQCP
+                gamma_utils/
+                    gamma_gurobi.py    # gamma backend
+            utils/
+                plotter.py             # schedule visualisation
+            # legacy backends (not wired through the new entry point):
+            gaussian.py
+            inverse_gaussian.py
 ```
+
+## Further reading
+
+- `docs/config_and_solver.md` — input schema, broadcasting, horizons, validation,
+  the `FleetConfig` API, and how `solver.py` dispatches.
+- `docs/reliability_implementations.md` — the bound-vs-implementation split and
+  how to add new relaxation families.
+- `reliability_bounds.md` — the exact probability inequalities.

@@ -19,3 +19,4 @@ src/fleet_management/opt_analysis.py*
 src/fleet_management/analysis.py*
 __pycache__/
 *.py[cod]
+docs/*

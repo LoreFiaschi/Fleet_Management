@@ -274,7 +274,9 @@ def load_config(data: dict) -> FleetConfig:
         costs={k: float(data[k]) for k in ("C_M", "C_R", "C_S", "C_P", "C_rep") if k in data},
         options={k: data[k] for k in ("verbose", "mip_gap", "time_limit", "fast",
                                       "allow_replacement", "depot_capacity",
-                                      "gurobi_params") if k in data},
+                                      "gurobi_params",
+                                      "reliability_impl", "pwl_points", "tangent_ref")
+                 if k in data},
         raw=data,
     )
 
