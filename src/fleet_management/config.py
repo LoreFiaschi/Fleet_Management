@@ -230,16 +230,11 @@ def load_config(data: dict) -> FleetConfig:
         if m not in SUPPORTED_MODELS:
             raise ValueError(f"model contains unknown value {m!r}; supported {SUPPORTED_MODELS}.")
 
-    # Profile horizon: rainflow cells use the operating horizon H2; a fleet made
-    # up only of single-horizon models (gamma / gaussian / inverse_gaussian) uses
-    # H1.  So with a two-horizon H = [H1, H2], gamma "just takes H1" -- including
-    # the length its per-mission profiles are normalized to.
-    any_rainflow = any(m == "rainflow" for m in model.ravel().tolist())
-    H_prof = H2 if any_rainflow else H1
-
-    # NOTE on two-horizon H = [H1, H2]: rainflow cells use both phases; gamma
-    # (and the other single-horizon models) simply use H1 -- that reduction is
-    # done in the solver's per-model kwargs builder, so nothing is rejected here.
+    # Every model uses the operating profile over H2.  An optional *_trans
+    # profile supplies the transitory phase over H1; when it is omitted the
+    # operating profile is reused with phase-local wrapping.  For scalar H,
+    # H1 == H2 == H, preserving the original 2H behaviour.
+    H_prof = H2
 
     def alias(*names):
         for n in names:

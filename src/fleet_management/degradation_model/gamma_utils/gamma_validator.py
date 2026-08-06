@@ -3,7 +3,8 @@
 The validator deliberately does not use the Gurobi model.  It reads the
 original problem and the serialized solver result, reconstructs every Gamma
 shape state from the saved assignment decisions, and checks the mathematical
-contract independently.
+contract independently.  It supports the transitory/operating convention
+``T = H1 + H2`` and the legacy scalar-H shorthand ``T = 2H``.
 """
 
 from __future__ import annotations
@@ -58,11 +59,18 @@ def validate_gamma_result(
     params = _extract_gamma_contract(_read_validator_input(input_file))
     result = _read_gamma_result(result_file)
 
-    F, H, M, L = (params[name] for name in ("F", "H", "M", "L"))
+    F, H1, H2, T, M, L = (
+        params[name] for name in ("F", "H1", "H2", "T", "M", "L")
+    )
     beta = np.asarray(params["gamma_beta"], dtype=float)
     tau = np.asarray(params["tau"], dtype=float)
     epsilon = float(params["epsilon"])
     mu_param = np.asarray(params["mu_param"], dtype=float)
+    mu_param_trans = (
+        None
+        if params["mu_param_trans"] is None
+        else np.asarray(params["mu_param_trans"], dtype=float)
+    )
     mu_0 = np.asarray(params["mu_0"], dtype=float)
     replacement_mu = np.asarray(params["replacement_mu"], dtype=float)
     repair_rho = np.asarray(params["repair_rho"], dtype=float)
@@ -91,7 +99,10 @@ def validate_gamma_result(
         report = _finish_report(
             checks=checks,
             result=result,
-            dimensions={"F": F, "H": H, "M": M, "L": L},
+            dimensions={
+                "F": F, "H": H1, "H1": H1, "H2": H2, "T": T,
+                "M": M, "L": L,
+            },
             tolerance=tolerance,
             summary={"reason": "No optimal solution arrays can be validated.",
                      "validation_wall_seconds": float(time.perf_counter() - validation_start),              # performance measurement
@@ -100,20 +111,23 @@ def validate_gamma_result(
         _save_report_if_requested(report, validation_path)
         return report
 
-    x = _required_array(result, "x", (F, M + 1, 2 * H))
-    m = _required_array(result, "m", (F, L, 2 * H))
-    r = _required_array(result, "r", (F, L, 2 * H))
-    saved_A = _required_array(result, "A", (F, L, 2 * H))
-    saved_mu = _required_array(result, "mu", (F, L, 2 * H))
-    saved_tail = _required_array(result, "tail_probability", (F, L, 2 * H))
-    saved_u = _required_array(result, "u", (2 * H,))
-    saved_z = _required_array(result, "z", (F, L, 2 * H))
+    x = _required_array(result, "x", (F, M + 1, T))
+    m = _required_array(result, "m", (F, L, T))
+    r = _required_array(result, "r", (F, L, T))
+    saved_A = _required_array(result, "A", (F, L, T))
+    saved_mu = _required_array(result, "mu", (F, L, T))
+    saved_tail = _required_array(result, "tail_probability", (F, L, T))
+    saved_u = _required_array(result, "u", (T,))
+    saved_z = _required_array(result, "z", (F, L, T))
 
     metadata_violation = 0.0
-    for name, expected in (("F", F), ("H", H), ("M", M), ("L", L)):
+    for name, expected in (
+        ("F", F), ("H", H1), ("H1", H1), ("H2", H2), ("T", T),
+        ("M", M), ("L", L),
+    ):
         metadata_violation = max(
             metadata_violation,
-            abs(float(result.get(name, np.inf)) - float(expected)),
+            abs(float(result.get(name, expected)) - float(expected)),
         )
     add_check("result dimensions match input", metadata_violation)
     add_check(
@@ -163,11 +177,13 @@ def validate_gamma_result(
         m=m_binary,
         r=r_binary,
         F=F,
-        H=H,
+        H1=H1,
+        H2=H2,
         M=M,
         L=L,
         beta=beta,
         mu_param=mu_param,
+        mu_param_trans=mu_param_trans,
         mu_0=mu_0,
         replacement_mu=replacement_mu,
         repair_rho=repair_rho,
@@ -193,7 +209,7 @@ def validate_gamma_result(
     )
 
     repeatability_excess = np.maximum(
-        reconstructed_A[:, :, 2 * H - 1] - reconstructed_A[:, :, H - 1],
+        reconstructed_A[:, :, T - 1] - reconstructed_A[:, :, H1 - 1],
         0.0,
     )
     repeatability_violation = float(np.max(repeatability_excess))
@@ -244,7 +260,8 @@ def validate_gamma_result(
         u=saved_u,
         z=saved_z,
         beta=beta,
-        H=H,
+        H1=H1,
+        T=T,
         C_M=float(params["C_M"]),
         C_R=float(params["C_R"]),
         C_rep=float(params["C_rep"]),
@@ -266,7 +283,7 @@ def validate_gamma_result(
         repair_rho=repair_rho,
     )
     summary = {
-        "transitions_checked": int(F * L * 2 * H),
+        "transitions_checked": int(F * L * T),
         "maximum_state_error": state_error,
         "maximum_expected_damage_error": mu_error,
         "maximum_tail_probability_error": tail_error,
@@ -286,7 +303,10 @@ def validate_gamma_result(
     report = _finish_report(
         checks=checks,
         result=result,
-        dimensions={"F": F, "H": H, "M": M, "L": L},
+        dimensions={
+            "F": F, "H": H1, "H1": H1, "H2": H2, "T": T,
+            "M": M, "L": L,
+        },
         tolerance=tolerance,
         summary=summary,
     )
@@ -300,7 +320,6 @@ def _reconstruct_shapes(
     m: np.ndarray,
     r: np.ndarray,
     F: int,
-    H: int,
     M: int,
     L: int,
     beta: np.ndarray,
@@ -308,12 +327,29 @@ def _reconstruct_shapes(
     mu_0: np.ndarray,
     replacement_mu: np.ndarray,
     repair_rho: np.ndarray,
+    H: int | None = None,
+    H1: int | None = None,
+    H2: int | None = None,
+    mu_param_trans: np.ndarray | None = None,
 ) -> np.ndarray:
-    reconstructed = np.zeros((F, L, 2 * H), dtype=float)
+    # H is retained for callers of the original private helper.
+    if H1 is None or H2 is None:
+        if H is None:
+            raise ValueError("Give H or both H1 and H2.")
+        H1 = H2 = int(H)
+    T = H1 + H2
+    reconstructed = np.zeros((F, L, T), dtype=float)
     initial_shape = mu_0 * beta[np.newaxis, :]
     replacement_shape = replacement_mu * beta[np.newaxis, :]
 
-    for k in range(2 * H):
+    def mission_increment(i: int, j: int, k: int) -> np.ndarray:
+        if k < H1:
+            if mu_param_trans is not None:
+                return mu_param_trans[i, j, :, k % H1]
+            return mu_param[i, j, :, k % H2]
+        return mu_param[i, j, :, (k - H1) % H2]
+
+    for k in range(T):
         for i in range(F):
             previous = initial_shape[i] if k == 0 else reconstructed[i, :, k - 1]
             if np.any(r[i, :, k]):
@@ -343,7 +379,7 @@ def _reconstruct_shapes(
                 increment += (
                     x[i, j, k]
                     * beta
-                    * mu_param[i, j - 1, :, k % H]
+                    * mission_increment(i, j - 1, k)
                 )
             reconstructed[i, :, k] = previous + increment
     return reconstructed
@@ -392,20 +428,27 @@ def _recompute_objective(
     u: np.ndarray,
     z: np.ndarray,
     beta: np.ndarray,
-    H: int,
     C_M: float,
     C_R: float,
     C_rep: float,
     C_S: float,
     C_P: float,
+    H: int | None = None,
+    H1: int | None = None,
+    T: int | None = None,
 ) -> float:
+    if H1 is None or T is None:
+        if H is None:
+            raise ValueError("Give H or both H1 and T.")
+        H1 = int(H)
+        T = 2 * int(H)
     objective = C_S * float(np.sum(u))
     objective += C_M * float(np.sum(x[:, 0, :]))
     objective += C_R * float(np.sum(z))
     objective += C_rep * float(np.sum(r))
     objective += C_P * float(
         np.sum(
-            (A[:, :, H - 1] - A[:, :, 2 * H - 1])
+            (A[:, :, H1 - 1] - A[:, :, T - 1])
             / beta[np.newaxis, :]
         )
     )
@@ -543,18 +586,27 @@ def _read_validator_input(path: Path) -> dict[str, Any]:
 
 
 def _extract_gamma_contract(data: dict[str, Any]) -> dict[str, Any]:
-    """Parse the constant-beta contract independently of ``solver.py``."""
+    """Parse the two-horizon constant-beta contract independently of solver.py."""
 
     required = {
         "F", "H", "M", "mu", "tau", "gamma_beta", "epsilon",
-        "C_M", "C_R", "C_rep", "C_S", "C_P", "mu_0", "repair_rho",
+        "C_M", "C_R", "C_rep", "C_S", "C_P", "mu_0",
     }
     missing = required - set(data)
     if missing:
         raise KeyError(f"Missing required Gamma input keys: {sorted(missing)}")
 
     F = int(data["F"])
-    H = int(data["H"])
+    H_raw = data["H"]
+    if isinstance(H_raw, (list, tuple)):
+        if len(H_raw) != 2:
+            raise ValueError("H must be an int or a two-element [H1, H2] list.")
+        H1, H2 = int(H_raw[0]), int(H_raw[1])
+    else:
+        H1 = H2 = int(H_raw)
+    if H1 <= 0 or H2 <= 0:
+        raise ValueError("H1 and H2 must be positive.")
+    T = H1 + H2
     M = int(data["M"])
     L = int(data.get("L", 1))
 
@@ -575,26 +627,46 @@ def _extract_gamma_contract(data: dict[str, Any]) -> dict[str, Any]:
             f"got {replacement_mu.shape}."
         )
 
+    new_schema = "model" in data
     mu_param = _validator_broadcast_mu(
-        np.asarray(data["mu"], dtype=float), F, M, L, H
+        np.asarray(data["mu"], dtype=float), F, M, L, H2,
+        new_schema=new_schema,
     )
+    mu_param_trans = None
+    if data.get("mu_trans") is not None:
+        mu_param_trans = _validator_broadcast_mu(
+            np.asarray(data["mu_trans"], dtype=float), F, M, L, H1,
+            new_schema=new_schema,
+        )
     beta = _validator_component_array(data["gamma_beta"], L, "gamma_beta")
     tau = _validator_component_array(data["tau"], L, "tau")
-    repair_rho = _validator_component_array(data["repair_rho"], L, "repair_rho")
+    repair_value = data.get("rho", data.get("repair_rho"))
+    if repair_value is None:
+        raise KeyError("Missing required Gamma input key 'rho' (or 'repair_rho').")
+    repair_rho = _validator_component_array(repair_value, L, "rho")
 
     if np.any(beta <= 0.0) or np.any(tau <= 0.0):
         raise ValueError("gamma_beta and tau must be positive.")
     if np.any((repair_rho < 0.0) | (repair_rho > 1.0)):
         raise ValueError("repair_rho must lie in [0, 1].")
-    if np.any(mu_param < 0.0) or np.any(mu_0 < 0.0) or np.any(replacement_mu < 0.0):
+    if (
+        np.any(mu_param < 0.0)
+        or (mu_param_trans is not None and np.any(mu_param_trans < 0.0))
+        or np.any(mu_0 < 0.0)
+        or np.any(replacement_mu < 0.0)
+    ):
         raise ValueError("Gamma damage inputs cannot be negative.")
 
     return {
         "F": F,
-        "H": H,
+        "H": H1,
+        "H1": H1,
+        "H2": H2,
+        "T": T,
         "M": M,
         "L": L,
         "mu_param": mu_param,
+        "mu_param_trans": mu_param_trans,
         "tau": tau,
         "epsilon": float(data["epsilon"]),
         "gamma_beta": beta,
@@ -610,8 +682,47 @@ def _extract_gamma_contract(data: dict[str, Any]) -> dict[str, Any]:
 
 
 def _validator_broadcast_mu(
-    array: np.ndarray, F: int, M: int, L: int, H: int
+    array: np.ndarray,
+    F: int,
+    M: int,
+    L: int,
+    H: int,
+    *,
+    new_schema: bool = False,
 ) -> np.ndarray:
+    """Normalize a profile to backend layout (F, M, L, H).
+
+    Self-describing FleetConfig inputs use (F, L, M, H), while legacy Gamma
+    inputs used the backend layout directly.  The presence of ``model`` in the
+    input selects the new schema unambiguously.
+    """
+
+    if new_schema:
+        if array.ndim == 0:
+            return np.full((F, M, L, H), float(array))
+        if array.shape == (M,):
+            normalized = np.broadcast_to(
+                array[None, None, :, None], (F, L, M, H)
+            ).copy()
+        elif array.shape == (L, M):
+            normalized = np.broadcast_to(
+                array[None, :, :, None], (F, L, M, H)
+            ).copy()
+        elif array.shape == (L, M, H):
+            normalized = np.broadcast_to(
+                array[None, :, :, :], (F, L, M, H)
+            ).copy()
+        elif array.shape == (F, L, M):
+            normalized = np.repeat(array[:, :, :, None], H, axis=3)
+        elif array.shape == (F, L, M, H):
+            normalized = array
+        else:
+            raise ValueError(
+                f"mu cannot be broadcast from {array.shape} to "
+                f"FleetConfig profile shape ({F}, {L}, {M}, {H})."
+            )
+        return np.transpose(normalized, (0, 2, 1, 3))
+
     target = (F, M, L, H)
     if array.shape == target:
         return array

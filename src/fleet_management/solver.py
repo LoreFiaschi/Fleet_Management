@@ -168,18 +168,13 @@ def _cfg_to_rainflow_kwargs(cfg: "FleetConfig") -> dict:
 
 def _cfg_to_gamma_kwargs(cfg: "FleetConfig") -> dict:
     """Translate a uniform single-model gamma FleetConfig into solve_gamma
-    kwargs for the CURRENT gamma backend.
-
-    Gamma is single-horizon: if the input gave H = [H1, H2], only H1 is used
-    (H = cfg.H1).  Component scalars (tau / gamma_beta / repair_rho) are reduced
-    to (L,) and the mean profile is transposed to the backend's (F, M, L, H).
-    This builds the full kwarg set the backend expects (F, H, M, L, mu_param,
-    tau, epsilon, gamma_beta, repair_rho, C_M, C_R, C_rep, C_S, C_P, mu_0,
-    replacement_mu, plus verbose / mip_gap)."""
+    kwargs.  The operating profile is transposed from (F, L, M, H2) to the
+    backend's (F, M, L, H2) layout.  An optional transitory profile is passed
+    in the corresponding (F, M, L, H1) layout."""
     if "C_rep" not in cfg.costs:
         raise KeyError("gamma requires a fleet-wide 'C_rep' (replacement cost).")
     kw = {
-        "F": cfg.F, "H": cfg.H1, "M": cfg.M, "L": cfg.L,
+        "F": cfg.F, "H": cfg.H, "M": cfg.M, "L": cfg.L,
         "mu_param": np.transpose(cfg.mu, (0, 2, 1, 3)),
         "tau": _uniform_over_vehicles(cfg.tau, "tau"),
         "epsilon": float(_require_uniform(cfg.epsilon, "epsilon")),
@@ -189,6 +184,8 @@ def _cfg_to_gamma_kwargs(cfg: "FleetConfig") -> dict:
         "C_S": cfg.costs["C_S"], "C_P": cfg.costs["C_P"],
         "mu_0": cfg.mu_0, "replacement_mu": cfg.replacement_mu,
     }
+    if cfg.mu_trans is not None:
+        kw["mu_param_trans"] = np.transpose(cfg.mu_trans, (0, 2, 1, 3))
     for opt in ("verbose", "mip_gap"):
         if opt in cfg.options:
             kw[opt] = cfg.options[opt]
@@ -329,7 +326,7 @@ def _build_serializable_output(result: dict) -> dict:
     if result.get("alpha") is not None:
         output["alpha"] = result["alpha"]
 
-    # Two-horizon / rainflow metadata
+    # Two-horizon / model metadata
     for key in ("H1", "H2", "T", "method", "repair_model"):
         if result.get(key) is not None:
             output[key] = result[key]
@@ -426,7 +423,7 @@ def _save_hdf5(result: dict, path: Path) -> None:
         if result.get("alpha") is not None:
             f.attrs["alpha"] = result["alpha"]
 
-        # Two-horizon / rainflow metadata
+        # Two-horizon / model metadata
         for key in ("H1", "H2", "T", "method", "repair_model"):
             if result.get(key) is not None:
                 f.attrs[key] = result[key]

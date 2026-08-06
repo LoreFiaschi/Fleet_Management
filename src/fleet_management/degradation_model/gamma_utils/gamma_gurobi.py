@@ -10,6 +10,10 @@ the shape-rate convention
 For each component, ``beta`` is constant over the complete horizon. Mission
 increments therefore accumulate exactly by adding their shape parameters.
 
+The planning horizon may contain a transitory phase H1 and a repeatable
+operating phase H2, with total length ``T = H1 + H2``.  A scalar H remains the
+backward-compatible shorthand ``H1 = H2 = H``.
+
 Supported decisions
 -------------------
 Idle
@@ -42,7 +46,8 @@ from fleet_management.degradation_model.gamma import maximum_reliable_shape
 
 def validate_inputs(
     F: int,
-    H: int,
+    H1: int,
+    H2: int,
     M: int,
     L: int,
     mu_param: np.ndarray,
@@ -57,11 +62,12 @@ def validate_inputs(
     mu_0: np.ndarray,
     replacement_mu: np.ndarray,
     repair_rho: np.ndarray,
+    mu_param_trans: np.ndarray | None = None,
 ) -> None:
     """Validate the common-rate Gamma solver contract."""
 
-    if F <= 0 or H <= 0 or M <= 0 or L <= 0:
-        raise ValueError("F, H, M and L must be positive integers.")
+    if F <= 0 or H1 <= 0 or H2 <= 0 or M <= 0 or L <= 0:
+        raise ValueError("F, H1, H2, M and L must be positive integers.")
     if F <= M:
         raise ValueError(f"F must be greater than M (got F={F}, M={M}).")
     if not 0.0 < epsilon < 1.0:
@@ -69,11 +75,19 @@ def validate_inputs(
     if any(cost <= 0.0 for cost in (C_M, C_R, C_rep, C_S, C_P)):
         raise ValueError("All cost coefficients must be positive.")
 
-    expected_4d = (F, M, L, H)
+    expected_4d = (F, M, L, H2)
     if mu_param.shape != expected_4d:
         raise ValueError(
-            f"mu_param must have shape {expected_4d}, got {mu_param.shape}."
+            f"mu_param must have operating-profile shape {expected_4d}, "
+            f"got {mu_param.shape}."
         )
+    if mu_param_trans is not None:
+        expected_transitory = (F, M, L, H1)
+        if mu_param_trans.shape != expected_transitory:
+            raise ValueError(
+                "mu_param_trans must have transitory-profile shape "
+                f"{expected_transitory}, got {mu_param_trans.shape}."
+            )
     expected_2d = (F, L)
     if mu_0.shape != expected_2d:
         raise ValueError(f"mu_0 must have shape {expected_2d}.")
@@ -94,12 +108,16 @@ def validate_inputs(
         "tau": tau,
         "repair_rho": repair_rho,
     }
+    if mu_param_trans is not None:
+        named_arrays["mu_param_trans"] = mu_param_trans
     for name, value in named_arrays.items():
         if np.any(~np.isfinite(value)):
             raise ValueError(f"{name} must contain only finite values.")
 
     if np.any(mu_param < 0.0):
         raise ValueError("mu_param cannot contain negative damage increments.")
+    if mu_param_trans is not None and np.any(mu_param_trans < 0.0):
+        raise ValueError("mu_param_trans cannot contain negative damage increments.")
     if np.any(mu_0 < 0.0):
         raise ValueError("mu_0 cannot contain negative damage.")
     if np.any(replacement_mu < 0.0):
@@ -114,7 +132,7 @@ def validate_inputs(
 
 def solve_fleet_management(
     F: int,
-    H: int,
+    H: int | tuple[int, int] | list[int],
     M: int,
     L: int,
     mu_param: np.ndarray,
@@ -131,14 +149,31 @@ def solve_fleet_management(
     repair_rho: np.ndarray,
     verbose: int = 1,
     mip_gap: float | None = None,
+    mu_param_trans: np.ndarray | None = None,
 ) -> dict:
-    """Solve the fleet problem with common-rate Gamma degradation."""
+    """Solve the fleet problem with common-rate Gamma degradation.
+
+    ``H`` may be an integer or ``(H1, H2)``.  The integer form retains the
+    original convention ``H1 = H2 = H`` and therefore ``T = 2H``.  For unequal
+    horizons, ``mu_param`` describes the operating period H2 and optional
+    ``mu_param_trans`` describes the transitory period H1.  If the latter is
+    omitted, the operating profile is reused during the transitory phase.
+    """
 
     backend_start = time.perf_counter()         # performance measurement
 
+    if isinstance(H, (tuple, list)):
+        if len(H) != 2:
+            raise ValueError("H must be an int or a two-element (H1, H2) sequence.")
+        H1, H2 = int(H[0]), int(H[1])
+    else:
+        H1 = H2 = int(H)
+    T = H1 + H2
+
     validate_inputs(
         F=F,
-        H=H,
+        H1=H1,
+        H2=H2,
         M=M,
         L=L,
         mu_param=mu_param,
@@ -153,12 +188,18 @@ def solve_fleet_management(
         mu_0=mu_0,
         replacement_mu=replacement_mu,
         repair_rho=repair_rho,
+        mu_param_trans=mu_param_trans,
     )
 
     beta = np.asarray(gamma_beta, dtype=float)
     initial_shape = mu_0 * beta[np.newaxis, :]
     replacement_shape = replacement_mu * beta[np.newaxis, :]
     increment_shape = mu_param * beta[np.newaxis, np.newaxis, :, np.newaxis]
+    increment_shape_trans = (
+        None
+        if mu_param_trans is None
+        else mu_param_trans * beta[np.newaxis, np.newaxis, :, np.newaxis]
+    )
     maximum_shape = np.array(
         [
             maximum_reliable_shape(
@@ -172,7 +213,11 @@ def solve_fleet_management(
     )
 
     def mission_shape(i: int, j: int, l: int, k: int) -> float:
-        return float(increment_shape[i, j, l, k % H])
+        if k < H1:
+            if increment_shape_trans is not None:
+                return float(increment_shape_trans[i, j, l, k % H1])
+            return float(increment_shape[i, j, l, k % H2])
+        return float(increment_shape[i, j, l, (k - H1) % H2])
 
     model = gp.Model("fleet_management_gamma_degradation")
     model.Params.OutputFlag = int(verbose)
@@ -180,21 +225,21 @@ def solve_fleet_management(
         model.Params.MIPGap = float(mip_gap)
 
     # j=0 grants maintenance access; j=1,...,M are missions.
-    x = model.addVars(F, M + 1, 2 * H, vtype=GRB.BINARY, name="x")
-    m = model.addVars(F, L, 2 * H, vtype=GRB.BINARY, name="m")
-    r = model.addVars(F, L, 2 * H, vtype=GRB.BINARY, name="r")
+    x = model.addVars(F, M + 1, T, vtype=GRB.BINARY, name="x")
+    m = model.addVars(F, L, T, vtype=GRB.BINARY, name="m")
+    r = model.addVars(F, L, T, vtype=GRB.BINARY, name="r")
     # q means maintenance access without an action on this component.
-    q = model.addVars(F, L, 2 * H, vtype=GRB.BINARY, name="q")
+    q = model.addVars(F, L, T, vtype=GRB.BINARY, name="q")
     shape_var = model.addVars(
-        F, L, 2 * H, vtype=GRB.CONTINUOUS, lb=0.0, name="A"
+        F, L, T, vtype=GRB.CONTINUOUS, lb=0.0, name="A"
     )
     u_var = model.addVars(
-        2 * H, vtype=GRB.CONTINUOUS, lb=0.0, name="u"
+        T, vtype=GRB.CONTINUOUS, lb=0.0, name="u"
     )
-    z_var = model.addVars(F, L, 2 * H, vtype=GRB.CONTINUOUS, lb=0.0, name="z")
+    z_var = model.addVars(F, L, T, vtype=GRB.CONTINUOUS, lb=0.0, name="z")
 
     objective = gp.LinExpr()
-    for k in range(2 * H):
+    for k in range(T):
         objective += C_S * u_var[k]
         for i in range(F):
             objective += C_M * x[i, 0, k]
@@ -204,14 +249,14 @@ def solve_fleet_management(
     for i in range(F):
         for l in range(L):
             objective += (C_P / beta[l]) * (
-                shape_var[i, l, H - 1]
-                - shape_var[i, l, 2 * H - 1]
+                shape_var[i, l, H1 - 1]
+                - shape_var[i, l, T - 1]
             )
     model.setObjective(objective, GRB.MINIMIZE)
 
     # Preserve the normalized aggregate-capacity constraint used by the
     # existing fleet formulation, expressed here in expected-damage units.
-    for k in range(2 * H):
+    for k in range(T):
         model.addConstr(
             gp.quicksum(
                 shape_var[i, l, k] / beta[l]
@@ -224,7 +269,7 @@ def solve_fleet_management(
 
     for i in range(F):
         for l in range(L):
-            for k in range(2 * H):
+            for k in range(T):
                 previous_shape = (
                     float(initial_shape[i, l])
                     if k == 0
@@ -298,14 +343,14 @@ def solve_fleet_management(
     for i in range(F):
         for l in range(L):
             model.addConstr(
-                shape_var[i, l, 2 * H - 1]
-                <= shape_var[i, l, H - 1],
+                shape_var[i, l, T - 1]
+                <= shape_var[i, l, H1 - 1],
                 name=f"shape_periodic_{i}_{l}",
             )
 
     # Each member receives at most one action in a planning step.
     for i in range(F):
-        for k in range(2 * H):
+        for k in range(T):
             model.addConstr(
                 gp.quicksum(x[i, j, k] for j in range(M + 1)) <= 1,
                 name=f"assignment_{i}_{k}",
@@ -315,7 +360,7 @@ def solve_fleet_management(
     # exactly once.  Component-level m/r variables decide how that opportunity
     # is used.
     for j in range(M + 1):
-        for k in range(2 * H):
+        for k in range(T):
             model.addConstr(
                 gp.quicksum(x[i, j, k] for i in range(F)) == 1,
                 name=f"demand_{j}_{k}",
@@ -336,16 +381,16 @@ def solve_fleet_management(
 
     extraction_start = time.perf_counter()
     if model.status == GRB.OPTIMAL:
-        x_solution = np.zeros((F, M + 1, 2 * H))
-        m_solution = np.zeros((F, L, 2 * H))
-        r_solution = np.zeros((F, L, 2 * H))
-        shape_solution = np.zeros((F, L, 2 * H))
-        expected_solution = np.zeros((F, L, 2 * H))
-        tail_solution = np.zeros((F, L, 2 * H))
-        u_solution = np.zeros(2 * H)
-        z_solution = np.zeros((F, L, 2 * H))
+        x_solution = np.zeros((F, M + 1, T))
+        m_solution = np.zeros((F, L, T))
+        r_solution = np.zeros((F, L, T))
+        shape_solution = np.zeros((F, L, T))
+        expected_solution = np.zeros((F, L, T))
+        tail_solution = np.zeros((F, L, T))
+        u_solution = np.zeros(T)
+        z_solution = np.zeros((F, L, T))
 
-        for k in range(2 * H):
+        for k in range(T):
             u_solution[k] = u_var[k].X
             for i in range(F):
                 for j in range(M + 1):
@@ -375,7 +420,10 @@ def solve_fleet_management(
             "status": "optimal",
             "objective": model.ObjVal,
             "F": F,
-            "H": H,
+            "H": H1,
+            "H1": H1,
+            "H2": H2,
+            "T": T,
             "M": M,
             "L": L,
             "tau": tau,
@@ -403,7 +451,10 @@ def solve_fleet_management(
         "status": model.status,
         "objective": None,
         "F": F,
-        "H": H,
+        "H": H1,
+        "H1": H1,
+        "H2": H2,
+        "T": T,
         "M": M,
         "L": L,
         "tau": tau,
