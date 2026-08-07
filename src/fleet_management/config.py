@@ -271,7 +271,7 @@ def load_config(data: dict) -> FleetConfig:
         v_trans=_flmh_prof(data.get("v_trans"), F, L, M, H1, "v_trans"),
         support_trans=_flmh_prof(data.get("support_trans"), F, L, M, H1, "support_trans"),
         cgf_trans=_flmh_prof(data.get("cgf_trans"), F, L, M, H1, "cgf_trans"),
-        costs={k: float(data[k]) for k in ("C_M", "C_R", "C_S", "C_P", "C_rep") if k in data},
+        costs={k: float(data[k]) for k in ("C_M", "C_R", "C_D", "C_S", "C_P", "C_rep") if k in data},
         options={k: data[k] for k in ("verbose", "mip_gap", "time_limit", "fast",
                                       "allow_replacement", "depot_capacity",
                                       "gurobi_params",

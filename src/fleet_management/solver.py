@@ -6,10 +6,12 @@ import h5py
 import numpy as np
 import yaml
 
-# gamma is still solved through the existing backend (its modular block is WIP);
-# rainflow (and any rainflow-containing fleet) goes through the modular builder.
+# Three routes: a gamma-only fleet uses the existing gamma backend; a uniform
+# rainflow fleet uses the rainflow builder; a genuinely mixed fleet is assembled
+# per cell on the shared model layer in base.py.
 from fleet_management.degradation_model.gamma_utils.gamma_gurobi import solve_fleet_management as solve_gamma
 from fleet_management.degradation_model.rainflow import solve as rainflow_solve
+from fleet_management.degradation_model.base import solve_mixed as base_solve_mixed
 
 from fleet_management.config import load_config, FleetConfig
 
@@ -70,22 +72,32 @@ def solve(input_path: str, results_path: str = None) -> dict:   # was -> None, n
 # Solve dispatch (all inputs are "mixed"; uniform fleets bridge to a backend)
 # ---------------------------------------------------------------------------
 def _solve_mixed(cfg: "FleetConfig") -> dict:
-    """Solve a normalized FleetConfig.
+    """Solve a normalized FleetConfig — three routes by fleet composition.
 
-    * gamma-only fleet  -> existing gamma backend (its modular block is WIP);
-    * everything else   -> the modular rainflow builder (``rainflow.solve``),
-      which fully handles all-rainflow fleets and raises a clear
-      ``NotImplementedError`` at a gamma / unsupported cell.
+    1. **gamma-only**  -> the existing gamma backend (its modular cell block is
+       still a placeholder, so the whole-fleet backend is used);
+    2. **rainflow-only** -> the rainflow builder (``rainflow.solve``);
+    3. **mixed** (cells use different degradation models) -> ``base.solve_mixed``,
+       which builds the shared skeleton once and then fills in each cell's
+       constraints through that cell's registered model builder. A cell whose
+       model has no implementation yet (gamma today) raises a clear
+       ``NotImplementedError`` from its placeholder.
     """
     models = set(cfg.models)
-    if models == {"gamma"}:
+
+    if models == {"gamma"}:                                   # 1. gamma-only
         result = solve_gamma(**_cfg_to_gamma_kwargs(cfg))
         result["mu_0"] = cfg.mu_0
         result["degradation"] = "gamma"
         return result
 
-    result = rainflow_solve(cfg)
-    result["degradation"] = "rainflow" if models == {"rainflow"} else "mixed"
+    if models == {"rainflow"}:                                # 2. rainflow-only
+        result = rainflow_solve(cfg)
+        result["degradation"] = "rainflow"
+        return result
+
+    result = base_solve_mixed(cfg)                            # 3. mixed per cell
+    result["degradation"] = "mixed"
     return result
 
 
@@ -133,7 +145,7 @@ def _cfg_to_gamma_kwargs(cfg: "FleetConfig") -> dict:
         "gamma_beta": _uniform_over_vehicles(cfg.gamma_beta, "gamma_beta"),
         "repair_rho": _uniform_over_vehicles(cfg.rho, "rho"),
         "C_M": cfg.costs["C_M"], "C_R": cfg.costs["C_R"], "C_rep": cfg.costs["C_rep"],
-        "C_S": cfg.costs["C_S"], "C_P": cfg.costs["C_P"],
+        "C_S": cfg.costs.get("C_S", cfg.costs.get("C_D")), "C_P": cfg.costs["C_P"],
         "mu_0": cfg.mu_0, "replacement_mu": cfg.replacement_mu,
     }
     for opt in ("verbose", "mip_gap"):
