@@ -21,3 +21,6 @@ __pycache__/
 *.py[cod]
 docs/*
 test_results/*
+.venv-euler/*
+results/*
+logs/*
