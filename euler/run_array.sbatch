@@ -24,13 +24,49 @@ PARAMS=${PARAMS:-L,H,M,F}
 IMPLS=${IMPLS:-exact}
 EXTRA=${EXTRA:-}
 
+# `module` is a shell function set up by the login profile. A batch script runs a
+# NON-login shell, so on some setups it is undefined here and every task dies
+# instantly with "module: command not found" -- which under `set -e` looks like a
+# mass failure with no useful message. Bootstrap it if needed.
+if ! command -v module >/dev/null 2>&1; then
+    for init in /etc/profile.d/modules.sh \
+                /cluster/apps/modules/init/bash \
+                /usr/share/lmod/lmod/init/bash; do
+        [ -f "$init" ] && . "$init" && break
+    done
+fi
+if ! command -v module >/dev/null 2>&1; then
+    echo "ERROR: 'module' is unavailable in this batch shell. Change the shebang" >&2
+    echo "       of this script to '#!/usr/bin/bash -l' (login shell) and retry." >&2
+    exit 1
+fi
+
+# module commands can return non-zero on harmless warnings; do not let set -e
+# turn that into a failed task.
+set +e
 module purge
 module load stack/2024-06 python/3.12.8 gurobi/12.0.1
+MODULE_RC=$?
+set -e
+[ $MODULE_RC -eq 0 ] || echo "warning: module load returned $MODULE_RC, continuing"
+
+if [ ! -f "$PROJECT/.venv-euler/bin/activate" ]; then
+    echo "ERROR: no venv at $PROJECT/.venv-euler -- run euler/setup_euler.sh" >&2
+    exit 1
+fi
 source "$PROJECT/.venv-euler/bin/activate"
 cd "$PROJECT"
 
+# Fail loudly here rather than 85 times inside the harness.
+python -c "import gurobipy, numpy, yaml" || {
+    echo "ERROR: python environment is incomplete in this job" >&2
+    module list 2>&1 >&2
+    exit 1
+}
+
 NSHARDS=${SLURM_ARRAY_TASK_COUNT:-1}
 echo "project=$PROJECT"
+echo "python=$(which python)  gurobi=$(python -c 'import gurobipy;print(gurobipy.gurobi.version())')"
 echo "host=$(hostname)  task=${SLURM_ARRAY_TASK_ID:-0}/${NSHARDS}  cpus=${SLURM_CPUS_PER_TASK:-1}"
 echo "started $(date)"
 

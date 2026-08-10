@@ -24,3 +24,4 @@ test_results/*
 .venv-euler/*
 results/*
 logs/*
+results-euler/*

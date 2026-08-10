@@ -16,8 +16,17 @@ TEST=${TEST:-sweep}
 NAME=${NAME:-bound_tightness}
 OUT=${OUT:-$PROJECT/results}
 
+if ! command -v module >/dev/null 2>&1; then
+    for init in /etc/profile.d/modules.sh \
+                /cluster/apps/modules/init/bash \
+                /usr/share/lmod/lmod/init/bash; do
+        [ -f "$init" ] && . "$init" && break
+    done
+fi
+set +e
 module purge
 module load stack/2024-06 python/3.12.8
+set -e
 source "$PROJECT/.venv-euler/bin/activate"
 cd "$PROJECT"
 
