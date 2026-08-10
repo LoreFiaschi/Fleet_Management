@@ -146,9 +146,19 @@ import time
 from dataclasses import dataclass, replace
 from datetime import datetime
 from pathlib import Path
+from types import SimpleNamespace
 
 import numpy as np
 import yaml
+
+# Provenance: which machine / Slurm task produced a row (empty off-cluster)
+import os
+import socket
+
+_HOSTNAME = socket.gethostname()
+_SLURM_JOB = os.environ.get("SLURM_ARRAY_JOB_ID", os.environ.get("SLURM_JOB_ID", ""))
+if os.environ.get("SLURM_ARRAY_TASK_ID"):
+    _SLURM_JOB += f"_{os.environ['SLURM_ARRAY_TASK_ID']}"
 
 # ---------------------------------------------------------------------------
 # Import the package (works from the repo root or from src/)
@@ -157,6 +167,31 @@ _HERE = Path(__file__).resolve().parent
 for _cand in (_HERE, _HERE / "src"):
     if (_cand / "fleet_management").is_dir() and str(_cand) not in sys.path:
         sys.path.insert(0, str(_cand))
+
+
+def _git_info() -> dict:
+    """Branch / commit that produced a result row.
+
+    Thesis results are worth nothing if you cannot say which code made them, and
+    on a cluster the checkout is remote and easy to move on underneath you. A
+    dirty working tree is flagged, because then the commit alone does not identify
+    the code. Failures are silent: not every checkout is a git repo.
+    """
+    try:
+        import subprocess
+
+        def q(*args) -> str:
+            return subprocess.run(["git", *args], cwd=_HERE, capture_output=True,
+                                  text=True, timeout=5).stdout.strip()
+
+        commit = q("rev-parse", "--short", "HEAD")
+        return {"git_branch": q("rev-parse", "--abbrev-ref", "HEAD"),
+                "git_commit": (commit + "+dirty") if q("status", "--porcelain") else commit}
+    except Exception:
+        return {"git_branch": "", "git_commit": ""}
+
+
+_GIT = _git_info()
 
 
 def _import_config():
@@ -197,6 +232,36 @@ _INT_PARAMS = ("F", "M", "L", "H")
 
 def _cast(param: str, value):
     return int(value) if param in _INT_PARAMS else float(value)
+
+
+class Shard:
+    """Work-unit partitioner for Slurm job arrays.
+
+    Every test enumerates its solves in a deterministic order; shard k of n takes
+    the units where `index % n == k`.  Each array task therefore writes its own
+    output folder and no two tasks duplicate work.  The hypothesis checks need
+    *all* bounds at a design point, so a shard never evaluates them -- run
+    `--merge` afterwards to combine the shards and do the checks once.
+    """
+
+    def __init__(self, k: int, n: int):
+        if not (0 <= k < n):
+            raise SystemExit(f"--shard k/n needs 0 <= k < n (got {k}/{n})")
+        self.k, self.n, self.i = k, n, 0
+
+    def take(self) -> bool:
+        mine = (self.i % self.n) == self.k
+        self.i += 1
+        return mine
+
+    def __str__(self) -> str:
+        return f"{self.k}/{self.n}"
+
+
+def _mine(opts, ) -> bool:
+    """True when this work unit belongs to this shard (always True without one)."""
+    shard = getattr(opts, "shard_obj", None)
+    return True if shard is None else shard.take()
 
 
 def bound_impl_combos(impls, announce: bool = False) -> list:
@@ -564,6 +629,9 @@ def run_case(sc: Scenario, bound: str, opts) -> tuple[dict, dict]:
         "pwl_points": sc.pwl_points, "tangent_ref": sc.tangent_ref,
         "allow_replacement": sc.allow_replacement,
         "C_M": sc.C_M, "C_R": sc.C_R, "C_S": sc.C_S, "C_P": sc.C_P,
+        "threads": getattr(opts, "threads", None) or "",
+        "host": _HOSTNAME, "slurm_job": _SLURM_JOB,
+        "git_branch": _GIT["git_branch"], "git_commit": _GIT["git_commit"],
         "n_max_analytic": n_max(sc, bound),
         # a bound only bites when n_max < load (design note 8)
         "load": sc.load,
@@ -589,6 +657,10 @@ def run_case(sc: Scenario, bound: str, opts) -> tuple[dict, dict]:
             reliability_impl=sc.reliability_impl,
             pwl_points=sc.pwl_points,
             tangent_ref=sc.tangent_ref,
+            # On a shared cluster node Gurobi would otherwise spawn threads for
+            # every core it can see, not for the cores Slurm gave the job.
+            gurobi_params=({"Threads": int(opts.threads)}
+                           if getattr(opts, "threads", None) else None),
         )
     except Exception as exc:                     # keep the sweep alive
         rec.update({"status": f"error: {type(exc).__name__}: {exc}",
@@ -665,22 +737,24 @@ FIELDS = ["timestamp", "test", "parameter", "value", "bound", "status",
           "F", "M", "L", "H", "T", "tau", "epsilon", "rho", "p", "b_ref",
           "mu_ref", "s_chernoff", "repair_model", "reliability_impl",
           "pwl_points", "tangent_ref",
-          "allow_replacement", "C_M", "C_R", "C_S", "C_P"]
+          "allow_replacement", "C_M", "C_R", "C_S", "C_P",
+          "threads", "host", "slurm_job", "git_branch", "git_commit"]
 
 
 class TestRun:
     """Output folder for ONE test: csv + aggregate yaml + per-run yaml + plots."""
 
-    def __init__(self, out_root: Path, name: str, test: str, sc: Scenario, opts):
+    def __init__(self, out_root: Path, name: str, test: str, sc: Scenario, opts,
+                 suffix: str = ""):
         self.stamp = f"{datetime.now():%y%m%d}"
         self.test = test
-        self.dir = out_root / f"{self.stamp}_{name}_{test}"
+        self.dir = out_root / f"{self.stamp}_{name}_{test}{suffix}"
         self.runs_dir = self.dir / "runs"
         self.runs_dir.mkdir(parents=True, exist_ok=True)
-        self.stem = f"{self.stamp}_{name}_{test}"
-        self.csv_path = self.dir / f"{self.stamp}_results_{name}_{test}.csv"
-        self.yaml_path = self.dir / f"{self.stamp}_results_{name}_{test}.yaml"
-        self.summary_path = self.dir / f"{self.stamp}_summary_{name}_{test}.txt"
+        self.stem = f"{self.stamp}_{name}_{test}{suffix}"
+        self.csv_path = self.dir / f"{self.stem.replace(f'{self.stamp}_', f'{self.stamp}_results_', 1)}.csv"
+        self.yaml_path = self.csv_path.with_suffix(".yaml")
+        self.summary_path = self.dir / f"{self.stamp}_summary_{name}_{test}{suffix}.txt"
         self.rows: list[dict] = []
         self._fh = self.csv_path.open("w", newline="")
         self._w = csv.DictWriter(self._fh, fieldnames=FIELDS, extrasaction="ignore")
@@ -688,6 +762,7 @@ class TestRun:
         # the base case, dumped once per test folder so each folder stands alone
         _dump_yaml(self.dir / f"{self.stamp}_scenario_base.yaml",
                    {"test": test, "created": datetime.now().isoformat(timespec="seconds"),
+                    "code_version": dict(_GIT, host=_HOSTNAME, slurm_job=_SLURM_JOB),
                     "solver_options": {"mip_gap": opts.mip_gap,
                                        "time_limit": opts.time_limit,
                                        "dry_run": bool(opts.dry_run)},
@@ -1229,6 +1304,8 @@ def test_base(sc: Scenario, opts, run: TestRun, impls) -> tuple[list, dict]:
               f"{'mu_max':>9s} {'n_max':>8s}")
     lines += [header, "-" * len(header)]
     for bound, impl in combos:
+        if not _mine(opts):
+            continue
         variant = sc.variant(reliability_impl=impl)
         print(f"  solving {bound}/{impl} ...", flush=True)
         rec, data = run_case(variant, bound, opts)
@@ -1246,6 +1323,12 @@ def test_base(sc: Scenario, opts, run: TestRun, impls) -> tuple[list, dict]:
                      f"{_fmt(rec.get('mu_max'), 4):>9s} "
                      f"{rec.get('n_max_analytic', float('nan')):8.2f}")
     lines.append("")
+
+    if getattr(opts, "shard_obj", None) is not None:
+        lines.append(f"shard {opts.shard_obj}: {len(run.rows)} run(s) only -- the "
+                     f"hypothesis checks need every bound, so run --merge when all "
+                     f"array tasks are done.")
+        return lines, {"shard": str(opts.shard_obj), "n_runs": len(run.rows)}
 
     # (H1) per implementation: the bound ordering must hold within each encoding
     summary = {"H1": {}, "H3": {}}
@@ -1308,6 +1391,8 @@ def test_sweep(sc: Scenario, opts, run: TestRun, sweeps: dict,
                 continue
             vals, gaps = {}, {}
             for bound, impl in combos:
+                if not _mine(opts):
+                    continue
                 variant = base_variant.variant(reliability_impl=impl)
                 print(f"  {param}={v} {bound}/{impl} ...", flush=True)
                 rec, data = run_case(variant, bound, opts)
@@ -1318,6 +1403,8 @@ def test_sweep(sc: Scenario, opts, run: TestRun, sweeps: dict,
                 print(f"      cost={_fmt(rec.get('objective'))} "
                       f"time={_fmt(rec.get('runtime_s'), 2)}s "
                       f"status={rec.get('status')}")
+            if getattr(opts, "shard_obj", None) is not None:
+                continue                         # checks happen in --merge
             for impl in impls:
                 per = {b: cost_for(vals, b, impl) for b in BOUNDS_ORDER}
                 per_gaps = {b: gaps.get((b, impl), gaps.get((b, "exact")))
@@ -1345,6 +1432,10 @@ def test_sweep(sc: Scenario, opts, run: TestRun, sweeps: dict,
             if path:
                 print(f"  [plot] {path.name}")
                 lines.append(f"plot: {path.name}")
+    if getattr(opts, "shard_obj", None) is not None:
+        lines.append(f"shard {opts.shard_obj}: {len(run.rows)} run(s); (H1) is "
+                     f"evaluated by --merge once every shard has finished.")
+        return lines, {"shard": str(opts.shard_obj), "n_runs": len(run.rows)}
     n_bad = sum(1 for v in verdicts.values() if not v["H1_holds"])
     lines.append(f"(H1) held at {len(verdicts) - n_bad}/{len(verdicts)} "
                  f"(design point, implementation) combinations.")
@@ -1376,6 +1467,11 @@ def test_failure(sc: Scenario, opts, run: TestRun, ladders: dict,
         for bound, impl in combos:
             key = (bound, impl)
             failed_at[key] = None
+            # A ladder walk is the shard unit: the early-stop logic needs the
+            # rungs of one (bound, impl) in order, in one process.
+            if not _mine(opts):
+                del failed_at[key]
+                continue
             for idx, v in enumerate(ladder):
                 variant = sc.variant(**{param: _cast(param, v)},
                                      reliability_impl=impl)
@@ -1408,6 +1504,8 @@ def test_failure(sc: Scenario, opts, run: TestRun, ladders: dict,
                                      f"--no-time-limit")
         for bound, impl in combos:
             key = (bound, impl)
+            if key not in failed_at:
+                continue                         # not this shard's ladder
             tag = f"{bound}/{impl}"
             if n_runs[key] == 0:
                 lines.append(f"  {tag:<20s} no valid rung on this ladder "
@@ -1418,6 +1516,19 @@ def test_failure(sc: Scenario, opts, run: TestRun, ladders: dict,
                 lines.append(f"  {tag:<20s} failed at {param}="
                              f"{failed_val[key]:g} (rung {failed_at[key]} "
                              f"of {len(ladder) - 1})")
+        if getattr(opts, "shard_obj", None) is not None:
+            summary[param] = {
+                "direction": direction, "ladder": [_to_builtin(v) for v in ladder],
+                "shard": str(opts.shard_obj),
+                "failed_at_index": {f"{b}/{im}": failed_at[(b, im)]
+                                    for (b, im) in failed_at},
+                "failed_at_value": {f"{b}/{im}": _to_builtin(failed_val.get((b, im)))
+                                    for (b, im) in failed_at},
+                "notes": notes}
+            lines.append(f"  shard {opts.shard_obj}: partial ladder -- run --merge "
+                         f"for the (H2) verdict")
+            lines.append("")
+            continue
         all_issues, holds = [], True
         for impl in impls:                       # (H2) within each encoding
             per = {b: failed_at.get((b, impl), failed_at.get((b, "exact")))
@@ -1466,6 +1577,11 @@ def test_failure(sc: Scenario, opts, run: TestRun, ladders: dict,
             if path:
                 print(f"  [plot] {path.name}")
                 lines.append(f"plot: {path.name}")
+    if getattr(opts, "shard_obj", None) is not None:
+        lines.append(f"shard {opts.shard_obj}: {len(run.rows)} run(s); (H2) is "
+                     f"evaluated by --merge once every shard has finished.")
+        return lines, {"shard": str(opts.shard_obj), "n_runs": len(run.rows),
+                       "ladders": summary}
     n_bad = sum(1 for v in summary.values() if not v["H2_holds"])
     lines.append(f"(H2) held on {len(summary) - n_bad}/{len(summary)} ladders.")
     return lines, {"H2_violations": n_bad, "ladders": summary}
@@ -1492,6 +1608,8 @@ def test_impl(sc: Scenario, opts, run: TestRun, impls, pwl_ladder) -> tuple[list
               f"{'gap':>9s} {'time[s]':>9s} {'vars':>8s} {'constrs':>9s}")
     lines += [header, "-" * len(header)]
     for bound, impl in combos:
+        if not _mine(opts):
+            continue
         variant = sc.variant(reliability_impl=impl)
         print(f"  [impl] {bound}/{impl} ...", flush=True)
         rec, data = run_case(variant, bound, opts)
@@ -1541,6 +1659,8 @@ def test_impl(sc: Scenario, opts, run: TestRun, impls, pwl_ladder) -> tuple[list
                 continue
             series = []
             for n in pwl_ladder:
+                if not _mine(opts):
+                    continue
                 variant = sc.variant(reliability_impl="pwl", pwl_points=int(n))
                 print(f"  [impl] {bound}/pwl({n}) ...", flush=True)
                 rec, data = run_case(variant, bound, opts)
@@ -1573,6 +1693,10 @@ def test_impl(sc: Scenario, opts, run: TestRun, impls, pwl_ladder) -> tuple[list
             if path:
                 print(f"  [plot] {path.name}")
                 lines.append(f"plot: {path.name}")
+    if getattr(opts, "shard_obj", None) is not None:
+        lines.append(f"shard {opts.shard_obj}: {len(run.rows)} run(s); (H3) is "
+                     f"evaluated by --merge once every shard has finished.")
+        return lines, {"shard": str(opts.shard_obj), "n_runs": len(run.rows)}
     n_bad = sum(1 for v in summary["H3"].values() if not v["holds"])
     lines.append(f"(H3) held for {len(summary['H3']) - n_bad}/"
                  f"{len(summary['H3'])} impl-aware bounds.")
@@ -1597,6 +1721,238 @@ def _fmt(value, digits: int = 4) -> str:
             return "inf"
         return f"{value:.{digits}f}"
     return str(value)
+
+
+# ===========================================================================
+# Merge: reduce step for Slurm job arrays
+# ===========================================================================
+_NUM_FIELDS = ("objective", "mip_gap", "obj_bound", "runtime_s", "wall_s",
+               "n_max_analytic", "load", "n_repairs", "n_replacements",
+               "n_depot", "mu_max", "v_max", "n_vars", "n_constrs", "n_bin",
+               "nodes", "tau", "epsilon", "rho", "p", "b_ref", "mu_ref",
+               "s_chernoff", "tangent_ref", "C_M", "C_R", "C_S", "C_P")
+_INT_FIELDS = ("F", "M", "L", "H", "T", "pwl_points")
+
+
+def _read_rows(csv_path: Path) -> list:
+    """Read a results CSV back into records with numbers as numbers."""
+    out = []
+    with csv_path.open(newline="") as fh:
+        for raw in csv.DictReader(fh):
+            rec = dict(raw)
+            for key in _NUM_FIELDS:
+                rec[key] = _parse_float(rec.get(key))
+            for key in _INT_FIELDS:
+                try:
+                    rec[key] = int(float(rec[key]))
+                except (TypeError, ValueError):
+                    rec[key] = None
+            val = rec.get("value")
+            if val not in ("", None, "-"):
+                param = rec.get("parameter", "")
+                try:
+                    rec["value"] = _cast(param, val) if param in SWEEP_PARAMS + \
+                        tuple(STRESS_LADDERS) else val
+                except ValueError:
+                    pass                          # impl names stay strings
+            rec["feasible_hint"] = str(rec.get("feasible_hint", "")).lower() == "true"
+            out.append(rec)
+    return out
+
+
+def _parse_float(text):
+    if text in (None, "", "-"):
+        return math.nan
+    try:
+        return float(text)
+    except ValueError:
+        return math.nan
+
+
+def merge_shards(out_root: Path, name: str, test: str, opts) -> int:
+    """Combine every shard folder of one test, then run the checks and plots once.
+
+    A shard only ever holds a slice of the design points, so no shard can evaluate
+    (H1)/(H2)/(H3) -- those need every bound at a point. This reads all shard CSVs
+    back, concatenates them, and produces one merged folder with the verdicts.
+    """
+    pattern = f"*_{name}_{test}*"
+    csvs = sorted(q for d in out_root.glob(pattern) if d.is_dir()
+                  for q in d.glob("*results*.csv"))
+    csvs = [q for q in csvs if "_merged" not in q.parent.name]
+    if not csvs:
+        print(f"[merge] no shard results under {out_root}/{pattern}")
+        return 1
+    rows: list = []
+    for q in csvs:
+        got = _read_rows(q)
+        print(f"[merge] {q.parent.name}/{q.name}: {len(got)} rows")
+        rows += got
+    # a shard may have been resubmitted: keep the newest row per unique run
+    unique = {}
+    for rec in rows:
+        key = (rec.get("test"), rec.get("parameter"), str(rec.get("value")),
+               rec.get("bound"), rec.get("reliability_impl"),
+               rec.get("pwl_points"))
+        prev = unique.get(key)
+        if prev is None or str(rec.get("timestamp", "")) >= str(prev.get("timestamp", "")):
+            unique[key] = rec
+    rows = list(unique.values())
+    dropped = len(csvs) and (len(unique) != len(rows))
+
+    stamp = f"{datetime.now():%y%m%d}"
+    mdir = out_root / f"{stamp}_{name}_{test}_merged"
+    mdir.mkdir(parents=True, exist_ok=True)
+    stem = f"{stamp}_{name}_{test}_merged"
+
+    # duck-types TestRun for the plot helpers (dir / stem / rows)
+    run = SimpleNamespace(dir=mdir, stem=stem, rows=rows)
+
+    csv_path = mdir / f"{stamp}_results_{name}_{test}_merged.csv"
+    with csv_path.open("w", newline="") as fh:
+        w = csv.DictWriter(fh, fieldnames=FIELDS, extrasaction="ignore")
+        w.writeheader()
+        for rec in sorted(rows, key=lambda r: (str(r.get("parameter")),
+                                               str(r.get("value")),
+                                               BOUNDS_ORDER.index(r["bound"])
+                                               if r.get("bound") in BOUNDS_ORDER else 99)):
+            w.writerow({k: rec.get(k, "") for k in FIELDS})
+
+    report = [f"# merged report  {datetime.now():%Y-%m-%d %H:%M:%S}",
+              f"# test={test}  shards merged={len(csvs)}  rows={len(rows)}",
+              f"# bounds: {list(BOUNDS_ORDER)}", ""]
+    statuses = {}
+    for rec in rows:
+        statuses[str(rec.get("status"))] = statuses.get(str(rec.get("status")), 0) + 1
+    report.append(f"status counts: {statuses}")
+    versions = {(r.get("git_branch"), r.get("git_commit")) for r in rows
+                if r.get("git_commit")}
+    if len(versions) > 1:
+        report.append(f"WARNING these shards were produced by {len(versions)} "
+                      f"different code versions: "
+                      f"{sorted(f'{b}@{c}' for b, c in versions)}. Comparing them "
+                      f"is only valid if the change could not affect the model -- "
+                      f"do not edit or 'git pull' while an array is running.")
+    elif versions:
+        b, c = next(iter(versions))
+        report.append(f"code: branch={b} commit={c}")
+    missing = [r for r in rows if str(r.get("status")).startswith("error")
+               or classify(r) == "unknown"]
+    if missing:
+        report.append(f"WARNING {len(missing)} run(s) did not produce a solution "
+                      f"(errors or time limits) -- the checks below treat those as "
+                      f"missing, not as failures. Look for status=time_limit and "
+                      f"resubmit with --no-time-limit.")
+    report.append("")
+
+    summary = {"n_rows": len(rows), "shards": len(csvs), "status_counts": statuses,
+               "code_versions": sorted(f"{b}@{c}" for b, c in versions)}
+
+    # ---- (H1)/(H3) per design point -------------------------------------
+    impls_seen = [im for im in IMPLS_ORDER
+                  if any(impl_of_record(r) == im for r in rows)]
+    points = {}
+    n_bad = 0
+    groups = {}
+    for rec in rows:
+        if rec.get("test") == "failure":
+            continue
+        groups.setdefault((rec.get("parameter"), str(rec.get("value"))), []).append(rec)
+    for (param, value), recs in sorted(groups.items(), key=lambda kv: str(kv[0])):
+        vals = {(r["bound"], impl_of_record(r)): r["objective"] for r in recs}
+        gaps = {(r["bound"], impl_of_record(r)): r["mip_gap"] for r in recs}
+        for impl in impls_seen:
+            per = {b: cost_for(vals, b, impl) for b in BOUNDS_ORDER}
+            per_gaps = {b: gaps.get((b, impl), gaps.get((b, "exact")))
+                        for b in BOUNDS_ORDER}
+            issues = check_order(per, per_gaps)
+            holds = not any(i.startswith("VIOLATION") for i in issues)
+            n_bad += 0 if holds else 1
+            costs = "  ".join(f"{b}={_fmt(per[b])}" for b in BOUNDS_ORDER)
+            report.append(f"{param}={value} impl={impl}: (H1) "
+                          f"{'HOLDS' if holds else 'VIOLATED'}   {costs}")
+            report += [f"    {i}" for i in issues]
+            points[f"{param}={value}/{impl}"] = {"H1_holds": bool(holds),
+                                                 "issues": issues}
+        for bound in BOUNDS_ORDER:
+            if sum(1 for im in IMPLS_ORDER if (bound, im) in vals) < 2:
+                continue
+            issues = check_impl_order(vals, gaps, bound)
+            report += [f"    (H3) {i}" for i in issues]
+    summary["H1_violations"] = n_bad
+    summary["points"] = points
+    report.append("")
+
+    # ---- (H2) from the failure rows -------------------------------------
+    fail_rows = [r for r in rows if r.get("test") == "failure"]
+    if fail_rows:
+        ladders = {}
+        for rec in fail_rows:
+            ladders.setdefault(rec["parameter"], []).append(rec)
+        for param, recs in ladders.items():
+            order = sorted({r["value"] for r in recs},
+                           key=lambda v: [str(x) for x in
+                                          (STRESS_LADDERS.get(param, ("", []))[1]
+                                           or sorted({q["value"] for q in recs}))].index(str(v))
+                           if str(v) in [str(x) for x in
+                                         (STRESS_LADDERS.get(param, ("", []))[1] or [])]
+                           else 10**6)
+            failed_at = {}
+            for rec in recs:
+                key = (rec["bound"], impl_of_record(rec))
+                failed_at.setdefault(key, None)
+                if classify(rec) == "infeasible":
+                    idx = order.index(rec["value"]) if rec["value"] in order else None
+                    cur = failed_at[key]
+                    if idx is not None and (cur is None or idx < cur):
+                        failed_at[key] = idx
+            report.append(f"=== (H2) {param} ladder {order} ===")
+            for (bound, impl), idx in sorted(
+                    failed_at.items(),
+                    key=lambda kv: (BOUNDS_ORDER.index(kv[0][0]),
+                                    IMPLS_ORDER.index(kv[0][1]))):
+                where = "survived" if idx is None else f"failed at {order[idx]}"
+                report.append(f"  {bound}/{impl:<8s} {where}")
+            all_issues = []
+            for impl in impls_seen:
+                per = {b: failed_at.get((b, impl), failed_at.get((b, "exact")))
+                       for b in BOUNDS_ORDER
+                       if (b, impl) in failed_at or (b, "exact") in failed_at}
+                issues = check_failure_order(per)
+                report.append(f"  (H2) impl={impl}: "
+                              f"{'HOLDS' if not issues else 'VIOLATED'}")
+                report += [f"      {i}" for i in issues]
+                all_issues += issues
+            summary.setdefault("H2", {})[param] = {
+                "ladder": [_to_builtin(v) for v in order],
+                "failed_at_index": {f"{b}/{im}": failed_at[(b, im)]
+                                    for (b, im) in failed_at},
+                "issues": all_issues}
+            report.append("")
+
+    # ---- plots from the merged rows --------------------------------------
+    if _plots_enabled(opts):
+        for param in sorted({str(r.get("parameter")) for r in rows}
+                            - {"-", "impl", "pwl_points", "None", ""}):
+            path = plot_parameter(rows, param, run, None)
+            if path:
+                print(f"  [plot] {path.name}")
+                report.append(f"plot: {path.name}")
+        for fn in (plot_impl, plot_pwl_convergence):
+            path = fn(rows, run)
+            if path:
+                print(f"  [plot] {path.name}")
+                report.append(f"plot: {path.name}")
+
+    _dump_yaml(mdir / f"{stamp}_results_{name}_{test}_merged.yaml",
+               {"test": test, "merged_from": [str(q.parent.name) for q in csvs],
+                "created": datetime.now().isoformat(timespec="seconds"),
+                "summary": summary, "runs": [_to_builtin(r) for r in rows]})
+    (mdir / f"{stamp}_summary_{name}_{test}_merged.txt").write_text("\n".join(report))
+    print("\n".join(report))
+    print(f"\n[merge] folder : {mdir}")
+    print(f"[merge] results: {csv_path.name}")
+    return 0
 
 
 # ===========================================================================
@@ -1640,6 +1996,19 @@ def parse_args(argv=None):
                    help="no wall-clock limit: every solve runs to --mip-gap. "
                         "Recommended for the failure test, so 'time_limit' can "
                         "never be mistaken for 'infeasible'.")
+    p.add_argument("--threads", type=int, default=None,
+                   help="Gurobi Threads. On a shared cluster node ALWAYS set this "
+                        "to the cores Slurm gave you ($SLURM_CPUS_PER_TASK); "
+                        "otherwise Gurobi threads for every core it can see.")
+    p.add_argument("--shard", default=None, metavar="K/N",
+                   help="run only work unit k of n (for Slurm job arrays, e.g. "
+                        "--shard $SLURM_ARRAY_TASK_ID/$SLURM_ARRAY_TASK_COUNT). "
+                        "Each shard writes its own folder; hypothesis checks are "
+                        "skipped -- run --merge afterwards.")
+    p.add_argument("--merge", action="store_true",
+                   help="combine the shard folders of --tests under --out, run the "
+                        "hypothesis checks and plots once, and write a _merged "
+                        "folder. Solves nothing.")
     p.add_argument("--verbose", type=int, default=0, help="Gurobi output flag")
     p.add_argument("--dry-run", action="store_true",
                    help="build and validate every input, but do not solve")
@@ -1706,6 +2075,13 @@ def parse_args(argv=None):
     args.impl_list = [im for im in IMPLS_ORDER if im in impls]
     # the scenario's own impl is the first one; each test overrides per run
     args.reliability_impl = args.impl_list[0]
+    args.shard_obj = None
+    if args.shard:
+        try:
+            k, n = (int(q) for q in args.shard.split("/"))
+        except ValueError:
+            raise SystemExit("--shard expects K/N, e.g. --shard 3/20")
+        args.shard_obj = Shard(k, n)
     args.pwl_ladder_list = ([int(q) for q in args.pwl_ladder.split(",") if q.strip()]
                             if args.pwl_ladder else [])
     if args.pwl_ladder_list and "pwl" not in args.impl_list:
@@ -1779,6 +2155,12 @@ def main(argv=None) -> int:
     out_root = Path(args.out)
     out_root.mkdir(parents=True, exist_ok=True)
     tests = [t.strip() for t in args.tests.split(",") if t.strip()]
+
+    if args.merge:                               # reduce step, no solving
+        rc = 0
+        for test in tests:
+            rc |= merge_shards(out_root, args.name, test, args)
+        return rc
     sweeps = parse_sweeps(args, sc)
     ladders = parse_ladders(args) if "failure" in tests else {}
 
@@ -1789,7 +2171,13 @@ def main(argv=None) -> int:
                  if args.pwl_ladder_list else ""),
               f"# mip_gap={args.mip_gap}  "
               f"time_limit={'none' if args.time_limit is None else args.time_limit}"
-              f"  dry_run={args.dry_run}", ""]
+              f"  dry_run={args.dry_run}"
+              + (f"  threads={args.threads}" if args.threads else "")
+              + (f"  shard={args.shard_obj}" if args.shard_obj else ""),
+              (f"# host={_HOSTNAME} slurm_job={_SLURM_JOB}" if _SLURM_JOB else ""),
+              (f"# code: branch={_GIT['git_branch']} commit={_GIT['git_commit']}"
+               if _GIT["git_commit"] else ""),
+              ""]
 
     runners = {
         "analytic": lambda r: test_analytic(sc, args, r, sweeps),
@@ -1807,8 +2195,11 @@ def main(argv=None) -> int:
                          "least two: --impls tangent,pwl,exact "
                          "(optionally with --pwl-ladder 2,4,8,16)")
 
+    suffix = "" if args.shard_obj is None else f"_shard{args.shard_obj.k}"
     for test in tests:
-        run = TestRun(out_root, args.name, test, sc, args)
+        if args.shard_obj is not None:
+            args.shard_obj.i = 0                 # restart the unit counter per test
+        run = TestRun(out_root, args.name, test, sc, args, suffix=suffix)
         report = header + [f"TEST {test}", "=" * 72]
         extra = None
         try:
