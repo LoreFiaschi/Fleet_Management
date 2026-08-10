@@ -83,6 +83,7 @@ class FleetModel:
     v_var: Optional[gp.tupledict] = None
     gmu: Optional[gp.tupledict] = None
     gv: Optional[gp.tupledict] = None
+    gR: Optional[gp.tupledict] = None      # ARD1 latch for the Hoeffding R budget
     R_var: Optional[gp.tupledict] = None
     K_var: Optional[gp.tupledict] = None
     bound_of: Optional[np.ndarray] = None
@@ -244,6 +245,8 @@ def resolve_run_options(cfg, **overrides) -> dict:
         "pwl_points": int(pick(overrides.get("pwl_points"), o.get("pwl_points"), 8)),
         "tangent_ref": float(pick(overrides.get("tangent_ref"),
                                   o.get("tangent_ref"), 0.5)),
+        "replacement_as_new": bool(pick(overrides.get("replacement_as_new"),
+                                        o.get("replacement_as_new"), True)),
     }
 
 

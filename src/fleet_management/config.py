@@ -24,6 +24,7 @@ broadcasting, and per-cell cross-field rules (e.g. a chernoff cell needs
 
 from __future__ import annotations
 
+import math
 from dataclasses import dataclass, field
 from typing import Optional
 
@@ -35,6 +36,9 @@ RAINFLOW_BOUNDS = ("markov", "cantelli", "hoeffding", "bernstein", "chernoff")
 REPAIR_MODELS = ("ard1", "ardinf")
 _NEEDS_SUPPORT = ("hoeffding", "bernstein")
 _NEEDS_CGF = ("chernoff",)
+# Bounds whose descriptor is NOT closed under the ARD1 (latched) repair
+# operator, and therefore admit only repair_model="ardinf".
+_ARD1_UNSUPPORTED = ("chernoff",)
 
 
 # ---------------------------------------------------------------------------
@@ -275,7 +279,8 @@ def load_config(data: dict) -> FleetConfig:
         options={k: data[k] for k in ("verbose", "mip_gap", "time_limit", "fast",
                                       "allow_replacement", "depot_capacity",
                                       "gurobi_params",
-                                      "reliability_impl", "pwl_points", "tangent_ref")
+                                      "reliability_impl", "pwl_points", "tangent_ref",
+                                      "replacement_as_new")
                  if k in data},
         raw=data,
     )
@@ -304,6 +309,25 @@ def _infer_L(data: dict, F: int) -> int:
 def _validate_cells(cfg: FleetConfig) -> None:
     F, L = cfg.F, cfg.L
 
+    # "replacement_as_new" (default True) forces mu_new = v_new = 0 at rainflow
+    # cells, so a non-zero value here would be silently discarded. Fail loudly
+    # instead: either drop the key, or pass replacement_as_new=False explicitly.
+    as_new = bool(cfg.options.get("replacement_as_new", True))
+    if as_new:
+        for name, arr in (("replacement_mu", cfg.replacement_mu),
+                          ("replacement_v", cfg.replacement_v)):
+            if arr is None:
+                continue
+            rf = np.array([arr[i, l] for i in range(F) for l in range(L)
+                           if str(cfg.model[i, l]) == "rainflow"], dtype=float)
+            if rf.size and np.any(np.nan_to_num(rf) != 0.0):
+                raise ValueError(
+                    f"'{name}' is non-zero at a rainflow cell, but "
+                    f"replacement_as_new is in force, which resets mu and v to 0 "
+                    f"on replacement (matching the R = 0 / K = 0 resets). Either "
+                    f"remove '{name}', or set options.replacement_as_new: false "
+                    f"to model refurbished spares.")
+
     def has(arr, i, l):
         return arr is not None and np.all(np.isfinite(arr[i, l]))
 
@@ -325,8 +349,20 @@ def _validate_cells(cfg: FleetConfig) -> None:
                 b = str(cfg.bound_method[i, l])
                 if b not in RAINFLOW_BOUNDS:
                     raise ValueError(f"{where}: bound_method {b!r} not in {RAINFLOW_BOUNDS}.")
-                if str(cfg.repair_model[i, l]) not in REPAIR_MODELS:
+                rep = str(cfg.repair_model[i, l])
+                if rep not in REPAIR_MODELS:
                     raise ValueError(f"{where}: repair_model must be in {REPAIR_MODELS}.")
+                if b in _ARD1_UNSUPPORTED and rep == "ard1":
+                    raise ValueError(
+                        f"{where}: bound_method {b!r} does not support "
+                        f"repair_model='ard1'. The cumulant generating function is "
+                        f"not homogeneous under a pathwise contraction "
+                        f"(K_{{(1-rho)D}}(s) = K_D((1-rho)s), a rescaling of the "
+                        f"tilt argument, not of the value), so no single-scalar "
+                        f"latch closes the ARD1 recursion. Use "
+                        f"repair_model='ardinf' (valid and conservative), or "
+                        f"bound_method='bernstein', whose descriptors (mu, v, "
+                        f"support) are closed under both repair models.")
                 if not has(cfg.v, i, l) or not np.all(cfg.v[i, l] > 0):
                     raise ValueError(f"{where}: rainflow needs positive 'v' at this cell.")
                 if cfg.v_0 is None or not (cfg.v_0[i, l] >= 0):
@@ -338,6 +374,19 @@ def _validate_cells(cfg: FleetConfig) -> None:
                         raise ValueError(f"{where}: bound 'chernoff' needs positive 'cgf'.")
                     if cfg.s_chernoff is None or not (cfg.s_chernoff[i, l] > 0):
                         raise ValueError(f"{where}: bound 'chernoff' needs 's_chernoff' > 0.")
+                    # K = 0 at step 0 (and at every replacement step) reduces the
+                    # reliability constraint to -s*tau <= ln(eps), i.e. a condition on
+                    # parameters alone. Violating it makes the cell infeasible for any
+                    # schedule, so catch it here rather than in the solver.
+                    s_min = (math.log(1.0 / float(cfg.epsilon[i, l]))
+                             / float(cfg.tau[i, l]))
+                    if not (float(cfg.s_chernoff[i, l]) > s_min):
+                        raise ValueError(
+                            f"{where}: s_chernoff="
+                            f"{float(cfg.s_chernoff[i, l]):.6g} must exceed "
+                            f"ln(1/eps)/tau = {s_min:.6g}, otherwise "
+                            f"K - s*tau <= ln(eps) is already violated at K = 0 "
+                            f"and the model is infeasible regardless of schedule.")
 
             elif m == "gamma":
                 if cfg.gamma_beta is None or not (cfg.gamma_beta[i, l] > 0):

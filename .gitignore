@@ -20,3 +20,4 @@ src/fleet_management/analysis.py*
 __pycache__/
 *.py[cod]
 docs/*
+test_results/*

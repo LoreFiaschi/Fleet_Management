@@ -79,6 +79,8 @@ _TRACK_V = ("cantelli", "bernstein")                    # bounds that use the va
 _BOUND_DESCRIPTORS = {"hoeffding": "R", "chernoff": "K"}
 _REPAIR_MODELS = ("ard1", "ardinf")
 
+_ARD1_UNSUPPORTED = ("chernoff",)
+
 
 # ===========================================================================
 # Entry point
@@ -131,6 +133,13 @@ def prepare(ctx: _RFModel, cfg, cells, opts: dict) -> None:
     ctx.repair_of = cfg.repair_model
     ctx.v_0 = cfg.v_0 if cfg.v_0 is not None else np.zeros((F, L))
     ctx.v_new = cfg.replacement_v if cfg.replacement_v is not None else np.zeros((F, L))
+
+    if bool(opts.get("replacement_as_new", True)):
+        ctx.mu_new = np.array(ctx.mu_new, dtype=float, copy=True)
+        ctx.v_new = np.array(ctx.v_new, dtype=float, copy=True)
+        for (i, l) in cells:
+            ctx.mu_new[i, l] = 0.0
+            ctx.v_new[i, l] = 0.0
     ctx.s_chernoff = (cfg.s_chernoff if cfg.s_chernoff is not None
                       else np.full((F, L), np.nan))
 
@@ -141,8 +150,16 @@ def prepare(ctx: _RFModel, cfg, cells, opts: dict) -> None:
     ln_eps = np.zeros((F, L))
     for (i, l) in cells:
         b = str(ctx.bound_of[i, l])
+        rep = str(ctx.repair_of[i, l])
+
+        if b in _ARD1_UNSUPPORTED and rep == "ard1":
+            raise ValueError(
+                f"cell (i={i}, l={l}): bound {b!r} has no closed ARD1 recursion "
+                f"(its descriptor is not homogeneous under a pathwise "
+                f"contraction); use repair_model='ardinf' or bound_method="
+                f"'bernstein'.")
         track_v_of[i, l] = b in _TRACK_V
-        latch_of[i, l] = str(ctx.repair_of[i, l]) == "ard1"
+        latch_of[i, l] = rep == "ard1"
         support_max_of[i, l] = _cell_max(cfg.support, cfg.support_trans, i, l)
         Le[i, l] = math.log(1.0 / float(ctx.eps[i, l]))
         ln_eps[i, l] = math.log(float(ctx.eps[i, l]))
@@ -170,6 +187,9 @@ def prepare(ctx: _RFModel, cfg, cells, opts: dict) -> None:
     rf_repairs = {str(ctx.repair_of[i, l]) for (i, l) in cells}
     need_v = bool(track_v_of.any())
     need_latch = "ard1" in rf_repairs
+    # gR is needed only where BOTH conditions hold in the same cell
+    need_gR = any(str(ctx.bound_of[i, l]) == "hoeffding" and latch_of[i, l]
+                  for (i, l) in cells)
     if need_v:
         ctx.v_var = md.addVars(F, L, T, lb=0.0, name="v")
     if need_latch:
@@ -178,6 +198,8 @@ def prepare(ctx: _RFModel, cfg, cells, opts: dict) -> None:
             ctx.gv = md.addVars(F, L, T, lb=0.0, name="gv")
     if "hoeffding" in rf_bounds:
         ctx.R_var = md.addVars(F, L, T, lb=0.0, name="R")
+    if need_gR:
+        ctx.gR = md.addVars(F, L, T, lb=0.0, name="gR")
     if "chernoff" in rf_bounds:
         ctx.K_var = md.addVars(F, L, T, lb=0.0, name="K")
 
@@ -209,7 +231,7 @@ def _add_rainflow_state(ctx: _RFModel, i: int, l: int) -> None:
     md, T, M = ctx.model, ctx.T, ctx.M
     x, nb, m_rep, r_rep = ctx.x, ctx.nb, ctx.m_rep, ctx.r_rep
     mu_var, v_var, gmu, gv, z_var = ctx.mu_var, ctx.v_var, ctx.gmu, ctx.gv, ctx.z_var
-    R_var, K_var = ctx.R_var, ctx.K_var
+    R_var, K_var, gR = ctx.R_var, ctx.K_var, ctx.gR
     bound = str(ctx.bound_of[i, l])
     track_v = bool(ctx.track_v_of[i, l])
     use_latch = bool(ctx.latch_of[i, l])
@@ -302,19 +324,47 @@ def _add_rainflow_state(ctx: _RFModel, i: int, l: int) -> None:
                                   for j in range(1, M + 1))
             md.addGenConstrIndicator(nb[i, l, k], True, R_var[i, l, k] == R_prev + w2_expr,
                                      name=f"R_carry_{i}_{l}_{k}")
-            md.addGenConstrIndicator(m_rep[i, l, k], True, R_var[i, l, k] == k2 * R_prev,
-                                     name=f"R_rep_{i}_{l}_{k}")
+            if use_latch:
+                # ARD1: contract only the range budget accrued since the last
+                # action; gR is the unrepairable floor. The latch weight
+                # (1 - k2) = rho*(2 - rho) is the same as the variance latch,
+                # because R = sum_j n_j b_j^2 is degree-2 homogeneous under a
+                # pathwise contraction D -> (1-rho)D (widths scale by (1-rho)).
+                #   R+ = gR + (1-rho)^2 (R- - gR)
+                #      = (1-rho)^2 R- + (1 - (1-rho)^2) gR
+                gR_prev = 0.0 if k == 0 else gR[i, l, k - 1]
+                md.addGenConstrIndicator(m_rep[i, l, k], True,
+                                         R_var[i, l, k] == k2 * R_prev
+                                         + (1.0 - k2) * gR_prev,
+                                         name=f"R_ard1_{i}_{l}_{k}")
+            else:
+                md.addGenConstrIndicator(m_rep[i, l, k], True, R_var[i, l, k] == k2 * R_prev,
+                                         name=f"R_ardinf_{i}_{l}_{k}")
             if allow_rep:
                 md.addGenConstrIndicator(r_rep[i, l, k], True, R_var[i, l, k] == 0.0,
                                          name=f"R_repl_{i}_{l}_{k}")
+
+            # ----- ARD1 range-budget latch (mirrors the gmu / gv registers) -----
+            if use_latch:
+                md.addGenConstrIndicator(nb[i, l, k], True, gR[i, l, k] == gR_prev,
+                                         name=f"gR_hold_{i}_{l}_{k}")
+                md.addGenConstrIndicator(m_rep[i, l, k], True,
+                                         gR[i, l, k] == R_var[i, l, k],
+                                         name=f"gR_setm_{i}_{l}_{k}")
+                if allow_rep:
+                    md.addGenConstrIndicator(r_rep[i, l, k], True,
+                                             gR[i, l, k] == R_var[i, l, k],
+                                             name=f"gR_setr_{i}_{l}_{k}")
         if bound == "chernoff":
             K_prev = 0.0 if k == 0 else K_var[i, l, k - 1]
             cgf_expr = gp.quicksum(x[i, j, k] * ctx.cgf_inc(i, j - 1, l, k)
                                    for j in range(1, M + 1))
             md.addGenConstrIndicator(nb[i, l, k], True, K_var[i, l, k] == K_prev + cgf_expr,
                                      name=f"K_carry_{i}_{l}_{k}")
+            # ARD-inf only (guarded in prepare / config): (1-rho)*K over-estimates
+            # the true post-repair CGF psi((1-rho)s), so the bound stays valid.
             md.addGenConstrIndicator(m_rep[i, l, k], True, K_var[i, l, k] == k1 * K_prev,
-                                     name=f"K_rep_{i}_{l}_{k}")
+                                     name=f"K_ardinf_{i}_{l}_{k}")
             if allow_rep:
                 md.addGenConstrIndicator(r_rep[i, l, k], True, K_var[i, l, k] == 0.0,
                                          name=f"K_repl_{i}_{l}_{k}")
@@ -593,6 +643,8 @@ def _tighten_bounds(ctx: _RFModel, cfg, cells) -> None:
             R_ub = float(T * (_cell_max(cfg.support, cfg.support_trans, i, l) ** 2))
             for k in range(T):
                 ctx.R_var[i, l, k].UB = R_ub
+                if ctx.gR is not None and ctx.latch_of[i, l]:
+                    ctx.gR[i, l, k].UB = R_ub
         if bound == "chernoff":
             K_ub = float(T * _cell_max(cfg.cgf, cfg.cgf_trans, i, l))
             for k in range(T):
