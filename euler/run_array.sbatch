@@ -18,6 +18,9 @@ set -euo pipefail
 PROJECT=${PROJECT:-${SLURM_SUBMIT_DIR:-$PWD}}
 
 TEST=${TEST:-sweep}                   # analytic | base | sweep | impl | failure
+# One stamp for the whole run, minted by submit.sh: every task must write into the
+# SAME results/<stamp>_<test>/ folder or the shards can never be merged.
+RUN_STAMP=${RUN_STAMP:?RUN_STAMP must be exported by euler/submit.sh}
 NAME=${NAME:-bound_tightness}
 OUT=${OUT:-$PROJECT/results}
 PARAMS=${PARAMS:-L,H,M,F}
@@ -158,6 +161,7 @@ python test.py \
     --threads "${SLURM_CPUS_PER_TASK:-1}" \
     --no-plots \
     --shard "${SLURM_ARRAY_TASK_ID:-0}/${NSHARDS}" \
+    --run-stamp "$RUN_STAMP" \
     --gurobi-params "$GUROBI_EXTRA" \
     $EXTRA
 

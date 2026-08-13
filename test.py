@@ -234,6 +234,18 @@ def _cast(param: str, value):
     return int(value) if param in _INT_PARAMS else float(value)
 
 
+def run_stamp(opts) -> str:
+    """YYYYMMDDHHMM identifying the RUN (shared by every shard of an array)."""
+    stamp = getattr(opts, "run_stamp", None) or os.environ.get("RUN_STAMP", "")
+    stamp = str(stamp).strip()
+    if stamp:
+        if not (len(stamp) == 12 and stamp.isdigit()):
+            raise SystemExit(f"--run-stamp must be 12 digits YYYYMMDDHHMM, "
+                             f"got {stamp!r}")
+        return stamp
+    return f"{datetime.now():%Y%m%d%H%M}"
+
+
 class Shard:
     """Work-unit partitioner for Slurm job arrays.
 
@@ -548,7 +560,14 @@ def n_max(sc: Scenario, bound: str) -> float:
         return _n_from_sqrt_form(m1, math.sqrt(Le * b * b / 2.0), tau)
     if bound == "bernstein":
         # t = tau - m1*n  must satisfy  t >= A + sqrt(A^2 + 2*Le*v1*n),  A = Le*b/3
-        A = Le * b / 3.0
+        #
+        # CAREFUL: the model uses `support_max_of` -- the max support over ALL
+        # permitted missions -- not the support of the mission actually flown,
+        # because Bernstein's b enters non-additively and has to be a constant.
+        # Using b_ref here silently overstates how permissive bernstein is: with a
+        # +-25 % severity spread, b_max = 1.25*b_ref and the drift term Le*b/3
+        # grows with it. That difference is large enough to reorder the bounds.
+        A = Le * float(np.max(sc.b)) / 3.0
         if tau - A <= 0:
             return 0.0
         qa = m1 * m1
@@ -566,6 +585,53 @@ def n_max(sc: Scenario, bound: str) -> float:
         k1 = sc._cgf(s, b)
         return (s * tau + math.log(eps)) / k1 if k1 > 0 else math.inf
     raise ValueError(f"unknown bound {bound!r}")
+
+
+def tangent_cap_n_max(sc: Scenario, bound: str, ref: float) -> float:
+    """Missions the SINGLE-TANGENT encoding allows, mirroring `_add_tangent_cap`.
+
+    The model caps  Q <= g(mu_p) + g'(mu_p)(mu - mu_p)  with
+    g(mu) = c2*d^2 + c1*d, d = tau - mu, taken at mu_p = ref*tau. Both sides are
+    linear in the mission count n, so this is closed form.
+
+    Returns -1.0 when the cap is already negative at mu = 0: since Q >= 0 always,
+    the cell is then INFEASIBLE after a single mission -- which is exactly what
+    bernstein does at the default ref = 0.5, because its c1 = -b/3 makes g(0.5*tau)
+    negative.
+    """
+    tau, eps, Le = sc.tau, sc.epsilon, sc.Le
+    m1 = sc.p * sc.b_ref
+    b_max = float(np.max(sc.b))
+    if bound == "cantelli":
+        c2, c1 = eps / (1.0 - eps), 0.0
+        q_slope = sc.p * (1.0 - sc.p) * sc.b_ref ** 2          # v per mission
+    elif bound == "hoeffding":
+        c2, c1 = 2.0 / Le, 0.0
+        q_slope = sc.b_ref ** 2                                # R per mission
+    elif bound == "bernstein":
+        c2, c1 = 1.0 / (2.0 * Le), -(b_max / 3.0)
+        q_slope = sc.p * (1.0 - sc.p) * sc.b_ref ** 2
+    else:
+        return math.inf                                        # linear bound
+    mu_p = float(np.clip(ref, 0.0, 1.0)) * tau
+    d_p = tau - mu_p
+    g_p = c2 * d_p * d_p + c1 * d_p
+    gp = -2.0 * c2 * d_p - c1
+    intercept = g_p - gp * mu_p                                # cap at mu = 0
+    if intercept < 0:
+        return -1.0
+    denom = q_slope - gp * m1
+    return intercept / denom if denom > 0 else math.inf
+
+
+def best_tangent_ref(sc: Scenario, bound: str) -> tuple[float, float]:
+    """The tangent_ref that maximises the tangent encoding's budget."""
+    best = (0.0, -math.inf)
+    for ref in np.linspace(0.0, 0.95, 96):
+        n = tangent_cap_n_max(sc, bound, float(ref))
+        if n > best[1]:
+            best = (float(ref), n)
+    return best
 
 
 def regime_checks(sc: Scenario) -> dict:
@@ -777,19 +843,41 @@ FIELDS = ["timestamp", "test", "parameter", "value", "bound", "status",
 
 
 class TestRun:
-    """Output folder for ONE test: csv + aggregate yaml + per-run yaml + plots."""
+    """One folder per run: `<out>/YYYYMMDDHHMM_<test>/`, everything inside it.
+
+    The stamp is the time the RUN started, not the time this process started.
+    A Slurm array launches one process per shard, minutes apart, so each would
+    otherwise mint its own folder and the shards would never be merged. So the
+    stamp comes from --run-stamp / $RUN_STAMP (exported once by submit.sh) and
+    only falls back to the local clock for a plain interactive run.
+
+    Layout:
+        <out>/202608131228_sweep/
+            scenario_base.yaml          the design point
+            results_shard0.csv          one per shard (or results.csv unsharded)
+            summary_shard0.txt
+            progress_shard0.log         flushed per solve; survives a SIGKILL
+            runs/<bound>_<impl>__<param><value>.yaml
+            merged_results.csv|.yaml    written by --merge
+            merged_summary.txt
+            merged_cost_<param>.png
+    """
 
     def __init__(self, out_root: Path, name: str, test: str, sc: Scenario, opts,
                  suffix: str = ""):
-        self.stamp = f"{datetime.now():%y%m%d}"
+        self.stamp = run_stamp(opts)
         self.test = test
-        self.dir = out_root / f"{self.stamp}_{name}_{test}{suffix}"
+        self.name = name
+        self.dir = out_root / f"{self.stamp}_{test}"
         self.runs_dir = self.dir / "runs"
         self.runs_dir.mkdir(parents=True, exist_ok=True)
-        self.stem = f"{self.stamp}_{name}_{test}{suffix}"
-        self.csv_path = self.dir / f"{self.stem.replace(f'{self.stamp}_', f'{self.stamp}_results_', 1)}.csv"
-        self.yaml_path = self.csv_path.with_suffix(".yaml")
-        self.summary_path = self.dir / f"{self.stamp}_summary_{name}_{test}{suffix}.txt"
+        # shard identity lives in FILE names; the folder is shared by the whole run
+        self.tag = suffix or ""
+        self.stem = test
+        self.csv_path = self.dir / f"results{self.tag}.csv"
+        self.yaml_path = self.dir / f"results{self.tag}.yaml"
+        self.summary_path = self.dir / f"summary{self.tag}.txt"
+        self.progress_path = self.dir / f"progress{self.tag}.log"
         self.rows: list[dict] = []
         self._fh = self.csv_path.open("w", newline="")
         self._w = csv.DictWriter(self._fh, fieldnames=FIELDS, extrasaction="ignore")
@@ -798,14 +886,20 @@ class TestRun:
         # before the first solve completes leaves a 0-byte file, which looks like
         # "the script never ran" rather than "it was killed mid-solve".
         self._fh.flush()
-        # the base case, dumped once per test folder so each folder stands alone
-        _dump_yaml(self.dir / f"{self.stamp}_scenario_base.yaml",
-                   {"test": test, "created": datetime.now().isoformat(timespec="seconds"),
-                    "code_version": dict(_GIT, host=_HOSTNAME, slurm_job=_SLURM_JOB),
-                    "solver_options": {"mip_gap": opts.mip_gap,
-                                       "time_limit": opts.time_limit,
-                                       "dry_run": bool(opts.dry_run)},
-                    "base_case": sc.to_yaml_dict()})
+        # one shared copy of the design point; shards would all write the same
+        # bytes, so the first one wins and the rest skip it
+        base_yaml = self.dir / "scenario_base.yaml"
+        if not base_yaml.exists():
+            _dump_yaml(base_yaml, {
+                "test": test, "name": name, "run_stamp": self.stamp,
+                "created": datetime.now().isoformat(timespec="seconds"),
+                "code_version": dict(_GIT, host=_HOSTNAME, slurm_job=_SLURM_JOB),
+                "solver_options": {"mip_gap": opts.mip_gap,
+                                   "time_limit": opts.time_limit,
+                                   "threads": getattr(opts, "threads", None),
+                                   "gurobi_params": getattr(opts, "gurobi_params", None),
+                                   "dry_run": bool(opts.dry_run)},
+                "base_case": sc.to_yaml_dict()})
 
     # ---- one run -----------------------------------------------------------
     def note_progress(self, text: str) -> None:
@@ -815,7 +909,7 @@ class TestRun:
         during a long solve there is otherwise no record of which design point it
         died on -- this file has it.
         """
-        with (self.dir / "progress.log").open("a") as fh:
+        with self.progress_path.open("a") as fh:
             fh.write(f"{datetime.now():%H:%M:%S} {text}\n")
 
     def add(self, rec: dict, data: dict, sc: Scenario) -> None:
@@ -840,7 +934,7 @@ class TestRun:
         })
 
     def _run_stem(self, rec: dict) -> str:
-        """`<bound>_<impl>__<param><value>`.  The impl belongs in the name: two
+        """`<bound>_<impl>__<param><value>`. The impl belongs in the name: two
         impls of the same bound at the same design point would otherwise write to
         the same file and silently overwrite each other."""
         param, value = rec.get("parameter", "-"), rec.get("value", "")
@@ -855,7 +949,7 @@ class TestRun:
     def close(self, report: list[str], extra: dict | None = None) -> None:
         self._fh.close()
         _dump_yaml(self.yaml_path, {
-            "test": self.test,
+            "test": self.test, "name": self.name, "run_stamp": self.stamp,
             "created": datetime.now().isoformat(timespec="seconds"),
             "n_runs": len(self.rows),
             "summary": extra or {},
@@ -1358,6 +1452,31 @@ def test_analytic(sc: Scenario, opts, run: TestRun, sweeps: dict) -> tuple[list,
         lines.append(f"  design point discriminates all {len(BOUNDS_ORDER)} bounds.")
 
     lines.append("")
+    lines.append("what each ENCODING actually allows (missions before violation):")
+    lines.append(f"  {'bound':<10s} {'exact':>8s} {'tangent':>9s} "
+                 f"{'best ref':>9s} {'at ref':>8s}")
+    tangent_trouble = []
+    for bound in BOUNDS_ORDER:
+        if bound not in IMPL_AWARE_BOUNDS:
+            lines.append(f"  {bound:<10s} {vals[bound]:8.2f} {'n/a':>9s}"
+                         f"   (linear bound, encoding does not apply)")
+            continue
+        tn = tangent_cap_n_max(sc, bound, sc.tangent_ref)
+        ref, best_n = best_tangent_ref(sc, bound)
+        shown = "INFEAS" if tn < 0 else f"{tn:.2f}"
+        lines.append(f"  {bound:<10s} {vals[bound]:8.2f} {shown:>9s} "
+                     f"{ref:9.2f} {best_n:8.2f}")
+        if tn < 0:
+            tangent_trouble.append(bound)
+    if tangent_trouble:
+        lines.append(f"  ERROR with tangent_ref={sc.tangent_ref}, the tangent cap for "
+                     f"{', '.join(tangent_trouble)} is NEGATIVE at mu=0. Since the "
+                     f"accumulator is non-negative, every cell is infeasible after "
+                     f"one mission -- the whole model will come back INFEASIBLE. "
+                     f"This is a linearisation-point problem, not a property of the "
+                     f"bound: bernstein's cap has c1 = -b/3, so g(0.5*tau) < 0. Use "
+                     f"--tangent-ref near the operating mu (see 'best ref' above).")
+    lines.append("")
     floor = survival_floor(sc)
     lines.append(f"predicted failure order (H2).  Survival floor = s_max/rho = "
                  f"{floor:.3f} reference missions: a bound with n_max below it "
@@ -1422,6 +1541,8 @@ def test_base(sc: Scenario, opts, run: TestRun, impls) -> tuple[list, dict]:
     summary = {"H1": {}, "H3": {}}
     all_ok = True
     for impl in impls:
+        if not any((b, impl) in vals for b in IMPL_AWARE_BOUNDS):
+            continue                             # no impl-aware run in this group
         per = {b: cost_for(vals, b, impl) for b in BOUNDS_ORDER}
         per_gaps = {b: gaps.get((b, impl), gaps.get((b, "exact"))) for b in BOUNDS_ORDER}
         verdict, issues = order_verdict(per, per_gaps)
@@ -1500,6 +1621,8 @@ def test_sweep(sc: Scenario, opts, run: TestRun, sweeps: dict,
             if getattr(opts, "shard_obj", None) is not None:
                 continue                         # checks happen in --merge
             for impl in impls:
+                if not any((b, impl) in vals for b in IMPL_AWARE_BOUNDS):
+                    continue                     # no impl-aware run in this group
                 per = {b: cost_for(vals, b, impl) for b in BOUNDS_ORDER}
                 per_gaps = {b: gaps.get((b, impl), gaps.get((b, "exact")))
                             for b in BOUNDS_ORDER}
@@ -1864,61 +1987,58 @@ def _parse_float(text):
 
 
 def merge_shards(out_root: Path, name: str, test: str, opts) -> int:
-    """Combine every shard folder of one test, then run the checks and plots once.
+    """Combine the shard files of ONE run folder, then check and plot once.
 
-    A shard only ever holds a slice of the design points, so no shard can evaluate
-    (H1)/(H2)/(H3) -- those need every bound at a point. This reads all shard CSVs
-    back, concatenates them, and produces one merged folder with the verdicts.
+    A shard only holds a slice of the design points, so no shard can evaluate
+    (H1)/(H2)/(H3) -- those need every bound at a point. This reads the shard CSVs
+    back, concatenates them, and writes merged_* files into the same folder.
+
+    Which folder: --run-stamp if given, else the newest `*_<test>` under --out.
+    Working inside one folder is what stops a failed earlier attempt from being
+    silently mixed into the results.
     """
-    pattern = f"*_{name}_{test}*"
-    csvs = sorted(q for d in out_root.glob(pattern) if d.is_dir()
-                  for q in d.glob("*results*.csv"))
-    csvs = [q for q in csvs if "_merged" not in q.parent.name]
+    stamp = (getattr(opts, "run_stamp", None) or os.environ.get("RUN_STAMP", "")).strip()
+    folders = sorted(d for d in out_root.glob(f"*_{test}") if d.is_dir())
+    if stamp:
+        folders = [d for d in folders if d.name.startswith(stamp)]
+    if not folders:
+        print(f"[merge] no run folder matching {out_root}/"
+              f"{stamp or '*'}_{test}", file=sys.stderr)
+        return 1
+    folder = folders[-1]                          # names sort chronologically
+    if len(folders) > 1 and not stamp:
+        print(f"[merge] {len(folders)} run folders exist; using the newest: "
+              f"{folder.name}")
+        print(f"[merge] pass --run-stamp YYYYMMDDHHMM to pick another")
+
+    csvs = sorted(folder.glob("results_shard*.csv")) or sorted(
+        q for q in folder.glob("results.csv"))
     if not csvs:
-        print(f"[merge] no shard results under {out_root}/{pattern}")
+        print(f"[merge] {folder.name} contains no results*.csv", file=sys.stderr)
         return 1
 
-    # Folder names start with a yymmdd stamp. Merging across dates silently mixes
-    # separate experiments -- including failed ones left behind from an earlier
-    # attempt -- so default to the newest date only.
-    dates = sorted({q.parent.name.split("_", 1)[0] for q in csvs})
-    if len(dates) > 1 and not getattr(opts, "merge_all", False):
-        newest = dates[-1]
-        dropped = [q.parent.name for q in csvs
-                   if not q.parent.name.startswith(newest)]
-        csvs = [q for q in csvs if q.parent.name.startswith(newest)]
-        print(f"[merge] shard folders span {len(dates)} dates {dates}; using the "
-              f"newest ({newest}) only.")
-        print(f"[merge] ignored {len(dropped)} older folder(s): "
-              f"{', '.join(sorted(set(dropped))[:4])}"
-              f"{' ...' if len(set(dropped)) > 4 else ''}")
-        print(f"[merge] pass --merge-all to combine every date instead.")
-        if not csvs:
-            print("[merge] nothing left after filtering", file=sys.stderr)
-            return 1
     rows: list = []
     empty = []
     for q in csvs:
         got = _read_rows(q)
-        print(f"[merge] {q.parent.name}/{q.name}: {len(got)} rows")
+        print(f"[merge] {folder.name}/{q.name}: {len(got)} rows")
         if not got:
-            empty.append(q.parent.name)
+            empty.append(q.name)
         rows += got
     if not rows:
         print(f"\n[merge] ERROR every one of the {len(csvs)} shard file(s) is "
               f"header-only, so there is nothing to merge.", file=sys.stderr)
         print("[merge] The solves never ran. Check, in this order:", file=sys.stderr)
-        print("  1. sacct -j <arrayjobid> --format=JobID%18,State,ExitCode",
+        print(f"  1. sacct -j <arrayjobid> --format=JobID%18,State,ExitCode",
               file=sys.stderr)
-        print("  2. tail -40 logs/bound_tests_<arrayjobid>_0.err", file=sys.stderr)
-        print("  3. grep -c . <a shard folder>/runs/*.yaml   # per-run files too?",
+        print(f"  2. tail -n 40 logs/bound_tests_<arrayjobid>_0.err", file=sys.stderr)
+        print(f"  3. {folder}/progress_shard*.log  -- how far each task got",
               file=sys.stderr)
-        print("  4. the shard summaries: they record how many work units each "
-              "task took", file=sys.stderr)
         return 1
     if empty:
-        print(f"[merge] WARNING {len(empty)} shard(s) produced no rows: "
+        print(f"[merge] WARNING {len(empty)} shard file(s) produced no rows: "
               f"{', '.join(empty)}", file=sys.stderr)
+
     # a shard may have been resubmitted: keep the newest row per unique run
     unique = {}
     for rec in rows:
@@ -1929,17 +2049,11 @@ def merge_shards(out_root: Path, name: str, test: str, opts) -> int:
         if prev is None or str(rec.get("timestamp", "")) >= str(prev.get("timestamp", "")):
             unique[key] = rec
     rows = list(unique.values())
-    dropped = len(csvs) and (len(unique) != len(rows))
-
-    stamp = f"{datetime.now():%y%m%d}"
-    mdir = out_root / f"{stamp}_{name}_{test}_merged"
-    mdir.mkdir(parents=True, exist_ok=True)
-    stem = f"{stamp}_{name}_{test}_merged"
 
     # duck-types TestRun for the plot helpers (dir / stem / rows)
-    run = SimpleNamespace(dir=mdir, stem=stem, rows=rows)
+    run = SimpleNamespace(dir=folder, stem="merged", rows=rows)
 
-    csv_path = mdir / f"{stamp}_results_{name}_{test}_merged.csv"
+    csv_path = folder / "merged_results.csv"
     with csv_path.open("w", newline="") as fh:
         w = csv.DictWriter(fh, fieldnames=FIELDS, extrasaction="ignore")
         w.writeheader()
@@ -1950,7 +2064,7 @@ def merge_shards(out_root: Path, name: str, test: str, opts) -> int:
             w.writerow({k: rec.get(k, "") for k in FIELDS})
 
     report = [f"# merged report  {datetime.now():%Y-%m-%d %H:%M:%S}",
-              f"# test={test}  shards merged={len(csvs)}  rows={len(rows)}",
+              f"# run folder={folder.name}  shard files={len(csvs)}  rows={len(rows)}",
               f"# bounds: {list(BOUNDS_ORDER)}", ""]
     statuses = {}
     for rec in rows:
@@ -1967,21 +2081,32 @@ def merge_shards(out_root: Path, name: str, test: str, opts) -> int:
     elif versions:
         b, c = next(iter(versions))
         report.append(f"code: branch={b} commit={c}")
+    gaps = [r["mip_gap"] for r in rows
+            if isinstance(r.get("mip_gap"), float) and math.isfinite(r["mip_gap"])]
+    if gaps:
+        gaps_sorted = sorted(gaps)
+        report.append(f"mip gap: median {gaps_sorted[len(gaps_sorted) // 2]:.4g}  "
+                      f"max {max(gaps):.4g}  ({sum(1 for g in gaps if g > 0.01)} of "
+                      f"{len(gaps)} runs above 1%)")
     missing = [r for r in rows if str(r.get("status")).startswith("error")
                or classify(r) == "unknown"]
     if missing:
         report.append(f"WARNING {len(missing)} run(s) did not produce a solution "
                       f"(errors or time limits) -- the checks below treat those as "
-                      f"missing, not as failures. Look for status=time_limit and "
-                      f"resubmit with --no-time-limit.")
+                      f"missing, not as failures.")
     report.append("")
 
-    summary = {"n_rows": len(rows), "shards": len(csvs), "status_counts": statuses,
+    summary = {"n_rows": len(rows), "shard_files": len(csvs),
+               "run_folder": folder.name, "status_counts": statuses,
                "code_versions": sorted(f"{b}@{c}" for b, c in versions)}
 
     # ---- (H1)/(H3) per design point -------------------------------------
     impls_seen = [im for im in IMPLS_ORDER
-                  if any(impl_of_record(r) == im for r in rows)]
+                  if any(impl_of_record(r) == im and r.get("bound") in IMPL_AWARE_BOUNDS
+                         for r in rows)]
+    if not impls_seen:
+        impls_seen = [im for im in IMPLS_ORDER
+                      if any(impl_of_record(r) == im for r in rows)]
     points = {}
     n_bad = n_incon = 0
     groups = {}
@@ -1991,10 +2116,10 @@ def merge_shards(out_root: Path, name: str, test: str, opts) -> int:
         groups.setdefault((rec.get("parameter"), str(rec.get("value"))), []).append(rec)
     for (param, value), recs in sorted(groups.items(), key=lambda kv: str(kv[0])):
         vals = {(r["bound"], impl_of_record(r)): r["objective"] for r in recs}
-        gaps = {(r["bound"], impl_of_record(r)): r["mip_gap"] for r in recs}
+        gaps_d = {(r["bound"], impl_of_record(r)): r["mip_gap"] for r in recs}
         for impl in impls_seen:
             per = {b: cost_for(vals, b, impl) for b in BOUNDS_ORDER}
-            per_gaps = {b: gaps.get((b, impl), gaps.get((b, "exact")))
+            per_gaps = {b: gaps_d.get((b, impl), gaps_d.get((b, "exact")))
                         for b in BOUNDS_ORDER}
             verdict, issues = order_verdict(per, per_gaps)
             n_bad += 1 if verdict == "VIOLATED" else 0
@@ -2007,7 +2132,7 @@ def merge_shards(out_root: Path, name: str, test: str, opts) -> int:
         for bound in BOUNDS_ORDER:
             if sum(1 for im in IMPLS_ORDER if (bound, im) in vals) < 2:
                 continue
-            issues = check_impl_order(vals, gaps, bound)
+            issues = check_impl_order(vals, gaps_d, bound)
             report += [f"    (H3) {i}" for i in issues]
     summary["H1_violations"] = n_bad
     summary["H1_inconclusive"] = n_incon
@@ -2027,19 +2152,16 @@ def merge_shards(out_root: Path, name: str, test: str, opts) -> int:
         for rec in fail_rows:
             ladders.setdefault(rec["parameter"], []).append(rec)
         for param, recs in ladders.items():
-            order = sorted({r["value"] for r in recs},
-                           key=lambda v: [str(x) for x in
-                                          (STRESS_LADDERS.get(param, ("", []))[1]
-                                           or sorted({q["value"] for q in recs}))].index(str(v))
-                           if str(v) in [str(x) for x in
-                                         (STRESS_LADDERS.get(param, ("", []))[1] or [])]
-                           else 10**6)
+            ladder = STRESS_LADDERS.get(param, ("", []))[1]
+            order = [v for v in ladder if str(v) in {str(r["value"]) for r in recs}] \
+                or sorted({r["value"] for r in recs}, key=str)
             failed_at = {}
             for rec in recs:
                 key = (rec["bound"], impl_of_record(rec))
                 failed_at.setdefault(key, None)
                 if classify(rec) == "infeasible":
-                    idx = order.index(rec["value"]) if rec["value"] in order else None
+                    idx = next((i for i, v in enumerate(order)
+                                if str(v) == str(rec["value"])), None)
                     cur = failed_at[key]
                     if idx is not None and (cur is None or idx < cur):
                         failed_at[key] = idx
@@ -2081,14 +2203,16 @@ def merge_shards(out_root: Path, name: str, test: str, opts) -> int:
                 print(f"  [plot] {path.name}")
                 report.append(f"plot: {path.name}")
 
-    _dump_yaml(mdir / f"{stamp}_results_{name}_{test}_merged.yaml",
-               {"test": test, "merged_from": [str(q.parent.name) for q in csvs],
+    _dump_yaml(folder / "merged_results.yaml",
+               {"test": test, "run_folder": folder.name,
+                "merged_from": [q.name for q in csvs],
                 "created": datetime.now().isoformat(timespec="seconds"),
                 "summary": summary, "runs": [_to_builtin(r) for r in rows]})
-    (mdir / f"{stamp}_summary_{name}_{test}_merged.txt").write_text("\n".join(report))
+    (folder / "merged_summary.txt").write_text("\n".join(report))
     print("\n".join(report))
-    print(f"\n[merge] folder : {mdir}")
-    print(f"[merge] results: {csv_path.name}")
+    print(f"\n[merge] folder : {folder}")
+    print(f"[merge] results: merged_results.csv, merged_results.yaml, "
+          f"merged_summary.txt")
     return 0
 
 
@@ -2148,10 +2272,12 @@ def parse_args(argv=None):
                         "--shard $SLURM_ARRAY_TASK_ID/$SLURM_ARRAY_TASK_COUNT). "
                         "Each shard writes its own folder; hypothesis checks are "
                         "skipped -- run --merge afterwards.")
-    p.add_argument("--merge-all", action="store_true", dest="merge_all",
-                   help="with --merge, combine shard folders from ALL dates "
-                        "instead of only the newest (default: newest only, so a "
-                        "failed earlier attempt cannot contaminate the results)")
+    p.add_argument("--run-stamp", default=None, dest="run_stamp",
+                   metavar="YYYYMMDDHHMM",
+                   help="identifies the run folder <out>/<stamp>_<test>. Exported "
+                        "as RUN_STAMP by submit.sh so every shard of an array "
+                        "writes into ONE folder; also selects the folder to "
+                        "--merge. Defaults to the current minute.")
     p.add_argument("--merge", action="store_true",
                    help="combine the shard folders of --tests under --out, run the "
                         "hypothesis checks and plots once, and write a _merged "
@@ -2170,6 +2296,12 @@ def parse_args(argv=None):
     p.add_argument("--rho", type=float, default=None)
     p.add_argument("--p", type=float, default=None,
                    help="Bernoulli probability of the damage increment")
+    p.add_argument("--severity-spread", type=float, default=None,
+                   dest="severity_spread",
+                   help="missions span b_ref*(1 -+ spread) (default 0.25). Watch "
+                        "this one: bernstein's drift term uses support_max, the "
+                        "WORST mission, so a wide spread makes bernstein looser "
+                        "than hoeffding and (H1) genuinely false.")
     p.add_argument("--calibrate-n", type=float, default=None, dest="n_target",
                    help="place the design point where hoeffding binds after this "
                         "many reference missions (default 6)")
@@ -2243,7 +2375,7 @@ def scenario_from_args(args) -> Scenario:
     keys = ("F", "M", "L", "H", "tau", "epsilon", "rho", "p", "n_target",
             "C_M", "C_R", "C_S", "C_P", "C_rep", "repair_model",
             "reliability_impl", "pwl_points", "tangent_ref",
-            "allow_replacement")
+            "severity_spread", "allow_replacement")
     overrides = {k: getattr(args, k) for k in keys if getattr(args, k) is not None}
     return Scenario(**overrides)
 
@@ -2343,6 +2475,7 @@ def main(argv=None) -> int:
                          "(optionally with --pwl-ladder 2,4,8,16)")
 
     suffix = "" if args.shard_obj is None else f"_shard{args.shard_obj.k}"
+    # suffix tags FILES inside the shared run folder (see TestRun docstring)
     for test in tests:
         if args.shard_obj is not None:
             args.shard_obj.i = 0                 # restart the unit counter per test

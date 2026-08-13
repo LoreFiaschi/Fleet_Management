@@ -13,6 +13,7 @@ set -euo pipefail
 
 PROJECT=${PROJECT:-${SLURM_SUBMIT_DIR:-$PWD}}
 TEST=${TEST:-sweep}
+RUN_STAMP=${RUN_STAMP:?RUN_STAMP must be exported by euler/submit.sh}
 NAME=${NAME:-bound_tightness}
 OUT=${OUT:-$PROJECT/results}
 
@@ -30,4 +31,5 @@ set -e
 source "$PROJECT/.venv-euler/bin/activate"
 cd "$PROJECT"
 
-python test.py --merge --tests "$TEST" --name "$NAME" --out "$OUT"
+python test.py --merge --tests "$TEST" --name "$NAME" --out "$OUT" \
+               --run-stamp "$RUN_STAMP"

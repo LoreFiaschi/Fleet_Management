@@ -13,16 +13,56 @@ NSHARDS=${2:-20}
 NAME=${NAME:-bound_tightness}
 OUT=${OUT:-$PROJECT/results}
 MAXPAR=${MAXPAR:-10}                  # concurrent array tasks
+# One timestamp for the WHOLE run. Every array task starts at a different minute,
+# so if each computed its own the shards would land in different folders and could
+# never be merged. Format YYYYMMDDHHMM -> results/<stamp>_<test>/
+RUN_STAMP=${RUN_STAMP:-$(date +%Y%m%d%H%M)}
 
 cd "$PROJECT"                         # so SLURM_SUBMIT_DIR == project root
 mkdir -p logs "$OUT"                  # Slurm will NOT create the log directory
 
+# Fail here, not after printing a submission plan we cannot carry out.
 if [ ! -d "$PROJECT/.venv-euler" ]; then
     echo "ERROR: no .venv-euler in $PROJECT -- run 'bash euler/setup_euler.sh' first" >&2
     exit 1
 fi
+MISSING=""
+for f in euler/run_array.sbatch euler/merge.sbatch "$PROJECT/test.py"; do
+    [ -f "$f" ] || MISSING="$MISSING $f"
+done
+if [ -n "$MISSING" ]; then
+    echo "ERROR: missing file(s):$MISSING" >&2
+    echo "       The .sbatch files travel with the .sh files -- commit and push the" >&2
+    echo "       whole euler/ folder, then 'git pull' here (or scp them up)." >&2
+    exit 1
+fi
+# A stale test.py is the single most wasteful failure here: every array task dies
+# in seconds with argparse exit code 2 and you only find out from the logs. The
+# batch scripts pass --threads and --shard, so refuse to submit if this copy of
+# test.py does not understand them.
+for flag in --threads --shard --merge --gurobi-params --run-stamp; do
+    if ! grep -q -- "\"$flag\"" "$PROJECT/test.py"; then
+        echo "ERROR: $PROJECT/test.py does not support $flag -- it is an older" >&2
+        echo "       version than these job scripts expect." >&2
+        echo "       Update it (git pull, or scp the current test.py up) and check:" >&2
+        echo "         python test.py --help | grep -E -- '--threads|--shard|--merge'" >&2
+        exit 1
+    fi
+done
+
+# CRLF in a batch script makes Slurm fail in confusing ways ("not found" for a
+# file that exists, because the interpreter becomes /usr/bin/bash\r).
+for f in euler/run_array.sbatch euler/merge.sbatch; do
+    if grep -qU $'\r' "$f" 2>/dev/null; then
+        echo "ERROR: $f has Windows (CRLF) line endings." >&2
+        echo "       Fix with: sed -i 's/\r$//' $f   (and add a .gitattributes" >&2
+        echo "       rule '*.sbatch text eol=lf' so it does not come back)" >&2
+        exit 1
+    fi
+done
 
 echo "project   : $PROJECT"
+echo "run folder: $OUT/${RUN_STAMP}_${TEST}"
 if git -C "$PROJECT" rev-parse --git-dir >/dev/null 2>&1; then
     BRANCH=$(git -C "$PROJECT" rev-parse --abbrev-ref HEAD)
     COMMIT=$(git -C "$PROJECT" rev-parse --short HEAD)
@@ -37,13 +77,15 @@ fi
 # code or pulling while the array is queued means later tasks run different code
 # than earlier ones; the merge step detects this and warns.
 echo "note      : do not edit the code or 'git pull' until the array has finished"
-ARRAY_ID=$(PROJECT=$PROJECT TEST=$TEST NAME=$NAME OUT=$OUT sbatch --parsable \
-    --array=0-$((NSHARDS - 1))%"$MAXPAR" euler/run_array.sbatch)
+# NSHARDS is exported so the job never has to infer the array size itself.
+ARRAY_ID=$(PROJECT=$PROJECT TEST=$TEST NAME=$NAME OUT=$OUT NSHARDS=$NSHARDS \
+    RUN_STAMP=$RUN_STAMP \
+    sbatch --parsable --array=0-$((NSHARDS - 1))%"$MAXPAR" euler/run_array.sbatch)
 echo "array job : $ARRAY_ID  ($NSHARDS shards, max $MAXPAR running at once)"
 
-MERGE_ID=$(PROJECT=$PROJECT TEST=$TEST NAME=$NAME OUT=$OUT sbatch --parsable \
-    --dependency=afterany:"$ARRAY_ID" euler/merge.sbatch)
+MERGE_ID=$(PROJECT=$PROJECT TEST=$TEST NAME=$NAME OUT=$OUT RUN_STAMP=$RUN_STAMP \
+    sbatch --parsable --dependency=afterany:"$ARRAY_ID" euler/merge.sbatch)
 echo "merge job : $MERGE_ID  (runs after the array finishes)"
 echo
 echo "watch with : squeue -u \$USER   /   myjobs -j $ARRAY_ID"
-echo "results in : $OUT/*_${NAME}_${TEST}_merged/"
+echo "results in : $OUT/${RUN_STAMP}_${TEST}/  (merged_summary.txt when done)"
