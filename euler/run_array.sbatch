@@ -104,6 +104,19 @@ fi
 # last resort: it is not set by every Slurm build, and if it is missing or reports
 # the %throttle instead of the array size, the shards silently stop partitioning
 # the work correctly (some tasks take zero units and write empty CSVs).
+# Version check inside the task too, not only at submit time: a task can start
+# minutes after submission, and argparse's failure mode is a usage dump that buries
+# the real problem. Costs ~1 s.
+for flag in --threads --shard --gurobi-params; do
+    if ! python test.py --help 2>/dev/null | grep -q -- "$flag"; then
+        echo "ERROR: this test.py does not support $flag -- it is older than these" >&2
+        echo "       job scripts. On the login node:  git pull  (or scp the current" >&2
+        echo "       test.py up), then verify with:" >&2
+        echo "         python test.py --help | grep -c -- '--gurobi-params'   # 1" >&2
+        exit 1
+    fi
+done
+
 NSHARDS=${NSHARDS:-${SLURM_ARRAY_TASK_COUNT:-0}}
 if [ "$NSHARDS" -lt 1 ] 2>/dev/null || [ -z "$NSHARDS" ]; then
     echo "ERROR: NSHARDS is unset and SLURM_ARRAY_TASK_COUNT is unavailable." >&2

@@ -267,21 +267,28 @@ def _mine(opts, ) -> bool:
 def bound_impl_combos(impls, announce: bool = False) -> list:
     """The (bound, impl) pairs actually worth solving.
 
-    A non-exact impl on markov / chernoff is dropped: `rainflow._resolve_impl`
-    falls back to "exact" for them, so the run would be a byte-identical
-    duplicate that just burns solver time.
+    markov and chernoff are already linear: `rainflow._resolve_impl` falls back to
+    "exact" for them whatever is requested. They are therefore emitted exactly
+    ONCE, as (bound, "exact"), no matter which impls were asked for.
+
+    That "once, always" matters. Dropping them when the requested impl is not
+    "exact" would silently remove two of the five bounds, and (H1) is a statement
+    about all five -- `--impls tangent` would then quietly test a different, weaker
+    hypothesis. `cost_for` maps them onto every impl group when the checks run.
     """
-    out, skipped = [], []
+    out, folded = [], []
     for bound in BOUNDS_ORDER:
+        if bound not in IMPL_AWARE_BOUNDS:
+            out.append((bound, "exact"))         # linear bound: encoding is moot
+            if set(impls) != {"exact"}:
+                folded.append(bound)
+            continue
         for impl in impls:
-            if impl != "exact" and bound not in IMPL_AWARE_BOUNDS:
-                skipped.append(f"{bound}/{impl}")
-                continue
             out.append((bound, impl))
-    if announce and skipped:
-        print(f"  [impl] skipping {len(skipped)} duplicate combination(s): "
-              f"{', '.join(skipped)} -- these bounds are linear and fall back "
-              f"to 'exact'")
+    if announce and folded:
+        print(f"  [impl] {', '.join(folded)} are linear bounds: the implementation "
+              f"does not apply, so each runs once as 'exact' and is compared "
+              f"against every requested encoding.")
     return out
 
 
@@ -630,6 +637,7 @@ def run_case(sc: Scenario, bound: str, opts) -> tuple[dict, dict]:
         "allow_replacement": sc.allow_replacement,
         "C_M": sc.C_M, "C_R": sc.C_R, "C_S": sc.C_S, "C_P": sc.C_P,
         "threads": getattr(opts, "threads", None) or "",
+        "gurobi_params": getattr(opts, "gurobi_params", None) or "",
         "host": _HOSTNAME, "slurm_job": _SLURM_JOB,
         "git_branch": _GIT["git_branch"], "git_commit": _GIT["git_commit"],
         "n_max_analytic": n_max(sc, bound),
@@ -659,8 +667,7 @@ def run_case(sc: Scenario, bound: str, opts) -> tuple[dict, dict]:
             tangent_ref=sc.tangent_ref,
             # On a shared cluster node Gurobi would otherwise spawn threads for
             # every core it can see, not for the cores Slurm gave the job.
-            gurobi_params=({"Threads": int(opts.threads)}
-                           if getattr(opts, "threads", None) else None),
+            gurobi_params=_gurobi_params(opts),
         )
     except Exception as exc:                     # keep the sweep alive
         rec.update({"status": f"error: {type(exc).__name__}: {exc}",
@@ -706,6 +713,33 @@ def run_case(sc: Scenario, bound: str, opts) -> tuple[dict, dict]:
     return rec, data
 
 
+def _gurobi_params(opts) -> dict | None:
+    """Threads plus any --gurobi-params overrides, e.g. MIPFocus=3,Symmetry=2.
+
+    Useful when the dual bound is the bottleneck rather than the incumbent: the
+    reliability constraint makes this a nonconvex MIQCP whose LP relaxation is
+    weak, and F identical vehicles make the tree highly symmetric.
+    """
+    params: dict = {}
+    if getattr(opts, "threads", None):
+        params["Threads"] = int(opts.threads)
+    for item in (getattr(opts, "gurobi_params", None) or "").split(","):
+        item = item.strip()
+        if not item:
+            continue
+        if "=" not in item:
+            raise SystemExit(f"--gurobi-params expects KEY=VALUE, got {item!r}")
+        key, _, val = item.partition("=")
+        try:
+            params[key.strip()] = int(val)
+        except ValueError:
+            try:
+                params[key.strip()] = float(val)
+            except ValueError:
+                params[key.strip()] = val.strip()
+    return params or None
+
+
 def _f(value):
     return float(value) if value is not None else math.nan
 
@@ -738,7 +772,8 @@ FIELDS = ["timestamp", "test", "parameter", "value", "bound", "status",
           "mu_ref", "s_chernoff", "repair_model", "reliability_impl",
           "pwl_points", "tangent_ref",
           "allow_replacement", "C_M", "C_R", "C_S", "C_P",
-          "threads", "host", "slurm_job", "git_branch", "git_commit"]
+          "threads", "gurobi_params", "host", "slurm_job",
+          "git_branch", "git_commit"]
 
 
 class TestRun:
@@ -759,6 +794,10 @@ class TestRun:
         self._fh = self.csv_path.open("w", newline="")
         self._w = csv.DictWriter(self._fh, fieldnames=FIELDS, extrasaction="ignore")
         self._w.writeheader()
+        # Flush immediately. Without this a task killed by Slurm (OOM or timeout)
+        # before the first solve completes leaves a 0-byte file, which looks like
+        # "the script never ran" rather than "it was killed mid-solve".
+        self._fh.flush()
         # the base case, dumped once per test folder so each folder stands alone
         _dump_yaml(self.dir / f"{self.stamp}_scenario_base.yaml",
                    {"test": test, "created": datetime.now().isoformat(timespec="seconds"),
@@ -769,8 +808,23 @@ class TestRun:
                     "base_case": sc.to_yaml_dict()})
 
     # ---- one run -----------------------------------------------------------
+    def note_progress(self, text: str) -> None:
+        """Append to a progress file, flushed per line.
+
+        The CSV only gains a row once a solve *finishes*. If a task is killed
+        during a long solve there is otherwise no record of which design point it
+        died on -- this file has it.
+        """
+        with (self.dir / "progress.log").open("a") as fh:
+            fh.write(f"{datetime.now():%H:%M:%S} {text}\n")
+
     def add(self, rec: dict, data: dict, sc: Scenario) -> None:
         rec.setdefault("verdict", classify(rec))
+        self.note_progress(f"DONE  {rec.get('parameter')}={rec.get('value')} "
+                           f"{rec.get('bound')}/{impl_of_record(rec)} "
+                           f"status={rec.get('status')} "
+                           f"cost={rec.get('objective')} "
+                           f"time={rec.get('runtime_s')}")
         self.rows.append(rec)
         self._w.writerow({k: rec.get(k, "") for k in FIELDS})
         self._fh.flush()
@@ -1125,12 +1179,45 @@ def plot_failure(thresholds: dict, run: TestRun) -> Path | None:
 # ===========================================================================
 # Hypothesis checks
 # ===========================================================================
+def order_verdict(values: dict, gaps: dict) -> tuple[str, list[str]]:
+    """(H1) verdict: HOLDS / VIOLATED / INCONCLUSIVE, plus the details.
+
+    The third outcome matters. `check_order` only reports a violation when the
+    inversion exceeds the MIP-gap slack, so with large gaps NOTHING can violate
+    and the test would report HOLDS while proving nothing -- the ordering would be
+    unfalsifiable, not confirmed. So if any adjacent pair's cost difference is
+    SMALLER than the slack that pair carries, the design point is INCONCLUSIVE:
+    the solver has not resolved the costs finely enough to rank those two bounds.
+    """
+    issues = check_order(values, gaps)
+    if any(i.startswith("VIOLATION") for i in issues):
+        return "VIOLATED", issues
+    present = [b for b in BOUNDS_ORDER
+               if isinstance(values.get(b), float) and not math.isnan(values.get(b))]
+    unresolved = []
+    for looser, tighter in zip(present, present[1:]):
+        lo, hi = values[looser], values[tighter]
+        if math.isinf(lo) or math.isinf(hi):
+            continue                             # infeasibility is unambiguous
+        g = max(gaps.get(looser) or 0.0, gaps.get(tighter) or 0.0)
+        slack = max(1e-6, g * max(abs(lo), abs(hi)))
+        if abs(lo - hi) < slack:
+            unresolved.append(f"UNRESOLVED {looser} vs {tighter}: "
+                              f"|{lo:.6g} - {hi:.6g}| = {abs(lo - hi):.3g} is below "
+                              f"the gap slack {slack:.3g} -- these two cannot be "
+                              f"ranked from these runs")
+    if unresolved:
+        return "INCONCLUSIVE", issues + unresolved
+    return "HOLDS", issues
+
+
 def check_order(values: dict, gaps: dict) -> list[str]:
     """(H1): verify cost(looser) >= cost(tighter) along BOUNDS_ORDER.
 
     A violation is only real if it exceeds the slack implied by the two runs'
     MIP gaps: with gap g the reported objective may sit up to g*|obj| above the
     true optimum, so differences below that are not evidence against (H1).
+    Use `order_verdict` for the verdict -- absence of violations is NOT proof.
     """
     issues = []
     present = [b for b in BOUNDS_ORDER
@@ -1308,6 +1395,7 @@ def test_base(sc: Scenario, opts, run: TestRun, impls) -> tuple[list, dict]:
             continue
         variant = sc.variant(reliability_impl=impl)
         print(f"  solving {bound}/{impl} ...", flush=True)
+        run.note_progress(f"START base {bound}/{impl}")
         rec, data = run_case(variant, bound, opts)
         rec.update({"test": "base", "parameter": "-", "value": ""})
         run.add(rec, data, variant)
@@ -1336,13 +1424,13 @@ def test_base(sc: Scenario, opts, run: TestRun, impls) -> tuple[list, dict]:
     for impl in impls:
         per = {b: cost_for(vals, b, impl) for b in BOUNDS_ORDER}
         per_gaps = {b: gaps.get((b, impl), gaps.get((b, "exact"))) for b in BOUNDS_ORDER}
-        issues = check_order(per, per_gaps)
-        holds = not any(i.startswith("VIOLATION") for i in issues)
-        all_ok = all_ok and holds
-        lines.append(f"hypothesis (H1) with impl={impl}: "
-                     f"{'HOLDS' if holds else 'VIOLATED'}")
+        verdict, issues = order_verdict(per, per_gaps)
+        holds = verdict == "HOLDS"
+        all_ok = all_ok and verdict != "VIOLATED"
+        lines.append(f"hypothesis (H1) with impl={impl}: {verdict}")
         lines += [f"  {i}" for i in issues]
-        summary["H1"][impl] = {"holds": bool(holds), "issues": issues,
+        summary["H1"][impl] = {"verdict": verdict, "holds": bool(holds),
+                               "issues": issues,
                                "costs": {b: _to_builtin(per[b]) for b in per}}
     lines.append("")
 
@@ -1364,6 +1452,11 @@ def test_base(sc: Scenario, opts, run: TestRun, impls) -> tuple[list, dict]:
                                           for im in have},
                                 "times": {im: _to_builtin(times[(bound, im)])
                                           for im in have}}
+    worst = max((r.get("mip_gap") or 0.0) for r in run.rows) if run.rows else 0.0
+    if worst > 0.01:
+        lines.append(f"  WARNING largest MIP gap in this table is {worst:.1%}. Cost "
+                     f"differences smaller than that cannot be trusted; check the "
+                     f"per-pair UNRESOLVED notes above.")
     if _uninformative(run.rows):
         lines.append("  WARNING all runs produced the same repair/depot pattern "
                      "-- the reliability constraint is not binding, so this run "
@@ -1395,6 +1488,7 @@ def test_sweep(sc: Scenario, opts, run: TestRun, sweeps: dict,
                     continue
                 variant = base_variant.variant(reliability_impl=impl)
                 print(f"  {param}={v} {bound}/{impl} ...", flush=True)
+                run.note_progress(f"START {param}={v} {bound}/{impl}")
                 rec, data = run_case(variant, bound, opts)
                 rec.update({"test": "sweep", "parameter": param, "value": v})
                 run.add(rec, data, variant)
@@ -1409,14 +1503,13 @@ def test_sweep(sc: Scenario, opts, run: TestRun, sweeps: dict,
                 per = {b: cost_for(vals, b, impl) for b in BOUNDS_ORDER}
                 per_gaps = {b: gaps.get((b, impl), gaps.get((b, "exact")))
                             for b in BOUNDS_ORDER}
-                issues = check_order(per, per_gaps)
-                holds = not any(i.startswith("VIOLATION") for i in issues)
+                verdict, issues = order_verdict(per, per_gaps)
                 verdicts[f"{param}={v}/{impl}"] = {
-                    "H1_holds": bool(holds), "issues": issues,
+                    "H1_verdict": verdict, "H1_holds": verdict == "HOLDS",
+                    "issues": issues,
                     "costs": {b: _to_builtin(per[b]) for b in per}}
                 costs = "  ".join(f"{b}={_fmt(per[b])}" for b in BOUNDS_ORDER)
-                lines.append(f"  {param}={v} impl={impl}: (H1) "
-                             f"{'HOLDS' if holds else 'VIOLATED'}   {costs}")
+                lines.append(f"  {param}={v} impl={impl}: (H1) {verdict}   {costs}")
                 lines += [f"      {i}" for i in issues]
             for bound in BOUNDS_ORDER:
                 if sum(1 for im in IMPLS_ORDER if (bound, im) in vals) < 2:
@@ -1479,6 +1572,7 @@ def test_failure(sc: Scenario, opts, run: TestRun, ladders: dict,
                     notes.append(f"{param}={v}: skipped (needs F > M)")
                     continue
                 print(f"  {bound}/{impl} {param}={v} ...", flush=True)
+                run.note_progress(f"START {param}={v} {bound}/{impl}")
                 rec, data = run_case(variant, bound, opts)
                 rec.update({"test": "failure", "parameter": param, "value": v})
                 run.add(rec, data, variant)
@@ -1783,11 +1877,48 @@ def merge_shards(out_root: Path, name: str, test: str, opts) -> int:
     if not csvs:
         print(f"[merge] no shard results under {out_root}/{pattern}")
         return 1
+
+    # Folder names start with a yymmdd stamp. Merging across dates silently mixes
+    # separate experiments -- including failed ones left behind from an earlier
+    # attempt -- so default to the newest date only.
+    dates = sorted({q.parent.name.split("_", 1)[0] for q in csvs})
+    if len(dates) > 1 and not getattr(opts, "merge_all", False):
+        newest = dates[-1]
+        dropped = [q.parent.name for q in csvs
+                   if not q.parent.name.startswith(newest)]
+        csvs = [q for q in csvs if q.parent.name.startswith(newest)]
+        print(f"[merge] shard folders span {len(dates)} dates {dates}; using the "
+              f"newest ({newest}) only.")
+        print(f"[merge] ignored {len(dropped)} older folder(s): "
+              f"{', '.join(sorted(set(dropped))[:4])}"
+              f"{' ...' if len(set(dropped)) > 4 else ''}")
+        print(f"[merge] pass --merge-all to combine every date instead.")
+        if not csvs:
+            print("[merge] nothing left after filtering", file=sys.stderr)
+            return 1
     rows: list = []
+    empty = []
     for q in csvs:
         got = _read_rows(q)
         print(f"[merge] {q.parent.name}/{q.name}: {len(got)} rows")
+        if not got:
+            empty.append(q.parent.name)
         rows += got
+    if not rows:
+        print(f"\n[merge] ERROR every one of the {len(csvs)} shard file(s) is "
+              f"header-only, so there is nothing to merge.", file=sys.stderr)
+        print("[merge] The solves never ran. Check, in this order:", file=sys.stderr)
+        print("  1. sacct -j <arrayjobid> --format=JobID%18,State,ExitCode",
+              file=sys.stderr)
+        print("  2. tail -40 logs/bound_tests_<arrayjobid>_0.err", file=sys.stderr)
+        print("  3. grep -c . <a shard folder>/runs/*.yaml   # per-run files too?",
+              file=sys.stderr)
+        print("  4. the shard summaries: they record how many work units each "
+              "task took", file=sys.stderr)
+        return 1
+    if empty:
+        print(f"[merge] WARNING {len(empty)} shard(s) produced no rows: "
+              f"{', '.join(empty)}", file=sys.stderr)
     # a shard may have been resubmitted: keep the newest row per unique run
     unique = {}
     for rec in rows:
@@ -1852,7 +1983,7 @@ def merge_shards(out_root: Path, name: str, test: str, opts) -> int:
     impls_seen = [im for im in IMPLS_ORDER
                   if any(impl_of_record(r) == im for r in rows)]
     points = {}
-    n_bad = 0
+    n_bad = n_incon = 0
     groups = {}
     for rec in rows:
         if rec.get("test") == "failure":
@@ -1865,14 +1996,13 @@ def merge_shards(out_root: Path, name: str, test: str, opts) -> int:
             per = {b: cost_for(vals, b, impl) for b in BOUNDS_ORDER}
             per_gaps = {b: gaps.get((b, impl), gaps.get((b, "exact")))
                         for b in BOUNDS_ORDER}
-            issues = check_order(per, per_gaps)
-            holds = not any(i.startswith("VIOLATION") for i in issues)
-            n_bad += 0 if holds else 1
+            verdict, issues = order_verdict(per, per_gaps)
+            n_bad += 1 if verdict == "VIOLATED" else 0
+            n_incon += 1 if verdict == "INCONCLUSIVE" else 0
             costs = "  ".join(f"{b}={_fmt(per[b])}" for b in BOUNDS_ORDER)
-            report.append(f"{param}={value} impl={impl}: (H1) "
-                          f"{'HOLDS' if holds else 'VIOLATED'}   {costs}")
+            report.append(f"{param}={value} impl={impl}: (H1) {verdict}   {costs}")
             report += [f"    {i}" for i in issues]
-            points[f"{param}={value}/{impl}"] = {"H1_holds": bool(holds),
+            points[f"{param}={value}/{impl}"] = {"H1_verdict": verdict,
                                                  "issues": issues}
         for bound in BOUNDS_ORDER:
             if sum(1 for im in IMPLS_ORDER if (bound, im) in vals) < 2:
@@ -1880,7 +2010,14 @@ def merge_shards(out_root: Path, name: str, test: str, opts) -> int:
             issues = check_impl_order(vals, gaps, bound)
             report += [f"    (H3) {i}" for i in issues]
     summary["H1_violations"] = n_bad
+    summary["H1_inconclusive"] = n_incon
     summary["points"] = points
+    if n_incon:
+        report.append(f"WARNING {n_incon} design point(s) are INCONCLUSIVE: the MIP "
+                      f"gap is larger than the cost differences between adjacent "
+                      f"bounds, so those pairs cannot be ranked. Tighten --mip-gap, "
+                      f"or use a MILP encoding (--impls tangent,pwl) where the gap "
+                      f"actually closes.")
     report.append("")
 
     # ---- (H2) from the failure rows -------------------------------------
@@ -2000,11 +2137,21 @@ def parse_args(argv=None):
                    help="Gurobi Threads. On a shared cluster node ALWAYS set this "
                         "to the cores Slurm gave you ($SLURM_CPUS_PER_TASK); "
                         "otherwise Gurobi threads for every core it can see.")
+    p.add_argument("--gurobi-params", default=None, dest="gurobi_params",
+                   metavar="K=V,...",
+                   help="extra Gurobi parameters, e.g. "
+                        "'MIPFocus=3,Symmetry=2,Cuts=2,Heuristics=0.05'. Use when "
+                        "the DUAL bound is the bottleneck (many incumbents close "
+                        "together but a stalled 'best bound').")
     p.add_argument("--shard", default=None, metavar="K/N",
                    help="run only work unit k of n (for Slurm job arrays, e.g. "
                         "--shard $SLURM_ARRAY_TASK_ID/$SLURM_ARRAY_TASK_COUNT). "
                         "Each shard writes its own folder; hypothesis checks are "
                         "skipped -- run --merge afterwards.")
+    p.add_argument("--merge-all", action="store_true", dest="merge_all",
+                   help="with --merge, combine shard folders from ALL dates "
+                        "instead of only the newest (default: newest only, so a "
+                        "failed earlier attempt cannot contaminate the results)")
     p.add_argument("--merge", action="store_true",
                    help="combine the shard folders of --tests under --out, run the "
                         "hypothesis checks and plots once, and write a _merged "
@@ -2205,6 +2352,18 @@ def main(argv=None) -> int:
         try:
             lines, extra = runners[test](run)
             report += lines
+            # A shard that solved nothing writes a header-only CSV, and the merge
+            # then reports "0 rows" with no clue why. Fail loudly instead.
+            if args.shard_obj is not None and not run.rows and test != "analytic":
+                units = args.shard_obj.i
+                msg = (f"ERROR shard {args.shard_obj} took 0 of {units} work "
+                       f"units. Either N exceeds the number of units, or the "
+                       f"shard index is wrong. Check that --shard K/N matches the "
+                       f"array size (0-{args.shard_obj.n - 1}).")
+                report.append(msg)
+                print(msg, file=sys.stderr)
+                run.close(report, extra)
+                return 2
         except BaseException as exc:             # Ctrl-C included: keep the data
             report += ["", f"ABORTED: {type(exc).__name__}: {exc}"]
             run.close(report, extra)
