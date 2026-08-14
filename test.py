@@ -230,8 +230,30 @@ STRESS_LADDERS = {
 _INT_PARAMS = ("F", "M", "L", "H")
 
 
+def _clean(token: str) -> str:
+    """Strip whitespace and stray quotes from a CLI token.
+
+    `EXTRA="... --values 'H=1,2;M=3'"` in a submit script survives into the job as
+    a literal apostrophe on the first and last token, because $EXTRA is expanded
+    unquoted: bash word-splits but does not re-process quotes. Without this, the
+    last value parses as `3'` and int() raises a bare ValueError from deep inside
+    argument parsing.
+    """
+    return token.strip().strip("\"'").strip()
+
+
 def _cast(param: str, value):
-    return int(value) if param in _INT_PARAMS else float(value)
+    token = _clean(str(value))
+    try:
+        return int(token) if param in _INT_PARAMS else float(token)
+    except ValueError:
+        raise SystemExit(
+            f"cannot read {token!r} as a value for {param!r}. Expected "
+            f"{'an integer' if param in _INT_PARAMS else 'a number'}. If this came "
+            f"from --values/--failure-values in a submit script, drop the inner "
+            f"quotes: EXTRA=\"--values H=10,12;F=3,4\" (the string has no spaces, "
+            f"so it needs none, and quotes inside EXTRA survive as literal "
+            f"characters).")
 
 
 def run_stamp(opts) -> str:
@@ -2341,7 +2363,7 @@ def parse_args(argv=None):
 
     # --impls is the general form; --impl is the single-value shorthand
     if args.impls:
-        impls = [q.strip() for q in args.impls.split(",") if q.strip()]
+        impls = [_clean(q) for q in args.impls.split(",") if _clean(q)]
     elif args.reliability_impl:
         impls = [args.reliability_impl]
     else:
@@ -2390,10 +2412,13 @@ def parse_sweeps(args, sc: Scenario) -> dict:
             if not block.strip():
                 continue
             key, _, vals = block.partition("=")
-            defaults[key.strip()] = [_cast(key.strip(), v)
-                                     for v in vals.split(",") if v.strip()]
+            key = _clean(key)
+            if key not in SWEEP_PARAMS:
+                raise SystemExit(f"--values: unknown parameter {key!r}; "
+                                 f"pick from {SWEEP_PARAMS}")
+            defaults[key] = [_cast(key, v) for v in vals.split(",") if _clean(v)]
     out = {}
-    for param in (q.strip() for q in args.params.split(",") if q.strip()):
+    for param in (_clean(q) for q in args.params.split(",") if _clean(q)):
         if param not in SWEEP_PARAMS:
             raise SystemExit(f"unknown sweep parameter {param!r}; "
                              f"pick from {SWEEP_PARAMS}")
@@ -2409,10 +2434,10 @@ def parse_ladders(args) -> dict:
             if not block.strip():
                 continue
             key, _, vals = block.partition("=")
-            key = key.strip()
-            custom[key] = [_cast(key, v) for v in vals.split(",") if v.strip()]
+            key = _clean(key)
+            custom[key] = [_cast(key, v) for v in vals.split(",") if _clean(v)]
     out = {}
-    for param in (q.strip() for q in args.failure_params.split(",") if q.strip()):
+    for param in (_clean(q) for q in args.failure_params.split(",") if _clean(q)):
         if param in custom:
             direction = (STRESS_LADDERS[param][0] if param in STRESS_LADDERS
                          else "custom ladder")
@@ -2428,12 +2453,12 @@ def parse_ladders(args) -> dict:
 def main(argv=None) -> int:
     args = parse_args(argv)
     global BOUNDS_ORDER
-    BOUNDS_ORDER = tuple(b.strip() for b in args.bounds.split(",") if b.strip())
+    BOUNDS_ORDER = tuple(_clean(b) for b in args.bounds.split(",") if _clean(b))
 
     sc = scenario_from_args(args)
     out_root = Path(args.out)
     out_root.mkdir(parents=True, exist_ok=True)
-    tests = [t.strip() for t in args.tests.split(",") if t.strip()]
+    tests = [_clean(t) for t in args.tests.split(",") if _clean(t)]
 
     if args.merge:                               # reduce step, no solving
         rc = 0
