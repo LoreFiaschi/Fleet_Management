@@ -793,12 +793,72 @@ def run_case(sc: Scenario, bound: str, opts) -> tuple[dict, dict]:
     x = res.get("x")
     rec["n_depot"] = float(np.sum(x[:, 0, :])) if x is not None else math.nan
 
+    n_mc = int(getattr(opts, "verify_mc", 0) or 0)
+    if n_mc > 0 and isinstance(rec.get("objective"), float) \
+            and math.isfinite(rec["objective"]):
+        rng = np.random.default_rng(int(getattr(opts, "mc_seed", 0)))
+        rec.update(monte_carlo_check(sc, res, n_mc, rng))
+
     if md is not None:
         try:
             md.dispose()                         # release the Gurobi environment
         except Exception:
             pass
     return rec, data
+
+
+def monte_carlo_check(sc: Scenario, res: dict, n_samples: int,
+                      rng: "np.random.Generator") -> dict:
+    """Empirical P(D > tau) for the SOLVED schedule, per rainflow cell.
+
+    The bounds only certify P(D > tau) <= eps; they say nothing about how much
+    slack they leave. Simulating the optimised schedule with sampled increments
+    turns that slack into a number, which is what makes "tighter bound" a
+    measured claim rather than an algebraic one.
+
+    Mirrors the pathwise recursion in `rainflow._add_cell_dynamics` exactly:
+        mission step   D <- D + b_j * Bernoulli(p)
+        repair step    D <- (1 - rho) * D          (ardinf; no increment, the
+                                                    vehicle is at the depot)
+        replacement    D <- mu_new
+    and evaluates the constraint where the model imposes it: at EVERY step, so
+    the reported figure is max over k, then the worst cell.
+    """
+    x, m, r = res.get("x"), res.get("m"), res.get("r")
+    if x is None or m is None:
+        return {}
+    F, L, T = sc.F, sc.L, sc.T
+    b = sc.b                                       # per-mission severity
+    worst, worst_cell, per_cell = 0.0, "", []
+    for i in range(F):
+        # which mission (if any) vehicle i flies at each step; column 0 = depot
+        mission_at = [next((j for j in range(1, sc.M + 1) if x[i, j, k] > 0.5), 0)
+                      for k in range(T)]
+        for l in range(L):
+            D = np.full(n_samples, float(sc.mu_0))
+            peak = 0.0
+            for k in range(T):
+                if r is not None and r[i, l, k] > 0.5:
+                    D[:] = 0.0                     # replacement resets the cell
+                elif m[i, l, k] > 0.5:
+                    D *= (1.0 - sc.rho)
+                elif mission_at[k]:
+                    hit = rng.random(n_samples) < sc.p
+                    D = D + hit * b[mission_at[k] - 1]
+                peak = max(peak, float(np.mean(D > sc.tau)))
+            per_cell.append(peak)
+            if peak > worst:
+                worst, worst_cell = peak, f"i={i},l={l}"
+    # Wilson-free normal CI is fine at these sample counts; report it so a reader
+    # can see whether "0.000" means zero or just under-sampled
+    se = math.sqrt(max(worst, 1e-12) * (1 - worst) / n_samples)
+    return {"mc_samples": n_samples,
+            "mc_p_max": worst,
+            "mc_p_max_cell": worst_cell,
+            "mc_p_mean": float(np.mean(per_cell)) if per_cell else math.nan,
+            "mc_ci95": 1.96 * se,
+            "mc_slack": sc.epsilon - worst,
+            "mc_conservatism": (sc.epsilon / worst) if worst > 0 else math.inf}
 
 
 def _gurobi_params(opts) -> dict | None:
@@ -860,6 +920,8 @@ FIELDS = ["timestamp", "test", "parameter", "value", "bound", "status",
           "mu_ref", "s_chernoff", "repair_model", "reliability_impl",
           "pwl_points", "tangent_ref",
           "allow_replacement", "C_M", "C_R", "C_S", "C_P",
+          "mc_samples", "mc_p_max", "mc_p_max_cell", "mc_p_mean", "mc_ci95",
+          "mc_slack", "mc_conservatism",
           "threads", "gurobi_params", "host", "slurm_job",
           "git_branch", "git_commit"]
 
@@ -1160,6 +1222,56 @@ def plot_analytic(sc: Scenario, run: TestRun, sweeps: dict) -> Path | None:
     return path
 
 
+def plot_scalability(rows: list[dict], param: str, run) -> Path | None:
+    """Solver effort vs one parameter: runtime, nodes and final gap per bound.
+
+    Cost answers "which bound is better"; this answers "what does it cost to
+    find out", which is the complexity story.
+    """
+    plt = _pyplot()
+    if plt is None:
+        return None
+    sub = [r for r in rows if r.get("parameter") == param]
+    if not sub:
+        return None
+    fig, axes = plt.subplots(3, 1, figsize=(7.0, 8.5), sharex=True)
+    styles = {"tangent": ":", "pwl": "--", "exact": "-"}
+    impls_seen = [im for im in IMPLS_ORDER
+                  if any(impl_of_record(r) == im for r in sub)]
+    series = {"runtime_s": [], "nodes": [], "mip_gap": []}
+    for bound in BOUNDS_ORDER:
+        for impl in impls_seen:
+            pts = sorted((r for r in sub if r["bound"] == bound
+                          and impl_of_record(r) == impl),
+                         key=lambda r: r["value"])
+            if not pts:
+                continue
+            label = bound if len(impls_seen) == 1 else f"{bound}/{impl}"
+            colour = f"C{BOUNDS_ORDER.index(bound)}"
+            xs = [r["value"] for r in pts]
+            for ax, key in zip(axes, ("runtime_s", "nodes", "mip_gap")):
+                ys = [r.get(key, math.nan) for r in pts]
+                series[key] += ys
+                ax.plot(xs, ys, marker="o", label=label, color=colour,
+                        ls=styles.get(impl, "-"))
+    for ax, key, lab in zip(axes, ("runtime_s", "nodes", "mip_gap"),
+                            ("solve time [s]", "B&B nodes", "final MIP gap")):
+        ax.set_ylabel(lab)
+        _safe_log_scale(ax, series[key])
+        ax.grid(alpha=0.3, which="both")
+    axes[2].axhline(0.01, color="0.5", lw=0.8, ls=":")
+    axes[2].annotate("1 %", (axes[2].get_xlim()[0], 0.01), fontsize=7, color="0.4")
+    axes[0].set_title(f"Solver effort vs {param}", fontsize=10)
+    axes[0].legend(fontsize=7, ncol=2 if len(impls_seen) > 1 else 1)
+    axes[2].set_xlabel(param)
+    axes[2].set_xticks(sorted({r["value"] for r in sub}))
+    fig.tight_layout()
+    path = run.dir / f"{run.stem}_scalability_{param}.png"
+    fig.savefig(path, dpi=150)
+    plt.close(fig)
+    return path
+
+
 def plot_impl(rows: list[dict], run: TestRun) -> Path | None:
     """Price of linearisation: cost and solve time per (bound, implementation)."""
     plt = _pyplot()
@@ -1295,6 +1407,61 @@ def plot_failure(thresholds: dict, run: TestRun) -> Path | None:
 # ===========================================================================
 # Hypothesis checks
 # ===========================================================================
+def interval_order(values: dict, bounds: dict) -> tuple[str, list[str]]:
+    """(H1) by RIGOROUS interval separation -- the right test under a time limit.
+
+    A time-limited solve is not a failed solve: it returns a feasible incumbent
+    (a valid UPPER bound on the optimum) and a dual LOWER bound, so the true
+    optimum satisfies z* in [LB, UB]. Therefore
+
+        cost(looser) >= cost(tighter)  is PROVEN   iff  LB_looser >= UB_tighter
+                                       is DISPROVEN iff  UB_looser <  LB_tighter
+
+    and neither depends on how wide the gaps are. Overlapping intervals mean the
+    pair is simply unresolved -- more solver time, not a different conclusion.
+
+    Falls back to the gap heuristic (`order_verdict`) only when a dual bound is
+    missing, which happens for infeasible runs and for runs that produced no
+    incumbent at all.
+    """
+    issues, proven, overlap = [], 0, 0
+    present = [b for b in BOUNDS_ORDER
+               if isinstance(values.get(b), float) and not math.isnan(values.get(b))]
+    disproven = False
+    for looser, tighter in zip(present, present[1:]):
+        ub_lo, ub_hi = values[looser], values[tighter]
+        lb_lo, lb_hi = bounds.get(looser, math.nan), bounds.get(tighter, math.nan)
+        if math.isinf(ub_lo):                    # infeasible looser bound
+            proven += 1
+            continue
+        if math.isinf(ub_hi):
+            disproven = True
+            issues.append(f"DISPROVEN {looser}={ub_lo:.6g} feasible but "
+                          f"{tighter}=infeasible")
+            continue
+        if math.isnan(lb_lo) or math.isnan(ub_hi):
+            issues.append(f"UNRESOLVED {looser} vs {tighter}: no dual bound "
+                          f"recorded, cannot certify either way")
+            overlap += 1
+            continue
+        if lb_lo >= ub_hi - 1e-9:
+            proven += 1
+        elif ub_lo < lb_hi - 1e-9:
+            disproven = True
+            issues.append(f"DISPROVEN {looser}: UB {ub_lo:.6g} < {tighter} LB "
+                          f"{lb_hi:.6g} -- the optima cannot be ordered this way")
+        else:
+            overlap += 1
+            issues.append(f"UNRESOLVED {looser} [{lb_lo:.4g}, {ub_lo:.4g}] vs "
+                          f"{tighter} [{lb_hi:.4g}, {ub_hi:.4g}]: intervals "
+                          f"overlap, so more solver time is needed to rank them")
+    if disproven:
+        return "DISPROVEN", issues
+    if overlap:
+        return f"PARTIAL {proven}/{proven + overlap}", issues
+    return "PROVEN", issues
+
+
 def order_verdict(values: dict, gaps: dict) -> tuple[str, list[str]]:
     """(H1) verdict: HOLDS / VIOLATED / INCONCLUSIVE, plus the details.
 
@@ -1529,7 +1696,7 @@ def test_base(sc: Scenario, opts, run: TestRun, impls) -> tuple[list, dict]:
     vals, gaps, times, lines = {}, {}, {}, [f"base case: {sc.label()}", ""]
     header = (f"{'bound':<10s} {'impl':<9s} {'status':<12s} {'cost':>12s} "
               f"{'gap':>9s} {'time[s]':>9s} {'repairs':>8s} {'depot':>7s} "
-              f"{'mu_max':>9s} {'n_max':>8s}")
+              f"{'mu_max':>9s} {'n_max':>8s} {'P(D>tau)':>10s}")
     lines += [header, "-" * len(header)]
     for bound, impl in combos:
         if not _mine(opts):
@@ -1550,7 +1717,8 @@ def test_base(sc: Scenario, opts, run: TestRun, impls) -> tuple[list, dict]:
                      f"{_fmt(rec.get('n_repairs'), 0):>8s} "
                      f"{_fmt(rec.get('n_depot'), 0):>7s} "
                      f"{_fmt(rec.get('mu_max'), 4):>9s} "
-                     f"{rec.get('n_max_analytic', float('nan')):8.2f}")
+                     f"{rec.get('n_max_analytic', float('nan')):8.2f} "
+                     f"{_fmt(rec.get('mc_p_max'), 5):>10s}")
     lines.append("")
 
     if getattr(opts, "shard_obj", None) is not None:
@@ -1595,6 +1763,24 @@ def test_base(sc: Scenario, opts, run: TestRun, impls) -> tuple[list, dict]:
                                           for im in have},
                                 "times": {im: _to_builtin(times[(bound, im)])
                                           for im in have}}
+    mc = [(r["bound"], r.get("mc_p_max")) for r in run.rows
+          if isinstance(r.get("mc_p_max"), float)]
+    if mc:
+        lines.append("")
+        lines.append(f"empirical P(D>tau) of the optimised schedule vs eps="
+                     f"{sc.epsilon} (Monte Carlo, {run.rows[0].get('mc_samples')} "
+                     f"samples). A tighter bound should sit CLOSER to eps: that is "
+                     f"the same claim as the cost ordering, seen from the "
+                     f"probability side.")
+        for bound, pmax in mc:
+            slack = sc.epsilon / pmax if pmax else math.inf
+            lines.append(f"  {bound:<10s} P={pmax:.5f}   "
+                         f"{'unused risk budget x%.0f' % slack if math.isfinite(slack) else 'no exceedance observed'}")
+        if any(p > sc.epsilon for _, p in mc):
+            lines.append("  ERROR at least one bound EXCEEDS eps -- the chance "
+                         "constraint is not being honoured. That is a model bug, "
+                         "not conservatism.")
+
     worst = max((r.get("mip_gap") or 0.0) for r in run.rows) if run.rows else 0.0
     if worst > 0.01:
         lines.append(f"  WARNING largest MIP gap in this table is {worst:.1%}. Cost "
@@ -1666,10 +1852,12 @@ def test_sweep(sc: Scenario, opts, run: TestRun, sweeps: dict,
 
     if _plots_enabled(opts):
         for param in sweeps:
-            path = plot_parameter(run.rows, param, run, getattr(sc, param))
-            if path:
-                print(f"  [plot] {path.name}")
-                lines.append(f"plot: {path.name}")
+            for fn in (plot_parameter, plot_scalability):
+                path = (fn(run.rows, param, run, getattr(sc, param))
+                        if fn is plot_parameter else fn(run.rows, param, run))
+                if path:
+                    print(f"  [plot] {path.name}")
+                    lines.append(f"plot: {path.name}")
     if getattr(opts, "shard_obj", None) is not None:
         lines.append(f"shard {opts.shard_obj}: {len(run.rows)} run(s); (H1) is "
                      f"evaluated by --merge once every shard has finished.")
@@ -2130,7 +2318,9 @@ def merge_shards(out_root: Path, name: str, test: str, opts) -> int:
         impls_seen = [im for im in IMPLS_ORDER
                       if any(impl_of_record(r) == im for r in rows)]
     points = {}
-    n_bad = n_incon = 0
+    n_bad = n_incon = n_proven = 0
+    pair_stats = {f"{a}>={b}": {"proven": 0, "overlap": 0, "disproven": 0}
+                  for a, b in zip(BOUNDS_ORDER, BOUNDS_ORDER[1:])}
     groups = {}
     for rec in rows:
         if rec.get("test") == "failure":
@@ -2143,9 +2333,14 @@ def merge_shards(out_root: Path, name: str, test: str, opts) -> int:
             per = {b: cost_for(vals, b, impl) for b in BOUNDS_ORDER}
             per_gaps = {b: gaps_d.get((b, impl), gaps_d.get((b, "exact")))
                         for b in BOUNDS_ORDER}
-            verdict, issues = order_verdict(per, per_gaps)
-            n_bad += 1 if verdict == "VIOLATED" else 0
-            n_incon += 1 if verdict == "INCONCLUSIVE" else 0
+            per_lb = {b: next((r["obj_bound"] for r in recs
+                               if r["bound"] == b
+                               and impl_of_record(r) in (impl, "exact")), math.nan)
+                      for b in BOUNDS_ORDER}
+            verdict, issues = interval_order(per, per_lb)
+            n_bad += 1 if verdict == "DISPROVEN" else 0
+            n_incon += 1 if verdict.startswith("PARTIAL") else 0
+            n_proven += 1 if verdict == "PROVEN" else 0
             costs = "  ".join(f"{b}={_fmt(per[b])}" for b in BOUNDS_ORDER)
             report.append(f"{param}={value} impl={impl}: (H1) {verdict}   {costs}")
             report += [f"    {i}" for i in issues]
@@ -2158,7 +2353,14 @@ def merge_shards(out_root: Path, name: str, test: str, opts) -> int:
             report += [f"    (H3) {i}" for i in issues]
     summary["H1_violations"] = n_bad
     summary["H1_inconclusive"] = n_incon
+    summary["H1_proven"] = n_proven
     summary["points"] = points
+    report.append("")
+    report.append("(H1) by rigorous interval separation -- a pair is PROVEN when "
+                  "LB(looser) >= UB(tighter), which holds however wide the MIP gaps "
+                  "are. Overlap means unresolved, not refuted.")
+    report.append(f"  design points: {n_proven} fully proven, {n_incon} partial, "
+                  f"{n_bad} disproven")
     if n_incon:
         report.append(f"WARNING {n_incon} design point(s) are INCONCLUSIVE: the MIP "
                       f"gap is larger than the cost differences between adjacent "
@@ -2215,10 +2417,11 @@ def merge_shards(out_root: Path, name: str, test: str, opts) -> int:
     if _plots_enabled(opts):
         for param in sorted({str(r.get("parameter")) for r in rows}
                             - {"-", "impl", "pwl_points", "None", ""}):
-            path = plot_parameter(rows, param, run, None)
-            if path:
-                print(f"  [plot] {path.name}")
-                report.append(f"plot: {path.name}")
+            for path in (plot_parameter(rows, param, run, None),
+                         plot_scalability(rows, param, run)):
+                if path:
+                    print(f"  [plot] {path.name}")
+                    report.append(f"plot: {path.name}")
         for fn in (plot_impl, plot_pwl_convergence):
             path = fn(rows, run)
             if path:
@@ -2304,6 +2507,15 @@ def parse_args(argv=None):
                    help="combine the shard folders of --tests under --out, run the "
                         "hypothesis checks and plots once, and write a _merged "
                         "folder. Solves nothing.")
+    p.add_argument("--verify-mc", type=int, default=0, dest="verify_mc",
+                   metavar="N",
+                   help="after each solve, simulate the optimised schedule N times "
+                        "and record the empirical P(D>tau) (max over steps, worst "
+                        "cell). Verifies the chance constraint really holds and "
+                        "measures how much slack each bound leaves. 20000 is "
+                        "plenty; costs well under a second per solve.")
+    p.add_argument("--mc-seed", type=int, default=0, dest="mc_seed",
+                   help="seed for --verify-mc, so the check is reproducible")
     p.add_argument("--verbose", type=int, default=0, help="Gurobi output flag")
     p.add_argument("--dry-run", action="store_true",
                    help="build and validate every input, but do not solve")

@@ -17,9 +17,11 @@ Where things live (the "clear locations")
     _add_base_constraints         shared: assignment, depot cap, aggregate cap, u
     _dispatch_cell                per-cell model switch  (rainflow / gamma / ...)
       _add_rainflow_cell            one rainflow cell = gating + state + reliability
+                                    + repeatability
         _add_maintenance_gating       eq. 3 gating (m, r, nb)
         _add_rainflow_state           mean / variance / ARD latch / z / R / K recursion
         _add_reliability              -> RELIABILITY_BOUNDS[bound][impl](ctx, i, l) <== bounds
+        _add_repeatability            descriptor loop condition theta_T <= theta_H1
       _add_gamma_cell               PLACEHOLDER (work in progress)
 
 Reliability bounds  ***edit / add formulations here***
@@ -39,8 +41,19 @@ Time axis has a transitory phase ``H1`` (steps 0..H1-1, run-up from ``mu_0``) an
 an operating phase ``H2`` (steps H1..H1+H2-1); ``T = H1 + H2``. A single-int
 ``H`` gives ``H1 = H2 = H`` and ``T = 2H``. Operating-phase profiles come from
 ``cfg`` as ``(F, L, M, H2)``; optional transitory profiles are ``(F, L, M, H1)``
-and reused from the operating profile when absent. (No periodicity/repeatability
-condition is imposed: the objective follows the slide's four cost terms.)
+and reused from the operating profile when absent.
+
+Both halves of the repeatability requirement are imposed:
+
+* *periodic data* -- the operating-phase profiles are indexed cyclically with
+  period ``H2`` (``base.make_accessor``), so the increments of block ``m+1``
+  repeat those of block ``m``;
+* *loop condition* -- the descriptor at the last step is constrained not to
+  exceed its value at the end of the transitory phase, per cell, by
+  ``_add_repeatability`` below.
+
+The objective itself is unchanged (the four cost terms of the formulation);
+repeatability enters only as constraints.
 
 Author: Johann Tschan  (revised; modular Step-2 rewrite)
 """
@@ -218,6 +231,7 @@ def _add_rainflow_cell(ctx: _RFModel, i: int, l: int) -> None:
     add_maintenance_gating(ctx, i, l)        # shared (base)
     _add_rainflow_state(ctx, i, l)
     _add_reliability(ctx, i, l)
+    _add_repeatability(ctx, i, l)
 
 
 def _add_rainflow_state(ctx: _RFModel, i: int, l: int) -> None:
@@ -610,6 +624,67 @@ def _add_reliability(ctx: _RFModel, i: int, l: int) -> None:
         name, _ = _resolve_impl(bound, "exact")
     RELIABILITY_BOUNDS[bound][name].fn(ctx, i, l)
 
+
+# ===========================================================================
+# ############  REPEATABILITY CONSTRAINT  -- the loop condition  #############
+# ===========================================================================
+# Reliability keeps P(D > tau) <= eps *inside* the window; it does not stop the
+# schedule from leaving the fleet more damaged than it found it. Repeatability
+# closes that gap: the operating block must be executable indefinitely.
+#
+# The condition is imposed on the DESCRIPTOR, not on the certificate U. U is
+# many-to-one in the descriptor, so U_T <= U_H1 can hold at two different
+# descriptor values that one further block maps to different certificates --
+# the certified risk could then creep up over repetitions. The descriptor
+# version is both sufficient for U and closed under the dynamics, so it chains:
+# every branch (no-intervention, ARD1, ARDinf, replacement) is componentwise
+# non-decreasing, hence theta_{H1 + m*H2} is non-increasing in m.
+#
+# Which components are compared depends on what the cell actually tracks; see
+# _BOUND_DESCRIPTORS / _TRACK_V. Since _TRACK_V and _BOUND_DESCRIPTORS are
+# disjoint, v and R never co-occur, and chernoff+ard1 is rejected upstream
+# (_ARD1_UNSUPPORTED), so the worst case is {mu, v, gmu, gv} or
+# {mu, R, gmu, gR} -- four rows, matching the 2*n_theta*F*L of the write-up.
+
+
+def _add_repeatability(ctx: _RFModel, i: int, l: int) -> None:
+    """Loop condition: the descriptor at the end of the operating phase must not
+    exceed its value at the end of the transitory phase, componentwise.
+
+    Adds one to four linear rows for cell ``(i, l)``. No new variables and no
+    new binaries -- every quantity compared is an existing continuous state
+    variable -- so the model class is unchanged.
+
+    Index mapping: the write-up is 1-based over ``k = 1..H`` with the transitory
+    phase ``k = 1..H1``; this module is 0-based, so ``theta_H1`` is stored at
+    index ``H1 - 1`` and ``theta_H`` at index ``T - 1``. Getting this off by one
+    yields a feasible but wrong model, so it is spelled out here.
+    """
+    md, kS, kE = ctx.model, ctx.H1 - 1, ctx.T - 1   # end transitory / end operating
+    # Defensive only: config.py already enforces H1 > 0 and H2 > 0, so
+    # kE - kS == H2 >= 1 and this never fires.
+    if kE <= kS:
+        return
+    # Moment / accumulator part of the descriptor. Each guard mirrors exactly
+    # the creation guard in prepare(), so the variable is always present.
+    b, pairs = str(ctx.bound_of[i, l]), [("mu", ctx.mu_var)]
+    if ctx.track_v_of[i, l]:                         # cantelli, bernstein
+        pairs.append(("v", ctx.v_var))
+    if b == "hoeffding":
+        pairs.append(("R", ctx.R_var))
+    if b == "chernoff":
+        pairs.append(("K", ctx.K_var))
+    # ARD1 epoch state: under ARD1 the moments alone do not determine the next
+    # block's trajectory, so the latched state must be carried too. Absent
+    # under ARDinf, where latch_of is False and gmu/gv/gR are never created.
+    if ctx.latch_of[i, l]:
+        pairs.append(("gmu", ctx.gmu))
+        if ctx.track_v_of[i, l]:
+            pairs.append(("gv", ctx.gv))
+        if b == "hoeffding":
+            pairs.append(("gR", ctx.gR))
+    for nm, var in pairs:
+        md.addConstr(var[i, l, kE] <= var[i, l, kS], name=f"loop_{nm}_{i}_{l}")
 
 # ===========================================================================
 # Bound tightening
