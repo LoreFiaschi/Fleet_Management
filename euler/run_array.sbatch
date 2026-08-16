@@ -137,12 +137,21 @@ echo "host=$(hostname)  task=${SLURM_ARRAY_TASK_ID:-0}/${NSHARDS}  cpus=${SLURM_
 echo "solve time limit=${SOLVE_TL}s  mip gap=${MIP_GAP:-1e-4}"
 echo "started $(date)"
 
-# A nonconvex MIQCP with a weak dual bound grows a huge node file. Gurobi can
-# spill it to node-local scratch instead of exhausting RAM; harmless otherwise.
-GUROBI_EXTRA="NodefileStart=1,NodefileDir=${TMPDIR:-/tmp}"
+# A nonconvex MIQCP with a weak dual bound grows an enormous search tree (8e6
+# nodes measured). Two defences, both cheap:
+#   NodefileStart  spill the tree to node-local scratch past 1 GB of RAM
+#   SoftMemLimit   stop GRACEFULLY at ~80 % of the allocation and return the
+#                  incumbent, instead of being SIGKILLed by the OOM killer --
+#                  a killed task loses every row it had not yet written
+MEM_PER_CPU_MB=${SLURM_MEM_PER_CPU:-4096}
+MEM_TOTAL_GB=$(( MEM_PER_CPU_MB * ${SLURM_CPUS_PER_TASK:-1} / 1024 ))
+SOFT_MEM_GB=$(( MEM_TOTAL_GB * 8 / 10 ))
+[ "$SOFT_MEM_GB" -lt 1 ] && SOFT_MEM_GB=1
+GUROBI_EXTRA="NodefileStart=1,NodefileDir=${TMPDIR:-/tmp},SoftMemLimit=${SOFT_MEM_GB}"
 if [ -n "${GUROBI_PARAMS:-}" ]; then
     GUROBI_EXTRA="$GUROBI_EXTRA,$GUROBI_PARAMS"
 fi
+echo "gurobi memory guard: ${SOFT_MEM_GB} GB soft limit of ${MEM_TOTAL_GB} GB allocated"
 
 # --threads: without it Gurobi spawns a thread per core it can SEE on the node,
 #   not per core Slurm gave us. On Euler nodes are shared, so that oversubscribes

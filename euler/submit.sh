@@ -77,6 +77,13 @@ fi
 # code or pulling while the array is queued means later tasks run different code
 # than earlier ones; the merge step detects this and warns.
 echo "note      : do not edit the code or 'git pull' until the array has finished"
+case "${EXTRA:-}" in
+  *--gurobi-params*)
+    echo "note      : EXTRA sets --gurobi-params. That is now MERGED with the job"
+    echo "            script's memory guard (NodefileStart/SoftMemLimit), but the"
+    echo "            intended slot is GUROBI_PARAMS=... which reads more clearly."
+    ;;
+esac
 # NSHARDS is exported so the job never has to infer the array size itself.
 ARRAY_ID=$(PROJECT=$PROJECT TEST=$TEST NAME=$NAME OUT=$OUT NSHARDS=$NSHARDS \
     RUN_STAMP=$RUN_STAMP \

@@ -139,6 +139,7 @@ Author: test harness for the degradation-aware EV fleet scheduler.
 from __future__ import annotations
 
 import argparse
+import collections
 import csv
 import math
 import sys
@@ -725,7 +726,8 @@ def run_case(sc: Scenario, bound: str, opts) -> tuple[dict, dict]:
         "allow_replacement": sc.allow_replacement,
         "C_M": sc.C_M, "C_R": sc.C_R, "C_S": sc.C_S, "C_P": sc.C_P,
         "threads": getattr(opts, "threads", None) or "",
-        "gurobi_params": getattr(opts, "gurobi_params", None) or "",
+        "gurobi_params": ",".join(f"{k}={v}" for k, v in
+                                  sorted((_gurobi_params(opts) or {}).items())),
         "host": _HOSTNAME, "slurm_job": _SLURM_JOB,
         "git_branch": _GIT["git_branch"], "git_commit": _GIT["git_commit"],
         "n_max_analytic": n_max(sc, bound),
@@ -871,8 +873,15 @@ def _gurobi_params(opts) -> dict | None:
     params: dict = {}
     if getattr(opts, "threads", None):
         params["Threads"] = int(opts.threads)
-    for item in (getattr(opts, "gurobi_params", None) or "").split(","):
-        item = item.strip()
+    # accept the flag more than once and MERGE. Anything else is a trap: a job
+    # script that sets NodefileStart and a user EXTRA that sets MIPFocus would
+    # otherwise silently discard the first, and the tree stays in RAM until the
+    # node is OOM-killed. Later occurrences win per key.
+    raw = getattr(opts, "gurobi_params", None) or []
+    if isinstance(raw, str):
+        raw = [raw]
+    for item in (q for chunk in raw for q in str(chunk).split(",")):
+        item = _clean(item)
         if not item:
             continue
         if "=" not in item:
@@ -2442,6 +2451,166 @@ def merge_shards(out_root: Path, name: str, test: str, opts) -> int:
 
 
 # ===========================================================================
+# Planner: decide the configuration before spending the allocation
+# ===========================================================================
+def plan_run(args, sc: Scenario, sweeps: dict, ladders: dict, tests: list) -> int:
+    """Print the work matrix, the wall-clock arithmetic, and what is still open.
+
+    Choosing a configuration is three questions, and all three have answers:
+      1. How many solves does this configuration imply?
+      2. Will they fit in the Slurm limit at this shard count and time limit?
+      3. Which of them would actually tell you something you do not already know?
+    (3) is the one people skip. With --plan-from pointing at a previous
+    merged_results.csv, the planner replays the rigorous interval test and lists
+    only the comparisons still unresolved, so the budget follows the uncertainty
+    instead of re-proving what is already proven.
+    """
+    combos = bound_impl_combos(args.impl_list)
+    units: list = []
+    for test in tests:
+        if test == "analytic":
+            continue
+        if test == "base":
+            units += [("base", "-", "", b, im) for b, im in combos]
+        elif test == "impl":
+            units += [("impl", "impl", im, b, im) for b, im in combos]
+            units += [("impl", "pwl_points", n, b, "pwl")
+                      for n in args.pwl_ladder_list for b in IMPL_AWARE_BOUNDS]
+        elif test == "sweep":
+            for param, values in sweeps.items():
+                for v in values:
+                    if sc.variant(**{param: _cast(param, v)}).F <= \
+                       sc.variant(**{param: _cast(param, v)}).M:
+                        continue
+                    units += [("sweep", param, v, b, im) for b, im in combos]
+        elif test == "failure":
+            for param, (_d, ladder) in ladders.items():
+                # early-stop makes this a lower/upper bound, not a count
+                units += [("failure", param, v, b, im)
+                          for v in ladder for b, im in combos]
+
+    print(f"\n=== work matrix ===")
+    print(f"design points : {len({(u[1], str(u[2])) for u in units})}")
+    print(f"bound x impl  : {len(combos)}  {combos}")
+    print(f"total solves  : {len(units)}"
+          + ("   (failure early-stops, so this is the worst case)"
+             if "failure" in tests else ""))
+    by_test = collections.Counter(u[0] for u in units)
+    for t, n in by_test.items():
+        print(f"    {t:<9} {n}")
+
+    # ---- timing -----------------------------------------------------------
+    tl = args.time_limit
+    med = {}
+    if args.plan_from:
+        try:
+            prev = _read_rows(Path(args.plan_from))
+        except Exception as exc:
+            print(f"[plan] could not read {args.plan_from}: {exc}")
+            prev = []
+        for r in prev:
+            k = (r.get("bound"), impl_of_record(r))
+            if isinstance(r.get("runtime_s"), float) and math.isfinite(r["runtime_s"]):
+                med.setdefault(k, []).append(r["runtime_s"])
+        med = {k: sorted(v)[len(v) // 2] for k, v in med.items()}
+        if med:
+            print(f"\n=== measured solve time (median, from {args.plan_from}) ===")
+            for (b, im), t in sorted(med.items()):
+                cap = "  (hit the old limit)" if t >= 0.98 * max(
+                    (r.get("runtime_s") or 0) for r in prev) else ""
+                print(f"    {b:<10}/{im:<8} {t:8.0f} s{cap}")
+
+    def est(u):
+        t = med.get((u[3], u[4]))
+        return min(t, tl) if (t is not None and tl) else (tl or 600.0)
+
+    total_s = sum(est(u) for u in units)
+    worst_s = len(units) * (tl or 0)
+    shards = args.plan_shards or 12
+    wall_h = args.plan_wall
+    print(f"\n=== wall clock at {shards} shards, --time-limit "
+          f"{'none' if tl is None else int(tl)}s ===")
+    print(f"    expected  {total_s / 3600:7.1f} core-h  ->  "
+          f"{total_s / 3600 / shards:6.1f} h per shard")
+    if tl:
+        print(f"    worst case{worst_s / 3600:7.1f} core-h  ->  "
+              f"{worst_s / 3600 / shards:6.1f} h per shard"
+              f"   {'OK' if worst_s / 3600 / shards <= wall_h else 'EXCEEDS the ' + str(wall_h) + ' h limit'}")
+        need = math.ceil(worst_s / 3600 / wall_h)
+        print(f"    shards needed so the WORST case fits in {wall_h} h: {need}")
+    else:
+        print(f"    no per-solve limit: one hard instance can consume the whole "
+              f"task. Set --time-limit for anything but the failure test.")
+    # the planner above divides evenly; the harness actually assigns unit i to
+    # shard i % n, so one shard can collect a disproportionate share of the slow
+    # bounds. Compute the real per-shard load.
+    per_shard = [0.0] * shards
+    per_shard_worst = [0.0] * shards
+    for idx, u in enumerate(units):
+        per_shard[idx % shards] += est(u)
+        per_shard_worst[idx % shards] += (tl or 0)
+    hi = max(per_shard) / 3600.0
+    hi_w = max(per_shard_worst) / 3600.0
+    print(f"    actual busiest shard (index %% n): {hi:.1f} h expected, "
+          f"{hi_w:.1f} h worst   "
+          f"{'OK' if hi_w <= wall_h else 'EXCEEDS ' + str(wall_h) + ' h -- raise shards'}")
+    if getattr(args, "plan_maxpar", 0):
+        waves = math.ceil(shards / args.plan_maxpar)
+        print(f"    at MAXPAR={args.plan_maxpar}: {waves} wave(s) -> up to "
+              f"{waves * hi_w:.0f} h before the merge job starts")
+    print(f"    solves per shard: {len(units) / shards:.1f}"
+          + ("   (< 5 is mostly startup overhead; use fewer shards)"
+             if len(units) / shards < 5 else ""))
+
+    # ---- what is still open ----------------------------------------------
+    if args.plan_from and prev:
+        print(f"\n=== what is still unresolved in {args.plan_from} ===")
+        UB = collections.defaultdict(dict); LB = collections.defaultdict(dict)
+        for r in prev:
+            k = (r.get("parameter"), str(r.get("value")))
+            UB[k][r["bound"]] = r["objective"]; LB[k][r["bound"]] = r["obj_bound"]
+        open_pairs = collections.Counter()
+        open_points = collections.defaultdict(set)
+        proven = 0
+        for k in UB:
+            for a, b in zip(BOUNDS_ORDER, BOUNDS_ORDER[1:]):
+                ua, la = UB[k].get(a, math.nan), LB[k].get(a, math.nan)
+                ub_, lb = UB[k].get(b, math.nan), LB[k].get(b, math.nan)
+                if isinstance(ua, float) and math.isinf(ua):
+                    proven += 1; continue
+                if any(isinstance(x, float) and math.isnan(x) for x in (la, ub_)):
+                    continue
+                if la >= ub_ - 1e-9:
+                    proven += 1
+                else:
+                    open_pairs[f"{a}>={b}"] += 1
+                    open_points[f"{a}>={b}"].add(k)
+        print(f"    already proven : {proven} adjacent comparisons")
+        if not open_pairs:
+            print("    nothing left to resolve -- a bigger run adds no evidence.")
+        for pair, n in open_pairs.most_common():
+            pts = sorted(open_points[pair], key=lambda k: (k[0], k[1]))
+            print(f"    OPEN {pair:<22} {n:>2} point(s): "
+                  + ", ".join(f"{p}={v}" for p, v in pts[:8])
+                  + (" ..." if len(pts) > 8 else ""))
+        bounds_needed = sorted({b for pair in open_pairs for b in pair.split(">=")},
+                               key=lambda b: BOUNDS_ORDER.index(b))
+        vals = collections.defaultdict(set)
+        for pair in open_pairs:
+            for p, v in open_points[pair]:
+                vals[p].add(v)
+        if bounds_needed:
+            spec = ";".join(f"{p}=" + ",".join(sorted(v, key=float))
+                            for p, v in sorted(vals.items()))
+            n_targeted = len(bounds_needed) * sum(len(v) for v in vals.values())
+            print(f"\n    targeted rerun -- {n_targeted} solves instead of "
+                  f"{len(units)}:")
+            print(f"      --bounds {','.join(bounds_needed)} --values {spec}")
+    print()
+    return 0
+
+
+# ===========================================================================
 # CLI
 # ===========================================================================
 def parse_args(argv=None):
@@ -2486,12 +2655,15 @@ def parse_args(argv=None):
                    help="Gurobi Threads. On a shared cluster node ALWAYS set this "
                         "to the cores Slurm gave you ($SLURM_CPUS_PER_TASK); "
                         "otherwise Gurobi threads for every core it can see.")
-    p.add_argument("--gurobi-params", default=None, dest="gurobi_params",
-                   metavar="K=V,...",
+    p.add_argument("--gurobi-params", action="append", default=None,
+                   dest="gurobi_params", metavar="K=V,...",
                    help="extra Gurobi parameters, e.g. "
-                        "'MIPFocus=3,Symmetry=2,Cuts=2,Heuristics=0.05'. Use when "
-                        "the DUAL bound is the bottleneck (many incumbents close "
-                        "together but a stalled 'best bound').")
+                        "'MIPFocus=3,Symmetry=2,Cuts=2,Heuristics=0.05'. May be "
+                        "given several times; all occurrences are MERGED (later "
+                        "wins per key), so a job script's settings and yours "
+                        "coexist. Use when the DUAL bound is the bottleneck. "
+                        "NOTE MIPFocus=3 grows the tree, so pair it with "
+                        "NodefileStart/SoftMemLimit.")
     p.add_argument("--shard", default=None, metavar="K/N",
                    help="run only work unit k of n (for Slurm job arrays, e.g. "
                         "--shard $SLURM_ARRAY_TASK_ID/$SLURM_ARRAY_TASK_COUNT). "
@@ -2503,6 +2675,20 @@ def parse_args(argv=None):
                         "as RUN_STAMP by submit.sh so every shard of an array "
                         "writes into ONE folder; also selects the folder to "
                         "--merge. Defaults to the current minute.")
+    p.add_argument("--plan", action="store_true",
+                   help="print the work matrix, the wall-clock arithmetic and "
+                        "what is still unresolved, then exit. Solves nothing.")
+    p.add_argument("--plan-from", default=None, metavar="CSV",
+                   help="a previous merged_results.csv: use its measured solve "
+                        "times for the estimate, and list the comparisons that are "
+                        "still open so the budget can target them")
+    p.add_argument("--plan-shards", type=int, default=None,
+                   help="shard count to plan for (default 12)")
+    p.add_argument("--plan-maxpar", type=int, default=0,
+                   help="concurrent array tasks (MAXPAR in submit.sh); reports how "
+                        "many waves and the elapsed time before the merge runs")
+    p.add_argument("--plan-wall", type=float, default=24.0,
+                   help="Slurm wall-clock limit per task, hours (default 24)")
     p.add_argument("--merge", action="store_true",
                    help="combine the shard folders of --tests under --out, run the "
                         "hypothesis checks and plots once, and write a _merged "
@@ -2679,6 +2865,9 @@ def main(argv=None) -> int:
         return rc
     sweeps = parse_sweeps(args, sc)
     ladders = parse_ladders(args) if "failure" in tests else {}
+
+    if args.plan:                                # planning only, no solving
+        return plan_run(args, sc, sweeps, ladders, tests)
 
     header = [f"# bound tests  {datetime.now():%Y-%m-%d %H:%M:%S}",
               f"# bounds: {list(BOUNDS_ORDER)}",
