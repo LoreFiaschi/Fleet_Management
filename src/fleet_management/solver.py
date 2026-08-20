@@ -74,14 +74,12 @@ def solve(input_path: str, results_path: str = None) -> dict:   # was -> None, n
 def _solve_mixed(cfg: "FleetConfig") -> dict:
     """Solve a normalized FleetConfig — three routes by fleet composition.
 
-    1. **gamma-only**  -> the existing gamma backend (its modular cell block is
-       still a placeholder, so the whole-fleet backend is used);
+    1. **gamma-only**  -> the existing gamma backend (kept as a regression
+       oracle while the modular tail-bound block is introduced);
     2. **rainflow-only** -> the rainflow builder (``rainflow.solve``);
     3. **mixed** (cells use different degradation models) -> ``base.solve_mixed``,
        which builds the shared skeleton once and then fills in each cell's
-       constraints through that cell's registered model builder. A cell whose
-       model has no implementation yet (gamma today) raises a clear
-       ``NotImplementedError`` from its placeholder.
+       constraints through that cell's registered model builder.
     """
     models = set(cfg.models)
 
@@ -297,6 +295,7 @@ def _build_serializable_output(result: dict) -> dict:
     for key in (
         "tau",
         "gamma_beta",
+        "gamma_beta_bound",
         "replacement_mu",
         "repair_rho",
         "maximum_shape",
@@ -318,11 +317,16 @@ def _build_serializable_output(result: dict) -> dict:
             "v",
             "A",
             "tail_probability",
+            "gamma_shape_bound",
+            "gamma_tail_bound",
             "m",
             "r",
         ):
             if result.get(key) is not None:
                 output[key] = _to_builtin(result[key])
+
+        if result.get("gamma_calibration") is not None:
+            output["gamma_calibration"] = _to_builtin(result["gamma_calibration"])
 
     # Performance measurements may exist even without a solution.
     if result.get("performance") is not None:
@@ -395,6 +399,7 @@ def _save_hdf5(result: dict, path: Path) -> None:
         for key in (
             "tau",
             "gamma_beta",
+            "gamma_beta_bound",
             "replacement_mu",
             "repair_rho",
             "maximum_shape",
@@ -418,8 +423,15 @@ def _save_hdf5(result: dict, path: Path) -> None:
                 "v",
                 "A",
                 "tail_probability",
+                "gamma_shape_bound",
+                "gamma_tail_bound",
                 "m",
                 "r",
             ):
                 if result.get(key) is not None:
                     f.create_dataset(key, data=result[key])
+
+            if result.get("gamma_calibration") is not None:
+                f.attrs["gamma_calibration"] = json.dumps(
+                    _to_builtin(result["gamma_calibration"])
+                )

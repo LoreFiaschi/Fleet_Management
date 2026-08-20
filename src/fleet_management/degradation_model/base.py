@@ -30,7 +30,7 @@ Layering
 --------
     base.py       shared skeleton + registry + solve_mixed   (this file)
     rainflow.py   rainflow cell math + reliability bounds; registers "rainflow"
-    (gamma)       PLACEHOLDER below; registers "gamma"
+    gamma block   finite-horizon common-rate tail builder below; registers "gamma"
 
 `base` must not import the model modules at import time (they import `base`);
 ``solve_mixed`` imports them lazily so their registration side-effect happens.
@@ -159,7 +159,7 @@ def dispatch_cell(ctx: FleetModel, i: int, l: int) -> None:
 
 
 # ===========================================================================
-# ####################  GAMMA PLACEHOLDER (work in progress)  ###############
+# ###################  GAMMA FINITE-HORIZON TAIL BLOCK  #####################
 # ===========================================================================
 # The modular gamma block goes here. A gamma cell shares the fleet skeleton
 # (assignment x, depot capacity, the aggregate-damage cap, the safety variable u
@@ -167,46 +167,252 @@ def dispatch_cell(ctx: FleetModel, i: int, l: int) -> None:
 # — that is what the cap / u / C_D term read. Everything gamma-specific (its own
 # state variables, shape/scale bookkeeping) can live in ``ctx.extras["gamma"]``.
 #
-# To implement:
-#   1. `prepare`: create gamma's auxiliary variables for its cells and stash them
-#      in ctx.extras["gamma"]; read parameters from cfg (gamma_beta, rho, tau,
-#      epsilon, mu_0) and the mean profile through ctx.mu_inc.
-#   2. `add_cell`: maintenance gating (can reuse the shared pattern), the gamma
-#      degradation recursion driving ctx.mu_var and ctx.z_var, and the gamma
-#      reliability constraint.
-#
-# Note (open modelling question): in a MIXED fleet the profiles are normalized to
-# H_prof = H2 whenever any cell is rainflow, while a gamma-only fleet uses H1.
-# Decide explicitly how a gamma cell maps onto the shared T = H1 + H2 axis.
+# The numerical calibration is independent of Gurobi. This block consumes its
+# bounded mission shapes, creates A', and keeps physical expected damage mu as a
+# separate shared state. Initial and replacement damage are restricted to zero,
+# and imperfect Gamma repair is disabled until those histories are certified.
 # ---------------------------------------------------------------------------
 class GammaCellBuilder:
-    """PLACEHOLDER builder for gamma cells (not implemented yet)."""
+    """Finite-horizon common-rate tail bound for Gamma cells.
+
+    The first modular implementation deliberately supports only states that
+    start at zero and replacements that reset to zero.  Imperfect repair is
+    fixed off until the post-repair mixed-rate convolution has an offline
+    certificate.  These restrictions are checked here rather than silently
+    applying the legacy constant-rate approximation.
+    """
 
     name = "gamma"
 
     def prepare(self, ctx: FleetModel, cfg, cells, opts: dict) -> None:
-        """Create gamma auxiliary variables. Placeholder: nothing is created yet.
+        """Calibrate mission shapes offline and create the bounding state."""
+        from fleet_management.degradation_model.gamma_utils.gamma_tail_bound import (
+            calculate_profile_tail_bound_parameters,
+            required_shape_for_tail,
+        )
 
-        Intentionally does not raise, so that model *inspection* and the build of
-        the rest of a mixed fleet can proceed up to the point where a gamma cell
-        actually needs its constraints (`add_cell`).
-        """
-        ctx.extras.setdefault("gamma", {"cells": list(cells)})
+        cells = list(cells)
+        if not cells:
+            return
+
+        def rate_profile(values, i, l, shape, name):
+            """Accept the legacy (F,L) rate or the forthcoming profile form."""
+            if values is None:
+                raise ValueError(f"gamma cell (i={i}, l={l}) needs '{name}'.")
+            arr = np.asarray(values, dtype=float)
+            if arr.ndim == 2:
+                value = float(arr[i, l])
+                return np.full(shape, value, dtype=float)
+            if arr.ndim == 4:
+                cell = np.asarray(arr[i, l], dtype=float)
+                try:
+                    return np.broadcast_to(cell, shape).astype(float, copy=True)
+                except ValueError as error:
+                    raise ValueError(
+                        f"gamma cell (i={i}, l={l}) {name} profile {cell.shape} "
+                        f"cannot broadcast to {shape}."
+                    ) from error
+            raise ValueError(
+                f"'{name}' must be normalized as (F,L) or (F,L,M,H); "
+                f"got shape {arr.shape}."
+            )
+
+        state_keys = [(i, l, k) for i, l in cells for k in range(ctx.T)]
+        A_var = ctx.model.addVars(state_keys, lb=0.0, name="A_gamma_bound")
+        common_rate = np.zeros((ctx.F, ctx.L))
+        maximum_shape = np.zeros((ctx.F, ctx.L))
+        bounded_trans = {}
+        bounded_operating = {}
+        calibrations = {}
+
+        beta_trans_cfg = getattr(cfg, "gamma_beta_trans", None)
+        beta_bound_cfg = getattr(cfg, "gamma_beta_bound", None)
+        for i, l in cells:
+            if abs(float(ctx.mu_0[i, l])) > 1e-12:
+                raise NotImplementedError(
+                    f"gamma cell (i={i}, l={l}): the first modular tail-bound "
+                    "implementation requires mu_0=0. A nonzero initial Gamma "
+                    "term must be included in the joint convolution calibration."
+                )
+            if abs(float(ctx.mu_new[i, l])) > 1e-12:
+                raise NotImplementedError(
+                    f"gamma cell (i={i}, l={l}): only replacement-to-new "
+                    "(replacement_mu=0) is currently certified."
+                )
+
+            operating = np.asarray(cfg.mu[i, l], dtype=float)
+            if operating.shape[-1] != ctx.H2:
+                raise ValueError(
+                    f"gamma cell (i={i}, l={l}): operating mu profile must have "
+                    f"length H2={ctx.H2}, got {operating.shape[-1]}."
+                )
+            beta_operating = rate_profile(
+                cfg.gamma_beta, i, l, operating.shape, "gamma_beta"
+            )
+
+            if cfg.mu_trans is None:
+                indices = np.arange(ctx.H1) % ctx.H2
+                trans = operating[..., indices]
+                beta_trans = beta_operating[..., indices]
+            else:
+                trans = np.asarray(cfg.mu_trans[i, l], dtype=float)
+                if beta_trans_cfg is None:
+                    indices = np.arange(ctx.H1) % ctx.H2
+                    beta_trans = beta_operating[..., indices]
+                else:
+                    beta_trans = rate_profile(
+                        beta_trans_cfg, i, l, trans.shape, "gamma_beta_trans"
+                    )
+
+            selected_rate = (
+                None
+                if beta_bound_cfg is None
+                else float(np.asarray(beta_bound_cfg, dtype=float)[i, l])
+            )
+            combined_mu = np.concatenate((trans, operating), axis=-1)
+            combined_beta = np.concatenate((beta_trans, beta_operating), axis=-1)
+            calibration = calculate_profile_tail_bound_parameters(
+                expected_damage=combined_mu,
+                rates=combined_beta,
+                threshold=float(ctx.tau[i, l]),
+                max_total_count=ctx.T,
+                common_rate=selected_rate,
+            )
+            split = ctx.H1
+            bounded_trans[i, l] = calibration.bounded_shapes[..., :split]
+            bounded_operating[i, l] = calibration.bounded_shapes[..., split:]
+            calibrations[i, l] = calibration
+            common_rate[i, l] = calibration.common_rate
+            maximum_shape[i, l] = required_shape_for_tail(
+                float(ctx.eps[i, l]),
+                calibration.common_rate,
+                float(ctx.tau[i, l]),
+            )
+            ctx.impl_of[(i, l)] = "gamma_finite_tail"
+            for k in range(ctx.T):
+                A_var[i, l, k].UB = float(maximum_shape[i, l])
+
+        ctx.extras["gamma"] = {
+            "cells": cells,
+            "A_var": A_var,
+            "common_rate": common_rate,
+            "maximum_shape": maximum_shape,
+            "bounded_trans": bounded_trans,
+            "bounded_operating": bounded_operating,
+            "calibrations": calibrations,
+        }
 
     def add_cell(self, ctx: FleetModel, i: int, l: int) -> None:
-        """PLACEHOLDER — the gamma constraint block for one cell."""
-        raise NotImplementedError(
-            f"cell (i={i}, l={l}) model='gamma': the modular gamma block is not "
-            "implemented yet (work in progress). Implement "
-            "base.GammaCellBuilder.add_cell — it must drive ctx.mu_var[i, l, k] "
-            "(the shared aggregate-damage cap, safety u and the C_D objective "
-            "term read it). For a gamma-only fleet, use the existing gamma "
-            "backend through solver.solve()."
+        """Add physical-mean and conservative-shape dynamics for one cell."""
+        add_maintenance_gating(ctx, i, l)
+        data = ctx.extras["gamma"]
+        A_var = data["A_var"]
+        trans = data["bounded_trans"][i, l]
+        operating = data["bounded_operating"][i, l]
+        maximum = float(data["maximum_shape"][i, l])
+        md = ctx.model
+
+        # Imperfect repair is intentionally excluded from the first certified
+        # modular block. Replacement to a zero-damage new component is exact.
+        for k in range(ctx.T):
+            md.addConstr(ctx.m_rep[i, l, k] == 0, name=f"gamma_no_repair_{i}_{l}_{k}")
+
+            A_prev = 0.0 if k == 0 else A_var[i, l, k - 1]
+            mu_prev = 0.0 if k == 0 else ctx.mu_var[i, l, k - 1]
+            if k < ctx.H1:
+                shape_profile = trans
+                h = k
+            else:
+                shape_profile = operating
+                h = (k - ctx.H1) % ctx.H2
+            shape_inc = gp.quicksum(
+                ctx.x[i, j, k] * float(shape_profile[j - 1, h])
+                for j in range(1, ctx.M + 1)
+            )
+            mean_inc = gp.quicksum(
+                ctx.x[i, j, k] * ctx.mu_inc(i, j - 1, l, k)
+                for j in range(1, ctx.M + 1)
+            )
+
+            md.addGenConstrIndicator(
+                ctx.nb[i, l, k], True,
+                A_var[i, l, k] == A_prev + shape_inc,
+                name=f"A_gamma_carry_{i}_{l}_{k}",
+            )
+            md.addGenConstrIndicator(
+                ctx.nb[i, l, k], True,
+                ctx.mu_var[i, l, k] == mu_prev + mean_inc,
+                name=f"mu_gamma_carry_{i}_{l}_{k}",
+            )
+            md.addGenConstrIndicator(
+                ctx.nb[i, l, k], True,
+                ctx.z_var[i, l, k] == 0.0,
+                name=f"z_gamma_zero_{i}_{l}_{k}",
+            )
+            if ctx.allow_replacement:
+                md.addGenConstrIndicator(
+                    ctx.r_rep[i, l, k], True,
+                    A_var[i, l, k] == 0.0,
+                    name=f"A_gamma_repl_{i}_{l}_{k}",
+                )
+                md.addGenConstrIndicator(
+                    ctx.r_rep[i, l, k], True,
+                    ctx.mu_var[i, l, k] == 0.0,
+                    name=f"mu_gamma_repl_{i}_{l}_{k}",
+                )
+                md.addGenConstrIndicator(
+                    ctx.r_rep[i, l, k], True,
+                    ctx.z_var[i, l, k] == mu_prev,
+                    name=f"z_gamma_repl_{i}_{l}_{k}",
+                )
+            md.addConstr(
+                A_var[i, l, k] <= maximum,
+                name=f"rel_gamma_{i}_{l}_{k}",
+            )
+
+        # The bound state and the separately tracked physical mean must both be
+        # repeatable because A'/beta_bar is not assumed to equal physical mu.
+        k_start, k_end = ctx.H1 - 1, ctx.T - 1
+        md.addConstr(
+            A_var[i, l, k_end] <= A_var[i, l, k_start],
+            name=f"loop_A_gamma_{i}_{l}",
+        )
+        md.addConstr(
+            ctx.mu_var[i, l, k_end] <= ctx.mu_var[i, l, k_start],
+            name=f"loop_mu_gamma_{i}_{l}",
         )
 
     def extract(self, ctx: FleetModel, cfg, out: dict) -> None:
-        """Optional hook to add gamma-specific arrays to the result."""
-        return None
+        """Add bounding shapes, rates, tails, and concise calibration metadata."""
+        if out.get("x") is None or "gamma" not in ctx.extras:
+            return
+        from scipy.stats import gamma as gamma_distribution
+
+        data = ctx.extras["gamma"]
+        shape = np.zeros((ctx.F, ctx.L, ctx.T))
+        tail = np.zeros((ctx.F, ctx.L, ctx.T))
+        summaries = []
+        for i, l in data["cells"]:
+            rate = float(data["common_rate"][i, l])
+            calibration = data["calibrations"][i, l]
+            for k in range(ctx.T):
+                value = data["A_var"][i, l, k].X
+                shape[i, l, k] = value
+                tail[i, l, k] = gamma_distribution.sf(
+                    float(ctx.tau[i, l]), a=value, scale=1.0 / rate
+                ) if value > 0.0 else 0.0
+            summaries.append({
+                "i": i,
+                "l": l,
+                "common_rate": rate,
+                "increment_types": int(calibration.compressed.original_shapes.size),
+                "tail_constraints": len(calibration.compressed.constraints),
+                "worst_calibration_margin": calibration.worst_tail_margin,
+            })
+        out["gamma_shape_bound"] = shape
+        out["gamma_tail_bound"] = tail
+        out["gamma_beta_bound"] = data["common_rate"]
+        out["gamma_calibration"] = summaries
 
 
 register_cell_builder("gamma", GammaCellBuilder())
