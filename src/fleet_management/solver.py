@@ -175,7 +175,7 @@ def _cfg_to_gamma_kwargs(cfg: "FleetConfig") -> dict:
         "C_S": cfg.costs.get("C_S", cfg.costs.get("C_D")), "C_P": cfg.costs["C_P"],
         "mu_0": cfg.mu_0, "replacement_mu": cfg.replacement_mu,
     }
-    for opt in ("verbose", "mip_gap"):
+    for opt in ("verbose", "mip_gap", "time_limit", "gurobi_params"):
         if opt in cfg.options:
             kw[opt] = cfg.options[opt]
     return kw
@@ -314,6 +314,9 @@ def _build_serializable_output(result: dict) -> dict:
     # Optional scalar parameters
     if result.get("alpha") is not None:
         output["alpha"] = result["alpha"]
+    for key in ("bound", "mip_gap"):
+        if result.get(key) is not None:
+            output[key] = float(result[key])
 
     # Two-horizon / rainflow metadata
     for key in ("H1", "H2", "T", "method", "bound_method", "repair_model"):
@@ -418,6 +421,9 @@ def _save_hdf5(result: dict, path: Path) -> None:
         # Optional scalar parameter
         if result.get("alpha") is not None:
             f.attrs["alpha"] = result["alpha"]
+        for key in ("bound", "mip_gap"):
+            if result.get(key) is not None:
+                f.attrs[key] = float(result[key])
 
         # Two-horizon / rainflow metadata
         for key in ("H1", "H2", "T", "method", "repair_model"):

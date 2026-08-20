@@ -131,6 +131,8 @@ def solve_fleet_management(
     repair_rho: np.ndarray,
     verbose: int = 1,
     mip_gap: float | None = None,
+    time_limit: float | None = None,
+    gurobi_params: dict | None = None,
 ) -> dict:
     """Solve the fleet problem with common-rate Gamma degradation."""
 
@@ -178,6 +180,11 @@ def solve_fleet_management(
     model.Params.OutputFlag = int(verbose)
     if mip_gap is not None:
         model.Params.MIPGap = float(mip_gap)
+    if time_limit is not None:
+        model.Params.TimeLimit = float(time_limit)
+    if gurobi_params:
+        for name, value in gurobi_params.items():
+            model.setParam(name, value)
 
     # j=0 grants maintenance access; j=1,...,M are missions.
     x = model.addVars(F, M + 1, 2 * H, vtype=GRB.BINARY, name="x")
@@ -335,7 +342,10 @@ def solve_fleet_management(
     )                                                               # end performance measurement
 
     extraction_start = time.perf_counter()
-    if model.status == GRB.OPTIMAL:
+    # A time/node/solution-limited MIP may still have a valid incumbent. Keep
+    # that schedule instead of returning an empty result merely because
+    # optimality was not proven.
+    if int(model.SolCount) > 0:
         x_solution = np.zeros((F, M + 1, 2 * H))
         m_solution = np.zeros((F, L, 2 * H))
         r_solution = np.zeros((F, L, 2 * H))
@@ -371,9 +381,21 @@ def solve_fleet_management(
             time.perf_counter() - backend_start
         )
 
+        status = {
+            GRB.OPTIMAL: "optimal",
+            GRB.TIME_LIMIT: "time_limit",
+            GRB.SOLUTION_LIMIT: "solution_limit",
+            GRB.NODE_LIMIT: "node_limit",
+            GRB.ITERATION_LIMIT: "iteration_limit",
+            GRB.INTERRUPTED: "interrupted",
+            GRB.SUBOPTIMAL: "suboptimal",
+        }.get(int(model.status), f"gurobi_status_{int(model.status)}")
+
         return {
-            "status": "optimal",
+            "status": status,
             "objective": model.ObjVal,
+            "bound": model.ObjBound,
+            "mip_gap": model.MIPGap,
             "F": F,
             "H": H,
             "M": M,
@@ -399,9 +421,18 @@ def solve_fleet_management(
         time.perf_counter() - backend_start
     )
 
+    status = {
+        GRB.INFEASIBLE: "infeasible",
+        GRB.INF_OR_UNBD: "inf_or_unbounded",
+        GRB.UNBOUNDED: "unbounded",
+        GRB.TIME_LIMIT: "time_limit_no_incumbent",
+        GRB.INTERRUPTED: "interrupted_no_incumbent",
+    }.get(int(model.status), f"gurobi_status_{int(model.status)}")
     return {
-        "status": model.status,
+        "status": status,
         "objective": None,
+        "bound": None,
+        "mip_gap": None,
         "F": F,
         "H": H,
         "M": M,
