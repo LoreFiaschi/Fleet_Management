@@ -138,6 +138,375 @@ class GammaTailBoundResult:
         }
 
 
+@dataclass(frozen=True)
+class GammaProfileTailBoundResult:
+    """Tail-bound parameters for one ``(vehicle, component)`` profile.
+
+    ``expected_damage`` and ``original_rates`` retain the input profile shape,
+    normally ``(M, H)``.  Equal ``(mean, rate)`` pairs are calibrated as one
+    increment type and expanded back to that shape through ``type_indices``.
+
+    The count set is a conservative finite-horizon superset: each compressed
+    type can occur at most ``type_max_counts[q]`` times and the total number of
+    increments cannot exceed ``max_total_count``.  For a vehicle that can run
+    at most one mission per step, set ``max_total_count`` to the number of time
+    steps covered by the profile.
+    """
+
+    expected_damage: FloatArray
+    original_rates: FloatArray
+    original_shapes: FloatArray
+    bounded_shapes: FloatArray
+    bounded_means: FloatArray
+    type_indices: IntArray
+    type_expected_damage: FloatArray
+    type_original_rates: FloatArray
+    type_max_counts: IntArray
+    max_total_count: int
+    compressed: GammaTailBoundResult
+
+    @property
+    def common_rate(self) -> float:
+        return self.compressed.common_rate
+
+    @property
+    def threshold(self) -> float:
+        return self.compressed.threshold
+
+    @property
+    def all_constraints_conservative(self) -> bool:
+        return self.compressed.all_constraints_conservative
+
+    @property
+    def worst_tail_margin(self) -> float:
+        return self.compressed.worst_tail_margin
+
+    def as_dict(self) -> dict[str, object]:
+        """Return a YAML/JSON-friendly representation."""
+
+        return {
+            "expected_damage": self.expected_damage.tolist(),
+            "original_rates": self.original_rates.tolist(),
+            "original_shapes": self.original_shapes.tolist(),
+            "bounded_shapes": self.bounded_shapes.tolist(),
+            "bounded_means": self.bounded_means.tolist(),
+            "type_indices": self.type_indices.tolist(),
+            "type_expected_damage": self.type_expected_damage.tolist(),
+            "type_original_rates": self.type_original_rates.tolist(),
+            "type_max_counts": self.type_max_counts.tolist(),
+            "max_total_count": self.max_total_count,
+            "common_rate": self.common_rate,
+            "threshold": self.threshold,
+            "all_constraints_conservative": self.all_constraints_conservative,
+            "worst_tail_margin": self.worst_tail_margin,
+            "compressed": self.compressed.as_dict(),
+        }
+
+
+@dataclass(frozen=True)
+class GammaFleetTailBoundResult:
+    """Profile calibration for every ``(F, L)`` Gamma cell."""
+
+    expected_damage_trans: FloatArray
+    expected_damage_operating: FloatArray
+    original_rates_trans: FloatArray
+    original_rates_operating: FloatArray
+    bounded_shapes_trans: FloatArray
+    bounded_shapes_operating: FloatArray
+    common_rates: FloatArray
+    thresholds: FloatArray
+    H1: int
+    H2: int
+    T: int
+    cells: tuple[tuple[GammaProfileTailBoundResult, ...], ...]
+
+    @property
+    def all_constraints_conservative(self) -> bool:
+        return all(
+            cell.all_constraints_conservative
+            for vehicle in self.cells
+            for cell in vehicle
+        )
+
+    @property
+    def worst_tail_margin(self) -> float:
+        return min(
+            cell.worst_tail_margin for vehicle in self.cells for cell in vehicle
+        )
+
+    def as_dict(self) -> dict[str, object]:
+        """Return a YAML/JSON-friendly representation."""
+
+        return {
+            "H1": self.H1,
+            "H2": self.H2,
+            "T": self.T,
+            "expected_damage_trans": self.expected_damage_trans.tolist(),
+            "expected_damage_operating": self.expected_damage_operating.tolist(),
+            "original_rates_trans": self.original_rates_trans.tolist(),
+            "original_rates_operating": self.original_rates_operating.tolist(),
+            "bounded_shapes_trans": self.bounded_shapes_trans.tolist(),
+            "bounded_shapes_operating": self.bounded_shapes_operating.tolist(),
+            "common_rates": self.common_rates.tolist(),
+            "thresholds": self.thresholds.tolist(),
+            "all_constraints_conservative": self.all_constraints_conservative,
+            "worst_tail_margin": self.worst_tail_margin,
+            "cells": [
+                [cell.as_dict() for cell in vehicle] for vehicle in self.cells
+            ],
+        }
+
+
+def calculate_profile_tail_bound_parameters(
+    expected_damage: ArrayLike,
+    rates: ArrayLike,
+    threshold: float,
+    *,
+    max_total_count: int,
+    common_rate: float | None = None,
+    convolution_tolerance: float = 1e-12,
+    feasibility_tolerance: float = 1e-9,
+    max_series_terms: int = 100_000,
+    max_combinations: int = 100_000,
+) -> GammaProfileTailBoundResult:
+    """Calibrate a finite-horizon mission/time profile for one fleet cell.
+
+    Parameters
+    ----------
+    expected_damage, rates:
+        Arrays with the same shape, normally ``(M, H)`` for one vehicle and
+        component.  A scalar ``rates`` value is broadcast over the complete
+        profile.  Each entry is one increment opportunity.
+    threshold:
+        Failure threshold for this vehicle/component cell.
+    max_total_count:
+        Maximum increments a vehicle can accumulate over the represented
+        horizon.  With at most one mission per step this is the number of time
+        steps, not ``M * H``.
+
+    Notes
+    -----
+    Repeated equal ``(mean, rate)`` entries are compressed into one increment
+    type.  The generated count vectors can include combinations that assignment
+    constraints make unreachable (for example, two mission alternatives from
+    one time step).  This is intentional: checking a superset remains safe and
+    avoids coupling this numerical module to the optimization model.
+    """
+
+    means = np.asarray(expected_damage, dtype=float)
+    if means.size == 0 or np.any(~np.isfinite(means)) or np.any(means <= 0.0):
+        raise ValueError("expected_damage must contain finite positive values.")
+
+    rate_values = np.asarray(rates, dtype=float)
+    try:
+        rate_profile = np.broadcast_to(rate_values, means.shape).astype(float, copy=True)
+    except ValueError as error:
+        raise ValueError(
+            f"rates shape {rate_values.shape} cannot broadcast to expected_damage "
+            f"shape {means.shape}."
+        ) from error
+    if np.any(~np.isfinite(rate_profile)) or np.any(rate_profile <= 0.0):
+        raise ValueError("rates must contain finite positive values.")
+
+    count_limit = int(max_total_count)
+    if count_limit <= 0 or count_limit != max_total_count:
+        raise ValueError("max_total_count must be a positive integer.")
+    if count_limit > means.size:
+        raise ValueError(
+            "max_total_count cannot exceed the number of increment opportunities."
+        )
+
+    # Preserve first-occurrence order so diagnostics map predictably back to
+    # mission/time positions.  Exact equality is appropriate here because the
+    # values come from normalized input parameters, not noisy measurements.
+    type_lookup: dict[tuple[float, float], int] = {}
+    type_means: list[float] = []
+    type_rates: list[float] = []
+    inverse = np.empty(means.size, dtype=np.int64)
+    maxima: list[int] = []
+    for position, (mean, rate) in enumerate(
+        zip(means.ravel(), rate_profile.ravel(), strict=True)
+    ):
+        key = (float(mean), float(rate))
+        type_index = type_lookup.get(key)
+        if type_index is None:
+            type_index = len(type_means)
+            type_lookup[key] = type_index
+            type_means.append(key[0])
+            type_rates.append(key[1])
+            maxima.append(0)
+        inverse[position] = type_index
+        maxima[type_index] += 1
+
+    compressed_means = np.asarray(type_means, dtype=float)
+    compressed_rates = np.asarray(type_rates, dtype=float)
+    max_counts = np.asarray(maxima, dtype=np.int64)
+    compressed = calculate_tail_bound_parameters(
+        shapes=shapes_from_expected_damage(compressed_means, compressed_rates),
+        rates=compressed_rates,
+        threshold=threshold,
+        common_rate=common_rate,
+        max_counts=max_counts,
+        max_total_count=count_limit,
+        objective_weights=max_counts.astype(float),
+        convolution_tolerance=convolution_tolerance,
+        feasibility_tolerance=feasibility_tolerance,
+        max_series_terms=max_series_terms,
+        max_combinations=max_combinations,
+    )
+
+    type_indices = inverse.reshape(means.shape)
+    bounded_shapes = compressed.bounded_shapes[type_indices]
+    return GammaProfileTailBoundResult(
+        expected_damage=means.copy(),
+        original_rates=rate_profile,
+        original_shapes=means * rate_profile,
+        bounded_shapes=bounded_shapes,
+        bounded_means=bounded_shapes / compressed.common_rate,
+        type_indices=type_indices,
+        type_expected_damage=compressed_means,
+        type_original_rates=compressed_rates,
+        type_max_counts=max_counts,
+        max_total_count=count_limit,
+        compressed=compressed,
+    )
+
+
+def calculate_fleet_tail_bound_parameters(
+    expected_damage: ArrayLike,
+    rates: ArrayLike,
+    thresholds: ArrayLike,
+    *,
+    H1: int | None = None,
+    expected_damage_trans: ArrayLike | None = None,
+    rates_trans: ArrayLike | None = None,
+    common_rates: ArrayLike | None = None,
+    convolution_tolerance: float = 1e-12,
+    feasibility_tolerance: float = 1e-9,
+    max_series_terms: int = 100_000,
+    max_combinations: int = 100_000,
+) -> GammaFleetTailBoundResult:
+    """Calibrate normalized Gamma profiles with layout ``(F, L, M, H2)``.
+
+    This is the configuration-facing layer, but it deliberately accepts arrays
+    rather than importing :class:`FleetConfig`.  It can therefore be tested and
+    used without Gurobi or ``base.py``.
+
+    When ``expected_damage_trans`` is absent, the operating profile is reused
+    with phase-local wrapping, matching the uniform Gamma backend.  ``rates``
+    and ``rates_trans`` may be scalars, ``(L,)``, ``(F, L)``, or complete
+    profile arrays.  Every cell is calibrated over both phases with at most
+    ``T = H1 + H2`` accumulated increments.
+    """
+
+    operating = np.asarray(expected_damage, dtype=float)
+    if operating.ndim != 4:
+        raise ValueError("expected_damage must have normalized shape (F, L, M, H2).")
+    if np.any(~np.isfinite(operating)) or np.any(operating <= 0.0):
+        raise ValueError("expected_damage must contain finite positive values.")
+    F, L, M, H2 = operating.shape
+    if min(F, L, M, H2) <= 0:
+        raise ValueError("expected_damage dimensions must all be positive.")
+
+    operating_rates = _broadcast_fleet_profile(rates, operating.shape, "rates")
+    threshold_array = _broadcast_fleet_cell(thresholds, F, L, "thresholds")
+    if np.any(~np.isfinite(threshold_array)) or np.any(threshold_array <= 0.0):
+        raise ValueError("thresholds must contain finite positive values.")
+
+    if expected_damage_trans is None:
+        H1_value = H2 if H1 is None else int(H1)
+        if H1_value <= 0:
+            raise ValueError("H1 must be positive.")
+        trans_indices = np.arange(H1_value) % H2
+        trans = operating[..., trans_indices].copy()
+        if rates_trans is not None:
+            raise ValueError(
+                "rates_trans requires expected_damage_trans; otherwise operating "
+                "rates are reused with phase-local wrapping."
+            )
+        trans_rates = operating_rates[..., trans_indices].copy()
+    else:
+        trans = np.asarray(expected_damage_trans, dtype=float)
+        if trans.ndim != 4 or trans.shape[:3] != (F, L, M):
+            raise ValueError(
+                "expected_damage_trans must have shape (F, L, M, H1) and match "
+                "the operating F, L, and M dimensions."
+            )
+        if np.any(~np.isfinite(trans)) or np.any(trans <= 0.0):
+            raise ValueError(
+                "expected_damage_trans must contain finite positive values."
+            )
+        H1_value = int(trans.shape[-1])
+        if H1 is not None and int(H1) != H1_value:
+            raise ValueError(
+                f"H1={int(H1)} disagrees with transitory profile length {H1_value}."
+            )
+        trans_rates = _broadcast_fleet_profile(
+            rates if rates_trans is None else rates_trans,
+            trans.shape,
+            "rates_trans",
+        )
+
+    if common_rates is None:
+        selected_common_rates = np.minimum(
+            np.min(trans_rates, axis=(2, 3)),
+            np.min(operating_rates, axis=(2, 3)),
+        )
+    else:
+        selected_common_rates = _broadcast_fleet_cell(
+            common_rates, F, L, "common_rates"
+        )
+    if (
+        np.any(~np.isfinite(selected_common_rates))
+        or np.any(selected_common_rates <= 0.0)
+    ):
+        raise ValueError("common_rates must contain finite positive values.")
+
+    T = H1_value + H2
+    bounded_trans = np.empty_like(trans)
+    bounded_operating = np.empty_like(operating)
+    cell_rows: list[tuple[GammaProfileTailBoundResult, ...]] = []
+    for i in range(F):
+        row: list[GammaProfileTailBoundResult] = []
+        for l in range(L):
+            combined_means = np.concatenate(
+                (trans[i, l], operating[i, l]), axis=-1
+            )
+            combined_rates = np.concatenate(
+                (trans_rates[i, l], operating_rates[i, l]), axis=-1
+            )
+            cell = calculate_profile_tail_bound_parameters(
+                expected_damage=combined_means,
+                rates=combined_rates,
+                threshold=float(threshold_array[i, l]),
+                max_total_count=T,
+                common_rate=float(selected_common_rates[i, l]),
+                convolution_tolerance=convolution_tolerance,
+                feasibility_tolerance=feasibility_tolerance,
+                max_series_terms=max_series_terms,
+                max_combinations=max_combinations,
+            )
+            bounded_trans[i, l] = cell.bounded_shapes[..., :H1_value]
+            bounded_operating[i, l] = cell.bounded_shapes[..., H1_value:]
+            row.append(cell)
+        cell_rows.append(tuple(row))
+
+    return GammaFleetTailBoundResult(
+        expected_damage_trans=trans,
+        expected_damage_operating=operating.copy(),
+        original_rates_trans=trans_rates,
+        original_rates_operating=operating_rates,
+        bounded_shapes_trans=bounded_trans,
+        bounded_shapes_operating=bounded_operating,
+        common_rates=selected_common_rates,
+        thresholds=threshold_array,
+        H1=H1_value,
+        H2=H2,
+        T=T,
+        cells=tuple(cell_rows),
+    )
+
+
 def calculate_tail_bound_parameters(
     shapes: ArrayLike,
     rates: ArrayLike,
@@ -553,3 +922,49 @@ def _integer_vector(value: ArrayLike, name: str) -> IntArray:
     if np.any(np.abs(array - rounded) > 1e-12):
         raise ValueError(f"{name} must contain integers.")
     return rounded.astype(np.int64)
+
+
+def _broadcast_fleet_cell(value: ArrayLike, F: int, L: int, name: str) -> FloatArray:
+    """Broadcast scalar, ``(L,)``, or ``(F,L)`` data to fleet cells."""
+
+    array = np.asarray(value, dtype=float)
+    if array.ndim == 0:
+        return np.full((F, L), float(array), dtype=float)
+    if array.shape == (L,):
+        return np.broadcast_to(array[np.newaxis, :], (F, L)).copy()
+    if array.shape == (F, L):
+        return array.copy()
+    raise ValueError(
+        f"{name} shape {array.shape} must be scalar, ({L},), or ({F}, {L})."
+    )
+
+
+def _broadcast_fleet_profile(
+    value: ArrayLike,
+    target_shape: tuple[int, int, int, int],
+    name: str,
+) -> FloatArray:
+    """Broadcast common rate layouts to normalized ``(F,L,M,H)``."""
+
+    F, L, M, H = target_shape
+    array = np.asarray(value, dtype=float)
+    if array.ndim == 0:
+        result = np.full(target_shape, float(array), dtype=float)
+    elif array.shape == (L,):
+        result = np.broadcast_to(array[None, :, None, None], target_shape).copy()
+    elif array.shape == (F, L):
+        result = np.broadcast_to(array[:, :, None, None], target_shape).copy()
+    elif array.shape == (M,):
+        result = np.broadcast_to(array[None, None, :, None], target_shape).copy()
+    elif array.shape == (L, M):
+        result = np.broadcast_to(array[None, :, :, None], target_shape).copy()
+    elif array.shape == target_shape:
+        result = array.copy()
+    else:
+        raise ValueError(
+            f"{name} shape {array.shape} must be scalar, ({L},), ({F}, {L}), "
+            f"({M},), ({L}, {M}), or {target_shape}."
+        )
+    if np.any(~np.isfinite(result)) or np.any(result <= 0.0):
+        raise ValueError(f"{name} must contain finite positive values.")
+    return result
