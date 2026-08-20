@@ -257,6 +257,69 @@ class GammaFleetTailBoundResult:
         }
 
 
+@dataclass(frozen=True)
+class GammaSeededProfileTailBoundResult:
+    """Joint calibration of mission increments and alternative seed states.
+
+    An accumulated history starts either from the initial state, from the
+    replacement state, or from zero. Initial and replacement seeds are never
+    combined in one count vector: replacement discards the previous history.
+    """
+
+    expected_damage: FloatArray
+    original_rates: FloatArray
+    original_shapes: FloatArray
+    bounded_shapes: FloatArray
+    type_indices: IntArray
+    type_max_counts: IntArray
+    max_total_count: int
+    initial_expected_damage: float
+    initial_original_rate: float | None
+    initial_original_shape: float
+    initial_bounded_shape: float
+    replacement_expected_damage: float
+    replacement_original_rate: float | None
+    replacement_original_shape: float
+    replacement_bounded_shape: float
+    increment_offset: int
+    compressed: GammaTailBoundResult
+
+    @property
+    def common_rate(self) -> float:
+        return self.compressed.common_rate
+
+    @property
+    def all_constraints_conservative(self) -> bool:
+        return self.compressed.all_constraints_conservative
+
+    @property
+    def worst_tail_margin(self) -> float:
+        return self.compressed.worst_tail_margin
+
+    def as_dict(self) -> dict[str, object]:
+        return {
+            "expected_damage": self.expected_damage.tolist(),
+            "original_rates": self.original_rates.tolist(),
+            "original_shapes": self.original_shapes.tolist(),
+            "bounded_shapes": self.bounded_shapes.tolist(),
+            "type_indices": self.type_indices.tolist(),
+            "type_max_counts": self.type_max_counts.tolist(),
+            "max_total_count": self.max_total_count,
+            "initial_expected_damage": self.initial_expected_damage,
+            "initial_original_rate": self.initial_original_rate,
+            "initial_original_shape": self.initial_original_shape,
+            "initial_bounded_shape": self.initial_bounded_shape,
+            "replacement_expected_damage": self.replacement_expected_damage,
+            "replacement_original_rate": self.replacement_original_rate,
+            "replacement_original_shape": self.replacement_original_shape,
+            "replacement_bounded_shape": self.replacement_bounded_shape,
+            "common_rate": self.common_rate,
+            "all_constraints_conservative": self.all_constraints_conservative,
+            "worst_tail_margin": self.worst_tail_margin,
+            "compressed": self.compressed.as_dict(),
+        }
+
+
 def calculate_profile_tail_bound_parameters(
     expected_damage: ArrayLike,
     rates: ArrayLike,
@@ -368,6 +431,180 @@ def calculate_profile_tail_bound_parameters(
         type_original_rates=compressed_rates,
         type_max_counts=max_counts,
         max_total_count=count_limit,
+        compressed=compressed,
+    )
+
+
+def calculate_seeded_profile_tail_bound_parameters(
+    expected_damage: ArrayLike,
+    rates: ArrayLike,
+    threshold: float,
+    *,
+    max_total_count: int,
+    initial_expected_damage: float = 0.0,
+    initial_rate: float | None = None,
+    replacement_expected_damage: float = 0.0,
+    replacement_rate: float | None = None,
+    common_rate: float | None = None,
+    convolution_tolerance: float = 1e-12,
+    feasibility_tolerance: float = 1e-9,
+    max_series_terms: int = 100_000,
+    max_combinations: int = 100_000,
+) -> GammaSeededProfileTailBoundResult:
+    """Jointly calibrate increments and mutually exclusive starting states.
+
+    Every reachable history contains at most one seed. The explicit count set
+    therefore contains ``increments``, ``initial + increments``, and
+    ``replacement + increments``, but never ``initial + replacement``.
+    Enumerating a conservative superset of mission combinations preserves the
+    finite-horizon tail guarantee without importing the optimization model.
+    """
+
+    means = np.asarray(expected_damage, dtype=float)
+    if means.size == 0 or np.any(~np.isfinite(means)) or np.any(means <= 0.0):
+        raise ValueError("expected_damage must contain finite positive values.")
+    rate_values = np.asarray(rates, dtype=float)
+    try:
+        rate_profile = np.broadcast_to(rate_values, means.shape).astype(float, copy=True)
+    except ValueError as error:
+        raise ValueError(
+            f"rates shape {rate_values.shape} cannot broadcast to expected_damage "
+            f"shape {means.shape}."
+        ) from error
+    if np.any(~np.isfinite(rate_profile)) or np.any(rate_profile <= 0.0):
+        raise ValueError("rates must contain finite positive values.")
+
+    count_limit = int(max_total_count)
+    if count_limit <= 0 or count_limit != max_total_count:
+        raise ValueError("max_total_count must be a positive integer.")
+    if count_limit > means.size:
+        raise ValueError(
+            "max_total_count cannot exceed the number of increment opportunities."
+        )
+
+    type_lookup: dict[tuple[float, float], int] = {}
+    type_means: list[float] = []
+    type_rates: list[float] = []
+    maxima: list[int] = []
+    inverse = np.empty(means.size, dtype=np.int64)
+    for position, (mean, rate) in enumerate(
+        zip(means.ravel(), rate_profile.ravel(), strict=True)
+    ):
+        key = (float(mean), float(rate))
+        type_index = type_lookup.get(key)
+        if type_index is None:
+            type_index = len(type_means)
+            type_lookup[key] = type_index
+            type_means.append(key[0])
+            type_rates.append(key[1])
+            maxima.append(0)
+        inverse[position] = type_index
+        maxima[type_index] += 1
+
+    def validate_seed(name: str, mean_value: float, rate_value: float | None):
+        mean = float(mean_value)
+        if not np.isfinite(mean) or mean < 0.0:
+            raise ValueError(f"{name}_expected_damage must be finite and non-negative.")
+        if mean == 0.0:
+            return mean, None, 0.0
+        if rate_value is None:
+            raise ValueError(f"positive {name}_expected_damage needs {name}_rate.")
+        rate = float(rate_value)
+        if not np.isfinite(rate) or rate <= 0.0:
+            raise ValueError(f"{name}_rate must be finite and positive.")
+        return mean, rate, mean * rate
+
+    initial_mean, initial_beta, initial_shape = validate_seed(
+        "initial", initial_expected_damage, initial_rate
+    )
+    replacement_mean, replacement_beta, replacement_shape = validate_seed(
+        "replacement", replacement_expected_damage, replacement_rate
+    )
+
+    seed_shapes: list[float] = []
+    seed_rates: list[float] = []
+    initial_index = None
+    replacement_index = None
+    if initial_shape > 0.0:
+        initial_index = len(seed_shapes)
+        seed_shapes.append(initial_shape)
+        seed_rates.append(float(initial_beta))
+    if replacement_shape > 0.0:
+        replacement_index = len(seed_shapes)
+        seed_shapes.append(replacement_shape)
+        seed_rates.append(float(replacement_beta))
+
+    increment_means = np.asarray(type_means, dtype=float)
+    increment_rates = np.asarray(type_rates, dtype=float)
+    increment_shapes = increment_means * increment_rates
+    increment_maxima = np.asarray(maxima, dtype=np.int64)
+    shape_vector = np.concatenate((np.asarray(seed_shapes), increment_shapes))
+    rate_vector = np.concatenate((np.asarray(seed_rates), increment_rates))
+    increment_offset = len(seed_shapes)
+
+    increment_rows = enumerate_count_vectors(
+        increment_maxima,
+        max_total_count=count_limit,
+        max_combinations=max_combinations,
+    )
+    zero_increments = np.zeros((1, increment_shapes.size), dtype=np.int64)
+    rows: list[np.ndarray] = []
+    for counts in increment_rows:
+        rows.append(np.concatenate((np.zeros(increment_offset, dtype=int), counts)))
+    with_zero = np.vstack((zero_increments, increment_rows))
+    for seed_index in (initial_index, replacement_index):
+        if seed_index is None:
+            continue
+        for counts in with_zero:
+            seed_counts = np.zeros(increment_offset, dtype=int)
+            seed_counts[seed_index] = 1
+            rows.append(np.concatenate((seed_counts, counts)))
+    if len(rows) > max_combinations:
+        raise ValueError(
+            f"seeded profile generates {len(rows)} combinations, exceeding "
+            f"max_combinations={max_combinations}."
+        )
+
+    weights = np.concatenate((np.ones(increment_offset), increment_maxima.astype(float)))
+    compressed = calculate_tail_bound_parameters(
+        shapes=shape_vector,
+        rates=rate_vector,
+        threshold=threshold,
+        common_rate=common_rate,
+        count_vectors=np.asarray(rows, dtype=np.int64),
+        objective_weights=weights,
+        convolution_tolerance=convolution_tolerance,
+        feasibility_tolerance=feasibility_tolerance,
+        max_series_terms=max_series_terms,
+        max_combinations=max_combinations,
+    )
+
+    bounded_type_shapes = compressed.bounded_shapes[increment_offset:]
+    type_indices = inverse.reshape(means.shape)
+    bounded_shapes = bounded_type_shapes[type_indices]
+    return GammaSeededProfileTailBoundResult(
+        expected_damage=means.copy(),
+        original_rates=rate_profile,
+        original_shapes=means * rate_profile,
+        bounded_shapes=bounded_shapes,
+        type_indices=type_indices,
+        type_max_counts=increment_maxima,
+        max_total_count=count_limit,
+        initial_expected_damage=initial_mean,
+        initial_original_rate=initial_beta,
+        initial_original_shape=initial_shape,
+        initial_bounded_shape=(
+            0.0 if initial_index is None else float(compressed.bounded_shapes[initial_index])
+        ),
+        replacement_expected_damage=replacement_mean,
+        replacement_original_rate=replacement_beta,
+        replacement_original_shape=replacement_shape,
+        replacement_bounded_shape=(
+            0.0
+            if replacement_index is None
+            else float(compressed.bounded_shapes[replacement_index])
+        ),
+        increment_offset=increment_offset,
         compressed=compressed,
     )
 
