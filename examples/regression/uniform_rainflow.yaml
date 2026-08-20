@@ -1,0 +1,42 @@
+# Small deterministic uniform-rainflow instance using the FleetConfig schema.
+# Profile layout is (F, L, M, H): vehicle, component, mission, profile step.
+F: 2
+M: 1
+L: 1
+H: 2
+model: rainflow
+
+bound_method: markov
+repair_model: ardinf
+tau: 0.5
+epsilon: 0.3
+rho: 0.5
+
+mu_0:
+  - [0.04]
+  - [0.06]
+v_0:
+  - [0.001]
+  - [0.001]
+replacement_mu:
+  - [0.005]
+  - [0.005]
+replacement_v:
+  - [0.0001]
+  - [0.0001]
+mu:
+  - - - [0.04, 0.06]
+  - - - [0.05, 0.03]
+v: 0.001
+
+C_M: 1.0
+C_R: 0.5
+C_rep: 3.0
+C_S: 0.2
+C_P: 0.1
+
+allow_replacement: true
+depot_capacity: 1
+fast: false
+verbose: 0
+mip_gap: 1.0e-9

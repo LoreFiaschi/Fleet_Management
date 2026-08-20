@@ -1,0 +1,37 @@
+# Stable regression values only. Runtime and Gurobi performance fields are omitted.
+fixture: uniform_gamma.yaml
+derivation: exhaustive enumeration of the finite assignment/action choices
+unique_optimum: true
+atol: 1.0e-6
+objective_breakdown:
+  maintenance: 4.0
+  repair: 0.07
+  replacement: 0.0
+  safety: 0.056
+  periodicity: 0.0
+checks:
+  status: optimal
+  degradation: gamma
+  objective: 4.126
+  maximum_shape: [6.574843866421644]
+  x:
+    - - [0, 1, 0, 1]
+      - [1, 0, 1, 0]
+    - - [1, 0, 1, 0]
+      - [0, 1, 0, 1]
+  m:
+    - - [0, 1, 0, 1]
+    - - [1, 0, 1, 0]
+  r:
+    - - [0, 0, 0, 0]
+    - - [0, 0, 0, 0]
+  A:
+    - - [1.6, 0.8, 1.6, 0.8]
+    - - [0.6, 1.2, 0.6, 1.2]
+  mu:
+    - - [0.08, 0.04, 0.08, 0.04]
+    - - [0.03, 0.06, 0.03, 0.06]
+  u: [0.08, 0.06, 0.08, 0.06]
+  z:
+    - - [0, 0.04, 0, 0.04]
+    - - [0.03, 0, 0.03, 0]

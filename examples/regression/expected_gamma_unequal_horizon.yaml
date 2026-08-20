@@ -1,0 +1,41 @@
+# Stable fields only; timing and Gurobi performance data are excluded.
+fixture: gamma_unequal_horizon.yaml
+derivation: exhaustive enumeration of assignment and maintenance choices
+unique_optimum: true
+atol: 1.0e-6
+objective_breakdown:
+  maintenance: 5.0
+  repair: 0.075
+  replacement: 0.0
+  safety: 0.13
+  periodicity: 0.0
+checks:
+  status: optimal
+  degradation: gamma
+  objective: 5.205
+  H: 2
+  H1: 2
+  H2: 3
+  T: 5
+  maximum_shape: [6.574843866421644]
+  x:
+    - - [1, 1, 1, 0, 1]
+      - [0, 0, 0, 1, 0]
+    - - [0, 0, 0, 1, 0]
+      - [1, 1, 1, 0, 1]
+  m:
+    - - [0, 0, 1, 0, 1]
+    - - [0, 0, 0, 1, 0]
+  r:
+    - - [0, 0, 0, 0, 0]
+    - - [0, 0, 0, 0, 0]
+  A:
+    - - [0.8, 0.8, 0.4, 1.6, 0.8]
+    - - [2.4, 2.6, 3.6, 1.8, 2.6]
+  mu:
+    - - [0.04, 0.04, 0.02, 0.08, 0.04]
+    - - [0.12, 0.13, 0.18, 0.09, 0.13]
+  u: [0.12, 0.13, 0.18, 0.09, 0.13]
+  z:
+    - - [0, 0, 0.02, 0, 0.04]
+    - - [0, 0, 0, 0.09, 0]

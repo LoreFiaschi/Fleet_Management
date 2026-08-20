@@ -1,0 +1,31 @@
+# Small deterministic uniform-Gamma instance using the FleetConfig schema.
+# Profile layout is (F, L, M, H): vehicle, component, mission, profile step.
+F: 2
+M: 1
+L: 1
+H: 2
+model: gamma
+
+tau: 0.5
+epsilon: 0.1
+rho: 0.5
+gamma_beta: 20.0
+
+mu_0:
+  - [0.04]
+  - [0.06]
+replacement_mu:
+  - [0.005]
+  - [0.005]
+mu:
+  - - - [0.04, 0.06]
+  - - - [0.05, 0.03]
+
+C_M: 1.0
+C_R: 0.5
+C_rep: 3.0
+C_S: 0.2
+C_P: 0.1
+
+verbose: 0
+mip_gap: 1.0e-9
