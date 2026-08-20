@@ -66,7 +66,11 @@ class FleetConfig:
     replacement_mu: np.ndarray = None
     replacement_v: Optional[np.ndarray] = None
     s_chernoff: Optional[np.ndarray] = None
-    gamma_beta: Optional[np.ndarray] = None
+    gamma_beta: Optional[np.ndarray] = None       # exact operating rates (F,L,M,H_prof)
+    gamma_beta_trans: Optional[np.ndarray] = None # exact transitory rates (F,L,M,H1)
+    gamma_beta_bound: Optional[np.ndarray] = None # selected common rate (F,L)
+    gamma_beta_0: Optional[np.ndarray] = None     # exact initial-state rate (F,L)
+    gamma_beta_new: Optional[np.ndarray] = None   # exact replacement-state rate (F,L)
     # per-mission profiles (F, L, M, H2)  [transitory: H1]
     mu: np.ndarray = None
     v: Optional[np.ndarray] = None
@@ -102,9 +106,16 @@ class FleetConfig:
                "mu": self.mu[i, l],                                   # (M, H2)
                "replacement_mu": float(self.replacement_mu[i, l])}
         for name, arr in (("v_0", self.v_0), ("replacement_v", self.replacement_v),
-                          ("s_chernoff", self.s_chernoff), ("gamma_beta", self.gamma_beta)):
+                          ("s_chernoff", self.s_chernoff),
+                          ("gamma_beta_bound", self.gamma_beta_bound),
+                          ("gamma_beta_0", self.gamma_beta_0),
+                          ("gamma_beta_new", self.gamma_beta_new)):
             if arr is not None:
                 out[name] = float(arr[i, l])
+        if self.gamma_beta is not None:
+            out["gamma_beta"] = self.gamma_beta[i, l]
+        if self.gamma_beta_trans is not None:
+            out["gamma_beta_trans"] = self.gamma_beta_trans[i, l]
         for name, arr in (("v", self.v), ("support", self.support), ("cgf", self.cgf),
                           ("mu_trans", self.mu_trans), ("v_trans", self.v_trans),
                           ("support_trans", self.support_trans), ("cgf_trans", self.cgf_trans)):
@@ -198,6 +209,32 @@ def _flmh_prof(value, F, L, M, H, name):
     )
 
 
+def _gamma_rate_prof(value, F, L, M, H, name):
+    """Normalize Gamma rates to ``(F,L,M,H)`` while retaining old inputs.
+
+    In addition to a complete rate profile, the legacy scalar, per-component
+    ``(L,)``, and per-cell ``(F,L)`` forms are broadcast across missions and
+    time. ``(F,L,M)`` is accepted as a time-constant per-mission rate.
+    """
+    if value is None:
+        return None
+    arr = np.asarray(value, dtype=float)
+    if arr.ndim == 0:
+        return np.full((F, L, M, H), float(arr))
+    if arr.shape == (L,):
+        return np.broadcast_to(arr[None, :, None, None], (F, L, M, H)).copy()
+    if arr.shape == (F, L):
+        return np.broadcast_to(arr[:, :, None, None], (F, L, M, H)).copy()
+    if arr.shape == (F, L, M):
+        return np.repeat(arr[:, :, :, None], H, axis=3)
+    if arr.shape == (F, L, M, H):
+        return arr
+    raise ValueError(
+        f"'{name}' shape {arr.shape} must be scalar, ({L},), ({F},{L}), "
+        f"({F},{L},{M}), or ({F},{L},{M},{H})."
+    )
+
+
 # ---------------------------------------------------------------------------
 # Public loader
 # ---------------------------------------------------------------------------
@@ -266,7 +303,15 @@ def load_config(data: dict) -> FleetConfig:
         replacement_v=_fl_scalar(alias("replacement_v", "v_new"), F, L,
                                  "replacement_v", default=0.0),
         s_chernoff=_fl_scalar(data.get("s_chernoff"), F, L, "s_chernoff"),
-        gamma_beta=_fl_scalar(data.get("gamma_beta"), F, L, "gamma_beta"),
+        gamma_beta=_gamma_rate_prof(data.get("gamma_beta"), F, L, M, H_prof,
+                                    "gamma_beta"),
+        gamma_beta_trans=_gamma_rate_prof(data.get("gamma_beta_trans"), F, L, M,
+                                          H1, "gamma_beta_trans"),
+        gamma_beta_bound=_fl_scalar(data.get("gamma_beta_bound"), F, L,
+                                    "gamma_beta_bound"),
+        gamma_beta_0=_fl_scalar(data.get("gamma_beta_0"), F, L, "gamma_beta_0"),
+        gamma_beta_new=_fl_scalar(data.get("gamma_beta_new"), F, L,
+                                  "gamma_beta_new"),
         mu=_flmh_prof(data["mu"], F, L, M, H_prof, "mu"),
         v=_flmh_prof(data.get("v"), F, L, M, H_prof, "v"),
         support=_flmh_prof(data.get("support"), F, L, M, H_prof, "support"),
@@ -389,7 +434,50 @@ def _validate_cells(cfg: FleetConfig) -> None:
                             f"and the model is infeasible regardless of schedule.")
 
             elif m == "gamma":
-                if cfg.gamma_beta is None or not (cfg.gamma_beta[i, l] > 0):
-                    raise ValueError(f"{where}: gamma needs 'gamma_beta' > 0 at this cell.")
+                if (
+                    cfg.gamma_beta is None
+                    or not np.all(np.isfinite(cfg.gamma_beta[i, l]))
+                    or not np.all(cfg.gamma_beta[i, l] > 0)
+                ):
+                    raise ValueError(
+                        f"{where}: gamma needs finite positive 'gamma_beta' rates."
+                    )
+                if cfg.gamma_beta_trans is not None and (
+                    not np.all(np.isfinite(cfg.gamma_beta_trans[i, l]))
+                    or not np.all(cfg.gamma_beta_trans[i, l] > 0)
+                ):
+                    raise ValueError(
+                        f"{where}: 'gamma_beta_trans' rates must be finite and positive."
+                    )
+                if cfg.gamma_beta_0 is not None and not (cfg.gamma_beta_0[i, l] > 0):
+                    raise ValueError(f"{where}: 'gamma_beta_0' must be > 0.")
+                if cfg.gamma_beta_new is not None and not (cfg.gamma_beta_new[i, l] > 0):
+                    raise ValueError(f"{where}: 'gamma_beta_new' must be > 0.")
+                if cfg.mu_0[i, l] > 0 and cfg.gamma_beta_0 is None:
+                    raise ValueError(
+                        f"{where}: nonzero mu_0 needs an exact 'gamma_beta_0'."
+                    )
+                if cfg.replacement_mu[i, l] > 0 and cfg.gamma_beta_new is None:
+                    raise ValueError(
+                        f"{where}: nonzero replacement_mu needs 'gamma_beta_new'."
+                    )
+                if cfg.gamma_beta_bound is not None:
+                    beta_bound = float(cfg.gamma_beta_bound[i, l])
+                    exact_min = float(np.min(cfg.gamma_beta[i, l]))
+                    if cfg.gamma_beta_trans is not None:
+                        exact_min = min(
+                            exact_min, float(np.min(cfg.gamma_beta_trans[i, l]))
+                        )
+                    if cfg.mu_0[i, l] > 0:
+                        exact_min = min(exact_min, float(cfg.gamma_beta_0[i, l]))
+                    if cfg.replacement_mu[i, l] > 0:
+                        exact_min = min(exact_min, float(cfg.gamma_beta_new[i, l]))
+                    if not np.isfinite(beta_bound) or beta_bound <= 0:
+                        raise ValueError(f"{where}: 'gamma_beta_bound' must be > 0.")
+                    if beta_bound > exact_min + 1e-12:
+                        raise ValueError(
+                            f"{where}: gamma_beta_bound={beta_bound:g} exceeds "
+                            f"the smallest mission rate {exact_min:g}."
+                        )
 
             # gaussian / inverse_gaussian: reserved (handled by their builders)

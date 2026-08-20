@@ -253,7 +253,12 @@ class GammaCellBuilder:
             if cfg.mu_trans is None:
                 indices = np.arange(ctx.H1) % ctx.H2
                 trans = operating[..., indices]
-                beta_trans = beta_operating[..., indices]
+                if beta_trans_cfg is None:
+                    beta_trans = beta_operating[..., indices]
+                else:
+                    beta_trans = rate_profile(
+                        beta_trans_cfg, i, l, trans.shape, "gamma_beta_trans"
+                    )
             else:
                 trans = np.asarray(cfg.mu_trans[i, l], dtype=float)
                 if beta_trans_cfg is None:

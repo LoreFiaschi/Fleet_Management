@@ -123,6 +123,35 @@ def _uniform_over_vehicles(arr, name):
     return a[0, :]
 
 
+def _legacy_gamma_beta(cfg: "FleetConfig") -> np.ndarray:
+    """Collapse normalized exact rates for the constant-rate Gamma backend.
+
+    The modular Gamma block accepts mission/time-varying rates. The legacy
+    uniform backend remains a regression oracle and therefore receives only a
+    single rate per component.
+    """
+    beta = np.asarray(cfg.gamma_beta, dtype=float)
+    if beta.ndim == 2:                         # defensive: older FleetConfig
+        return _uniform_over_vehicles(beta, "gamma_beta")
+    if beta.ndim != 4 or beta.shape[:3] != (cfg.F, cfg.L, cfg.M):
+        raise ValueError(
+            "normalized gamma_beta must have shape (F,L,M,H_profile); "
+            f"got {beta.shape}."
+        )
+    collapsed = np.empty(cfg.L)
+    for l in range(cfg.L):
+        values = beta[:, l, :, :]
+        reference = float(values.flat[0])
+        if not np.allclose(values, reference, rtol=1e-12, atol=0.0):
+            raise NotImplementedError(
+                "a uniform Gamma fleet with mission/time-varying gamma_beta "
+                "must use the modular tail-bound backend; the legacy Gamma "
+                f"backend requires one rate per component (variation at l={l})."
+            )
+        collapsed[l] = reference
+    return collapsed
+
+
 def _cfg_to_gamma_kwargs(cfg: "FleetConfig") -> dict:
     """Translate a uniform single-model gamma FleetConfig into solve_gamma
     kwargs for the CURRENT gamma backend.
@@ -140,7 +169,7 @@ def _cfg_to_gamma_kwargs(cfg: "FleetConfig") -> dict:
         "mu_param": np.transpose(cfg.mu, (0, 2, 1, 3)),
         "tau": _uniform_over_vehicles(cfg.tau, "tau"),
         "epsilon": float(_require_uniform(cfg.epsilon, "epsilon")),
-        "gamma_beta": _uniform_over_vehicles(cfg.gamma_beta, "gamma_beta"),
+        "gamma_beta": _legacy_gamma_beta(cfg),
         "repair_rho": _uniform_over_vehicles(cfg.rho, "rho"),
         "C_M": cfg.costs["C_M"], "C_R": cfg.costs["C_R"], "C_rep": cfg.costs["C_rep"],
         "C_S": cfg.costs.get("C_S", cfg.costs.get("C_D")), "C_P": cfg.costs["C_P"],

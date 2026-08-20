@@ -32,7 +32,18 @@ def main() -> None:
             "replacement_v": 0.0,
             "mu": 0.05,
             "v": 0.0002,
-            "gamma_beta": 10.0,
+            # Exact shape-rate parameters vary by vehicle, phase and time.
+            # Values on rainflow cells are inert but keep the fleet-wide array
+            # rectangular. The selected common Gamma rate is per component.
+            "gamma_beta": [
+                [[[20.0, 15.0]], [[10.0, 10.0]]],
+                [[[20.0, 12.0]], [[10.0, 10.0]]],
+            ],
+            "gamma_beta_trans": [
+                [[[18.0, 10.0]], [[10.0, 10.0]]],
+                [[[16.0, 10.0]], [[10.0, 10.0]]],
+            ],
+            "gamma_beta_bound": [10.0, 10.0],
             "C_M": 1.0,
             "C_R": 0.5,
             "C_D": 2.0,
@@ -43,6 +54,11 @@ def main() -> None:
             "verbose": 0,
         }
     )
+
+    if cfg.gamma_beta.shape != (2, 2, 1, 2):
+        raise AssertionError(f"wrong operating rate shape {cfg.gamma_beta.shape}")
+    if cfg.gamma_beta_trans.shape != (2, 2, 1, 2):
+        raise AssertionError(f"wrong transitory rate shape {cfg.gamma_beta_trans.shape}")
 
     result = solve_mixed(cfg)
     if result["status"] != "optimal":
