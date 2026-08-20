@@ -170,16 +170,17 @@ def dispatch_cell(ctx: FleetModel, i: int, l: int) -> None:
 # The numerical calibration is independent of Gurobi. This block consumes its
 # bounded mission shapes, creates A', and keeps physical expected damage mu as a
 # separate shared state. Initial and replacement distributions are calibrated as
-# mutually exclusive seed histories. Imperfect Gamma repair remains disabled
-# until repaired mixed-rate histories are certified.
+# mutually exclusive seed histories. ARD-inf repair receives no reduction in
+# the tail-bound shape (a safe pathwise-dominance baseline) while physical mean
+# damage is contracted normally.
 # ---------------------------------------------------------------------------
 class GammaCellBuilder:
     """Finite-horizon common-rate tail bound for Gamma cells.
 
     Initial and replacement distributions are jointly calibrated with all
-    finite-horizon increment combinations. Imperfect repair is fixed off until
-    the post-repair mixed-rate convolution has an offline certificate rather
-    than silently applying the legacy constant-rate approximation.
+    finite-horizon increment combinations. ARD-inf repair is conservative by
+    keeping the bounding shape unchanged; ARD1 remains unsupported rather than
+    silently applying the legacy constant-rate approximation.
     """
 
     name = "gamma"
@@ -230,6 +231,13 @@ class GammaCellBuilder:
         beta_trans_cfg = getattr(cfg, "gamma_beta_trans", None)
         beta_bound_cfg = getattr(cfg, "gamma_beta_bound", None)
         for i, l in cells:
+            repair_model = str(cfg.repair_model[i, l])
+            if repair_model != "ardinf":
+                raise NotImplementedError(
+                    f"gamma cell (i={i}, l={l}): modular Gamma currently "
+                    "supports only repair_model='ardinf'. ARD1 needs an "
+                    "additional last-maintenance state and tail certification."
+                )
             operating = np.asarray(cfg.mu[i, l], dtype=float)
             if operating.shape[-1] != ctx.H2:
                 raise ValueError(
@@ -323,11 +331,13 @@ class GammaCellBuilder:
         maximum = float(data["maximum_shape"][i, l])
         md = ctx.model
 
-        # Imperfect repair is intentionally excluded from this certified block.
-        # Replacement discards the old history and selects its calibrated seed.
+        # ARD-inf repair gets no decrease in A'. This is safe because, pathwise,
+        # c*D + S <= D + S for c=1-rho and every future nonnegative increment
+        # sum S. The finite-history calibration already bounds D+S. Physical mu
+        # still contracts exactly, so repair can help the shared capacity state.
+        rho = float(ctx.rho[i, l])
+        remaining = 1.0 - rho
         for k in range(ctx.T):
-            md.addConstr(ctx.m_rep[i, l, k] == 0, name=f"gamma_no_repair_{i}_{l}_{k}")
-
             A_prev = initial_shape if k == 0 else A_var[i, l, k - 1]
             mu_prev = float(ctx.mu_0[i, l]) if k == 0 else ctx.mu_var[i, l, k - 1]
             if k < ctx.H1:
@@ -359,6 +369,21 @@ class GammaCellBuilder:
                 ctx.nb[i, l, k], True,
                 ctx.z_var[i, l, k] == 0.0,
                 name=f"z_gamma_zero_{i}_{l}_{k}",
+            )
+            md.addGenConstrIndicator(
+                ctx.m_rep[i, l, k], True,
+                A_var[i, l, k] == A_prev,
+                name=f"A_gamma_ardinf_{i}_{l}_{k}",
+            )
+            md.addGenConstrIndicator(
+                ctx.m_rep[i, l, k], True,
+                ctx.mu_var[i, l, k] == remaining * mu_prev,
+                name=f"mu_gamma_ardinf_{i}_{l}_{k}",
+            )
+            md.addGenConstrIndicator(
+                ctx.m_rep[i, l, k], True,
+                ctx.z_var[i, l, k] == rho * mu_prev,
+                name=f"z_gamma_ardinf_{i}_{l}_{k}",
             )
             if ctx.allow_replacement:
                 md.addGenConstrIndicator(
@@ -421,6 +446,7 @@ class GammaCellBuilder:
                 "worst_calibration_margin": calibration.worst_tail_margin,
                 "initial_bounded_shape": calibration.initial_bounded_shape,
                 "replacement_bounded_shape": calibration.replacement_bounded_shape,
+                "repair_bound": "ardinf_no_tail_credit",
             })
         out["gamma_shape_bound"] = shape
         out["gamma_tail_bound"] = tail

@@ -2,7 +2,8 @@
 
 The case is intentionally mixed so solver dispatch reaches ``base.solve_mixed``
 instead of the legacy uniform-Gamma backend. Nonzero initial and replacement
-states are calibrated jointly; imperfect Gamma repair remains disabled.
+states are calibrated jointly; ARD-inf repair uses a conservative no-tail-credit
+transition for the bounding shape.
 """
 
 from __future__ import annotations
@@ -68,8 +69,6 @@ def main() -> None:
 
     gamma_component = 0
     tol = 1e-7
-    if np.max(np.abs(result["m"][:, gamma_component, :])) > tol:
-        raise AssertionError("the uncertified Gamma repair decision was used")
     if np.max(result["gamma_tail_bound"][:, gamma_component, :]) > 0.1 + tol:
         raise AssertionError("Gamma reliability limit was violated")
     if any(item["tail_constraints"] != 47 for item in result["gamma_calibration"]):
@@ -83,12 +82,29 @@ def main() -> None:
     if np.any(mean[:, k_end] > mean[:, k_start] + tol):
         raise AssertionError("Gamma physical-mean repeatability was violated")
 
+    summaries = {(item["i"], item["l"]): item for item in result["gamma_calibration"]}
+    for i in range(cfg.F):
+        for k in range(cfg.T):
+            if result["m"][i, gamma_component, k] < 0.5:
+                continue
+            previous_shape = (
+                summaries[i, gamma_component]["initial_bounded_shape"]
+                if k == 0 else shape[i, k - 1]
+            )
+            previous_mean = cfg.mu_0[i, gamma_component] if k == 0 else mean[i, k - 1]
+            if abs(shape[i, k] - previous_shape) > tol:
+                raise AssertionError("ARD-inf Gamma repair received unsafe tail credit")
+            expected_mean = (1.0 - cfg.rho[i, gamma_component]) * previous_mean
+            if abs(mean[i, k] - expected_mean) > tol:
+                raise AssertionError("ARD-inf Gamma physical-mean transition is wrong")
+
     print("PASS modular Gamma cell integration")
     print("status       :", result["status"])
     print("objective    :", result["objective"])
     print("models       :", result["models"])
     print("common rates:", result["gamma_beta_bound"][:, gamma_component])
     print("max tail     :", np.max(result["gamma_tail_bound"][:, gamma_component, :]))
+    print("Gamma repairs:", int(np.rint(result["m"][:, gamma_component, :]).sum()))
     print("calibration  :", result["gamma_calibration"])
 
 
