@@ -169,17 +169,17 @@ def dispatch_cell(ctx: FleetModel, i: int, l: int) -> None:
 #
 # The numerical calibration is independent of Gurobi. This block consumes its
 # bounded mission shapes, creates A', and keeps physical expected damage mu as a
-# separate shared state. Initial and replacement damage are restricted to zero,
-# and imperfect Gamma repair is disabled until those histories are certified.
+# separate shared state. Initial and replacement distributions are calibrated as
+# mutually exclusive seed histories. Imperfect Gamma repair remains disabled
+# until repaired mixed-rate histories are certified.
 # ---------------------------------------------------------------------------
 class GammaCellBuilder:
     """Finite-horizon common-rate tail bound for Gamma cells.
 
-    The first modular implementation deliberately supports only states that
-    start at zero and replacements that reset to zero.  Imperfect repair is
-    fixed off until the post-repair mixed-rate convolution has an offline
-    certificate.  These restrictions are checked here rather than silently
-    applying the legacy constant-rate approximation.
+    Initial and replacement distributions are jointly calibrated with all
+    finite-horizon increment combinations. Imperfect repair is fixed off until
+    the post-repair mixed-rate convolution has an offline certificate rather
+    than silently applying the legacy constant-rate approximation.
     """
 
     name = "gamma"
@@ -187,7 +187,7 @@ class GammaCellBuilder:
     def prepare(self, ctx: FleetModel, cfg, cells, opts: dict) -> None:
         """Calibrate mission shapes offline and create the bounding state."""
         from fleet_management.degradation_model.gamma_utils.gamma_tail_bound import (
-            calculate_profile_tail_bound_parameters,
+            calculate_seeded_profile_tail_bound_parameters,
             required_shape_for_tail,
         )
 
@@ -223,23 +223,13 @@ class GammaCellBuilder:
         maximum_shape = np.zeros((ctx.F, ctx.L))
         bounded_trans = {}
         bounded_operating = {}
+        initial_shape = np.zeros((ctx.F, ctx.L))
+        replacement_shape = np.zeros((ctx.F, ctx.L))
         calibrations = {}
 
         beta_trans_cfg = getattr(cfg, "gamma_beta_trans", None)
         beta_bound_cfg = getattr(cfg, "gamma_beta_bound", None)
         for i, l in cells:
-            if abs(float(ctx.mu_0[i, l])) > 1e-12:
-                raise NotImplementedError(
-                    f"gamma cell (i={i}, l={l}): the first modular tail-bound "
-                    "implementation requires mu_0=0. A nonzero initial Gamma "
-                    "term must be included in the joint convolution calibration."
-                )
-            if abs(float(ctx.mu_new[i, l])) > 1e-12:
-                raise NotImplementedError(
-                    f"gamma cell (i={i}, l={l}): only replacement-to-new "
-                    "(replacement_mu=0) is currently certified."
-                )
-
             operating = np.asarray(cfg.mu[i, l], dtype=float)
             if operating.shape[-1] != ctx.H2:
                 raise ValueError(
@@ -276,17 +266,29 @@ class GammaCellBuilder:
             )
             combined_mu = np.concatenate((trans, operating), axis=-1)
             combined_beta = np.concatenate((beta_trans, beta_operating), axis=-1)
-            calibration = calculate_profile_tail_bound_parameters(
+            beta_0_cfg = getattr(cfg, "gamma_beta_0", None)
+            beta_new_cfg = getattr(cfg, "gamma_beta_new", None)
+            calibration = calculate_seeded_profile_tail_bound_parameters(
                 expected_damage=combined_mu,
                 rates=combined_beta,
                 threshold=float(ctx.tau[i, l]),
                 max_total_count=ctx.T,
+                initial_expected_damage=float(ctx.mu_0[i, l]),
+                initial_rate=(
+                    None if beta_0_cfg is None else float(beta_0_cfg[i, l])
+                ),
+                replacement_expected_damage=float(ctx.mu_new[i, l]),
+                replacement_rate=(
+                    None if beta_new_cfg is None else float(beta_new_cfg[i, l])
+                ),
                 common_rate=selected_rate,
             )
             split = ctx.H1
             bounded_trans[i, l] = calibration.bounded_shapes[..., :split]
             bounded_operating[i, l] = calibration.bounded_shapes[..., split:]
             calibrations[i, l] = calibration
+            initial_shape[i, l] = calibration.initial_bounded_shape
+            replacement_shape[i, l] = calibration.replacement_bounded_shape
             common_rate[i, l] = calibration.common_rate
             maximum_shape[i, l] = required_shape_for_tail(
                 float(ctx.eps[i, l]),
@@ -304,6 +306,8 @@ class GammaCellBuilder:
             "maximum_shape": maximum_shape,
             "bounded_trans": bounded_trans,
             "bounded_operating": bounded_operating,
+            "initial_shape": initial_shape,
+            "replacement_shape": replacement_shape,
             "calibrations": calibrations,
         }
 
@@ -314,16 +318,18 @@ class GammaCellBuilder:
         A_var = data["A_var"]
         trans = data["bounded_trans"][i, l]
         operating = data["bounded_operating"][i, l]
+        initial_shape = float(data["initial_shape"][i, l])
+        replacement_shape = float(data["replacement_shape"][i, l])
         maximum = float(data["maximum_shape"][i, l])
         md = ctx.model
 
-        # Imperfect repair is intentionally excluded from the first certified
-        # modular block. Replacement to a zero-damage new component is exact.
+        # Imperfect repair is intentionally excluded from this certified block.
+        # Replacement discards the old history and selects its calibrated seed.
         for k in range(ctx.T):
             md.addConstr(ctx.m_rep[i, l, k] == 0, name=f"gamma_no_repair_{i}_{l}_{k}")
 
-            A_prev = 0.0 if k == 0 else A_var[i, l, k - 1]
-            mu_prev = 0.0 if k == 0 else ctx.mu_var[i, l, k - 1]
+            A_prev = initial_shape if k == 0 else A_var[i, l, k - 1]
+            mu_prev = float(ctx.mu_0[i, l]) if k == 0 else ctx.mu_var[i, l, k - 1]
             if k < ctx.H1:
                 shape_profile = trans
                 h = k
@@ -357,17 +363,17 @@ class GammaCellBuilder:
             if ctx.allow_replacement:
                 md.addGenConstrIndicator(
                     ctx.r_rep[i, l, k], True,
-                    A_var[i, l, k] == 0.0,
+                    A_var[i, l, k] == replacement_shape,
                     name=f"A_gamma_repl_{i}_{l}_{k}",
                 )
                 md.addGenConstrIndicator(
                     ctx.r_rep[i, l, k], True,
-                    ctx.mu_var[i, l, k] == 0.0,
+                    ctx.mu_var[i, l, k] == float(ctx.mu_new[i, l]),
                     name=f"mu_gamma_repl_{i}_{l}_{k}",
                 )
                 md.addGenConstrIndicator(
                     ctx.r_rep[i, l, k], True,
-                    ctx.z_var[i, l, k] == mu_prev,
+                    ctx.z_var[i, l, k] == mu_prev - float(ctx.mu_new[i, l]),
                     name=f"z_gamma_repl_{i}_{l}_{k}",
                 )
             md.addConstr(
@@ -410,9 +416,11 @@ class GammaCellBuilder:
                 "i": i,
                 "l": l,
                 "common_rate": rate,
-                "increment_types": int(calibration.compressed.original_shapes.size),
+                "increment_types": int(calibration.type_max_counts.size),
                 "tail_constraints": len(calibration.compressed.constraints),
                 "worst_calibration_margin": calibration.worst_tail_margin,
+                "initial_bounded_shape": calibration.initial_bounded_shape,
+                "replacement_bounded_shape": calibration.replacement_bounded_shape,
             })
         out["gamma_shape_bound"] = shape
         out["gamma_tail_bound"] = tail

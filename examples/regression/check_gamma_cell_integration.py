@@ -1,8 +1,8 @@
 """Small end-to-end check for the modular Gamma cell builder.
 
 The case is intentionally mixed so solver dispatch reaches ``base.solve_mixed``
-instead of the legacy uniform-Gamma backend.  Gamma starts and replacements
-are zero-damage, and imperfect Gamma repair is disabled by the builder.
+instead of the legacy uniform-Gamma backend. Nonzero initial and replacement
+states are calibrated jointly; imperfect Gamma repair remains disabled.
 """
 
 from __future__ import annotations
@@ -26,9 +26,9 @@ def main() -> None:
             "tau": [0.6, 0.6],
             "epsilon": [0.1, 0.1],
             "rho": 0.5,
-            "mu_0": 0.0,
+            "mu_0": [0.02, 0.0],
             "v_0": 0.0,
-            "replacement_mu": 0.0,
+            "replacement_mu": [0.01, 0.0],
             "replacement_v": 0.0,
             "mu": 0.05,
             "v": 0.0002,
@@ -44,6 +44,8 @@ def main() -> None:
                 [[[16.0, 10.0]], [[10.0, 10.0]]],
             ],
             "gamma_beta_bound": [10.0, 10.0],
+            "gamma_beta_0": [14.0, 10.0],
+            "gamma_beta_new": [11.0, 10.0],
             "C_M": 1.0,
             "C_R": 0.5,
             "C_D": 2.0,
@@ -70,6 +72,8 @@ def main() -> None:
         raise AssertionError("the uncertified Gamma repair decision was used")
     if np.max(result["gamma_tail_bound"][:, gamma_component, :]) > 0.1 + tol:
         raise AssertionError("Gamma reliability limit was violated")
+    if any(item["tail_constraints"] != 47 for item in result["gamma_calibration"]):
+        raise AssertionError("expected 47 jointly calibrated seeded histories per cell")
 
     k_start, k_end = cfg.H1 - 1, cfg.T - 1
     shape = result["gamma_shape_bound"][:, gamma_component, :]
