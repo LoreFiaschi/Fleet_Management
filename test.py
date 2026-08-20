@@ -141,6 +141,7 @@ from __future__ import annotations
 import argparse
 import collections
 import csv
+import traceback
 import math
 import sys
 import time
@@ -201,6 +202,23 @@ def _import_config():
     return load_config
 
 
+def _import_dispatch():
+    """The project's own model dispatcher, so a case file can use any model.
+
+    `solver._solve_mixed` routes gamma-only, rainflow-only and genuinely mixed
+    fleets. Run options travel inside the config (config.load_config passes
+    mip_gap / time_limit / gurobi_params / reliability_impl through), which is why
+    nothing has to be threaded past it.
+    """
+    from fleet_management.config import load_config
+    from fleet_management.solver import _solve_mixed
+    try:
+        from fleet_management.solver import _read_input
+    except ImportError:
+        _read_input = None
+    return load_config, _solve_mixed, _read_input
+
+
 def _import_solver():
     """Imported lazily so `analytic` / `--dry-run` work without Gurobi."""
     from fleet_management.config import load_config
@@ -217,7 +235,14 @@ IMPLS_ORDER = ("tangent", "pwl", "exact")
 # markov and chernoff are already linear; `rainflow._resolve_impl` silently falls
 # back to "exact" for them, so a non-exact run would just duplicate the exact one.
 IMPL_AWARE_BOUNDS = ("cantelli", "hoeffding", "bernstein")
-SWEEP_PARAMS = ("L", "H", "M", "F")
+# Structural parameters, plus the reliability and repair knobs. Sweeping the
+# latter answers a different question from H1: not "which bound is tighter" but
+# "what does reliability cost".
+SWEEP_PARAMS = ("L", "H", "M", "F", "epsilon", "rho", "tau", "p", "tangent_ref")
+# Sweeping any of these changes b_ref through the calibration, which would move
+# the increment distribution as well as the requirement -- two things at once.
+# The harness freezes the increment scale at its base value for these.
+SCALE_COUPLED = ("epsilon", "tau", "p")
 # Failure ladders: every list runs MILD -> HARSH, so the index is the stress level.
 STRESS_LADDERS = {
     "H": ("longer horizon", [4, 6, 8, 10, 12, 14, 16, 20, 24]),
@@ -367,6 +392,7 @@ class Scenario:
     # increment distribution
     p: float = 0.05                 # Bernoulli success probability
     n_target: float = 6.0           # calibration target for hoeffding's n_max
+    b_ref_fixed: float | None = None  # freeze the increment scale (see SCALE_COUPLED)
     severity_spread: float = 0.25   # missions span b_ref*(1 -+ spread)
     # costs (design note 3).  C_S is the alias the objective reads as C_D;
     # C_P is inert in the current objective; C_rep only matters with replacement.
@@ -404,6 +430,8 @@ class Scenario:
         constraint of `_rel_hoeffding_exact`), b factors out:
             b = tau / (p*n + sqrt(Le*n/2)).
         """
+        if self.b_ref_fixed is not None:
+            return float(self.b_ref_fixed)
         n = float(self.n_target)
         return self.tau / (self.p * n + math.sqrt(self.Le * n / 2.0))
 
@@ -778,13 +806,7 @@ def run_case(sc: Scenario, bound: str, opts) -> tuple[dict, dict]:
 
     md = res.get("model")
     if md is not None:
-        for key, attr in (("runtime_s", "Runtime"), ("n_vars", "NumVars"),
-                          ("n_constrs", "NumConstrs"), ("n_bin", "NumBinVars"),
-                          ("nodes", "NodeCount")):
-            try:
-                rec[key] = float(getattr(md, attr))
-            except Exception:
-                rec[key] = math.nan
+        rec.update(collect_model_metrics(md))
 
     # binding diagnostics: are the bounds actually doing anything? (design note 3)
     for key, arr, red in (("n_repairs", res.get("m"), np.sum),
@@ -799,7 +821,8 @@ def run_case(sc: Scenario, bound: str, opts) -> tuple[dict, dict]:
     if n_mc > 0 and isinstance(rec.get("objective"), float) \
             and math.isfinite(rec["objective"]):
         rng = np.random.default_rng(int(getattr(opts, "mc_seed", 0)))
-        rec.update(monte_carlo_check(sc, res, n_mc, rng))
+        rec.update(monte_carlo_check(sc, res, n_mc, rng,
+                                     getattr(opts, "mc_dist", "bernoulli")))
 
     if md is not None:
         try:
@@ -809,8 +832,34 @@ def run_case(sc: Scenario, bound: str, opts) -> tuple[dict, dict]:
     return rec, data
 
 
+def _sample_increment(sc: Scenario, b: float, n: int, rng, dist: str) -> np.ndarray:
+    """Draw n damage increments for a mission of severity b.
+
+    `bernoulli` is the distribution the model's descriptors were derived from.
+
+    Note it is also the ONLY bounded one available here: on support [0, b] with
+    mean p*b the largest achievable variance is p(1-p)b^2, which the two-point
+    distribution attains exactly. So no other distribution on [0, b] can match
+    both moments -- the model's descriptors already describe the extremal case,
+    and any moment-matched alternative must leave the support.
+
+    `lognormal` does exactly that: same mean and variance, unbounded above. The
+    support-based bounds (hoeffding, bernstein) lose their justification under it
+    while the moment-based ones (markov, cantelli) keep theirs, so the empirical
+    P(D>tau) shows which guarantees actually survive misspecification.
+    """
+    m = sc.p * b                                   # mean the model was given
+    v = sc.p * (1.0 - sc.p) * b * b                # variance the model was given
+    if dist == "bernoulli":
+        return (rng.random(n) < sc.p) * b
+    if dist == "lognormal":
+        sig2 = math.log(1.0 + v / (m * m))
+        return rng.lognormal(math.log(m) - sig2 / 2.0, math.sqrt(sig2), n)
+    raise SystemExit(f"unknown --mc-dist {dist!r}; pick from bernoulli, lognormal")
+
+
 def monte_carlo_check(sc: Scenario, res: dict, n_samples: int,
-                      rng: "np.random.Generator") -> dict:
+                      rng: "np.random.Generator", dist: str = "bernoulli") -> dict:
     """Empirical P(D > tau) for the SOLVED schedule, per rainflow cell.
 
     The bounds only certify P(D > tau) <= eps; they say nothing about how much
@@ -845,8 +894,8 @@ def monte_carlo_check(sc: Scenario, res: dict, n_samples: int,
                 elif m[i, l, k] > 0.5:
                     D *= (1.0 - sc.rho)
                 elif mission_at[k]:
-                    hit = rng.random(n_samples) < sc.p
-                    D = D + hit * b[mission_at[k] - 1]
+                    D = D + _sample_increment(sc, b[mission_at[k] - 1],
+                                              n_samples, rng, dist)
                 peak = max(peak, float(np.mean(D > sc.tau)))
             per_cell.append(peak)
             if peak > worst:
@@ -854,7 +903,7 @@ def monte_carlo_check(sc: Scenario, res: dict, n_samples: int,
     # Wilson-free normal CI is fine at these sample counts; report it so a reader
     # can see whether "0.000" means zero or just under-sampled
     se = math.sqrt(max(worst, 1e-12) * (1 - worst) / n_samples)
-    return {"mc_samples": n_samples,
+    return {"mc_samples": n_samples, "mc_dist": dist,
             "mc_p_max": worst,
             "mc_p_max_cell": worst_cell,
             "mc_p_mean": float(np.mean(per_cell)) if per_cell else math.nan,
@@ -901,6 +950,32 @@ def _f(value):
     return float(value) if value is not None else math.nan
 
 
+# Every Gurobi attribute worth recording. Missing ones are skipped silently:
+# availability depends on the model class (QCP attributes on a MILP, for example)
+# and on whether a solution was found at all.
+MODEL_ATTRS = {
+    "runtime_s": "Runtime", "work": "Work",
+    "n_vars": "NumVars", "n_constrs": "NumConstrs", "n_qconstrs": "NumQConstrs",
+    "n_genconstrs": "NumGenConstrs", "n_sos": "NumSOS",
+    "n_nz": "NumNZs", "n_qnz": "NumQNZs",
+    "n_int": "NumIntVars", "n_bin": "NumBinVars",
+    "nodes": "NodeCount", "iterations": "IterCount", "bar_iterations": "BarIterCount",
+    "sol_count": "SolCount", "obj_val": "ObjVal", "obj_bound_c": "ObjBoundC",
+    "max_vio": "MaxVio", "is_mip": "IsMIP", "is_qcp": "IsQCP",
+}
+
+
+def collect_model_metrics(md) -> dict:
+    """Read every available attribute off a solved Gurobi model."""
+    out = {}
+    for key, attr in MODEL_ATTRS.items():
+        try:
+            out[key] = float(getattr(md, attr))
+        except Exception:
+            pass
+    return out
+
+
 def classify(rec: dict) -> str:
     """'feasible' | 'infeasible' | 'unknown' -- only 'infeasible' counts as failure.
 
@@ -924,12 +999,16 @@ FIELDS = ["timestamp", "test", "parameter", "value", "bound", "status",
           "objective", "mip_gap", "obj_bound", "runtime_s", "wall_s",
           "verdict", "n_max_analytic", "load", "feasible_hint",
           "n_repairs", "n_replacements", "n_depot", "mu_max", "v_max",
-          "n_vars", "n_constrs", "n_bin", "nodes",
+          "n_vars", "n_constrs", "n_qconstrs", "n_genconstrs", "n_sos",
+          "n_nz", "n_qnz", "n_int", "n_bin", "nodes", "iterations",
+          "bar_iterations", "sol_count", "work", "obj_val", "obj_bound_c",
+          "max_vio", "is_mip", "is_qcp",
           "F", "M", "L", "H", "T", "tau", "epsilon", "rho", "p", "b_ref",
           "mu_ref", "s_chernoff", "repair_model", "reliability_impl",
           "pwl_points", "tangent_ref",
           "allow_replacement", "C_M", "C_R", "C_S", "C_P",
-          "mc_samples", "mc_p_max", "mc_p_max_cell", "mc_p_mean", "mc_ci95",
+          "model", "req_mip_gap", "req_time_limit", "req_verbose", "traceback",
+          "mc_samples", "mc_dist", "mc_p_max", "mc_p_max_cell", "mc_p_mean", "mc_ci95",
           "mc_slack", "mc_conservatism",
           "threads", "gurobi_params", "host", "slurm_job",
           "git_branch", "git_commit"]
@@ -1035,8 +1114,7 @@ class TestRun:
         impl = impl_of_record(rec)
         if impl == "pwl":
             impl = f"pwl{rec.get('pwl_points', '')}"
-        return (f"{rec['bound']}_{impl}__{tag}"
-                .replace("/", "_").replace(" ", "").replace(".", "p"))
+        return _safe_filename(f"{rec.get('bound', 'unspecified')}_{impl}__{tag}")
 
     # ---- finish ------------------------------------------------------------
     def close(self, report: list[str], extra: dict | None = None) -> None:
@@ -1049,6 +1127,22 @@ class TestRun:
             "runs": [_to_builtin(r) for r in self.rows],
         })
         self.summary_path.write_text("\n".join(report))
+
+
+_BAD_FILENAME = set('<>:"/\\|?*') | {chr(c) for c in range(32)}
+
+
+def _safe_filename(text: str) -> str:
+    r"""Make a string usable as a filename on Windows as well as POSIX.
+
+    Windows rejects <>:"/\|?* and control characters, and dislikes trailing dots
+    or spaces. A case named after a path ("data/test/x") or a field that fell back
+    to "?" would otherwise raise OSError [Errno 22] deep inside the YAML dump,
+    after the solve has already been paid for.
+    """
+    out = "".join("_" if ch in _BAD_FILENAME else ch for ch in str(text))
+    out = out.replace(".", "p").strip(" _")
+    return out or "unnamed"
 
 
 def _dump_yaml(path: Path, payload: dict) -> None:
@@ -1813,8 +1907,16 @@ def test_sweep(sc: Scenario, opts, run: TestRun, sweeps: dict,
     for param, values in sweeps.items():
         print(f"\n[sweep] {param} over {values}")
         lines.append(f"=== {param} ===")
+        if param in SCALE_COUPLED:
+            lines.append(f"  NOTE {param} is coupled to the increment scale through "
+                         f"the calibration, so b_ref is frozen at its base value "
+                         f"{sc.b_ref:.6g}. Otherwise the increments would move with "
+                         f"the requirement and the sweep would confound the two.")
+            print(f"  [sweep] {param}: freezing b_ref at {sc.b_ref:.6g}")
         for v in values:
             base_variant = sc.variant(**{param: _cast(param, v)})
+            if param in SCALE_COUPLED:
+                base_variant = base_variant.variant(b_ref_fixed=sc.b_ref)
             if base_variant.F <= base_variant.M:
                 print(f"  skip {param}={v}: needs F > M "
                       f"(F={base_variant.F}, M={base_variant.M})")
@@ -2138,6 +2240,239 @@ def test_impl(sc: Scenario, opts, run: TestRun, impls, pwl_ladder) -> tuple[list
                  f"{len(summary['H3'])} impl-aware bounds.")
     summary["H3_violations"] = n_bad
     return lines, summary
+
+
+def _scalarize(value, default: str = "unspecified") -> str:
+    """Collapse a per-cell selector array to one label.
+
+    `config.load_config` normalises `model`, `bound_method` and `repair_model`
+    into (F, L) string arrays -- one per cell -- because a fleet may be
+    heterogeneous. Using such an array in a boolean context raises
+    "truth value of an array with more than one element is ambiguous", so it has
+    to be reduced explicitly. A uniform fleet gives one label; a mixed one is
+    reported as such rather than silently picking a cell.
+    """
+    if value is None:
+        return default
+    arr = np.asarray(value)
+    if arr.ndim == 0:
+        return str(arr.item()) or default
+    vals = sorted({str(q) for q in arr.ravel().tolist() if str(q) != ""})
+    if not vals:
+        return default
+    return vals[0] if len(vals) == 1 else "mixed:" + "+".join(vals)
+
+
+def resolve_case_path(name: str, root: Path) -> Path:
+    """`--case demo` -> input/demo.yaml, or an explicit path, whichever exists."""
+    cand = [Path(name)]
+    if not Path(name).suffix:
+        cand += [Path(name).with_suffix(ext) for ext in (".yaml", ".yml", ".json")]
+    cand += [root / c for c in list(cand)]
+    for q in cand:
+        if q.is_file():
+            return q
+    raise SystemExit(f"case file not found for {name!r}. Looked for: "
+                     + ", ".join(str(q) for q in cand))
+
+
+def test_case(sc: Scenario, opts, run: TestRun, cases: list, in_root: Path
+              ) -> tuple[list, dict]:
+    """Solve one or more hand-written input files from `input/` as they are.
+
+    Unlike the other tests this does not generate a scenario: the YAML is the
+    experiment. It is read with the project's own reader, normalised by
+    `config.load_config`, and dispatched by `solver._solve_mixed`, so gamma,
+    rainflow and mixed fleets all work and the bound / encoding come from the
+    file rather than from the CLI.
+
+    Run options (`mip_gap`, `time_limit`, `gurobi_params`, ...) are injected into
+    the input ONLY where the file does not already set them: the file wins, since
+    the point of this test is to run the case as written.
+
+    Note `--verify-mc` does not apply here. The Monte Carlo needs the increment
+    LAW, and a case file supplies only descriptors; reconstructing a law from them
+    would be an assumption the file never made.
+    """
+    # dry-run only needs the validator, so the solver (and gurobipy) is imported
+    # lazily -- the same discipline the other tests use
+    if opts.dry_run:
+        load_config, solve_mixed, read_input = _import_config(), None, None
+    else:
+        load_config, solve_mixed, read_input = _import_dispatch()
+    lines = [f"input directory: {in_root}",
+             "the input file is authoritative: CLI run options fill gaps only, so "
+             "the mip_gap / time_limit in the report header above are NOT "
+             "necessarily what ran -- see 'options in effect' per case.", ""]
+    header = (f"{'case':<22}{'model':<10}{'bound':<11}{'status':<14}"
+              f"{'cost':>12}{'gap':>9}{'time[s]':>9}{'nodes':>11}")
+    lines += [header, "-" * len(header)]
+    summary = {}
+
+    for name in cases:
+        if not _mine(opts):
+            continue
+        path = resolve_case_path(name, in_root)
+        data = (read_input(path) if read_input is not None
+                else yaml.safe_load(path.read_text()))
+        if not isinstance(data, dict):
+            raise SystemExit(f"{path} did not parse to a mapping")
+
+        # CLI run options fill gaps only; anything the file sets is preserved
+        injected = {}
+        for key, val in (("mip_gap", opts.mip_gap),
+                         ("time_limit", opts.time_limit),
+                         ("verbose", opts.verbose)):
+            if key not in data and val is not None:
+                data[key] = val; injected[key] = val
+        gp = _gurobi_params(opts)
+        if gp and "gurobi_params" not in data:
+            data["gurobi_params"] = gp; injected["gurobi_params"] = gp
+
+        print(f"  [case] {path} ...", flush=True)
+        run.note_progress(f"START case {name} ({path})")
+        rec = {"timestamp": datetime.now().isoformat(timespec="seconds"),
+               "test": "case", "parameter": "case", "value": name,
+               "bound": str(data.get("bound_method") or "unspecified"),
+               "reliability_impl": str(data.get("reliability_impl", "exact")),
+               "repair_model": str(data.get("repair_model", "?")),
+               "F": data.get("F"), "M": data.get("M"), "L": data.get("L", 1),
+               "H": data.get("H"), "T": 2 * int(data["H"]) if "H" in data else None,
+               "tau": data.get("tau"), "epsilon": data.get("epsilon"),
+               "rho": data.get("rho"),
+               "threads": getattr(opts, "threads", None) or "",
+               "gurobi_params": ",".join(f"{k}={v}" for k, v in
+                                         sorted((gp or {}).items())),
+               "host": _HOSTNAME, "slurm_job": _SLURM_JOB,
+               "git_branch": _GIT["git_branch"], "git_commit": _GIT["git_commit"]}
+
+        t0 = time.perf_counter()
+        if opts.dry_run:
+            load_config(data)                    # validate only
+            rec.update({"status": "dry_run", "objective": math.nan})
+            run.add(rec, data, sc)
+            lines.append(f"{name[:21]:<22}{str(data.get('model'))[:9]:<10}"
+                         f"{rec['bound'][:10]:<11}{'dry_run':<14}"
+                         f"{'-':>12}{'-':>9}{'-':>9}{'-':>11}")
+            continue
+        try:
+            cfg = load_config(data)
+            # the normalised config is authoritative: a file may leave the bound
+            # implicit, or name it somewhere load_config resolves
+            # these are (F, L) arrays on the config, one entry per cell
+            rec["bound"] = _scalarize(getattr(cfg, "bound_method", None),
+                                      str(data.get("bound_method") or "unspecified"))
+            rec["repair_model"] = _scalarize(getattr(cfg, "repair_model", None),
+                                             str(data.get("repair_model")
+                                                 or "unspecified"))
+            rec["model"] = _scalarize(getattr(cfg, "model", None)
+                                      if hasattr(cfg, "model")
+                                      else getattr(cfg, "models", None),
+                                      str(data.get("model") or "unspecified"))
+            # what the solver will ACTUALLY use, after the file and the CLI merge
+            eff = dict(getattr(cfg, "options", {}) or {})
+            rec["req_mip_gap"] = eff.get("mip_gap")
+            rec["req_time_limit"] = eff.get("time_limit")
+            rec["req_verbose"] = eff.get("verbose")
+            rec["reliability_impl"] = str(eff.get("reliability_impl", "exact"))
+            res = solve_mixed(cfg)
+        except Exception as exc:
+            # Keep the traceback. A bare "TypeError: 'NoneType' object is not
+            # subscriptable" says nothing about WHERE, and a case can take hours to
+            # reach the failure -- the location has to survive the handler.
+            tb = traceback.format_exc()
+            rec.update({"status": f"error: {type(exc).__name__}: {exc}",
+                        "objective": math.nan,
+                        "wall_s": time.perf_counter() - t0,
+                        "traceback": tb})
+            run.add(rec, data, sc)
+            (run.dir / f"traceback_{_safe_filename(name)}.txt").write_text(tb)
+            lines.append(f"{name[:21]:<22}{'-':<10}{'-':<11}{'ERROR':<14}")
+            lines.append(f"    {type(exc).__name__}: {exc}")
+            for frame in traceback.extract_tb(exc.__traceback__)[-3:]:
+                lines.append(f"      at {Path(frame.filename).name}:{frame.lineno} "
+                             f"in {frame.name}(): {(frame.line or '').strip()[:70]}")
+            lines.append(f"      full traceback: "
+                         f"traceback_{_safe_filename(name)}.txt")
+            continue
+        wall = time.perf_counter() - t0
+
+        obj = res.get("objective")
+        rec.update({
+            "status": res.get("status"),
+            "objective": (math.inf if res.get("status") == "infeasible"
+                          else (float(obj) if obj is not None else math.nan)),
+            "mip_gap": _f(res.get("mip_gap")), "obj_bound": _f(res.get("bound")),
+            "wall_s": wall, "degradation": res.get("degradation"),
+        })
+        md = res.get("model")
+        if md is not None:
+            rec.update(collect_model_metrics(md))
+        for key, arr, red in (("n_repairs", res.get("m"), np.sum),
+                              ("n_replacements", res.get("r"), np.sum),
+                              ("mu_max", res.get("mu"), np.max),
+                              ("v_max", res.get("v"), np.max)):
+            rec[key] = float(red(arr)) if arr is not None else math.nan
+        x = res.get("x")
+        rec["n_depot"] = float(np.sum(x[:, 0, :])) if x is not None else math.nan
+
+        _dump_schedule(run, name, res)
+        if md is not None:
+            try:
+                md.dispose()
+            except Exception:
+                pass
+        run.add(rec, data, sc)
+        summary[name] = {"input": str(path), "injected_options": _to_builtin(injected),
+                         "result": _to_builtin(rec)}
+        lines.append(f"{name[:21]:<22}{rec.get('model', '-')[:9]:<10}"
+                     f"{rec['bound'][:10]:<11}{str(rec['status'])[:13]:<14}"
+                     f"{_fmt(rec.get('objective')):>12}{_fmt(rec.get('mip_gap'), 4):>9}"
+                     f"{_fmt(rec.get('runtime_s'), 1):>9}"
+                     f"{_fmt(rec.get('nodes'), 0):>11}")
+        # be explicit about which options actually applied: the file wins, so the
+        # header's CLI values are NOT what ran
+        src = {k: ("CLI" if k in injected else "file")
+               for k in ("mip_gap", "time_limit", "verbose")}
+        lines.append(f"    options in effect: "
+                     f"mip_gap={rec.get('req_mip_gap')} ({src['mip_gap']})  "
+                     f"time_limit={rec.get('req_time_limit')} ({src['time_limit']})  "
+                     f"verbose={rec.get('req_verbose')} ({src['verbose']})  "
+                     f"impl={rec.get('reliability_impl')}  "
+                     f"repair={rec.get('repair_model')}")
+    lines.append("")
+    lines.append("full metrics are in results.csv / results.yaml; the schedule and "
+                 "state trajectories are in schedule_<case>.csv")
+    return lines, {"cases": summary}
+
+
+def _dump_schedule(run: TestRun, name: str, res: dict) -> None:
+    """Long-format schedule + state trajectory, one row per (vehicle, comp, step).
+
+    This is the artefact a plot script wants: activity, repair/replace flags and
+    the mean/variance trajectory, without having to reload the solver.
+    """
+    x, m, r = res.get("x"), res.get("m"), res.get("r")
+    mu, v = res.get("mu"), res.get("v")
+    if x is None or mu is None:
+        return
+    F, Jp1, T = x.shape
+    L = mu.shape[1]
+    path = run.dir / f"schedule_{_safe_filename(name)}.csv"
+    with path.open("w", newline="") as fh:
+        w = csv.writer(fh)
+        w.writerow(["vehicle", "component", "step", "activity", "mission",
+                    "repair", "replace", "mu", "v"])
+        for i in range(F):
+            for k in range(T):
+                j = next((q for q in range(1, Jp1) if x[i, q, k] > 0.5), 0)
+                act = "depot" if j == 0 else f"mission_{j}"
+                for l in range(L):
+                    w.writerow([i, l, k, act, j,
+                                int(m[i, l, k] > 0.5) if m is not None else "",
+                                int(r[i, l, k] > 0.5) if r is not None else "",
+                                float(mu[i, l, k]),
+                                float(v[i, l, k]) if v is not None else ""])
 
 
 def _uninformative(rows: list[dict]) -> bool:
@@ -2620,12 +2955,19 @@ def parse_args(argv=None):
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="Start with:  python test.py --tests analytic   (no Gurobi needed)")
     p.add_argument("--tests", default="analytic",
-                   help="comma list of analytic,base,sweep,impl,failure "
+                   help="comma list of analytic,base,sweep,impl,failure,case "
                         "(default: analytic)")
+    p.add_argument("--case", default=None,
+                   help="for --tests case: comma-separated input file names, "
+                        "resolved against --input-dir (e.g. 'demo' -> "
+                        "input/demo.yaml). An explicit path also works.")
+    p.add_argument("--input-dir", default="input", dest="input_dir",
+                   help="where --case looks for input files (default: input)")
     p.add_argument("--name", default="bound_tightness",
                    help="test name used in the folder and file names")
-    p.add_argument("--out", default="test_results",
-                   help="root output directory; each test gets its own folder")
+    p.add_argument("--out", default="results",
+                   help="root output directory; each run gets its own "
+                        "<YYYYMMDDHHMM>_<test> folder inside it")
     p.add_argument("--params", default="L,H,M,F",
                    help="parameters to sweep in the 'sweep' test (L,H,M,F)")
     p.add_argument("--values", default=None,
@@ -2700,6 +3042,14 @@ def parse_args(argv=None):
                         "cell). Verifies the chance constraint really holds and "
                         "measures how much slack each bound leaves. 20000 is "
                         "plenty; costs well under a second per solve.")
+    p.add_argument("--mc-dist", default="bernoulli", dest="mc_dist",
+                   choices=["bernoulli", "lognormal"],
+                   help="distribution used by --verify-mc. 'bernoulli' matches the "
+                        "descriptors the model was given; the others keep the same "
+                        "mean and variance but is unbounded, which breaks the "
+                        "support assumption hoeffding and bernstein rely on while "
+                        "leaving markov's and cantelli's intact -- a direct test of "
+                        "which guarantees survive misspecification.")
     p.add_argument("--mc-seed", type=int, default=0, dest="mc_seed",
                    help="seed for --verify-mc, so the check is reproducible")
     p.add_argument("--verbose", type=int, default=0, help="Gurobi output flag")
@@ -2804,7 +3154,12 @@ def parse_sweeps(args, sc: Scenario) -> dict:
     """Sweep values per parameter; the base value is always included so the
     curves share one common point."""
     defaults = {"L": [1, 2, 3], "H": [4, 6, 8, 10, 12],
-                "M": [1, 2, 3, 4], "F": [3, 4, 5, 6, 7]}
+                "M": [1, 2, 3, 4], "F": [3, 4, 5, 6, 7],
+                "epsilon": [0.2, 0.1, 0.05, 0.02, 0.01, 0.005],
+                "rho": [1.0, 0.9, 0.8, 0.6, 0.4],
+                "tau": [0.6, 0.8, 1.0, 1.5, 2.0],
+                "p": [0.02, 0.05, 0.1, 0.2],
+                "tangent_ref": [0.0, 0.05, 0.08, 0.15, 0.3, 0.5]}
     if args.values:
         for block in args.values.split(";"):
             if not block.strip():
@@ -2891,10 +3246,15 @@ def main(argv=None) -> int:
         "impl": lambda r: test_impl(sc, args, r, args.impl_list,
                                     args.pwl_ladder_list),
         "failure": lambda r: test_failure(sc, args, r, ladders, args.impl_list),
+        "case": lambda r: test_case(sc, args, r, case_names, Path(args.input_dir)),
     }
     for test in tests:
         if test not in runners:
             raise SystemExit(f"unknown test {test!r}; pick from {tuple(runners)}")
+    case_names = [_clean(q) for q in (args.case or "").split(",") if _clean(q)]
+    if "case" in tests and not case_names:
+        raise SystemExit("--tests case needs --case NAME[,NAME...] naming input "
+                         f"file(s) under {args.input_dir}/")
     if "impl" in tests and len(args.impl_list) < 2 and not args.pwl_ladder_list:
         raise SystemExit("the 'impl' test compares implementations, so give at "
                          "least two: --impls tangent,pwl,exact "
