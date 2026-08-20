@@ -26,7 +26,7 @@ def main() -> None:
         C_P=1.0,
         mu_0=np.zeros((2, 1)),
         replacement_mu=np.zeros((2, 1)),
-        repair_rho=np.full((2, 1), 0.5),
+        repair_rho=np.array([0.5]),
         verbose=0,
         mip_gap=0.0,
         gurobi_params={"SolutionLimit": 1},
