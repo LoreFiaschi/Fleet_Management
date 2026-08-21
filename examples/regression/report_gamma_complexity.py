@@ -16,6 +16,7 @@ HERE = Path(__file__).resolve().parent
 CASES = {
     "uniform_gamma": HERE / "gamma_tail_bound_public.yaml",
     "mixed_gamma_rainflow": HERE / "mixed_gamma_rainflow_public.yaml",
+    "mixed_gamma_ard1": HERE / "mixed_gamma_ard1_public.yaml",
 }
 
 
@@ -53,6 +54,7 @@ def build_case_report(name: str, input_path: Path, directory: Path) -> dict:
         "exact_validation": {
             "valid": validation["valid"],
             "gamma_cells": validation["gamma_cells"],
+            "gamma_ard1_cells": validation["gamma_ard1_cells"],
             "transitions_checked": validation["transitions_checked"],
             "repairs": validation["repairs"],
             "replacements": validation["replacements"],
@@ -62,6 +64,7 @@ def build_case_report(name: str, input_path: Path, directory: Path) -> dict:
             "minimum_reliability_slack": validation[
                 "minimum_reliability_slack"
             ],
+            "maximum_latch_error": validation["maximum_latch_error"],
             "timing": validation["timing"],
             "numerics": validation["numerics"],
         },

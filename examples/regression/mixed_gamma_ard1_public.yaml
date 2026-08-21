@@ -1,0 +1,79 @@
+F: 2
+M: 1
+L: 2
+H: [2, 3]
+
+# Every vehicle has one Gamma component and one rainflow component. Both use
+# ARD1 so the public mixed path exercises both latch implementations together.
+model: [gamma, rainflow]
+bound_method: [cantelli, markov]
+repair_model: [ard1, ard1]
+
+tau: [0.8, 0.8]
+epsilon: [0.2, 0.2]
+rho: 0.5
+
+mu_0:
+  - [0.020, 0.010]
+  - [0.015, 0.010]
+v_0: 0.00005
+replacement_mu:
+  - [0.001, 0.000]
+  - [0.001, 0.000]
+replacement_v: 0.0
+
+# Operating profiles have length H2=3 and transitory profiles length H1=2.
+# The larger transitory damage makes an imperfect repair economically useful;
+# Gamma replacement is still required to close the no-tail-credit shape cycle.
+mu:
+  -
+    - [[0.020, 0.020, 0.020]]
+    - [[0.010, 0.010, 0.010]]
+  -
+    - [[0.020, 0.020, 0.020]]
+    - [[0.010, 0.010, 0.010]]
+mu_trans:
+  -
+    - [[0.050, 0.050]]
+    - [[0.020, 0.020]]
+  -
+    - [[0.050, 0.050]]
+    - [[0.020, 0.020]]
+v: 0.00010
+v_trans: 0.00015
+
+# Rates belonging to rainflow cells are inert rectangular placeholders.
+gamma_beta:
+  -
+    - [[20.0, 15.0, 12.0]]
+    - [[10.0, 10.0, 10.0]]
+  -
+    - [[18.0, 14.0, 10.0]]
+    - [[10.0, 10.0, 10.0]]
+gamma_beta_trans:
+  -
+    - [[16.0, 10.0]]
+    - [[10.0, 10.0]]
+  -
+    - [[15.0, 10.0]]
+    - [[10.0, 10.0]]
+gamma_beta_bound: [10.0, 10.0]
+gamma_beta_0:
+  - [14.0, 10.0]
+  - [12.0, 10.0]
+gamma_beta_new: 10.0
+
+# Low repair cost and strong expected-damage regularisation make at least one
+# ARD1 repair optimal. Replacement remains expensive but necessary for the
+# Gamma shape repeatability condition.
+C_M: 0.05
+C_R: 0.0
+C_D: 20.0
+C_rep: 5.0
+C_P: 0.0
+
+allow_replacement: true
+replacement_as_new: true
+depot_capacity: 1
+mip_gap: 0.0
+verbose: 0

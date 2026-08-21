@@ -10,7 +10,8 @@ large calibration does not add the same number of Gurobi constraints.
 | Gurobi formulation | Optimize assignments and maintenance | Fleet dimensions, Gamma cells, and horizon length |
 | Exact validation | Certify the chosen schedule independently of Gurobi | Gamma cells, time steps, surviving history terms, and convolution-series terms |
 
-Generate a report for the uniform Gamma and mixed Gamma/rainflow fixtures:
+Generate a report for the uniform Gamma, mixed ARD-inf, and mixed ARD1
+Gamma/rainflow fixtures:
 
 ```powershell
 python .\examples\regression\report_gamma_complexity.py `
@@ -61,7 +62,8 @@ is conservative because both ARD-inf and ARD1 are pathwise non-increasing.
 
 For the supplied uniform fixture, the formula-generated subtotal must equal the
 complete Gurobi model. In a mixed fleet, the reported remainder belongs to the
-rainflow block.
+rainflow block. The mixed ARD1 fixture also verifies the additional latch
+variables, indicators and repeatability rows against the actual model totals.
 
 ## Exact-validation fields
 
