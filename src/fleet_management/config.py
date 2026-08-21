@@ -271,16 +271,16 @@ def load_config(data: dict) -> FleetConfig:
         if m not in SUPPORTED_MODELS:
             raise ValueError(f"model contains unknown value {m!r}; supported {SUPPORTED_MODELS}.")
 
-    # Profile horizon: rainflow cells use the operating horizon H2; a fleet made
-    # up only of single-horizon models (gamma / gaussian / inverse_gaussian) uses
-    # H1.  So with a two-horizon H = [H1, H2], gamma "just takes H1" -- including
-    # the length its per-mission profiles are normalized to.
-    any_rainflow = any(m == "rainflow" for m in model.ravel().tolist())
-    H_prof = H2 if any_rainflow else H1
-
-    # NOTE on two-horizon H = [H1, H2]: rainflow cells use both phases; gamma
-    # (and the other single-horizon models) simply use H1 -- that reduction is
-    # done in the solver's per-model kwargs builder, so nothing is rejected here.
+    # Profile horizon: rainflow and modular Gamma cells use the operating phase
+    # H2. Supplying gamma_beta_bound explicitly selects the modular finite-
+    # horizon Gamma contract. Legacy uniform Gamma inputs retain their H1
+    # profile convention while gamma_gurobi.py remains a regression oracle.
+    model_names = set(model.ravel().tolist())
+    any_rainflow = "rainflow" in model_names
+    modular_gamma_requested = (
+        "gamma" in model_names and data.get("gamma_beta_bound") is not None
+    )
+    H_prof = H2 if any_rainflow or modular_gamma_requested else H1
 
     def alias(*names):
         for n in names:

@@ -72,30 +72,39 @@ def solve(input_path: str, results_path: str = None) -> dict:   # was -> None, n
 # Solve dispatch (all inputs are "mixed"; uniform fleets bridge to a backend)
 # ---------------------------------------------------------------------------
 def _solve_mixed(cfg: "FleetConfig") -> dict:
-    """Solve a normalized FleetConfig — three routes by fleet composition.
+    """Solve a normalized FleetConfig using the appropriate backend.
 
-    1. **gamma-only**  -> the existing gamma backend (kept as a regression
-       oracle while the modular tail-bound block is introduced);
-    2. **rainflow-only** -> the rainflow builder (``rainflow.solve``);
-    3. **mixed** (cells use different degradation models) -> ``base.solve_mixed``,
-       which builds the shared skeleton once and then fills in each cell's
-       constraints through that cell's registered model builder.
+    1. Gamma-only with gamma_beta_bound -> modular tail-bound builder.
+    2. Gamma-only without gamma_beta_bound -> legacy regression backend.
+    3. Rainflow-only -> modular rainflow builder.
+    4. Mixed fleet -> modular per-cell builder.
     """
     models = set(cfg.models)
 
-    if models == {"gamma"}:                                   # 1. gamma-only
-        result = solve_gamma(**_cfg_to_gamma_kwargs(cfg))
-        result["mu_0"] = cfg.mu_0
+    if models == {"gamma"}:
+        if cfg.gamma_beta_bound is not None:
+            result = base_solve_mixed(cfg)
+            result["backend"] = "modular"
+        else:
+            result = solve_gamma(**_cfg_to_gamma_kwargs(cfg))
+            result["mu_0"] = cfg.mu_0
+            result["backend"] = "legacy_gamma"
+
         result["degradation"] = "gamma"
+        result.setdefault("models", cfg.models)
         return result
 
-    if models == {"rainflow"}:                                # 2. rainflow-only
+    if models == {"rainflow"}:
         result = rainflow_solve(cfg)
+        result["backend"] = "modular"
         result["degradation"] = "rainflow"
+        result.setdefault("models", cfg.models)
         return result
 
-    result = base_solve_mixed(cfg)                            # 3. mixed per cell
+    result = base_solve_mixed(cfg)
+    result["backend"] = "modular"
     result["degradation"] = "mixed"
+    result.setdefault("models", cfg.models)
     return result
 
 
@@ -304,6 +313,8 @@ def _build_serializable_output(result: dict) -> dict:
             else None
         ),
         "degradation": result["degradation"],
+        "backend": result.get("backend"),
+        "models": _to_builtin(result.get("models", [])),
         "F": result["F"],
         "M": result["M"],
         "H": result["H"],
@@ -319,7 +330,7 @@ def _build_serializable_output(result: dict) -> dict:
             output[key] = float(result[key])
 
     # Two-horizon / rainflow metadata
-    for key in ("H1", "H2", "T", "method", "bound_method", "repair_model"):
+    for key in ("H1", "H2", "T", "method", "bound_method", "repair_model", "reliability_impl"):
         if result.get(key) is not None:
             output[key] = _to_builtin(result[key])
 

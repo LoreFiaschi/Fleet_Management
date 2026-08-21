@@ -1,0 +1,59 @@
+F: 2
+M: 1
+L: 1
+H: [2, 3]
+
+model: gamma
+repair_model: ardinf
+
+tau: 0.6
+epsilon: 0.1
+rho: 0.5
+
+mu_0:
+  - [0.020]
+  - [0.015]
+replacement_mu:
+  - [0.010]
+  - [0.008]
+
+# Operating profiles have length H2=3; transitory profiles have length H1=2.
+mu: 0.05
+mu_trans: 0.04
+
+# Exact rates vary by vehicle and time, so the constant-rate legacy Gamma
+# backend cannot represent this case. The common rate explicitly selects the
+# modular finite-horizon tail-bound formulation.
+gamma_beta:
+  -
+    -
+      - [20.0, 15.0, 12.0]
+  -
+    -
+      - [18.0, 14.0, 10.0]
+gamma_beta_trans:
+  -
+    -
+      - [16.0, 10.0]
+  -
+    -
+      - [13.0, 10.0]
+gamma_beta_bound: 10.0
+gamma_beta_0:
+  - [14.0]
+  - [12.0]
+gamma_beta_new:
+  - [11.0]
+  - [10.0]
+
+C_M: 1.0
+C_R: 0.5
+C_D: 2.0
+C_rep: 0.2
+# Retained while the legacy backend remains a regression oracle.
+C_P: 0.3
+
+allow_replacement: true
+depot_capacity: 1
+mip_gap: 0.0
+verbose: 0
