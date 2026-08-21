@@ -385,28 +385,28 @@ class Scenario:
     H: int = 10                     # T = 2H; see design note 8
     # reliability
     tau: float = 1.0
-    epsilon: float = 0.02
-    rho: float = 0.9
+    epsilon: float = 0.1
+    rho: float = 0.6
     mu_0: float = 0.0
     v_0: float = 0.0
     # increment distribution
-    p: float = 0.05                 # Bernoulli success probability
+    p: float = 1.0/3.0                 # Bernoulli success probability
     n_target: float = 6.0           # calibration target for hoeffding's n_max
-    b_ref_fixed: float | None = None  # freeze the increment scale (see SCALE_COUPLED)
-    severity_spread: float = 0.25   # missions span b_ref*(1 -+ spread)
+    b_ref_fixed: float | None = 0.15  # freeze the increment scale (see SCALE_COUPLED)
+    severity_spread: float = 0.0   # missions span b_ref*(1 -+ spread)
     # costs (design note 3).  C_S is the alias the objective reads as C_D;
     # C_P is inert in the current objective; C_rep only matters with replacement.
     C_M: float = 1.0
-    C_R: float = 0.5
-    C_S: float = 2.0
-    C_P: float = 1.0
-    C_rep: float = 25.0
+    C_R: float = 2.0
+    C_S: float = 3.0
+    C_P: float = 3.0
+    C_rep: float = 0.5
     # model options
     repair_model: str = "ardinf"
-    reliability_impl: str = "exact"
+    reliability_impl: str = "tangent"
     pwl_points: int = 8             # segments used by reliability_impl='pwl'
     tangent_ref: float = 0.5        # tangent taken at tangent_ref*tau
-    allow_replacement: bool = False
+    allow_replacement: bool = True
 
     # ---- derived quantities ------------------------------------------------
     @property
@@ -740,9 +740,12 @@ def feasible_hint(sc: Scenario, bound: str) -> bool:
 # ===========================================================================
 # One solve
 # ===========================================================================
-def run_case(sc: Scenario, bound: str, opts) -> tuple[dict, dict]:
+def run_case(sc: Scenario, bound: str, opts, run=None, label: str = ""
+             ) -> tuple[dict, dict]:
     """Solve one (scenario, bound); return (record, input dict)."""
     data = sc.to_input(bound)
+    log_path = solver_log_path(run, label) if run is not None else None
+    sched_path = schedule_path(run, label) if run is not None else None
     rec = {
         "timestamp": datetime.now().isoformat(timespec="seconds"),
         "bound": bound, "F": sc.F, "M": sc.M, "L": sc.L, "H": sc.H, "T": sc.T,
@@ -756,6 +759,8 @@ def run_case(sc: Scenario, bound: str, opts) -> tuple[dict, dict]:
         "threads": getattr(opts, "threads", None) or "",
         "gurobi_params": ",".join(f"{k}={v}" for k, v in
                                   sorted((_gurobi_params(opts) or {}).items())),
+        "solver_log": (log_path.name if log_path is not None else ""),
+        "schedule_file": (sched_path.name if sched_path is not None else ""),
         "host": _HOSTNAME, "slurm_job": _SLURM_JOB,
         "git_branch": _GIT["git_branch"], "git_commit": _GIT["git_commit"],
         "n_max_analytic": n_max(sc, bound),
@@ -785,7 +790,7 @@ def run_case(sc: Scenario, bound: str, opts) -> tuple[dict, dict]:
             tangent_ref=sc.tangent_ref,
             # On a shared cluster node Gurobi would otherwise spawn threads for
             # every core it can see, not for the cores Slurm gave the job.
-            gurobi_params=_gurobi_params(opts),
+            gurobi_params=_gurobi_params(opts, log_path),
         )
     except Exception as exc:                     # keep the sweep alive
         rec.update({"status": f"error: {type(exc).__name__}: {exc}",
@@ -824,6 +829,8 @@ def run_case(sc: Scenario, bound: str, opts) -> tuple[dict, dict]:
         rec.update(monte_carlo_check(sc, res, n_mc, rng,
                                      getattr(opts, "mc_dist", "bernoulli")))
 
+    if sched_path is not None:
+        _write_schedule(sched_path, res)
     if md is not None:
         try:
             md.dispose()                         # release the Gurobi environment
@@ -912,7 +919,31 @@ def monte_carlo_check(sc: Scenario, res: dict, n_samples: int,
             "mc_conservatism": (sc.epsilon / worst) if worst > 0 else math.inf}
 
 
-def _gurobi_params(opts) -> dict | None:
+def solver_log_path(run, label: str) -> "Path | None":
+    """`<run folder>/solver_logs/<label>.log`, or None when logging is off."""
+    return _artefact_path(run, "log_mode", "solver_logs", label, ".log")
+
+
+def schedule_path(run, label: str) -> "Path | None":
+    """`<run folder>/schedules/<label>.csv`, or None when saving is off.
+
+    The schedule IS the answer the optimisation produced -- a cost figure without
+    it cannot be inspected, plotted or defended -- so this is on by default for
+    every test. The files are small (one row per vehicle x component x step).
+    """
+    return _artefact_path(run, "schedule_mode", "schedules", label, ".csv")
+
+
+def _artefact_path(run, mode_attr: str, subdir: str, label: str,
+                   ext: str) -> "Path | None":
+    if run is None or getattr(run, mode_attr, "off") == "off":
+        return None
+    d = run.dir / subdir
+    d.mkdir(parents=True, exist_ok=True)
+    return d / f"{_safe_filename(label)}{ext}"
+
+
+def _gurobi_params(opts, log_path=None) -> dict | None:
     """Threads plus any --gurobi-params overrides, e.g. MIPFocus=3,Symmetry=2.
 
     Useful when the dual bound is the bottleneck rather than the incumbent: the
@@ -943,6 +974,13 @@ def _gurobi_params(opts) -> dict | None:
                 params[key.strip()] = float(val)
             except ValueError:
                 params[key.strip()] = val.strip()
+    if log_path is not None:
+        # OutputFlag gates BOTH the console and the log file, and base.py sets it
+        # from `verbose` before applying these -- so enabling the log means
+        # enabling OutputFlag and muting the console separately.
+        params["LogFile"] = str(log_path)
+        params["OutputFlag"] = 1
+        params["LogToConsole"] = 1 if int(getattr(opts, "verbose", 0) or 0) else 0
     return params or None
 
 
@@ -1010,7 +1048,8 @@ FIELDS = ["timestamp", "test", "parameter", "value", "bound", "status",
           "model", "req_mip_gap", "req_time_limit", "req_verbose", "traceback",
           "mc_samples", "mc_dist", "mc_p_max", "mc_p_max_cell", "mc_p_mean", "mc_ci95",
           "mc_slack", "mc_conservatism",
-          "threads", "gurobi_params", "host", "slurm_job",
+          "threads", "gurobi_params", "solver_log", "schedule_file",
+          "host", "slurm_job",
           "git_branch", "git_commit"]
 
 
@@ -1045,6 +1084,13 @@ class TestRun:
         self.runs_dir.mkdir(parents=True, exist_ok=True)
         # shard identity lives in FILE names; the folder is shared by the whole run
         self.tag = suffix or ""
+        # 'auto' means: on for the case test (a handful of runs, each worth a log)
+        # and off for the sweeps, where hundreds of logs would swamp the folder
+        mode = getattr(opts, "solver_log", "auto")
+        self.log_mode = (("on" if test == "case" else "off")
+                         if mode == "auto" else mode)
+        sched = getattr(opts, "save_schedule", "auto")
+        self.schedule_mode = "on" if sched == "auto" else sched
         self.stem = test
         self.csv_path = self.dir / f"results{self.tag}.csv"
         self.yaml_path = self.dir / f"results{self.tag}.yaml"
@@ -1807,7 +1853,7 @@ def test_base(sc: Scenario, opts, run: TestRun, impls) -> tuple[list, dict]:
         variant = sc.variant(reliability_impl=impl)
         print(f"  solving {bound}/{impl} ...", flush=True)
         run.note_progress(f"START base {bound}/{impl}")
-        rec, data = run_case(variant, bound, opts)
+        rec, data = run_case(variant, bound, opts, run, f"base_{bound}_{impl}")
         rec.update({"test": "base", "parameter": "-", "value": ""})
         run.add(rec, data, variant)
         vals[(bound, impl)] = rec.get("objective", math.nan)
@@ -1929,7 +1975,7 @@ def test_sweep(sc: Scenario, opts, run: TestRun, sweeps: dict,
                 variant = base_variant.variant(reliability_impl=impl)
                 print(f"  {param}={v} {bound}/{impl} ...", flush=True)
                 run.note_progress(f"START {param}={v} {bound}/{impl}")
-                rec, data = run_case(variant, bound, opts)
+                rec, data = run_case(variant, bound, opts, run, f"{param}{v}_{bound}_{impl}")
                 rec.update({"test": "sweep", "parameter": param, "value": v})
                 run.add(rec, data, variant)
                 vals[(bound, impl)] = rec.get("objective", math.nan)
@@ -2017,7 +2063,7 @@ def test_failure(sc: Scenario, opts, run: TestRun, ladders: dict,
                     continue
                 print(f"  {bound}/{impl} {param}={v} ...", flush=True)
                 run.note_progress(f"START {param}={v} {bound}/{impl}")
-                rec, data = run_case(variant, bound, opts)
+                rec, data = run_case(variant, bound, opts, run, f"{param}{v}_{bound}_{impl}")
                 rec.update({"test": "failure", "parameter": param, "value": v})
                 run.add(rec, data, variant)
                 n_runs[key] += 1
@@ -2150,7 +2196,7 @@ def test_impl(sc: Scenario, opts, run: TestRun, impls, pwl_ladder) -> tuple[list
             continue
         variant = sc.variant(reliability_impl=impl)
         print(f"  [impl] {bound}/{impl} ...", flush=True)
-        rec, data = run_case(variant, bound, opts)
+        rec, data = run_case(variant, bound, opts, run, f"impl_{bound}_{impl}")
         rec.update({"test": "impl", "parameter": "impl", "value": impl})
         run.add(rec, data, variant)
         vals[(bound, impl)] = rec.get("objective", math.nan)
@@ -2201,7 +2247,7 @@ def test_impl(sc: Scenario, opts, run: TestRun, impls, pwl_ladder) -> tuple[list
                     continue
                 variant = sc.variant(reliability_impl="pwl", pwl_points=int(n))
                 print(f"  [impl] {bound}/pwl({n}) ...", flush=True)
-                rec, data = run_case(variant, bound, opts)
+                rec, data = run_case(variant, bound, opts, run, f"pwl{n}_{bound}")
                 rec.update({"test": "impl", "parameter": "pwl_points",
                             "value": int(n)})
                 run.add(rec, data, variant)
@@ -2325,9 +2371,18 @@ def test_case(sc: Scenario, opts, run: TestRun, cases: list, in_root: Path
                          ("verbose", opts.verbose)):
             if key not in data and val is not None:
                 data[key] = val; injected[key] = val
-        gp = _gurobi_params(opts)
+        log_path = solver_log_path(run, name)
+        sched_path = schedule_path(run, name)
+        gp = _gurobi_params(opts, log_path)
         if gp and "gurobi_params" not in data:
             data["gurobi_params"] = gp; injected["gurobi_params"] = gp
+        elif gp and log_path is not None:
+            # the file set its own gurobi_params: merge the log keys in rather
+            # than losing the log
+            merged = dict(data.get("gurobi_params") or {})
+            merged.update({k: gp[k] for k in
+                           ("LogFile", "OutputFlag", "LogToConsole") if k in gp})
+            data["gurobi_params"] = merged
 
         print(f"  [case] {path} ...", flush=True)
         run.note_progress(f"START case {name} ({path})")
@@ -2343,6 +2398,8 @@ def test_case(sc: Scenario, opts, run: TestRun, cases: list, in_root: Path
                "threads": getattr(opts, "threads", None) or "",
                "gurobi_params": ",".join(f"{k}={v}" for k, v in
                                          sorted((gp or {}).items())),
+               "solver_log": (log_path.name if log_path is not None else ""),
+               "schedule_file": (sched_path.name if sched_path is not None else ""),
                "host": _HOSTNAME, "slurm_job": _SLURM_JOB,
                "git_branch": _GIT["git_branch"], "git_commit": _GIT["git_commit"]}
 
@@ -2416,7 +2473,8 @@ def test_case(sc: Scenario, opts, run: TestRun, cases: list, in_root: Path
         x = res.get("x")
         rec["n_depot"] = float(np.sum(x[:, 0, :])) if x is not None else math.nan
 
-        _dump_schedule(run, name, res)
+        if sched_path is not None:
+            _write_schedule(sched_path, res)
         if md is not None:
             try:
                 md.dispose()
@@ -2446,7 +2504,7 @@ def test_case(sc: Scenario, opts, run: TestRun, cases: list, in_root: Path
     return lines, {"cases": summary}
 
 
-def _dump_schedule(run: TestRun, name: str, res: dict) -> None:
+def _write_schedule(path: Path, res: dict) -> None:
     """Long-format schedule + state trajectory, one row per (vehicle, comp, step).
 
     This is the artefact a plot script wants: activity, repair/replace flags and
@@ -2458,7 +2516,6 @@ def _dump_schedule(run: TestRun, name: str, res: dict) -> None:
         return
     F, Jp1, T = x.shape
     L = mu.shape[1]
-    path = run.dir / f"schedule_{_safe_filename(name)}.csv"
     with path.open("w", newline="") as fh:
         w = csv.writer(fh)
         w.writerow(["vehicle", "component", "step", "activity", "mission",
@@ -2654,6 +2711,34 @@ def merge_shards(out_root: Path, name: str, test: str, opts) -> int:
                "run_folder": folder.name, "status_counts": statuses,
                "code_versions": sorted(f"{b}@{c}" for b, c in versions)}
 
+    # ---- case runs: no hypothesis, just a table --------------------------
+    if test == "case":
+        report.append("case results (each row is a hand-written input file; there "
+                      "is no bound ordering to test here)")
+        hdr = (f"{'case':<24}{'model':<10}{'bound':<11}{'impl':<9}{'status':<13}"
+               f"{'cost':>12}{'gap':>9}{'time[s]':>9}{'nodes':>11}")
+        report += [hdr, "-" * len(hdr)]
+        for rec in sorted(rows, key=lambda r: str(r.get("value"))):
+            report.append(
+                f"{str(rec.get('value'))[:23]:<24}"
+                f"{str(rec.get('model', '-'))[:9]:<10}"
+                f"{str(rec.get('bound', '-'))[:10]:<11}"
+                f"{impl_of_record(rec)[:8]:<9}"
+                f"{str(rec.get('status'))[:12]:<13}"
+                f"{_fmt(rec.get('objective')):>12}{_fmt(rec.get('mip_gap'), 4):>9}"
+                f"{_fmt(rec.get('runtime_s'), 1):>9}"
+                f"{_fmt(rec.get('nodes'), 0):>11}")
+        summary["cases"] = {str(r.get("value")): _to_builtin(r) for r in rows}
+        _dump_yaml(folder / "merged_results.yaml",
+                   {"test": test, "run_folder": folder.name,
+                    "merged_from": [q.name for q in csvs],
+                    "created": datetime.now().isoformat(timespec="seconds"),
+                    "summary": summary, "runs": [_to_builtin(r) for r in rows]})
+        (folder / "merged_summary.txt").write_text("\n".join(report))
+        print("\n".join(report))
+        print(f"\n[merge] folder : {folder}")
+        return 0
+
     # ---- (H1)/(H3) per design point -------------------------------------
     impls_seen = [im for im in IMPLS_ORDER
                   if any(impl_of_record(r) == im and r.get("bound") in IMPL_AWARE_BOUNDS
@@ -2760,7 +2845,7 @@ def merge_shards(out_root: Path, name: str, test: str, opts) -> int:
     # ---- plots from the merged rows --------------------------------------
     if _plots_enabled(opts):
         for param in sorted({str(r.get("parameter")) for r in rows}
-                            - {"-", "impl", "pwl_points", "None", ""}):
+                            - {"-", "impl", "pwl_points", "case", "None", ""}):
             for path in (plot_parameter(rows, param, run, None),
                          plot_scalability(rows, param, run)):
                 if path:
@@ -2805,7 +2890,12 @@ def plan_run(args, sc: Scenario, sweeps: dict, ladders: dict, tests: list) -> in
     for test in tests:
         if test == "analytic":
             continue
-        if test == "base":
+        if test == "case":
+            # one solve per input file; the bound and encoding come from the file,
+            # so there is no bound x impl product here
+            units += [("case", "case", nm, "file", "file")
+                      for nm in getattr(args, "case_names", [])]
+        elif test == "base":
             units += [("base", "-", "", b, im) for b, im in combos]
         elif test == "impl":
             units += [("impl", "impl", im, b, im) for b, im in combos]
@@ -3052,6 +3142,19 @@ def parse_args(argv=None):
                         "which guarantees survive misspecification.")
     p.add_argument("--mc-seed", type=int, default=0, dest="mc_seed",
                    help="seed for --verify-mc, so the check is reproducible")
+    p.add_argument("--save-schedule", default="auto", dest="save_schedule",
+                   choices=["auto", "on", "off"],
+                   help="write the optimised schedule of every solve to "
+                        "<run folder>/schedules/<label>.csv -- one row per "
+                        "vehicle x component x step with the activity, the "
+                        "repair/replace flags and the mu/v trajectory. On by "
+                        "default; the files are small.")
+    p.add_argument("--solver-log", default="auto", dest="solver_log",
+                   choices=["auto", "on", "off"],
+                   help="write Gurobi's log per solve to <run folder>/solver_logs/. "
+                        "'auto' (default) means on for --tests case and off for the "
+                        "sweeps, where hundreds of logs would swamp the folder. The "
+                        "console stays quiet unless --verbose is set.")
     p.add_argument("--verbose", type=int, default=0, help="Gurobi output flag")
     p.add_argument("--dry-run", action="store_true",
                    help="build and validate every input, but do not solve")
@@ -3221,9 +3324,6 @@ def main(argv=None) -> int:
     sweeps = parse_sweeps(args, sc)
     ladders = parse_ladders(args) if "failure" in tests else {}
 
-    if args.plan:                                # planning only, no solving
-        return plan_run(args, sc, sweeps, ladders, tests)
-
     header = [f"# bound tests  {datetime.now():%Y-%m-%d %H:%M:%S}",
               f"# bounds: {list(BOUNDS_ORDER)}",
               f"# implementations: {args.impl_list}"
@@ -3259,6 +3359,10 @@ def main(argv=None) -> int:
         raise SystemExit("the 'impl' test compares implementations, so give at "
                          "least two: --impls tangent,pwl,exact "
                          "(optionally with --pwl-ladder 2,4,8,16)")
+
+    if args.plan:                                # planning only, no solving
+        args.case_names = case_names
+        return plan_run(args, sc, sweeps, ladders, tests)
 
     suffix = "" if args.shard_obj is None else f"_shard{args.shard_obj.k}"
     # suffix tags FILES inside the shared run folder (see TestRun docstring)

@@ -1,45 +1,45 @@
 #!/usr/bin/bash
-#SBATCH --job-name=bound_tests
-#SBATCH --array=0-19                  # 20 shards (submit.sh overrides this)
+#SBATCH --job-name=fleet_studies
+#SBATCH --array=0-19                  # 20 shards (submit_studies.sh overrides this)
 #SBATCH --ntasks=1                    # always 1 on Euler
 #SBATCH --cpus-per-task=4             # Gurobi threads (see --threads below)
-#SBATCH --mem-per-cpu=4g              # MIQCP branch-and-bound trees get large
+#SBATCH --mem-per-cpu=4g              # B&B trees plus the relaxation copy
 #SBATCH --time=24:00:00               # per ARRAY TASK, not for the whole array
 #SBATCH --output=logs/%x_%A_%a.out
 #SBATCH --error=logs/%x_%A_%a.err
 #
-# One array task = one shard of the work. Each shard writes its own results
-# folder; euler/merge.sbatch combines them and evaluates the hypotheses.
+# One array task = one shard of the work. Every task writes its own
+# results_shard<k>.csv into the SAME run folder; euler/merge_studies.sbatch
+# combines them, aggregates over seeds and draws the figures.
 set -euo pipefail
 
 # Slurm copies the batch script to a spool dir, so $0 is useless for locating the
-# project. SLURM_SUBMIT_DIR is the directory sbatch was called from -- submit.sh
-# always calls it from the project root. PROJECT can also be passed explicitly.
+# project. SLURM_SUBMIT_DIR is the directory sbatch was called from --
+# submit_studies.sh always calls it from the project root.
 PROJECT=${PROJECT:-${SLURM_SUBMIT_DIR:-$PWD}}
 
-TEST=${TEST:-sweep}                   # analytic | base | sweep | impl | failure
-# One stamp for the whole run, minted by submit.sh: every task must write into the
-# SAME results/<stamp>_<test>/ folder or the shards can never be merged.
-RUN_STAMP=${RUN_STAMP:?RUN_STAMP must be exported by euler/submit.sh}
-NAME=${NAME:-bound_tightness}
+# Comma list: scaling,horizon,heatmap,convergence. Each study gets its OWN run
+# folder and its OWN shard partition (run_studies restarts the work-unit counter
+# per study), so several studies in one submission is safe -- it just means each
+# task does the sum of their work.
+STUDIES=${STUDIES:-scaling}
+# One stamp for the whole run, minted by submit_studies.sh: every task must write
+# into the SAME results/<stamp>_<study>/ folder or the shards can never be merged.
+RUN_STAMP=${RUN_STAMP:?RUN_STAMP must be exported by euler/submit_studies.sh}
+NAME=${NAME:-studies}
 OUT=${OUT:-$PROJECT/results}
-PARAMS=${PARAMS:-L,H,M,F}
-IMPLS=${IMPLS:-exact}
 EXTRA=${EXTRA:-}
-# --tests case only: comma-separated input file names, resolved under INPUT_DIR
-CASES=${CASES:-}
-INPUT_DIR=${INPUT_DIR:-input}
-# Per-solve Gurobi limit, in seconds. This is NOT the same as the Slurm --time:
-# without it, one intractable MIQCP can consume the whole 24 h task (and grow a
-# branch-and-bound tree until the node is out of memory), taking every later solve
-# in that shard down with it -- the CSV is written per finished solve, so a killed
-# task loses everything it had not yet completed.
-# The gap is recorded per run, and the summary reports INCONCLUSIVE where the gap
-# is too wide to rank two bounds, so a truncated solve degrades the conclusion
-# honestly instead of silently.
-# Set SOLVE_TL=0 for no per-solve limit (only sensible for the failure test, where
-# feasibility rather than cost is the measurement).
-SOLVE_TL=${SOLVE_TL:-900}
+# Per-solve Gurobi limit, in seconds. NOT the same as the Slurm --time: without it
+# one hard instance can consume the whole task allocation and take every later
+# solve in that shard with it. run_studies records status=time_limit and
+# censored=True for those rows, plots them as hollow up-arrows and keeps them out
+# of the medians, so a truncated solve degrades the figure honestly.
+SOLVE_TL=${SOLVE_TL:-300}
+MIP_GAP=${MIP_GAP:-1e-4}
+# Time limit for the CONTINUOUS relaxation, which is solved on a copy of each
+# model to produce the lp_gap column. Set LP_RELAX=0 to skip it entirely.
+LP_TL=${LP_TL:-60}
+LP_RELAX=${LP_RELAX:-1}
 
 # `module` is a shell function set up by the login profile. A batch script runs a
 # NON-login shell, so on some setups it is undefined here and every task dies
@@ -79,11 +79,17 @@ fi
 source "$PROJECT/.venv-euler/bin/activate"
 cd "$PROJECT"
 
-# Fail loudly here rather than 85 times inside the harness.
+# run_studies.py imports test.py BY PATH for the Scenario, the run-folder layout
+# and the CSV schema. Without it the script exits with a clear message, but it is
+# cheaper to catch here than 20 times in parallel.
+if [ ! -f "$PROJECT/test.py" ]; then
+    echo "ERROR: run_studies.py needs test.py next to it (not found in $PROJECT)." >&2
+    exit 1
+fi
+
+# Fail loudly here rather than hundreds of times inside the harness.
 # NOTE `import gurobipy` succeeds WITHOUT a licence -- the licence is only checked
-# when an environment is created. So the preflight has to actually solve something,
-# otherwise a missing or unreachable token server surfaces later as an opaque
-# exception from inside the harness.
+# when an environment is created. So the preflight has to actually solve something.
 set +e
 python - <<'PREFLIGHT'
 import numpy, yaml, gurobipy as gp
@@ -106,27 +112,29 @@ if [ $PF_RC -ne 0 ]; then
     exit 1
 fi
 
-# NSHARDS is exported by submit.sh. Falling back to SLURM_ARRAY_TASK_COUNT is a
-# last resort: it is not set by every Slurm build, and if it is missing or reports
-# the %throttle instead of the array size, the shards silently stop partitioning
-# the work correctly (some tasks take zero units and write empty CSVs).
 # Version check inside the task too, not only at submit time: a task can start
-# minutes after submission, and argparse's failure mode is a usage dump that buries
-# the real problem. Costs ~1 s.
-for flag in --threads --shard --gurobi-params; do
-    if ! python test.py --help 2>/dev/null | grep -q -- "$flag"; then
-        echo "ERROR: this test.py does not support $flag -- it is older than these" >&2
-        echo "       job scripts. On the login node:  git pull  (or scp the current" >&2
-        echo "       test.py up), then verify with:" >&2
-        echo "         python test.py --help | grep -c -- '--gurobi-params'   # 1" >&2
+# minutes after submission, and argparse's failure mode is a usage dump that
+# buries the real problem. Costs ~1 s.
+for flag in --studies --shard --run-stamp --threads --gurobi-params; do
+    if ! python run_studies.py --help 2>/dev/null | grep -q -- "$flag"; then
+        echo "ERROR: this run_studies.py does not support $flag -- it is older than" >&2
+        echo "       these job scripts. On the login node:  git pull  (or scp the" >&2
+        echo "       current run_studies.py up), then verify with:" >&2
+        echo "         python run_studies.py --help | grep -c -- '--studies'   # 1" >&2
         exit 1
     fi
 done
 
+# NSHARDS is exported by submit_studies.sh. Falling back to
+# SLURM_ARRAY_TASK_COUNT is a last resort: it is not set by every Slurm build, and
+# if it reports the %throttle instead of the array size the shards silently stop
+# partitioning the work correctly (some tasks take zero units and write empty CSVs
+# -- run_studies detects that and exits 2 rather than letting the merge report
+# "0 rows" with no explanation).
 NSHARDS=${NSHARDS:-${SLURM_ARRAY_TASK_COUNT:-0}}
-if [ "$NSHARDS" -lt 1 ] 2>/dev/null || [ -z "$NSHARDS" ]; then
+if [ -z "$NSHARDS" ] || [ "$NSHARDS" -lt 1 ] 2>/dev/null; then
     echo "ERROR: NSHARDS is unset and SLURM_ARRAY_TASK_COUNT is unavailable." >&2
-    echo "       Submit via 'bash euler/submit.sh <test> <nshards>'." >&2
+    echo "       Submit via 'bash euler/submit_studies.sh <studies> <nshards>'." >&2
     exit 1
 fi
 if [ "${SLURM_ARRAY_TASK_ID:-0}" -ge "$NSHARDS" ]; then
@@ -134,14 +142,15 @@ if [ "${SLURM_ARRAY_TASK_ID:-0}" -ge "$NSHARDS" ]; then
     echo "       and the shard count disagree." >&2
     exit 1
 fi
+
 echo "project=$PROJECT"
 echo "python=$(which python)  gurobi=$(python -c 'import gurobipy;print(gurobipy.gurobi.version())')"
 echo "host=$(hostname)  task=${SLURM_ARRAY_TASK_ID:-0}/${NSHARDS}  cpus=${SLURM_CPUS_PER_TASK:-1}"
-echo "solve time limit=${SOLVE_TL}s  mip gap=${MIP_GAP:-1e-4}"
+echo "studies=$STUDIES  stamp=$RUN_STAMP"
+echo "solve time limit=${SOLVE_TL}s  mip gap=${MIP_GAP}  lp_relax=${LP_RELAX} (tl ${LP_TL}s)"
 echo "started $(date)"
 
-# A nonconvex MIQCP with a weak dual bound grows an enormous search tree (8e6
-# nodes measured). Two defences, both cheap:
+# Two cheap memory defences:
 #   NodefileStart  spill the tree to node-local scratch past 1 GB of RAM
 #   SoftMemLimit   stop GRACEFULLY at ~80 % of the allocation and return the
 #                  incumbent, instead of being SIGKILLed by the OOM killer --
@@ -158,34 +167,26 @@ echo "gurobi memory guard: ${SOFT_MEM_GB} GB soft limit of ${MEM_TOTAL_GB} GB al
 
 # --threads: without it Gurobi spawns a thread per core it can SEE on the node,
 #   not per core Slurm gave us. On Euler nodes are shared, so that oversubscribes
-#   the machine, slows everyone down, and shows up in get_inefficient_jobs.
-# --time-limit: see SOLVE_TL above. Bounds each solve so one hard instance cannot
-#   take the whole task, and its Slurm allocation, down with it.
-# --no-plots: plotting happens once, in the merge step.
-ARGS=(--tests "$TEST" --name "$NAME" --out "$OUT"
-      --mip-gap "${MIP_GAP:-1e-4}"
+#   the machine and shows up in get_inefficient_jobs. It must ALSO be identical
+#   across the whole study: a timing curve measured on a varying thread count is
+#   not a timing curve, so never mix --cpus-per-task between submissions that
+#   feed the same figure.
+# --no-plots: plotting needs every seed of a design point, so it happens once in
+#   the merge step. run_studies skips plots under --shard anyway; this is explicit.
+ARGS=(--studies "$STUDIES" --name "$NAME" --out "$OUT"
+      --mip-gap "$MIP_GAP"
       --time-limit "$SOLVE_TL"
+      --lp-time-limit "$LP_TL"
       --threads "${SLURM_CPUS_PER_TASK:-1}"
       --no-plots
       --shard "${SLURM_ARRAY_TASK_ID:-0}/${NSHARDS}"
       --run-stamp "$RUN_STAMP"
       --gurobi-params "$GUROBI_EXTRA")
 
-# The case test takes input files instead of a generated grid, so --params /
-# --impls do not apply to it and --case does. For every other test it is the
-# other way round. Note the file is authoritative for a case: --mip-gap and
-# --time-limit above only fill keys the YAML leaves out.
-if [ "$TEST" = "case" ]; then
-    if [ -z "$CASES" ]; then
-        echo "ERROR: TEST=case needs CASES=name1,name2 (files under $INPUT_DIR/)" >&2
-        exit 1
-    fi
-    ARGS+=(--case "$CASES" --input-dir "$INPUT_DIR")
-    echo "cases: $CASES   input dir: $INPUT_DIR"
-else
-    ARGS+=(--params "$PARAMS" --impls "$IMPLS")
+if [ "$LP_RELAX" = "0" ]; then
+    ARGS+=(--no-lp-relax)
 fi
 
-python test.py "${ARGS[@]}" $EXTRA
+python run_studies.py "${ARGS[@]}" $EXTRA
 
 echo "finished $(date)"

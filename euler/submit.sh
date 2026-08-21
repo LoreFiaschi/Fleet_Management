@@ -85,12 +85,19 @@ case "${EXTRA:-}" in
     ;;
 esac
 # NSHARDS is exported so the job never has to infer the array size itself.
+if [ "$TEST" = "case" ] && [ -z "${CASES:-}" ]; then
+    echo "ERROR: 'case' needs CASES=name1,name2 naming input files, e.g." >&2
+    echo "         CASES=easy,hard bash euler/submit.sh case 2" >&2
+    exit 1
+fi
+
 ARRAY_ID=$(PROJECT=$PROJECT TEST=$TEST NAME=$NAME OUT=$OUT NSHARDS=$NSHARDS \
-    RUN_STAMP=$RUN_STAMP \
+    RUN_STAMP=$RUN_STAMP CASES="${CASES:-}" INPUT_DIR="${INPUT_DIR:-input}" \
     sbatch --parsable --array=0-$((NSHARDS - 1))%"$MAXPAR" euler/run_array.sbatch)
 echo "array job : $ARRAY_ID  ($NSHARDS shards, max $MAXPAR running at once)"
 
 MERGE_ID=$(PROJECT=$PROJECT TEST=$TEST NAME=$NAME OUT=$OUT RUN_STAMP=$RUN_STAMP \
+    CASES="${CASES:-}" INPUT_DIR="${INPUT_DIR:-input}" \
     sbatch --parsable --dependency=afterany:"$ARRAY_ID" euler/merge.sbatch)
 echo "merge job : $MERGE_ID  (runs after the array finishes)"
 echo
