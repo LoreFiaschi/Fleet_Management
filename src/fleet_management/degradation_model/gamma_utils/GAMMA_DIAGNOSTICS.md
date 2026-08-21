@@ -35,14 +35,17 @@ not regression constants.
 
 ## Gamma formulation counts
 
-Let `N_gamma` be the number of Gamma vehicle/component cells, `T=H1+H2`, and
-`I_replacement` equal one when replacement is enabled.
+Let `N_gamma` be the number of Gamma vehicle/component cells, `N_gamma_ard1`
+the subset using ARD1, `T=H1+H2`, and `I_replacement` equal one when
+replacement is enabled.
 
 ```text
 Gamma shape variables       = N_gamma * T
+Gamma ARD1 latch variables  = N_gamma_ard1 * T
 Gamma indicator constraints = N_gamma * T * (6 + 3*I_replacement)
+                            + N_gamma_ard1 * T * (2 + I_replacement)
 Gamma reliability rows      = N_gamma * T
-Gamma repeatability rows    = 2 * N_gamma
+Gamma repeatability rows    = 2 * N_gamma + N_gamma_ard1
 Gamma maintenance rows      = N_gamma * T * (2 + I_replacement)
 ```
 
@@ -50,6 +53,11 @@ Each no-action, repair, and optional replacement transition uses three
 indicators: bounding shape `A`, physical mean `mu`, and removed mean `z`.
 Indicator constraints are Gurobi general constraints and are not counted again
 as ordinary linear rows.
+
+ARD1 additionally carries the physical mean immediately after the previous
+action. Its latch is held during no action, set after repair, and reset after
+replacement. The Gamma reliability shape still receives no repair credit; this
+is conservative because both ARD-inf and ARD1 are pathwise non-increasing.
 
 For the supplied uniform fixture, the formula-generated subtotal must equal the
 complete Gurobi model. In a mixed fleet, the reported remainder belongs to the

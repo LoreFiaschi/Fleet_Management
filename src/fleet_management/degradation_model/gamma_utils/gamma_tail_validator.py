@@ -6,13 +6,15 @@ tail of every accumulated history with the Moschopoulos series, and checks
 
     exact tail upper bound <= solver Gamma bound <= epsilon.
 
-Initial and replacement states are alternative history seeds.  An ARD-inf
-repair with remaining fraction ``c = 1-rho`` transforms each surviving term as
+Initial and replacement states are alternative history seeds. An ARD-inf
+repair with remaining fraction ``c = 1-rho`` transforms every surviving term as
 
     Gamma(A, beta) -> Gamma(A, beta/c).
 
-The shape is unchanged and the mean contracts by ``c``.  A replacement discards
-the complete previous history.  No Gurobi objects or constraints are inspected.
+The shape is unchanged and the mean contracts by ``c``. ARD1 transforms only
+terms accumulated since the previous action, then freezes the repaired terms as
+the new history floor. A replacement discards the complete previous history and
+becomes the new ARD1 floor. No Gurobi objects or constraints are inspected.
 """
 
 from __future__ import annotations
@@ -185,6 +187,15 @@ def validate_gamma_tail_bound_schedule(
     saved_shape = _required_array(result, "gamma_shape_bound", (F, L, T))
     saved_tail = _required_array(result, "gamma_tail_bound", (F, L, T))
     common_rates = _required_array(result, "gamma_beta_bound", (F, L))
+    ard1_cells = [
+        (i, l)
+        for i, l in gamma_cells
+        if str(cfg.repair_model[i, l]) == "ard1"
+    ]
+    saved_latch = (
+        _required_array(result, "gamma_mean_latch", (F, L, T))
+        if ard1_cells else None
+    )
 
     if cfg.gamma_beta is None:
         raise ValueError("Gamma validation requires exact operating gamma_beta rates.")
@@ -216,6 +227,7 @@ def validate_gamma_tail_bound_schedule(
     minimum_margin = float("inf")
     minimum_slack = float("inf")
     maximum_mean_error = 0.0
+    maximum_latch_error = 0.0
     maximum_saved_tail_error = 0.0
     maximum_remaining_mass = 0.0
     maximum_terms = 0
@@ -229,11 +241,23 @@ def validate_gamma_tail_bound_schedule(
     worst_slack_step: dict[str, Any] | None = None
 
     for i, l in gamma_cells:
+        repair_model = str(cfg.repair_model[i, l])
+        if repair_model not in {"ardinf", "ard1"}:
+            raise ValueError(
+                f"Gamma cell (i={i}, l={l}) has unsupported repair_model "
+                f"{repair_model!r}."
+            )
         beta_0 = None if cfg.gamma_beta_0 is None else float(cfg.gamma_beta_0[i, l])
         beta_new = (
             None if cfg.gamma_beta_new is None else float(cfg.gamma_beta_new[i, l])
         )
-        history = _seed_term(float(cfg.mu_0[i, l]), beta_0, "initial", -1)
+        # ARD1 keeps an exact partition: frozen terms form the damage floor at
+        # the last action, while active terms are repairable at the next action.
+        # The initial distribution is active, matching the solver latch g_-1=0.
+        frozen_history: list[ExactGammaTerm] = []
+        active_history = _seed_term(
+            float(cfg.mu_0[i, l]), beta_0, "initial", -1
+        )
         events: list[dict[str, Any]] = []
 
         for k in range(T):
@@ -250,19 +274,37 @@ def validate_gamma_tail_bound_schedule(
             mission: int | None = None
             if replacement:
                 replacements += 1
-                history = _seed_term(
+                replacement_history = _seed_term(
                     float(cfg.replacement_mu[i, l]), beta_new, "replacement", k
                 )
+                if repair_model == "ard1":
+                    frozen_history = replacement_history
+                    active_history = []
+                else:
+                    frozen_history = []
+                    active_history = replacement_history
                 event = "replacement"
             elif repair:
                 repairs += 1
                 remaining = 1.0 - float(cfg.rho[i, l])
                 if remaining < -tolerance or remaining > 1.0 + tolerance:
                     reasons.append("repair remaining fraction lies outside [0,1]")
-                elif remaining <= tolerance:
-                    history = []
+                elif repair_model == "ard1":
+                    if remaining > tolerance:
+                        frozen_history.extend(
+                            term.after_ardinf(remaining)
+                            for term in active_history
+                        )
+                    active_history = []
                 else:
-                    history = [term.after_ardinf(remaining) for term in history]
+                    history_before = frozen_history + active_history
+                    frozen_history = []
+                    active_history = (
+                        [] if remaining <= tolerance else [
+                            term.after_ardinf(remaining)
+                            for term in history_before
+                        ]
+                    )
                 event = "repair"
             elif mission_indices.size:
                 if mission_indices.size != 1:
@@ -281,7 +323,7 @@ def validate_gamma_tail_bound_schedule(
                     cfg.H1,
                     cfg.H2,
                 )
-                history.append(
+                active_history.append(
                     ExactGammaTerm(
                         mean_increment * rate_increment,
                         rate_increment,
@@ -293,6 +335,7 @@ def validate_gamma_tail_bound_schedule(
             else:
                 event = "idle"
 
+            history = frozen_history + active_history
 
             exact_tail_start = time.perf_counter()
 
@@ -308,6 +351,11 @@ def validate_gamma_tail_bound_schedule(
 
             exact_mean = float(sum(term.mean for term in history))
             mean_error = abs(float(saved_mu[i, l, k]) - exact_mean)
+            exact_latch_mean = float(sum(term.mean for term in frozen_history))
+            latch_error = (
+                abs(float(saved_latch[i, l, k]) - exact_latch_mean)
+                if repair_model == "ard1" else 0.0
+            )
             bound_shape = float(saved_shape[i, l, k])
             bound_rate = float(common_rates[i, l])
             if bound_shape < -tolerance or bound_rate <= 0.0:
@@ -331,6 +379,8 @@ def validate_gamma_tail_bound_schedule(
 
             if mean_error > tolerance:
                 reasons.append(f"physical mean mismatch {mean_error:.3e}")
+            if latch_error > tolerance:
+                reasons.append(f"ARD1 mean-latch mismatch {latch_error:.3e}")
             if tail_serialization_error > tolerance:
                 reasons.append(
                     f"saved bound-tail mismatch {tail_serialization_error:.3e}"
@@ -351,6 +401,15 @@ def validate_gamma_tail_bound_schedule(
                 "exact_mean": exact_mean,
                 "saved_mean": float(saved_mu[i, l, k]),
                 "mean_error": mean_error,
+                "repair_model": repair_model,
+                "frozen_term_count": len(frozen_history),
+                "active_term_count": len(active_history),
+                "exact_latch_mean": exact_latch_mean,
+                "saved_latch_mean": (
+                    float(saved_latch[i, l, k])
+                    if repair_model == "ard1" else None
+                ),
+                "latch_error": latch_error,
                 "exact_tail_estimate": float(exact["estimate"]),
                 "exact_tail_upper_bound": float(exact["upper_bound"]),
                 "convolution_remaining_mass": float(exact["remaining_mass"]),
@@ -380,6 +439,7 @@ def validate_gamma_tail_bound_schedule(
                 minimum_slack = slack
                 worst_slack_step = {**step, "history": history_snapshot}
             maximum_mean_error = max(maximum_mean_error, mean_error)
+            maximum_latch_error = max(maximum_latch_error, latch_error)
             maximum_saved_tail_error = max(
                 maximum_saved_tail_error, tail_serialization_error
             )
@@ -408,12 +468,14 @@ def validate_gamma_tail_bound_schedule(
             "T": T,
         },
         "gamma_cells": len(gamma_cells),
+        "gamma_ard1_cells": len(ard1_cells),
         "transitions_checked": len(gamma_cells) * T,
         "repairs": repairs,
         "replacements": replacements,
         "minimum_conservativeness_margin": minimum_margin,
         "minimum_reliability_slack": minimum_slack,
         "maximum_mean_error": maximum_mean_error,
+        "maximum_latch_error": maximum_latch_error,
         "maximum_saved_tail_error": maximum_saved_tail_error,
         "global_violations": global_violations,
         "violations": violations,

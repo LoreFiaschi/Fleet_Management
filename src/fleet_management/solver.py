@@ -372,6 +372,7 @@ def _build_serializable_output(result: dict) -> dict:
             "tail_probability",
             "gamma_shape_bound",
             "gamma_tail_bound",
+            "gamma_mean_latch",
             "m",
             "r",
         ):
