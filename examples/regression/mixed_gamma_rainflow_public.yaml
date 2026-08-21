@@ -1,0 +1,72 @@
+F: 2
+M: 1
+L: 2
+H: [2, 3]
+
+# Component 0 uses the modular Gamma tail bound; component 1 uses rainflow.
+model: [gamma, rainflow]
+bound_method: [cantelli, cantelli]
+repair_model: [ardinf, ardinf]
+
+tau: [0.6, 0.6]
+epsilon: [0.1, 0.1]
+rho: 0.5
+
+mu_0:
+  - [0.020, 0.000]
+  - [0.015, 0.000]
+v_0: 0.0
+replacement_mu:
+  - [0.010, 0.000]
+  - [0.008, 0.000]
+replacement_v: 0.0
+
+# Operating profiles have length H2=3 and transitory profiles length H1=2.
+mu: 0.05
+mu_trans: 0.04
+v: 0.0002
+v_trans: 0.00015
+
+# Gamma rate entries for the rainflow component are inert; they keep the
+# fleet-wide arrays rectangular. Component 0 has varying exact rates.
+gamma_beta:
+  -
+    -
+      - [20.0, 15.0, 12.0]
+    -
+      - [10.0, 10.0, 10.0]
+  -
+    -
+      - [18.0, 14.0, 10.0]
+    -
+      - [10.0, 10.0, 10.0]
+gamma_beta_trans:
+  -
+    -
+      - [16.0, 10.0]
+    -
+      - [10.0, 10.0]
+  -
+    -
+      - [13.0, 10.0]
+    -
+      - [10.0, 10.0]
+gamma_beta_bound: [10.0, 10.0]
+gamma_beta_0:
+  - [14.0, 10.0]
+  - [12.0, 10.0]
+gamma_beta_new:
+  - [11.0, 10.0]
+  - [10.0, 10.0]
+
+C_M: 1.0
+C_R: 0.5
+C_D: 2.0
+C_rep: 0.2
+C_P: 0.3
+
+allow_replacement: true
+replacement_as_new: true
+depot_capacity: 1
+mip_gap: 0.0
+verbose: 0

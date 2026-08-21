@@ -873,9 +873,11 @@ def calculate_tail_bound_parameters(
         combinations, required_shapes, exact_tails, strict=True
     ):
         summed_shape = float(counts @ bounded_shapes)
-        bounded_tail = float(
-            gamma.sf(threshold, a=summed_shape, scale=1.0 / beta_bar)
-        )
+        # Gamma(shape=0) is a point mass at zero, SciPy returns NaN for a=0.
+        if summed_shape <= 0.0:
+            bounded_tail = 0.0
+        else:
+            bounded_tail = float(gamma.sf(threshold, a=summed_shape, scale=1.0 / beta_bar))
         margin = bounded_tail - convolution.upper_bound
         if margin < -feasibility_tolerance:
             raise RuntimeError(
