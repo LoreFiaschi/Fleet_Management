@@ -20,6 +20,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 import json
 from pathlib import Path
+import time
 from typing import Any
 
 import numpy as np
@@ -157,6 +158,8 @@ def validate_gamma_tail_bound_schedule(
     if max_series_terms <= 0:
         raise ValueError("max_series_terms must be positive.")
 
+    validation_start = time.perf_counter()
+
     F, L, M, T = cfg.F, cfg.L, cfg.M, cfg.T
     gamma_cells = [
         (i, l)
@@ -216,6 +219,10 @@ def validate_gamma_tail_bound_schedule(
     maximum_saved_tail_error = 0.0
     maximum_remaining_mass = 0.0
     maximum_terms = 0
+    total_series_terms = 0
+    exact_tail_evaluations = 0
+    nonempty_convolutions = 0
+    exact_tail_seconds = 0.0
     repairs = 0
     replacements = 0
     worst_margin_step: dict[str, Any] | None = None
@@ -286,12 +293,19 @@ def validate_gamma_tail_bound_schedule(
             else:
                 event = "idle"
 
+
+            exact_tail_start = time.perf_counter()
+
             exact = _exact_tail(
                 history,
                 float(cfg.tau[i, l]),
                 convolution_tolerance,
                 max_series_terms,
             )
+            exact_tail_seconds += time.perf_counter() - exact_tail_start
+            exact_tail_evaluations += 1
+            nonempty_convolutions += int(bool(history))
+
             exact_mean = float(sum(term.mean for term in history))
             mean_error = abs(float(saved_mu[i, l, k]) - exact_mean)
             bound_shape = float(saved_shape[i, l, k])
@@ -373,10 +387,14 @@ def validate_gamma_tail_bound_schedule(
                 maximum_remaining_mass, float(exact["remaining_mass"])
             )
             maximum_terms = max(maximum_terms, int(exact["series_terms"]))
+            total_series_terms += int(exact["series_terms"])
 
         cell_histories.append({"i": i, "l": l, "events": events})
 
     valid = not global_violations and not violations
+
+    validation_wall_seconds = time.perf_counter() - validation_start
+
     report: dict[str, Any] = {
         "valid": valid,
         "solver_status": str(result.get("status", "unknown")),
@@ -406,7 +424,23 @@ def validate_gamma_tail_bound_schedule(
             "convolution_tolerance": convolution_tolerance,
             "maximum_remaining_mass": maximum_remaining_mass,
             "maximum_series_terms_used": maximum_terms,
+            "total_series_terms": total_series_terms,
+            "mean_series_terms_per_nonempty_history": (
+                total_series_terms / nonempty_convolutions
+                if nonempty_convolutions
+                else 0.0
+            ),
             "max_series_terms": max_series_terms,
+        },
+        "timing": {
+            "validation_wall_seconds": validation_wall_seconds,
+            "exact_tail_seconds": exact_tail_seconds,
+            "replay_and_reporting_seconds": max(
+                0.0,
+                validation_wall_seconds - exact_tail_seconds,
+            ),
+            "exact_tail_evaluations": exact_tail_evaluations,
+            "nonempty_convolutions": nonempty_convolutions,
         },
     }
     if include_steps:

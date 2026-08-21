@@ -75,6 +75,7 @@ class TailConstraint:
     exact_tail_estimate: float
     exact_tail_upper_bound: float
     convolution_remaining_mass: float
+    convolution_series_terms: int
     required_common_shape: float
     bounded_common_shape: float
     bounded_tail_probability: float
@@ -128,6 +129,7 @@ class GammaTailBoundResult:
                     "exact_tail_estimate": item.exact_tail_estimate,
                     "exact_tail_upper_bound": item.exact_tail_upper_bound,
                     "convolution_remaining_mass": item.convolution_remaining_mass,
+                    "convolution_series_terms": item.convolution_series_terms,
                     "required_common_shape": item.required_common_shape,
                     "bounded_common_shape": item.bounded_common_shape,
                     "bounded_tail_probability": item.bounded_tail_probability,
@@ -873,11 +875,19 @@ def calculate_tail_bound_parameters(
         combinations, required_shapes, exact_tails, strict=True
     ):
         summed_shape = float(counts @ bounded_shapes)
-        # Gamma(shape=0) is a point mass at zero, SciPy returns NaN for a=0.
+        # A zero bounding shape represents the degenerate distribution at zero.
+        # scipy.stats.gamma is undefined at a=0 and returns NaN, whereas the
+        # correct tail at every positive threshold is exactly zero.
         if summed_shape <= 0.0:
             bounded_tail = 0.0
         else:
-            bounded_tail = float(gamma.sf(threshold, a=summed_shape, scale=1.0 / beta_bar))
+            bounded_tail = float(
+                gamma.sf(
+                    threshold,
+                    a=summed_shape,
+                    scale=1.0 / beta_bar,
+                )
+            )
         margin = bounded_tail - convolution.upper_bound
         if margin < -feasibility_tolerance:
             raise RuntimeError(
@@ -890,6 +900,7 @@ def calculate_tail_bound_parameters(
                 exact_tail_estimate=convolution.estimate,
                 exact_tail_upper_bound=convolution.upper_bound,
                 convolution_remaining_mass=convolution.remaining_mass,
+                convolution_series_terms=convolution.series_terms,
                 required_common_shape=float(required),
                 bounded_common_shape=summed_shape,
                 bounded_tail_probability=bounded_tail,

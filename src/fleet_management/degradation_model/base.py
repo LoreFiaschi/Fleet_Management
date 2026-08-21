@@ -39,6 +39,7 @@ Layering
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+import time
 from typing import Callable, Dict, Optional, Protocol
 
 import numpy as np
@@ -227,6 +228,7 @@ class GammaCellBuilder:
         initial_shape = np.zeros((ctx.F, ctx.L))
         replacement_shape = np.zeros((ctx.F, ctx.L))
         calibrations = {}
+        calibration_seconds = {}
 
         beta_trans_cfg = getattr(cfg, "gamma_beta_trans", None)
         beta_bound_cfg = getattr(cfg, "gamma_beta_bound", None)
@@ -276,6 +278,7 @@ class GammaCellBuilder:
             combined_beta = np.concatenate((beta_trans, beta_operating), axis=-1)
             beta_0_cfg = getattr(cfg, "gamma_beta_0", None)
             beta_new_cfg = getattr(cfg, "gamma_beta_new", None)
+            calibration_start = time.perf_counter()
             calibration = calculate_seeded_profile_tail_bound_parameters(
                 expected_damage=combined_mu,
                 rates=combined_beta,
@@ -303,6 +306,7 @@ class GammaCellBuilder:
                 calibration.common_rate,
                 float(ctx.tau[i, l]),
             )
+            calibration_seconds[i, l] = time.perf_counter() - calibration_start
             ctx.impl_of[(i, l)] = "gamma_finite_tail"
             for k in range(ctx.T):
                 A_var[i, l, k].UB = float(maximum_shape[i, l])
@@ -317,6 +321,7 @@ class GammaCellBuilder:
             "initial_shape": initial_shape,
             "replacement_shape": replacement_shape,
             "calibrations": calibrations,
+            "calibration_seconds": calibration_seconds,
         }
 
     def add_cell(self, ctx: FleetModel, i: int, l: int) -> None:
@@ -431,6 +436,7 @@ class GammaCellBuilder:
         for i, l in data["cells"]:
             rate = float(data["common_rate"][i, l])
             calibration = data["calibrations"][i, l]
+            constraints = calibration.compressed.constraints
             for k in range(ctx.T):
                 value = data["A_var"][i, l, k].X
                 shape[i, l, k] = value
@@ -442,7 +448,26 @@ class GammaCellBuilder:
                 "l": l,
                 "common_rate": rate,
                 "increment_types": int(calibration.type_max_counts.size),
-                "tail_constraints": len(calibration.compressed.constraints),
+                "increment_opportunities": int(calibration.original_shapes.size),
+                "seed_types": int(calibration.increment_offset),
+                "calibration_lp_variables": int(
+                    calibration.compressed.original_shapes.size
+                ),
+                "tail_constraints": len(constraints),
+                "calibration_seconds": float(
+                    data["calibration_seconds"][i, l]
+                ),
+                "total_convolution_series_terms": int(sum(
+                    item.convolution_series_terms for item in constraints
+                )),
+                "maximum_convolution_series_terms": int(max(
+                    (item.convolution_series_terms for item in constraints),
+                    default=0,
+                )),
+                "maximum_convolution_remaining_mass": float(max(
+                    (item.convolution_remaining_mass for item in constraints),
+                    default=0.0,
+                )),
                 "worst_calibration_margin": calibration.worst_tail_margin,
                 "initial_bounded_shape": calibration.initial_bounded_shape,
                 "replacement_bounded_shape": calibration.replacement_bounded_shape,
@@ -802,15 +827,66 @@ def solve_mixed(cfg, **overrides) -> dict:
     constraints through its registered builder. An unimplemented model (today:
     gamma) raises ``NotImplementedError`` from its placeholder block.
     """
+    backend_start = time.perf_counter()
     _load_builders()
     opts = resolve_run_options(cfg, **overrides)
+    construction_start = time.perf_counter()
     ctx = build_fleet(cfg, opts)
+    ctx.model.update()
+    construction_seconds = time.perf_counter() - construction_start
+
+    optimizer_start = time.perf_counter()
     ctx.model.optimize()
+    optimizer_seconds = time.perf_counter() - optimizer_start
+
+    extraction_start = time.perf_counter()
     out = extract_solution(ctx, cfg, ctx.model)
     for name in sorted({str(m) for m in np.asarray(cfg.model).ravel()}):
         hook = getattr(get_cell_builder(name), "extract", None)
         if hook is not None:
             hook(ctx, cfg, out)
+    extraction_seconds = time.perf_counter() - extraction_start
+
+    from fleet_management.degradation_model.gamma_utils.gamma_diagnostics import (
+        collect_gurobi_model_statistics,
+        compare_estimate_with_actual,
+        estimate_gamma_formulation,
+    )
+
+    performance = collect_gurobi_model_statistics(ctx.model)
+    performance.update({
+        "model_construction_seconds": construction_seconds,
+        "optimizer_call_seconds": optimizer_seconds,
+        "solution_extraction_seconds": extraction_seconds,
+        "backend_wall_seconds": time.perf_counter() - backend_start,
+    })
+    if "gamma" in ctx.extras:
+        performance["gamma_calibration_seconds"] = float(sum(
+            ctx.extras["gamma"]["calibration_seconds"].values()
+        ))
+        formulation = estimate_gamma_formulation(
+            cfg, allow_replacement=ctx.allow_replacement
+        )
+        formulation["actual_gurobi_model"] = {
+            key: performance[key]
+            for key in (
+                "variables",
+                "continuous_variables",
+                "integer_variables",
+                "binary_variables",
+                "linear_constraints",
+                "general_constraints",
+                "indicator_constraints",
+                "quadratic_constraints",
+                "nonzeros",
+            )
+        }
+        formulation["comparison"] = compare_estimate_with_actual(
+            formulation, formulation["actual_gurobi_model"]
+        )
+        out["gamma_formulation"] = formulation
+    performance["backend_wall_seconds"] = time.perf_counter() - backend_start
+    out["performance"] = performance
     return out
 
 
