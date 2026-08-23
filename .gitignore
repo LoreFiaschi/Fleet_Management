@@ -2,6 +2,7 @@ literature/*
 agentic/*
 .claude/*
 input/*
+!input/vbz_man12e_year.yaml
 results/*
 CLAUDE*
 *.zip
@@ -25,3 +26,6 @@ test_results/*
 results/*
 logs/*
 results-euler/*
+run_audit.py
+fleet_matrix_audit.py
+ds.py
