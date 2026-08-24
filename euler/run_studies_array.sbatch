@@ -40,6 +40,15 @@ MIP_GAP=${MIP_GAP:-1e-4}
 # model to produce the lp_gap column. Set LP_RELAX=0 to skip it entirely.
 LP_TL=${LP_TL:-60}
 LP_RELAX=${LP_RELAX:-1}
+# MILP encoding of the logical constraints (rainflow_v2): indicator | bigm.
+# This is the knob the lp_gap column exists to measure: the indicator encoding
+# puts NOTHING in the LP relaxation (its root bound is 0, so lp_gap is 1.0),
+# while every big-M row is in it. Leaving FORM empty keeps the harness default
+# ('indicator'), so an old submission reproduces bit for bit.
+# BIGM is the fallback big-M for a state with no finite bound; bounded states use
+# their own tightened bound, which is always tighter.
+FORM=${FORM:-}
+BIGM=${BIGM:-}
 
 # `module` is a shell function set up by the login profile. A batch script runs a
 # NON-login shell, so on some setups it is undefined here and every task dies
@@ -115,7 +124,8 @@ fi
 # Version check inside the task too, not only at submit time: a task can start
 # minutes after submission, and argparse's failure mode is a usage dump that
 # buries the real problem. Costs ~1 s.
-for flag in --studies --shard --run-stamp --threads --gurobi-params; do
+for flag in --studies --shard --run-stamp --threads --gurobi-params \
+            --formulation; do
     if ! python run_studies.py --help 2>/dev/null | grep -q -- "$flag"; then
         echo "ERROR: this run_studies.py does not support $flag -- it is older than" >&2
         echo "       these job scripts. On the login node:  git pull  (or scp the" >&2
@@ -148,6 +158,7 @@ echo "python=$(which python)  gurobi=$(python -c 'import gurobipy;print(gurobipy
 echo "host=$(hostname)  task=${SLURM_ARRAY_TASK_ID:-0}/${NSHARDS}  cpus=${SLURM_CPUS_PER_TASK:-1}"
 echo "studies=$STUDIES  stamp=$RUN_STAMP"
 echo "solve time limit=${SOLVE_TL}s  mip gap=${MIP_GAP}  lp_relax=${LP_RELAX} (tl ${LP_TL}s)"
+echo "formulation=${FORM:-indicator (harness default)}"
 echo "started $(date)"
 
 # Two cheap memory defences:
@@ -186,6 +197,8 @@ ARGS=(--studies "$STUDIES" --name "$NAME" --out "$OUT"
 if [ "$LP_RELAX" = "0" ]; then
     ARGS+=(--no-lp-relax)
 fi
+[ -n "$FORM" ] && ARGS+=(--formulation "$FORM")
+[ -n "$BIGM" ] && ARGS+=(--bigM "$BIGM")
 
 python run_studies.py "${ARGS[@]}" $EXTRA
 

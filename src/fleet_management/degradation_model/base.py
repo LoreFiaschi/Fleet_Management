@@ -30,7 +30,7 @@ Layering
 --------
     base.py       shared skeleton + registry + solve_mixed   (this file)
     rainflow.py   rainflow cell math + reliability bounds; registers "rainflow"
-    gamma block   finite-horizon common-rate tail builder below; registers "gamma"
+    (gamma)       PLACEHOLDER below; registers "gamma"
 
 `base` must not import the model modules at import time (they import `base`);
 ``solve_mixed`` imports them lazily so their registration side-effect happens.
@@ -65,7 +65,10 @@ class FleetModel:
     x: gp.tupledict                        # assignment  (F, M+1, T)
     m_rep: gp.tupledict                    # imperfect repair (F, L, T)
     r_rep: Optional[gp.tupledict]          # replacement (F, L, T) or None
-    nb: gp.tupledict                       # no-intervention indicator (F, L, T)
+    nb: Optional[gp.tupledict]             # no-intervention indicator (F, L, T)
+                                           # None when it has been substituted
+                                           # out (formulation='bigm'); read it
+                                           # through ``nb_of`` / ``act_of``
     mu_var: gp.tupledict                   # mean damage state (F, L, T)
     z_var: gp.tupledict                    # removed expected damage (F, L, T)
     u_var: gp.tupledict                    # aggregate damage per step (T,)
@@ -99,6 +102,12 @@ class FleetModel:
     impl_of: dict = field(default_factory=dict)
     pwl_points: int = 8
     tangent_ref: float = 0.5
+    # --- MILP encoding of the logical (on/off) constraints -----------------
+    # 'indicator' : Gurobi general indicator constraints (the original model)
+    # 'bigm'      : plain linear big-M rows, nb substituted out
+    formulation: str = "indicator"
+    bigM: float = 1.1               # fallback big-M when a state has no finite UB
+    z_exact: Optional[bool] = None  # pin z with upper rows; None = auto (see rainflow_v2)
     v_inc: Optional[Callable[[int, int, int, int], float]] = None
     w2_inc: Optional[Callable[[int, int, int, int], float]] = None
     cgf_inc: Optional[Callable[[int, int, int, int], float]] = None
@@ -106,6 +115,22 @@ class FleetModel:
     extras: dict = field(default_factory=dict)
 
     # --- helpers ---
+    def act_of(self, i: int, l: int, k: int):
+        """The 'an intervention happens' expression  ``m + r``  ( = 1 - nb )."""
+        if self.allow_replacement:
+            return self.m_rep[i, l, k] + self.r_rep[i, l, k]
+        return self.m_rep[i, l, k] + 0.0
+
+    def nb_of(self, i: int, l: int, k: int):
+        """``nb`` as a variable when it exists, else the expression it equals.
+
+        ``nb`` is fully determined by ``m`` and ``r`` (eq. 3), so the big-M
+        formulation substitutes it out; every reader must go through here.
+        """
+        if self.nb is not None:
+            return self.nb[i, l, k]
+        return 1.0 - self.act_of(i, l, k)
+
     def cells_of(self, model_name: str):
         """All (i, l) cells whose degradation model is ``model_name``."""
         return [(i, l) for i in range(self.F) for l in range(self.L)
@@ -153,13 +178,25 @@ def get_cell_builder(name: str):
         )
 
 
+def resolve_builder(ctx: FleetModel, name: str):
+    """The builder for ``name``, honouring a per-solve override on ``ctx``.
+
+    ``build_fleet(..., builders={...})`` lets one entry point pin a specific
+    implementation without touching the global registry -- which is how the
+    legacy ``rainflow`` module keeps working now that ``rainflow_v2`` owns the
+    registered "rainflow" name.
+    """
+    override = ctx.extras.get("_builders") or {}
+    return override.get(name) or get_cell_builder(name)
+
+
 def dispatch_cell(ctx: FleetModel, i: int, l: int) -> None:
     """Route one cell to its model's builder."""
-    get_cell_builder(str(ctx.model_of[i, l])).add_cell(ctx, i, l)
+    resolve_builder(ctx, str(ctx.model_of[i, l])).add_cell(ctx, i, l)
 
 
 # ===========================================================================
-# ###################  GAMMA FINITE-HORIZON TAIL BLOCK  #####################
+# ####################  GAMMA PLACEHOLDER (work in progress)  ###############
 # ===========================================================================
 # The modular gamma block goes here. A gamma cell shares the fleet skeleton
 # (assignment x, depot capacity, the aggregate-damage cap, the safety variable u
@@ -167,291 +204,46 @@ def dispatch_cell(ctx: FleetModel, i: int, l: int) -> None:
 # — that is what the cap / u / C_D term read. Everything gamma-specific (its own
 # state variables, shape/scale bookkeeping) can live in ``ctx.extras["gamma"]``.
 #
-# The numerical calibration is independent of Gurobi. This block consumes its
-# bounded mission shapes, creates A', and keeps physical expected damage mu as a
-# separate shared state. Initial and replacement distributions are calibrated as
-# mutually exclusive seed histories. ARD-inf repair receives no reduction in
-# the tail-bound shape (a safe pathwise-dominance baseline) while physical mean
-# damage is contracted normally.
+# To implement:
+#   1. `prepare`: create gamma's auxiliary variables for its cells and stash them
+#      in ctx.extras["gamma"]; read parameters from cfg (gamma_beta, rho, tau,
+#      epsilon, mu_0) and the mean profile through ctx.mu_inc.
+#   2. `add_cell`: maintenance gating (can reuse the shared pattern), the gamma
+#      degradation recursion driving ctx.mu_var and ctx.z_var, and the gamma
+#      reliability constraint.
+#
+# Note (open modelling question): in a MIXED fleet the profiles are normalized to
+# H_prof = H2 whenever any cell is rainflow, while a gamma-only fleet uses H1.
+# Decide explicitly how a gamma cell maps onto the shared T = H1 + H2 axis.
 # ---------------------------------------------------------------------------
 class GammaCellBuilder:
-    """Finite-horizon common-rate tail bound for Gamma cells.
-
-    Initial and replacement distributions are jointly calibrated with all
-    finite-horizon increment combinations. ARD-inf repair is conservative by
-    keeping the bounding shape unchanged; ARD1 remains unsupported rather than
-    silently applying the legacy constant-rate approximation.
-    """
+    """PLACEHOLDER builder for gamma cells (not implemented yet)."""
 
     name = "gamma"
 
     def prepare(self, ctx: FleetModel, cfg, cells, opts: dict) -> None:
-        """Calibrate mission shapes offline and create the bounding state."""
-        from fleet_management.degradation_model.gamma_utils.gamma_tail_bound import (
-            calculate_seeded_profile_tail_bound_parameters,
-            required_shape_for_tail,
-        )
+        """Create gamma auxiliary variables. Placeholder: nothing is created yet.
 
-        cells = list(cells)
-        if not cells:
-            return
-
-        def rate_profile(values, i, l, shape, name):
-            """Accept the legacy (F,L) rate or the forthcoming profile form."""
-            if values is None:
-                raise ValueError(f"gamma cell (i={i}, l={l}) needs '{name}'.")
-            arr = np.asarray(values, dtype=float)
-            if arr.ndim == 2:
-                value = float(arr[i, l])
-                return np.full(shape, value, dtype=float)
-            if arr.ndim == 4:
-                cell = np.asarray(arr[i, l], dtype=float)
-                try:
-                    return np.broadcast_to(cell, shape).astype(float, copy=True)
-                except ValueError as error:
-                    raise ValueError(
-                        f"gamma cell (i={i}, l={l}) {name} profile {cell.shape} "
-                        f"cannot broadcast to {shape}."
-                    ) from error
-            raise ValueError(
-                f"'{name}' must be normalized as (F,L) or (F,L,M,H); "
-                f"got shape {arr.shape}."
-            )
-
-        state_keys = [(i, l, k) for i, l in cells for k in range(ctx.T)]
-        A_var = ctx.model.addVars(state_keys, lb=0.0, name="A_gamma_bound")
-        common_rate = np.zeros((ctx.F, ctx.L))
-        maximum_shape = np.zeros((ctx.F, ctx.L))
-        bounded_trans = {}
-        bounded_operating = {}
-        initial_shape = np.zeros((ctx.F, ctx.L))
-        replacement_shape = np.zeros((ctx.F, ctx.L))
-        calibrations = {}
-
-        beta_trans_cfg = getattr(cfg, "gamma_beta_trans", None)
-        beta_bound_cfg = getattr(cfg, "gamma_beta_bound", None)
-        for i, l in cells:
-            repair_model = str(cfg.repair_model[i, l])
-            if repair_model != "ardinf":
-                raise NotImplementedError(
-                    f"gamma cell (i={i}, l={l}): modular Gamma currently "
-                    "supports only repair_model='ardinf'. ARD1 needs an "
-                    "additional last-maintenance state and tail certification."
-                )
-            operating = np.asarray(cfg.mu[i, l], dtype=float)
-            if operating.shape[-1] != ctx.H2:
-                raise ValueError(
-                    f"gamma cell (i={i}, l={l}): operating mu profile must have "
-                    f"length H2={ctx.H2}, got {operating.shape[-1]}."
-                )
-            beta_operating = rate_profile(
-                cfg.gamma_beta, i, l, operating.shape, "gamma_beta"
-            )
-
-            if cfg.mu_trans is None:
-                indices = np.arange(ctx.H1) % ctx.H2
-                trans = operating[..., indices]
-                if beta_trans_cfg is None:
-                    beta_trans = beta_operating[..., indices]
-                else:
-                    beta_trans = rate_profile(
-                        beta_trans_cfg, i, l, trans.shape, "gamma_beta_trans"
-                    )
-            else:
-                trans = np.asarray(cfg.mu_trans[i, l], dtype=float)
-                if beta_trans_cfg is None:
-                    indices = np.arange(ctx.H1) % ctx.H2
-                    beta_trans = beta_operating[..., indices]
-                else:
-                    beta_trans = rate_profile(
-                        beta_trans_cfg, i, l, trans.shape, "gamma_beta_trans"
-                    )
-
-            selected_rate = (
-                None
-                if beta_bound_cfg is None
-                else float(np.asarray(beta_bound_cfg, dtype=float)[i, l])
-            )
-            combined_mu = np.concatenate((trans, operating), axis=-1)
-            combined_beta = np.concatenate((beta_trans, beta_operating), axis=-1)
-            beta_0_cfg = getattr(cfg, "gamma_beta_0", None)
-            beta_new_cfg = getattr(cfg, "gamma_beta_new", None)
-            calibration = calculate_seeded_profile_tail_bound_parameters(
-                expected_damage=combined_mu,
-                rates=combined_beta,
-                threshold=float(ctx.tau[i, l]),
-                max_total_count=ctx.T,
-                initial_expected_damage=float(ctx.mu_0[i, l]),
-                initial_rate=(
-                    None if beta_0_cfg is None else float(beta_0_cfg[i, l])
-                ),
-                replacement_expected_damage=float(ctx.mu_new[i, l]),
-                replacement_rate=(
-                    None if beta_new_cfg is None else float(beta_new_cfg[i, l])
-                ),
-                common_rate=selected_rate,
-            )
-            split = ctx.H1
-            bounded_trans[i, l] = calibration.bounded_shapes[..., :split]
-            bounded_operating[i, l] = calibration.bounded_shapes[..., split:]
-            calibrations[i, l] = calibration
-            initial_shape[i, l] = calibration.initial_bounded_shape
-            replacement_shape[i, l] = calibration.replacement_bounded_shape
-            common_rate[i, l] = calibration.common_rate
-            maximum_shape[i, l] = required_shape_for_tail(
-                float(ctx.eps[i, l]),
-                calibration.common_rate,
-                float(ctx.tau[i, l]),
-            )
-            ctx.impl_of[(i, l)] = "gamma_finite_tail"
-            for k in range(ctx.T):
-                A_var[i, l, k].UB = float(maximum_shape[i, l])
-
-        ctx.extras["gamma"] = {
-            "cells": cells,
-            "A_var": A_var,
-            "common_rate": common_rate,
-            "maximum_shape": maximum_shape,
-            "bounded_trans": bounded_trans,
-            "bounded_operating": bounded_operating,
-            "initial_shape": initial_shape,
-            "replacement_shape": replacement_shape,
-            "calibrations": calibrations,
-        }
+        Intentionally does not raise, so that model *inspection* and the build of
+        the rest of a mixed fleet can proceed up to the point where a gamma cell
+        actually needs its constraints (`add_cell`).
+        """
+        ctx.extras.setdefault("gamma", {"cells": list(cells)})
 
     def add_cell(self, ctx: FleetModel, i: int, l: int) -> None:
-        """Add physical-mean and conservative-shape dynamics for one cell."""
-        add_maintenance_gating(ctx, i, l)
-        data = ctx.extras["gamma"]
-        A_var = data["A_var"]
-        trans = data["bounded_trans"][i, l]
-        operating = data["bounded_operating"][i, l]
-        initial_shape = float(data["initial_shape"][i, l])
-        replacement_shape = float(data["replacement_shape"][i, l])
-        maximum = float(data["maximum_shape"][i, l])
-        md = ctx.model
-
-        # ARD-inf repair gets no decrease in A'. This is safe because, pathwise,
-        # c*D + S <= D + S for c=1-rho and every future nonnegative increment
-        # sum S. The finite-history calibration already bounds D+S. Physical mu
-        # still contracts exactly, so repair can help the shared capacity state.
-        rho = float(ctx.rho[i, l])
-        remaining = 1.0 - rho
-        for k in range(ctx.T):
-            A_prev = initial_shape if k == 0 else A_var[i, l, k - 1]
-            mu_prev = float(ctx.mu_0[i, l]) if k == 0 else ctx.mu_var[i, l, k - 1]
-            if k < ctx.H1:
-                shape_profile = trans
-                h = k
-            else:
-                shape_profile = operating
-                h = (k - ctx.H1) % ctx.H2
-            shape_inc = gp.quicksum(
-                ctx.x[i, j, k] * float(shape_profile[j - 1, h])
-                for j in range(1, ctx.M + 1)
-            )
-            mean_inc = gp.quicksum(
-                ctx.x[i, j, k] * ctx.mu_inc(i, j - 1, l, k)
-                for j in range(1, ctx.M + 1)
-            )
-
-            md.addGenConstrIndicator(
-                ctx.nb[i, l, k], True,
-                A_var[i, l, k] == A_prev + shape_inc,
-                name=f"A_gamma_carry_{i}_{l}_{k}",
-            )
-            md.addGenConstrIndicator(
-                ctx.nb[i, l, k], True,
-                ctx.mu_var[i, l, k] == mu_prev + mean_inc,
-                name=f"mu_gamma_carry_{i}_{l}_{k}",
-            )
-            md.addGenConstrIndicator(
-                ctx.nb[i, l, k], True,
-                ctx.z_var[i, l, k] == 0.0,
-                name=f"z_gamma_zero_{i}_{l}_{k}",
-            )
-            md.addGenConstrIndicator(
-                ctx.m_rep[i, l, k], True,
-                A_var[i, l, k] == A_prev,
-                name=f"A_gamma_ardinf_{i}_{l}_{k}",
-            )
-            md.addGenConstrIndicator(
-                ctx.m_rep[i, l, k], True,
-                ctx.mu_var[i, l, k] == remaining * mu_prev,
-                name=f"mu_gamma_ardinf_{i}_{l}_{k}",
-            )
-            md.addGenConstrIndicator(
-                ctx.m_rep[i, l, k], True,
-                ctx.z_var[i, l, k] == rho * mu_prev,
-                name=f"z_gamma_ardinf_{i}_{l}_{k}",
-            )
-            if ctx.allow_replacement:
-                md.addGenConstrIndicator(
-                    ctx.r_rep[i, l, k], True,
-                    A_var[i, l, k] == replacement_shape,
-                    name=f"A_gamma_repl_{i}_{l}_{k}",
-                )
-                md.addGenConstrIndicator(
-                    ctx.r_rep[i, l, k], True,
-                    ctx.mu_var[i, l, k] == float(ctx.mu_new[i, l]),
-                    name=f"mu_gamma_repl_{i}_{l}_{k}",
-                )
-                md.addGenConstrIndicator(
-                    ctx.r_rep[i, l, k], True,
-                    ctx.z_var[i, l, k] == mu_prev - float(ctx.mu_new[i, l]),
-                    name=f"z_gamma_repl_{i}_{l}_{k}",
-                )
-            md.addConstr(
-                A_var[i, l, k] <= maximum,
-                name=f"rel_gamma_{i}_{l}_{k}",
-            )
-
-        # The bound state and the separately tracked physical mean must both be
-        # repeatable because A'/beta_bar is not assumed to equal physical mu.
-        k_start, k_end = ctx.H1 - 1, ctx.T - 1
-        md.addConstr(
-            A_var[i, l, k_end] <= A_var[i, l, k_start],
-            name=f"loop_A_gamma_{i}_{l}",
-        )
-        md.addConstr(
-            ctx.mu_var[i, l, k_end] <= ctx.mu_var[i, l, k_start],
-            name=f"loop_mu_gamma_{i}_{l}",
+        """PLACEHOLDER — the gamma constraint block for one cell."""
+        raise NotImplementedError(
+            f"cell (i={i}, l={l}) model='gamma': the modular gamma block is not "
+            "implemented yet (work in progress). Implement "
+            "base.GammaCellBuilder.add_cell — it must drive ctx.mu_var[i, l, k] "
+            "(the shared aggregate-damage cap, safety u and the C_D objective "
+            "term read it). For a gamma-only fleet, use the existing gamma "
+            "backend through solver.solve()."
         )
 
     def extract(self, ctx: FleetModel, cfg, out: dict) -> None:
-        """Add bounding shapes, rates, tails, and concise calibration metadata."""
-        if out.get("x") is None or "gamma" not in ctx.extras:
-            return
-        from scipy.stats import gamma as gamma_distribution
-
-        data = ctx.extras["gamma"]
-        shape = np.zeros((ctx.F, ctx.L, ctx.T))
-        tail = np.zeros((ctx.F, ctx.L, ctx.T))
-        summaries = []
-        for i, l in data["cells"]:
-            rate = float(data["common_rate"][i, l])
-            calibration = data["calibrations"][i, l]
-            for k in range(ctx.T):
-                value = data["A_var"][i, l, k].X
-                shape[i, l, k] = value
-                tail[i, l, k] = gamma_distribution.sf(
-                    float(ctx.tau[i, l]), a=value, scale=1.0 / rate
-                ) if value > 0.0 else 0.0
-            summaries.append({
-                "i": i,
-                "l": l,
-                "common_rate": rate,
-                "increment_types": int(calibration.type_max_counts.size),
-                "tail_constraints": len(calibration.compressed.constraints),
-                "worst_calibration_margin": calibration.worst_tail_margin,
-                "initial_bounded_shape": calibration.initial_bounded_shape,
-                "replacement_bounded_shape": calibration.replacement_bounded_shape,
-                "repair_bound": "ardinf_no_tail_credit",
-            })
-        out["gamma_shape_bound"] = shape
-        out["gamma_tail_bound"] = tail
-        out["gamma_beta_bound"] = data["common_rate"]
-        out["gamma_calibration"] = summaries
+        """Optional hook to add gamma-specific arrays to the result."""
+        return None
 
 
 register_cell_builder("gamma", GammaCellBuilder())
@@ -492,6 +284,11 @@ def resolve_run_options(cfg, **overrides) -> dict:
                                   o.get("tangent_ref"), 0.5)),
         "replacement_as_new": bool(pick(overrides.get("replacement_as_new"),
                                         o.get("replacement_as_new"), True)),
+        # MILP encoding of the logical constraints (rainflow_v2)
+        "formulation": str(pick(overrides.get("formulation"),
+                                o.get("formulation"), "indicator")).lower(),
+        "bigM": float(pick(overrides.get("bigM"), o.get("bigM"), 1.1)),
+        "z_exact": pick(overrides.get("z_exact"), o.get("z_exact"), None),
     }
 
 
@@ -571,10 +368,18 @@ def build_context(cfg, opts: dict, model_name: str = "fleet_management") -> Flee
     apply_performance_params(md, opts["time_limit"], opts["mip_gap"],
                              opts["fast"], opts["gurobi_params"])
 
+    formulation = str(opts.get("formulation", "indicator")).lower()
+    if formulation not in ("indicator", "bigm"):
+        raise ValueError(f"unknown formulation {formulation!r}; "
+                         f"pick from ('indicator', 'bigm').")
+
     x = md.addVars(F, M + 1, T, vtype=GRB.BINARY, name="x")
     m_rep = md.addVars(F, L, T, vtype=GRB.BINARY, name="m")
     r_rep = md.addVars(F, L, T, vtype=GRB.BINARY, name="r") if allow_replacement else None
-    nb = md.addVars(F, L, T, vtype=GRB.BINARY, name="nb")
+    # nb = 1 - m - r is an *implied* binary: the big-M formulation substitutes it
+    # out (F*L*T fewer binaries) and reads it through ctx.nb_of / ctx.act_of.
+    nb = (md.addVars(F, L, T, vtype=GRB.BINARY, name="nb")
+          if formulation != "bigm" else None)
     mu_var = md.addVars(F, L, T, lb=0.0, name="mu")
     z_var = md.addVars(F, L, T, lb=0.0, name="z")
     u_var = md.addVars(T, lb=0.0, name="u")
@@ -590,6 +395,9 @@ def build_context(cfg, opts: dict, model_name: str = "fleet_management") -> Flee
         allow_replacement=allow_replacement,
         mu_inc=make_accessor(cfg.mu, cfg.mu_trans, H1, H2),
         pwl_points=int(opts["pwl_points"]), tangent_ref=float(opts["tangent_ref"]),
+        formulation=formulation,
+        bigM=float(opts.get("bigM", 1.1)),
+        z_exact=opts.get("z_exact"),
     )
 
     # generically valid bounds; a model's prepare may tighten them further
@@ -640,10 +448,19 @@ def add_base_constraints(ctx: FleetModel, depot_capacity: int) -> None:
 def add_maintenance_gating(ctx: FleetModel, i: int, l: int) -> None:
     """Maintenance gating (reference eq. 3), shared by every degradation model:
     repair/replacement each require a depot day, at most one of them, and ``nb``
-    is the no-intervention indicator."""
+    is the no-intervention indicator.
+
+    When ``nb`` has been substituted out (``formulation='bigm'``) the three rows
+    collapse to the single, *stronger* row ``m + r <= x_0``: it implies both
+    gates and ``m + r <= 1`` at once, so the encoding is sparser AND its LP
+    relaxation is tighter than the disaggregated pair."""
     md, T = ctx.model, ctx.T
     x, m_rep, r_rep, nb = ctx.x, ctx.m_rep, ctx.r_rep, ctx.nb
     for k in range(T):
+        if nb is None:                                   # nb substituted out
+            md.addConstr(ctx.act_of(i, l, k) <= x[i, 0, k],
+                         name=f"gate_{i}_{l}_{k}")
+            continue
         md.addConstr(m_rep[i, l, k] <= x[i, 0, k], name=f"m_gate_{i}_{l}_{k}")
         if ctx.allow_replacement:
             md.addConstr(r_rep[i, l, k] <= x[i, 0, k], name=f"r_gate_{i}_{l}_{k}")
@@ -768,20 +585,37 @@ def extract_solution(ctx: FleetModel, cfg, model) -> dict:
 # ===========================================================================
 def _load_builders() -> None:
     """Import the model modules so they register their cell builders.
-    Done lazily to avoid a circular import (they import this module)."""
-    if "rainflow" not in CELL_BUILDERS:
-        from fleet_management.degradation_model import rainflow  # noqa: F401
+    Done lazily to avoid a circular import (they import this module).
+
+    ``rainflow_v2`` carries BOTH encodings (``formulation='indicator'`` is the
+    original math, ``'bigm'`` the new one), so it is the builder installed here
+    -- deterministically, because the legacy ``rainflow`` module registers under
+    the same name and would otherwise win or lose by import order alone.  The
+    legacy module keeps working: its ``solve`` pins itself through
+    ``build_fleet(..., builders=...)`` instead of through the registry.
+    """
+    from fleet_management.degradation_model import rainflow_v2
+    if not isinstance(CELL_BUILDERS.get("rainflow"),
+                      rainflow_v2.RainflowCellBuilder):
+        register_cell_builder("rainflow", rainflow_v2.RainflowCellBuilder())
 
 
-def build_fleet(cfg, opts: dict, model_name: str = "fleet_management_mixed") -> FleetModel:
-    """Shared skeleton + one constraint block per cell, dispatched by model."""
+def build_fleet(cfg, opts: dict, model_name: str = "fleet_management_mixed",
+                builders: Optional[Dict[str, "CellBuilder"]] = None) -> FleetModel:
+    """Shared skeleton + one constraint block per cell, dispatched by model.
+
+    ``builders`` pins a specific implementation for a model name for this solve
+    only (see ``resolve_builder``); everything else comes from the registry.
+    """
     _load_builders()
     ctx = build_context(cfg, opts, model_name=model_name)
+    if builders:
+        ctx.extras["_builders"] = dict(builders)
 
     # per-model preparation (auxiliary variables, per-cell arrays, solver flags)
     present = sorted({str(m) for m in np.asarray(cfg.model).ravel()})
     for name in present:
-        builder = get_cell_builder(name)
+        builder = resolve_builder(ctx, name)
         builder.prepare(ctx, cfg, ctx.cells_of(name), opts)
 
     # shared objective and general constraints

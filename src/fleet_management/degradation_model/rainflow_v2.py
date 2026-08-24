@@ -1,48 +1,81 @@
 """
-Fleet management with a rainflow / remaining-life (Palmgren-Miner) degradation
-model, solved with Gurobi -- MODULAR, per-cell version (Step 2).
+Rainflow cells, version 2:  TWO interchangeable MILP encodings of the same model.
 
-This module consumes a normalized ``FleetConfig`` (see ``config.py``) and builds
-one Gurobi program for the whole fleet.  The unit of modelling is a **cell**
-``(i, l)`` = (vehicle ``i``, component ``l``); every cell carries its own model
-(``rainflow`` / ``gamma`` / ...), reliability bound, repair model, threshold,
-etc.  The shared skeleton (assignment ``x``, depot capacity, aggregate-damage
-cap, safety ``u`` and the objective cost terms) is built once; each cell then
-adds its own degradation / maintenance / reliability block.
+``rainflow.py`` encodes every logical ("if this action is taken, the state
+follows that recursion") constraint with Gurobi *indicator* constraints.  That is
+readable and numerically safe, but it has one property that hurts: an indicator
+constraint contributes **nothing to the LP relaxation** until its binary is
+fixed.  The root relaxation therefore sees a model in which the states are
+essentially free, the bound is weak, and the branch-and-bound tree has to do all
+the work.
 
-Where things live (the "clear locations")
------------------------------------------
-    solve                         entry point: build skeleton, then dispatch cells
-    _build_objective              shared objective
-    _add_base_constraints         shared: assignment, depot cap, aggregate cap, u
-    _dispatch_cell                per-cell model switch  (rainflow / gamma / ...)
-      _add_rainflow_cell            one rainflow cell = gating + state + reliability
-        _add_maintenance_gating       eq. 3 gating (m, r, nb)
-        _add_rainflow_state           mean / variance / ARD latch / z / R / K recursion
-        _add_reliability              -> RELIABILITY_BOUNDS[bound][impl](ctx, i, l) <== bounds
-      _add_gamma_cell               PLACEHOLDER (work in progress)
+This module keeps that encoding (``formulation='indicator'``, the default, and
+mathematically identical to ``rainflow.py``) and adds a second one
+(``formulation='bigm'``) that writes the same logic as plain linear rows.  Select
+it per solve::
 
-Reliability bounds  ***edit / add formulations here***
-------------------------------------------------------
-Each entry of ``RELIABILITY_BOUNDS`` is a function ``f(ctx, i, l)`` that adds the
-per-step  ``P(D > tau) <= eps``  constraints for one rainflow cell, reading the
-cell's state variables and parameters from ``ctx``.  To try a different
-formulation of an existing bound, edit its function; to add a new bound, write a
-``_rel_<name>`` function and register it (and, if it needs a new accumulator such
-as Hoeffding's ``R`` or Chernoff's ``K``, add that accumulator's recursion in
-``_add_rainflow_state`` alongside the existing ones and declare the descriptor in
-``_BOUND_DESCRIPTORS``).
+    rainflow_v2.solve(cfg, formulation="bigm")          # or via cfg options:
+    #   formulation: bigm
+    #   bigM: 1.1
 
-Two horizons
-------------
-Time axis has a transitory phase ``H1`` (steps 0..H1-1, run-up from ``mu_0``) and
-an operating phase ``H2`` (steps H1..H1+H2-1); ``T = H1 + H2``. A single-int
-``H`` gives ``H1 = H2 = H`` and ``T = 2H``. Operating-phase profiles come from
-``cfg`` as ``(F, L, M, H2)``; optional transitory profiles are ``(F, L, M, H1)``
-and reused from the operating profile when absent. (No periodicity/repeatability
-condition is imposed: the objective follows the slide's four cost terms.)
+Why the big-M version is expected to be TIGHTER as well as sparser
+------------------------------------------------------------------
+1. **The big-M rows are in the LP.**  Every recursion contributes two linear
+   halfspaces to the root relaxation instead of nothing.
+2. **The M's are tight.**  Each state already has a valid, problem-derived upper
+   bound from ``_tighten_bounds`` (``mu <= tau`` or ``eps*tau``, ``v``, ``R``,
+   ``K``).  Those UBs -- not a generic 1e6 -- are the big-M values; ``bigM``
+   (default 1.1, the range the states live in) is only a fallback for a state
+   with no finite bound.
+3. **Several rows need no M at all.**  Because a repair is a convex combination
+   of the pre-repair state and its latch (weights ``1-rho`` / ``rho``, and
+   ``(1-rho)^2`` / ``1-(1-rho)^2``), and because the latch never exceeds the
+   state, every branch of the recursion satisfies
 
-Author: Johann Tschan  (revised; modular Step-2 rewrite)
+       state_k <= state_{k-1} + increment_k        ("states never overshoot")
+       latch_k <= state_k                          ("the latch never overshoots")
+
+   unconditionally.  Those go in as bare inequalities, valid for all three
+   branches simultaneously; they are exactly the cuts the indicator model cannot
+   express.
+4. **Aggregated segment selection.**  The piecewise-tangent reliability encoding
+   picks its segment with ``mu >= sum_s lo_s z_s`` / ``mu <= sum_s hi_s z_s``
+   (two rows, both in the LP) instead of ``2K`` indicator constraints (none in
+   the LP).
+
+Variables that are substituted out (sparsity)
+---------------------------------------------
+``nb``  ``nb = 1 - m - r`` is implied by eq. 3, so the big-M formulation never
+        creates it: **F*L*T fewer binaries**.  Readers go through
+        ``ctx.nb_of(i, l, k)`` / ``ctx.act_of(i, l, k)``, and the three gating
+        rows collapse into the single stronger row ``m + r <= x_0``.
+``z``   the removed-damage variable is kept (the objective and the result dict
+        read it) but its three indicator constraints collapse to the single row
+        ``z_k >= mu_{k-1} - mu_k``: with ``C_R > 0`` the minimisation drives
+        ``z_k`` to ``max(0, mu_{k-1} - mu_k)``, which *is* eq. 6, because the
+        difference is <= 0 on a no-intervention step and >= 0 on a repair.  When
+        ``C_R <= 0`` (or ``z_exact=True``) two upper rows are added to pin it.
+``x``   NOT substituted.  ``x[i,0,k] = 1 - sum_j x[i,j,k]`` looks tempting but is
+        wrong: it would force every idle vehicle into the depot and make it pay
+        ``C_M``.  The assignment stays ``sum_j x[i,j,k] <= 1``.
+
+Everything else -- the reliability-bound registry, the state semantics, the
+result dict, the config schema -- is unchanged, so ``test.py`` /
+``run_studies.py`` compare the two encodings on exactly the same instances.
+
+Where things live
+-----------------
+    solve                          entry point
+    prepare                        auxiliary variables, per-cell arrays, bounds
+    _add_rainflow_cell             gating + state + reliability, per formulation
+      _add_rainflow_state_ind        indicator recursions (verbatim from v1)
+      _add_rainflow_state_bigm       big-M recursions (this module's point)
+        _state_bigm                    one state's four/six rows
+        _latch_bigm                    one ARD1 latch's four rows
+        _z_bigm                        eq. 6 without indicators
+    RELIABILITY_BOUNDS             bound -> impl -> builder (unchanged registry)
+
+Author: Johann Tschan  (v2: big-M / substituted formulation)
 """
 
 from __future__ import annotations
@@ -81,6 +114,8 @@ _REPAIR_MODELS = ("ard1", "ardinf")
 
 _ARD1_UNSUPPORTED = ("chernoff",)
 
+FORMULATIONS = ("indicator", "bigm")
+
 
 # ===========================================================================
 # Entry point
@@ -88,14 +123,23 @@ _ARD1_UNSUPPORTED = ("chernoff",)
 def solve(cfg, *, allow_replacement=None, depot_capacity=None,
           verbose=None, mip_gap=None, time_limit=None, fast=None,
           gurobi_params=None,
-          reliability_impl=None, pwl_points=None, tangent_ref=None) -> dict:
+          reliability_impl=None, pwl_points=None, tangent_ref=None,
+          formulation=None, bigM=None, z_exact=None) -> dict:
     """Solve a fleet from a normalized ``FleetConfig``.
 
-    The shared skeleton (variables, general constraints, objective) comes from
-    ``base``; this entry point simply drives it. Rainflow cells are fully
-    supported; a cell of another model is dispatched to that model's builder
-    (gamma currently hits its placeholder and raises). Run-time options default
-    to the values in ``cfg.options`` when not passed explicitly.
+    Identical to ``rainflow.solve`` plus three knobs:
+
+    formulation : {'indicator', 'bigm'}
+        How the logical constraints are encoded.  ``'indicator'`` (default)
+        reproduces ``rainflow.py`` exactly; ``'bigm'`` uses linear big-M rows,
+        substitutes ``nb`` out and adds the unconditional monotonicity cuts.
+    bigM : float
+        Fallback big-M for a state without a finite upper bound (default 1.1 --
+        the range the states actually live in).  States that *do* have a bound
+        (all of them, after ``_tighten_bounds``) use that bound instead.
+    z_exact : bool or None
+        Pin ``z`` with its two upper rows.  ``None`` (default) decides
+        automatically: they are needed only when ``C_R <= 0``.
     """
     opts = resolve_run_options(
         cfg,
@@ -103,14 +147,15 @@ def solve(cfg, *, allow_replacement=None, depot_capacity=None,
         verbose=verbose, mip_gap=mip_gap, time_limit=time_limit, fast=fast,
         gurobi_params=gurobi_params, reliability_impl=reliability_impl,
         pwl_points=pwl_points, tangent_ref=tangent_ref,
+        formulation=formulation, bigM=bigM, z_exact=z_exact,
     )
-    # ``rainflow_v2`` owns the registered "rainflow" name (it carries both
-    # encodings). Pin OUR builder for this solve only, so this legacy entry
-    # point always builds the legacy (indicator) block.
-    ctx = build_fleet(cfg, opts, model_name="fleet_management_rainflow_modular",
-                      builders={"rainflow": RainflowCellBuilder()})
+    # ``base._load_builders`` deterministically installs THIS builder for the
+    # "rainflow" name, so no registry juggling is needed here.
+    ctx = build_fleet(cfg, opts, model_name="fleet_management_rainflow_v2")
     ctx.model.optimize()
-    return _extract_solution(ctx, cfg, ctx.model)
+    out = _extract_solution(ctx, cfg, ctx.model)
+    out["formulation"] = str(ctx.formulation)
+    return out
 
 
 # ===========================================================================
@@ -123,14 +168,32 @@ def prepare(ctx: _RFModel, cfg, cells, opts: dict) -> None:
     Fills the model-specific slots of the shared context: per-cell selector /
     parameter arrays, the auxiliary state variables (variance, ARD1 latch, the
     Hoeffding ``R`` and Chernoff ``K`` accumulators), the resolved reliability
-    implementation per cell, and the tightened variable bounds. Sets
-    ``NonConvex=2`` only if some cell keeps an exact quadratic encoding.
+    implementation per cell, and the tightened variable bounds.  The tightening
+    runs LAST on purpose: the big-M values are read straight off those bounds.
     """
     F, L, T = ctx.F, ctx.L, ctx.T
     md = ctx.model
     cells = list(cells)
     if not cells:
         return
+
+    # ---- encoding ------------------------------------------------------
+    ctx.formulation = str(opts.get("formulation", ctx.formulation)).lower()
+    if ctx.formulation not in FORMULATIONS:
+        raise ValueError(f"unknown formulation {ctx.formulation!r}; "
+                         f"pick from {FORMULATIONS}.")
+    ctx.bigM = float(opts.get("bigM", ctx.bigM))
+    if not (ctx.bigM > 0.0):
+        raise ValueError(f"bigM must be positive (got {ctx.bigM}).")
+    if ctx.formulation == "bigm" and ctx.nb is not None:
+        # base only drops nb when it was told the formulation up front
+        raise ValueError("formulation='bigm' needs the context built with the "
+                         "same option; pass it through resolve_run_options.")
+
+    # z is pinned by minimisation whenever repairing costs something
+    costs = _resolve_costs(cfg, cfg.tau)
+    z_exact = opts.get("z_exact", ctx.z_exact)
+    ctx.z_exact = (float(costs["C_R"]) <= 0.0) if z_exact is None else bool(z_exact)
 
     # ---- per-cell parameter arrays -------------------------------------
     ctx.bound_of = cfg.bound_method
@@ -207,11 +270,14 @@ def prepare(ctx: _RFModel, cfg, cells, opts: dict) -> None:
     if "chernoff" in rf_bounds:
         ctx.K_var = md.addVars(F, L, T, lb=0.0, name="K")
 
+    # big-M values are read off these bounds, so they must be set first
     _tighten_bounds(ctx, cfg, cells)
+    md.update()                       # make the fresh UBs readable
 
 
 def extract(ctx: _RFModel, cfg, out: dict) -> None:
     """Model-specific result fields (the shared arrays are handled by base)."""
+    out.setdefault("formulation", str(ctx.formulation))
     return None
 
 
@@ -219,12 +285,215 @@ def extract(ctx: _RFModel, cfg, out: dict) -> None:
 # Rainflow cell = gating + state recursion + reliability
 # ===========================================================================
 def _add_rainflow_cell(ctx: _RFModel, i: int, l: int) -> None:
-    add_maintenance_gating(ctx, i, l)        # shared (base)
-    _add_rainflow_state(ctx, i, l)
+    add_maintenance_gating(ctx, i, l)        # shared (base); nb-aware
+    if str(ctx.formulation) == "bigm":
+        _add_rainflow_state_bigm(ctx, i, l)
+    else:
+        _add_rainflow_state_ind(ctx, i, l)
     _add_reliability(ctx, i, l)
 
 
-def _add_rainflow_state(ctx: _RFModel, i: int, l: int) -> None:
+# ---------------------------------------------------------------------------
+# Big-M helpers
+# ---------------------------------------------------------------------------
+def _ub(ctx: _RFModel, var, i: int, l: int, k: int) -> float:
+    """A valid, TIGHT big-M for one state variable: its own upper bound.
+
+    ``_tighten_bounds`` has already put a problem-derived bound on every state
+    (``tau`` / ``eps*tau`` for mu, the reachable variance for v, ``T*b^2`` for R,
+    ``T*max cgf`` for K).  Falling back on ``ctx.bigM`` only happens for a
+    variable left free, which in practice means a cell whose bound does not use
+    that accumulator."""
+    try:
+        b = float(var[i, l, k].UB)
+    except (AttributeError, gp.GurobiError):
+        b = float("inf")
+    if not math.isfinite(b) or b >= GRB.INFINITY:
+        return float(ctx.bigM)
+    return b
+
+
+def _state_bigm(ctx: _RFModel, i: int, l: int, *, var, s0, inc, a, latch,
+                new, name) -> None:
+    """Big-M rows for ONE state with the shared three-branch recursion
+
+        no intervention   s_k = s_{k-1} + inc_k
+        repair            s_k = a*s_{k-1} + (1-a)*g_{k-1}    (a = 1-rho or (1-rho)^2;
+                                                              g omitted for ARD-inf)
+        replacement       s_k = new
+
+    ``a in (0, 1]`` and the latch never exceeds the state, so the repair branch
+    is a convex combination lying in ``[g_{k-1}, s_{k-1}]``.  That is what makes
+    the M-free row (U1) below valid for *all three* branches at once.
+    """
+    md, T = ctx.model, ctx.T
+    m_rep, r_rep = ctx.m_rep, ctx.r_rep
+    allow_rep = ctx.allow_replacement
+    new = float(new)
+
+    for k in range(T):
+        prev = s0 if k == 0 else var[i, l, k - 1]
+        cur = var[i, l, k]
+        act = ctx.act_of(i, l, k)                    # m + r  ( = 1 - nb )
+        m_k = m_rep[i, l, k]
+        r_k = r_rep[i, l, k] if allow_rep else None
+        M = _ub(ctx, var, i, l, k)
+        inc_k = inc(k)
+
+        # --- (U1) no branch ever overshoots the carry value.  No big-M: this is
+        # the cut the indicator model cannot state, and it is what tightens the
+        # relaxation the most (it caps every state by its own history).
+        md.addConstr(cur <= prev + inc_k + (new * r_k if (allow_rep and new > 0.0)
+                                            else 0.0),
+                     name=f"{name}_carry_ub_{i}_{l}_{k}")
+
+        # --- (L1) carry branch, active when nb = 1.  M = UB is tight because a
+        # depot day (m + r = 1) forces inc_k = 0 through the gating.
+        md.addConstr(cur >= prev + inc_k - M * act,
+                     name=f"{name}_carry_lb_{i}_{l}_{k}")
+
+        # --- (L2, U2) repair branch, active when m = 1
+        if latch is not None:
+            g_prev = 0.0 if k == 0 else latch[i, l, k - 1]
+            rep_expr = a * prev + (1.0 - a) * g_prev
+        else:
+            rep_expr = a * prev
+        md.addConstr(cur >= rep_expr - M * (1.0 - m_k),
+                     name=f"{name}_rep_lb_{i}_{l}_{k}")
+        md.addConstr(cur <= rep_expr + M * (1.0 - m_k),
+                     name=f"{name}_rep_ub_{i}_{l}_{k}")
+
+        # --- (L3, U3) replacement branch, active when r = 1
+        if allow_rep:
+            md.addConstr(cur <= new + M * (1.0 - r_k),
+                         name=f"{name}_repl_ub_{i}_{l}_{k}")
+            if new > 0.0:            # otherwise implied by cur >= 0
+                md.addConstr(cur >= new - M * (1.0 - r_k),
+                             name=f"{name}_repl_lb_{i}_{l}_{k}")
+
+
+def _latch_bigm(ctx: _RFModel, i: int, l: int, *, latch, var, name) -> None:
+    """Big-M rows for one ARD1 latch  ``g_k = g_{k-1} if nb else state_k``.
+
+    Two of the four rows carry no big-M:
+      * ``g_k <= s_k``   -- the latch is a past state and the state only grows
+        between interventions, and on an intervention step the latch IS the
+        state;
+      * ``g_k >= g_{k-1}`` (relaxed by ``r`` only) -- a repair moves the state
+        into ``[g_{k-1}, s_{k-1}]``, so the latch never decreases unless the
+        component is replaced.
+    """
+    md, T = ctx.model, ctx.T
+    allow_rep = ctx.allow_replacement
+
+    for k in range(T):
+        g_prev = 0.0 if k == 0 else latch[i, l, k - 1]
+        g_k = latch[i, l, k]
+        s_k = var[i, l, k]
+        act = ctx.act_of(i, l, k)
+        Mg = _ub(ctx, latch, i, l, k)
+
+        md.addConstr(g_k <= s_k, name=f"{name}_le_state_{i}_{l}_{k}")
+        md.addConstr(g_k >= s_k - Mg * (1.0 - act), name=f"{name}_set_{i}_{l}_{k}")
+        md.addConstr(g_k <= g_prev + Mg * act, name=f"{name}_hold_ub_{i}_{l}_{k}")
+        if allow_rep:
+            md.addConstr(g_k >= g_prev - Mg * ctx.r_rep[i, l, k],
+                         name=f"{name}_hold_lb_{i}_{l}_{k}")
+        else:
+            md.addConstr(g_k >= g_prev, name=f"{name}_hold_lb_{i}_{l}_{k}")
+
+
+def _z_bigm(ctx: _RFModel, i: int, l: int) -> None:
+    """Removed expected damage (eq. 6) without indicators.
+
+    Eq. 6 says ``z_k = 0`` on a no-intervention step and ``z_k = mu_{k-1} - mu_k``
+    on a repair / replacement step.  On a no-intervention step the difference is
+    ``-inc_k <= 0`` and on an intervention step it is ``>= 0``, so eq. 6 is
+    exactly ``z_k = max(0, mu_{k-1} - mu_k)`` -- and with ``C_R > 0`` the single
+    row ``z_k >= mu_{k-1} - mu_k`` (plus ``z_k >= 0``) is driven to it by the
+    objective.  The two upper rows are added only when nothing pushes z down.
+    """
+    md, T = ctx.model, ctx.T
+    mu_var, z_var = ctx.mu_var, ctx.z_var
+    for k in range(T):
+        mu_prev = ctx.mu_0[i, l] if k == 0 else mu_var[i, l, k - 1]
+        z_k = z_var[i, l, k]
+        md.addConstr(z_k >= mu_prev - mu_var[i, l, k], name=f"z_lb_{i}_{l}_{k}")
+        if ctx.z_exact:
+            Mz = _ub(ctx, mu_var, i, l, k)
+            act = ctx.act_of(i, l, k)
+            md.addConstr(z_k <= mu_prev - mu_var[i, l, k] + Mz * (1.0 - act),
+                         name=f"z_ub_{i}_{l}_{k}")
+            md.addConstr(z_k <= Mz * act, name=f"z_zero_{i}_{l}_{k}")
+
+
+def _add_rainflow_state_bigm(ctx: _RFModel, i: int, l: int) -> None:
+    """Per-cell state recursion, big-M encoding.
+
+    Same four state families as the indicator version -- mean, variance, ARD1
+    latches, and the bound-specific accumulators R (Hoeffding) / K (Chernoff) --
+    but every ``addGenConstrIndicator`` is replaced by linear rows and ``nb`` is
+    gone.  A new bound with a new accumulator plugs in the same way: call
+    ``_state_bigm`` (and ``_latch_bigm`` if it latches under ARD1) with that
+    accumulator's contraction factor.
+    """
+    M = ctx.M
+    x = ctx.x
+    bound = str(ctx.bound_of[i, l])
+    track_v = bool(ctx.track_v_of[i, l])
+    use_latch = bool(ctx.latch_of[i, l])
+
+    r_il = float(ctx.rho[i, l])
+    k1 = 1.0 - r_il                      # (1 - rho)
+    k2 = k1 * k1                         # (1 - rho)^2
+
+    def _inc(accessor):
+        return lambda k: gp.quicksum(x[i, j, k] * accessor(i, j - 1, l, k)
+                                     for j in range(1, M + 1))
+
+    # ----- mean -----
+    _state_bigm(ctx, i, l, var=ctx.mu_var, s0=float(ctx.mu_0[i, l]),
+                inc=_inc(ctx.mu_inc), a=k1,
+                latch=ctx.gmu if use_latch else None,
+                new=float(ctx.mu_new[i, l]), name="mu")
+    if use_latch:
+        _latch_bigm(ctx, i, l, latch=ctx.gmu, var=ctx.mu_var, name="gmu")
+
+    # ----- variance (only bounds that use it) -----
+    if track_v:
+        _state_bigm(ctx, i, l, var=ctx.v_var, s0=float(ctx.v_0[i, l]),
+                    inc=_inc(ctx.v_inc), a=k2,
+                    latch=ctx.gv if use_latch else None,
+                    new=float(ctx.v_new[i, l]), name="v")
+        if use_latch:
+            _latch_bigm(ctx, i, l, latch=ctx.gv, var=ctx.v_var, name="gv")
+
+    # ----- removed expected damage z (eq. 6) -----
+    _z_bigm(ctx, i, l)
+
+    # ----- extra descriptor recursions -----
+    if bound == "hoeffding":
+        # R = sum_j n_j b_j^2 is degree-2 homogeneous under a pathwise
+        # contraction, hence the same (1-rho)^2 factor as the variance.
+        _state_bigm(ctx, i, l, var=ctx.R_var, s0=0.0,
+                    inc=_inc(ctx.w2_inc), a=k2,
+                    latch=ctx.gR if use_latch else None,
+                    new=0.0, name="R")
+        if use_latch:
+            _latch_bigm(ctx, i, l, latch=ctx.gR, var=ctx.R_var, name="gR")
+
+    if bound == "chernoff":
+        # ARD-inf only (guarded in prepare / config): (1-rho)*K over-estimates
+        # the true post-repair CGF psi((1-rho)s), so the bound stays valid.
+        _state_bigm(ctx, i, l, var=ctx.K_var, s0=0.0,
+                    inc=_inc(ctx.cgf_inc), a=k1, latch=None,
+                    new=0.0, name="K")
+
+
+# ---------------------------------------------------------------------------
+# Indicator encoding -- the original v1 math, kept verbatim for comparison
+# ---------------------------------------------------------------------------
+def _add_rainflow_state_ind(ctx: _RFModel, i: int, l: int) -> None:
     """Per-cell state recursion: mean, variance (if the bound uses it), the ARD1
     latch (if repair_model == ard1), removed-damage ``z`` (eq. 6), and the
     bound-specific accumulators R (Hoeffding) / K (Chernoff).
@@ -390,13 +659,12 @@ def _add_rainflow_state(ctx: _RFModel, i: int, l: int) -> None:
 # d = tau - mu (convex in mu). Encodings:
 #   * "exact"   : the nonconvex quadratic as-is (NonConvex=2). Accurate, slowest.
 #   * "tangent" : ONE supporting tangent of the convex RHS -> a single linear
-#                 halfspace. Safe INNER approximation (never accepts an unsafe
-#                 (mu, Q)); conservative; no extra binaries. Linearization point
-#                 is tangent_ref (fraction of tau).
-#   * "pwl"     : piecewise tangent over `pwl_points` segments of mu in [0, tau],
-#                 one tangent active per segment (segment chosen by binaries).
-#                 Safe INNER approximation, accuracy grows with pwl_points, at the
-#                 cost of extra binaries.
+#                 halfspace. Safe INNER approximation; no binaries at all, so it
+#                 is identical under both formulations.
+#   * "pwl"     : piecewise tangent over `pwl_points` segments of mu in [0, tau].
+#                 THIS is where the formulation matters: the segment is selected
+#                 with indicator constraints ('indicator') or with two aggregated
+#                 linear rows plus tight per-segment big-Ms ('bigm').
 # Markov and Chernoff (fixed s) are already linear -> only "exact".
 #
 # ADD A NEW RELAXATION FAMILY (e.g. a secant OUTER bound, McCormick, SOC, an
@@ -406,8 +674,9 @@ def _add_rainflow_state(ctx: _RFModel, i: int, l: int) -> None:
 #                                                       validity="outer")
 # `quadratic` drives the NonConvex=2 gate; `validity` documents the relationship
 # to the exact feasible set ("exact" | "inner"=safe | "outer"=unsafe/diagnostic).
-# A bound needing a NEW accumulator must also add its recursion in
-# `_add_rainflow_state` and declare it in `_BOUND_DESCRIPTORS`.
+# A bound needing a NEW accumulator must also add its recursion in BOTH
+# `_add_rainflow_state_ind` and `_add_rainflow_state_bigm`, and declare it in
+# `_BOUND_DESCRIPTORS`.
 # ---------------------------------------------------------------------------
 @dataclass(frozen=True)
 class _Impl:
@@ -504,7 +773,8 @@ def _rel_chernoff(ctx: _RFModel, i: int, l: int) -> None:
 # SINGLE-TANGENT encodings (safe inner, linear, no extra binaries)
 # ---------------------------------------------------------------------------
 def _rel_quadratic_tangent(ctx: _RFModel, i: int, l: int) -> None:
-    """One supporting tangent at mu_p = tangent_ref * tau, plus the mu<=tau gap."""
+    """One supporting tangent at mu_p = tangent_ref * tau, plus the mu<=tau gap.
+    Formulation-independent: there is no logical constraint to encode."""
     md, T = ctx.model, ctx.T
     bound = str(ctx.bound_of[i, l])
     tau = float(ctx.tau[i, l])
@@ -526,6 +796,9 @@ def _rel_quadratic_pwl(ctx: _RFModel, i: int, l: int) -> None:
     whose error shrinks as pwl_points grows.
 
     pwl_points == 1 degenerates to a single midpoint tangent with no binaries.
+
+    Segment selection is where the two formulations differ; both give the same
+    integer feasible set, but the big-M one puts the whole selection into the LP.
     """
     md, T = ctx.model, ctx.T
     bound = str(ctx.bound_of[i, l])
@@ -533,6 +806,7 @@ def _rel_quadratic_pwl(ctx: _RFModel, i: int, l: int) -> None:
     c2, c1, Qvar = _cap_coeffs(ctx, i, l, bound)
     K = max(1, int(ctx.pwl_points))
     edges = np.linspace(0.0, tau, K + 1)          # breakpoints in mu
+    bigm = str(ctx.formulation) == "bigm"
 
     for k in range(T):
         md.addConstr(ctx.mu_var[i, l, k] <= tau, name=f"rel_{i}_{l}_{k}_gap")
@@ -541,23 +815,53 @@ def _rel_quadratic_pwl(ctx: _RFModel, i: int, l: int) -> None:
         _add_tangent_cap(ctx, i, l, c2, c1, Qvar, 0.5 * tau, name="rel")
         return
 
+    # per-segment tangent data, computed once for the whole cell
+    seg = []
+    for s in range(K):
+        lo, hi = float(edges[s]), float(edges[s + 1])
+        mid = 0.5 * (lo + hi)
+        d_p = tau - mid
+        g_p = c2 * d_p * d_p + c1 * d_p
+        gp_prime = -2.0 * c2 * d_p - c1
+        seg.append((lo, hi, mid, g_p, gp_prime))
+
     for k in range(T):
         mu = ctx.mu_var[i, l, k]
         Q = Qvar[i, l, k]
         zs = md.addVars(K, vtype=GRB.BINARY, name=f"relseg_{i}_{l}_{k}")
-        md.addConstr(gp.quicksum(zs[s] for s in range(K)) == 1, name=f"relseg1_{i}_{l}_{k}")
-        for s in range(K):
-            lo, hi = float(edges[s]), float(edges[s + 1])
-            mid = 0.5 * (lo + hi)
-            d_p = tau - mid
-            g_p = c2 * d_p * d_p + c1 * d_p
-            gp_prime = -2.0 * c2 * d_p - c1
-            # segment membership (exact, via indicators)
-            md.addGenConstrIndicator(zs[s], True, mu >= lo, name=f"relslo_{i}_{l}_{k}_{s}")
-            md.addGenConstrIndicator(zs[s], True, mu <= hi, name=f"relshi_{i}_{l}_{k}_{s}")
-            # segment tangent cap (only when this segment is active)
-            md.addGenConstrIndicator(zs[s], True, Q <= g_p + gp_prime * (mu - mid),
-                                     name=f"relcap_{i}_{l}_{k}_{s}")
+        md.addConstr(gp.quicksum(zs[s] for s in range(K)) == 1,
+                     name=f"relseg1_{i}_{l}_{k}")
+
+        if bigm:
+            # Aggregated membership: with sum_s z_s = 1 these two rows say
+            # exactly "mu lies in the selected segment", and unlike 2K indicator
+            # constraints they are present in the relaxation.
+            md.addConstr(mu >= gp.quicksum(seg[s][0] * zs[s] for s in range(K)),
+                         name=f"relslo_{i}_{l}_{k}")
+            md.addConstr(mu <= gp.quicksum(seg[s][1] * zs[s] for s in range(K)),
+                         name=f"relshi_{i}_{l}_{k}")
+            Qub = _ub(ctx, Qvar, i, l, k)
+            for s in range(K):
+                lo, hi, mid, g_p, gp_prime = seg[s]
+                # smallest M that leaves the row slack when z_s = 0: the tangent
+                # is affine in mu, so its minimum over [0, tau] is at an endpoint
+                lo_val = min(g_p + gp_prime * (0.0 - mid),
+                             g_p + gp_prime * (tau - mid))
+                Ms = max(0.0, Qub - lo_val)
+                md.addConstr(Q <= g_p + gp_prime * (mu - mid) + Ms * (1.0 - zs[s]),
+                             name=f"relcap_{i}_{l}_{k}_{s}")
+        else:
+            for s in range(K):
+                lo, hi, mid, g_p, gp_prime = seg[s]
+                # segment membership (exact, via indicators)
+                md.addGenConstrIndicator(zs[s], True, mu >= lo,
+                                         name=f"relslo_{i}_{l}_{k}_{s}")
+                md.addGenConstrIndicator(zs[s], True, mu <= hi,
+                                         name=f"relshi_{i}_{l}_{k}_{s}")
+                # segment tangent cap (only when this segment is active)
+                md.addGenConstrIndicator(zs[s], True,
+                                         Q <= g_p + gp_prime * (mu - mid),
+                                         name=f"relcap_{i}_{l}_{k}_{s}")
 
 
 # ===========================================================================
@@ -621,7 +925,10 @@ def _add_reliability(ctx: _RFModel, i: int, l: int) -> None:
 def _tighten_bounds(ctx: _RFModel, cfg, cells) -> None:
     """Set valid, tight upper bounds per rainflow cell (strengthens the
     relaxation without changing the optimum). Unused-cell entries of a shared
-    auxiliary variable are left free (they appear in no constraint/objective)."""
+    auxiliary variable are left free (they appear in no constraint/objective).
+
+    In the big-M formulation these bounds do double duty: they ARE the big-M
+    constants, so anything tightened here tightens the relaxation twice."""
     T = ctx.T
     for i, l in cells:
         bound = str(ctx.bound_of[i, l])
@@ -654,11 +961,12 @@ def _tighten_bounds(ctx: _RFModel, cfg, cells) -> None:
             for k in range(T):
                 ctx.K_var[i, l, k].UB = K_ub
 
+
 # ===========================================================================
 # Registration: plug this model into base's cell-builder registry
 # ===========================================================================
 class RainflowCellBuilder:
-    """Rainflow implementation of the ``base.CellBuilder`` interface."""
+    """Rainflow implementation of the ``base.CellBuilder`` interface (v2)."""
 
     name = "rainflow"
 
@@ -671,19 +979,20 @@ register_cell_builder("rainflow", RainflowCellBuilder())
 
 
 # ===========================================================================
-# Runnable demo
+# Runnable demo: the same instance under both encodings
 # ===========================================================================
 if __name__ == "__main__":
     from fleet_management.config import load_config
 
-    print("Fleet management (rainflow, modular on base.py) demo")
+    print("Fleet management (rainflow v2: indicator vs big-M) demo")
     base_input = {
         "F": 3, "M": 1, "model": "rainflow", "bound_method": "cantelli",
         "repair_model": "ard1", "tau": 0.30, "epsilon": 0.10,
         "rho": 0.6, "mu_0": 0.02, "v_0": 4e-4, "mu": 0.06, "v": 0.0015,
         "C_M": 1.0, "C_R": 0.5, "C_D": 2.0,
     }
-    res = solve(load_config({**base_input, "H": 4}), verbose=0, time_limit=30)
-    print(f"  equal   H1=H2=4   -> status={res['status']} T={res['T']} obj={res['objective']}")
-    res2 = solve(load_config({**base_input, "H": [6, 4]}), verbose=0, time_limit=30)
-    print(f"  unequal H1=6,H2=4 -> status={res2['status']} T={res2['T']} obj={res2['objective']}")
+    for form in FORMULATIONS:
+        res = solve(load_config({**base_input, "H": 4}), verbose=0, time_limit=30,
+                    formulation=form)
+        print(f"  {form:9s} H1=H2=4 -> status={res['status']} T={res['T']} "
+              f"obj={res['objective']}")

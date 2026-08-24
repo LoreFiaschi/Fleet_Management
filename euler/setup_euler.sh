@@ -73,6 +73,41 @@ cd "$PROJECT"
 python test.py --tests analytic --no-plots --out "$PROJECT/results" \
                --name euler_check | tail -20
 
+echo
+echo "== smoke test 2b: are BOTH MILP encodings present and equivalent? =="
+# rainflow_v2 carries the 'indicator' (original) and 'bigm' encodings of the same
+# model. They must reach the SAME optimum -- a disagreement means a big-M is
+# wrong, and it is far cheaper to find that here than in a 20-shard array.
+if python -c "import fleet_management.degradation_model.rainflow_v2" 2>/dev/null; then
+    python - <<'FORMCHECK'
+from fleet_management.config import load_config
+from fleet_management.degradation_model import rainflow_v2 as rf
+
+p, b = 0.3, 0.12
+data = {"model": "rainflow", "bound_method": "cantelli", "repair_model": "ard1",
+        "F": 3, "M": 1, "L": 1, "H": 3,
+        "tau": 1.0, "epsilon": 0.1, "rho": 0.8, "mu_0": 0.05, "v_0": 0.0,
+        "mu": p * b, "v": p * (1 - p) * b * b, "support": b, "cgf": 0.1,
+        "C_M": 1.0, "C_R": 0.5, "C_S": 2.0, "C_P": 1.0}
+out = {}
+for form in ("indicator", "bigm"):
+    r = rf.solve(load_config(data), verbose=0, mip_gap=1e-9, time_limit=60,
+                 reliability_impl="tangent", formulation=form)
+    md = r["model"]
+    out[form] = r["objective"]
+    print(f"  {form:<10} obj={r['objective']:.6f}  binaries={md.NumBinVars}  "
+          f"rows={md.NumConstrs}  genconstrs={md.NumGenConstrs}")
+    md.dispose()
+a, c = out["indicator"], out["bigm"]
+assert abs(a - c) <= 1e-6 * max(1.0, abs(a)), (
+    f"the two encodings disagree ({a} vs {c}) -- do not submit jobs")
+print("  both encodings agree; FORM=indicator|bigm is safe to use")
+FORMCHECK
+else
+    echo "  WARNING rainflow_v2.py not found in the package -- FORM=bigm will fail."
+    echo "          Put it in fleet_management/degradation_model/ next to base.py."
+fi
+
 if [ "$HAVE_STUDIES" = "1" ]; then
     echo
     echo "== smoke test 3: study harness plan (no solving, no licence needed) =="
@@ -86,11 +121,19 @@ if [ "$HAVE_STUDIES" = "1" ]; then
     echo "== smoke test 4: study harness dry run (validates every input) =="
     python run_studies.py --studies scaling --dry-run --no-plots \
         --factors 1 --out "$PROJECT/results" --name euler_check 2>&1 | tail -5
+
+    echo
+    echo "== smoke test 5: does the study harness accept --formulation? =="
+    python run_studies.py --plan --studies scaling --formulation bigm \
+        --factors 1 2>&1 | grep -E "^base case|^TOTAL|error|unrecognized" || true
 fi
 
 echo
 echo "Setup done. Submit work with:"
 echo "  bash euler/submit.sh sweep 20                    # bound tests (test.py)"
+echo "  FORM=bigm bash euler/submit.sh sweep 20          # ... with the big-M encoding"
+echo "  bash euler/submit.sh formulation 4               # compare both encodings"
 if [ "$HAVE_STUDIES" = "1" ]; then
     echo "  bash euler/submit_studies.sh scaling 12          # studies (run_studies.py)"
+    echo "  FORM=bigm bash euler/submit_studies.sh scaling 12  # ... big-M (lp_gap!)"
 fi

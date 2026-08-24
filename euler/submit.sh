@@ -11,7 +11,27 @@ PROJECT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 TEST=${1:-sweep}
 NSHARDS=${2:-20}
 NAME=${NAME:-bound_tightness}
-OUT=${OUT:-$PROJECT/results}
+# MILP encoding (rainflow_v2). FORM picks one encoding for the whole submission;
+# TEST=formulation instead solves BOTH (FORMS) and checks they agree.
+FORM=${FORM:-}
+FORMS=${FORMS:-indicator,bigm}
+BIGM=${BIGM:-}
+for f in ${FORM:-} ${FORMS//,/ }; do
+    case "$f" in
+        indicator|bigm) ;;
+        *) echo "ERROR: unknown formulation '$f'; pick from indicator,bigm" >&2
+           exit 1 ;;
+    esac
+done
+# A run folder is results/<stamp>_<test>/ and a shard writes results_shard<k>.csv
+# into it. Two submissions that differ ONLY in the encoding would therefore
+# overwrite each other whenever they share a stamp. Give each encoding its own
+# results subtree by default (still overridable with OUT=).
+if [ -n "$FORM" ]; then
+    OUT=${OUT:-$PROJECT/results/$FORM}
+else
+    OUT=${OUT:-$PROJECT/results}
+fi
 MAXPAR=${MAXPAR:-10}                  # concurrent array tasks
 # One timestamp for the WHOLE run. Every array task starts at a different minute,
 # so if each computed its own the shards would land in different folders and could
@@ -40,7 +60,8 @@ fi
 # in seconds with argparse exit code 2 and you only find out from the logs. The
 # batch scripts pass --threads and --shard, so refuse to submit if this copy of
 # test.py does not understand them.
-for flag in --threads --shard --merge --gurobi-params --run-stamp; do
+for flag in --threads --shard --merge --gurobi-params --run-stamp \
+            --formulation --formulations; do
     if ! grep -q -- "\"$flag\"" "$PROJECT/test.py"; then
         echo "ERROR: $PROJECT/test.py does not support $flag -- it is an older" >&2
         echo "       version than these job scripts expect." >&2
@@ -63,6 +84,16 @@ done
 
 echo "project   : $PROJECT"
 echo "run folder: $OUT/${RUN_STAMP}_${TEST}"
+if [ "$TEST" = "formulation" ]; then
+    echo "encoding  : $FORMS  (solved BOTH and compared -- (H4))"
+    case "$FORMS" in
+      *,*) ;;
+      *) echo "ERROR: the 'formulation' test compares encodings, so FORMS needs" >&2
+         echo "       both, e.g. FORMS=indicator,bigm" >&2; exit 1 ;;
+    esac
+else
+    echo "encoding  : ${FORM:-indicator (harness default)}${BIGM:+  bigM=$BIGM}"
+fi
 if git -C "$PROJECT" rev-parse --git-dir >/dev/null 2>&1; then
     BRANCH=$(git -C "$PROJECT" rev-parse --abbrev-ref HEAD)
     COMMIT=$(git -C "$PROJECT" rev-parse --short HEAD)
@@ -93,6 +124,7 @@ fi
 
 ARRAY_ID=$(PROJECT=$PROJECT TEST=$TEST NAME=$NAME OUT=$OUT NSHARDS=$NSHARDS \
     RUN_STAMP=$RUN_STAMP CASES="${CASES:-}" INPUT_DIR="${INPUT_DIR:-input}" \
+    FORM="$FORM" FORMS="$FORMS" BIGM="$BIGM" \
     sbatch --parsable --array=0-$((NSHARDS - 1))%"$MAXPAR" euler/run_array.sbatch)
 echo "array job : $ARRAY_ID  ($NSHARDS shards, max $MAXPAR running at once)"
 

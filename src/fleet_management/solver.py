@@ -10,7 +10,9 @@ import yaml
 # rainflow fleet uses the rainflow builder; a genuinely mixed fleet is assembled
 # per cell on the shared model layer in base.py.
 from fleet_management.degradation_model.gamma_utils.gamma_gurobi import solve_fleet_management as solve_gamma
-from fleet_management.degradation_model.rainflow import solve as rainflow_solve
+# rainflow_v2 carries both MILP encodings; `formulation: indicator` (the default)
+# is the original rainflow.py math, `formulation: bigm` the substituted/big-M one.
+from fleet_management.degradation_model.rainflow_v2 import solve as rainflow_solve
 from fleet_management.degradation_model.base import solve_mixed as base_solve_mixed
 
 from fleet_management.config import load_config, FleetConfig
@@ -74,12 +76,14 @@ def solve(input_path: str, results_path: str = None) -> dict:   # was -> None, n
 def _solve_mixed(cfg: "FleetConfig") -> dict:
     """Solve a normalized FleetConfig — three routes by fleet composition.
 
-    1. **gamma-only**  -> the existing gamma backend (kept as a regression
-       oracle while the modular tail-bound block is introduced);
+    1. **gamma-only**  -> the existing gamma backend (its modular cell block is
+       still a placeholder, so the whole-fleet backend is used);
     2. **rainflow-only** -> the rainflow builder (``rainflow.solve``);
     3. **mixed** (cells use different degradation models) -> ``base.solve_mixed``,
        which builds the shared skeleton once and then fills in each cell's
-       constraints through that cell's registered model builder.
+       constraints through that cell's registered model builder. A cell whose
+       model has no implementation yet (gamma today) raises a clear
+       ``NotImplementedError`` from its placeholder.
     """
     models = set(cfg.models)
 
@@ -123,35 +127,6 @@ def _uniform_over_vehicles(arr, name):
     return a[0, :]
 
 
-def _legacy_gamma_beta(cfg: "FleetConfig") -> np.ndarray:
-    """Collapse normalized exact rates for the constant-rate Gamma backend.
-
-    The modular Gamma block accepts mission/time-varying rates. The legacy
-    uniform backend remains a regression oracle and therefore receives only a
-    single rate per component.
-    """
-    beta = np.asarray(cfg.gamma_beta, dtype=float)
-    if beta.ndim == 2:                         # defensive: older FleetConfig
-        return _uniform_over_vehicles(beta, "gamma_beta")
-    if beta.ndim != 4 or beta.shape[:3] != (cfg.F, cfg.L, cfg.M):
-        raise ValueError(
-            "normalized gamma_beta must have shape (F,L,M,H_profile); "
-            f"got {beta.shape}."
-        )
-    collapsed = np.empty(cfg.L)
-    for l in range(cfg.L):
-        values = beta[:, l, :, :]
-        reference = float(values.flat[0])
-        if not np.allclose(values, reference, rtol=1e-12, atol=0.0):
-            raise NotImplementedError(
-                "a uniform Gamma fleet with mission/time-varying gamma_beta "
-                "must use the modular tail-bound backend; the legacy Gamma "
-                f"backend requires one rate per component (variation at l={l})."
-            )
-        collapsed[l] = reference
-    return collapsed
-
-
 def _cfg_to_gamma_kwargs(cfg: "FleetConfig") -> dict:
     """Translate a uniform single-model gamma FleetConfig into solve_gamma
     kwargs for the CURRENT gamma backend.
@@ -169,13 +144,13 @@ def _cfg_to_gamma_kwargs(cfg: "FleetConfig") -> dict:
         "mu_param": np.transpose(cfg.mu, (0, 2, 1, 3)),
         "tau": _uniform_over_vehicles(cfg.tau, "tau"),
         "epsilon": float(_require_uniform(cfg.epsilon, "epsilon")),
-        "gamma_beta": _legacy_gamma_beta(cfg),
+        "gamma_beta": _uniform_over_vehicles(cfg.gamma_beta, "gamma_beta"),
         "repair_rho": _uniform_over_vehicles(cfg.rho, "rho"),
         "C_M": cfg.costs["C_M"], "C_R": cfg.costs["C_R"], "C_rep": cfg.costs["C_rep"],
         "C_S": cfg.costs.get("C_S", cfg.costs.get("C_D")), "C_P": cfg.costs["C_P"],
         "mu_0": cfg.mu_0, "replacement_mu": cfg.replacement_mu,
     }
-    for opt in ("verbose", "mip_gap", "time_limit", "gurobi_params"):
+    for opt in ("verbose", "mip_gap"):
         if opt in cfg.options:
             kw[opt] = cfg.options[opt]
     return kw
@@ -314,12 +289,10 @@ def _build_serializable_output(result: dict) -> dict:
     # Optional scalar parameters
     if result.get("alpha") is not None:
         output["alpha"] = result["alpha"]
-    for key in ("bound", "mip_gap"):
-        if result.get(key) is not None:
-            output[key] = float(result[key])
 
     # Two-horizon / rainflow metadata
-    for key in ("H1", "H2", "T", "method", "bound_method", "repair_model"):
+    for key in ("H1", "H2", "T", "method", "bound_method", "repair_model",
+                "formulation"):
         if result.get(key) is not None:
             output[key] = _to_builtin(result[key])
 
@@ -327,7 +300,6 @@ def _build_serializable_output(result: dict) -> dict:
     for key in (
         "tau",
         "gamma_beta",
-        "gamma_beta_bound",
         "replacement_mu",
         "repair_rho",
         "maximum_shape",
@@ -349,16 +321,11 @@ def _build_serializable_output(result: dict) -> dict:
             "v",
             "A",
             "tail_probability",
-            "gamma_shape_bound",
-            "gamma_tail_bound",
             "m",
             "r",
         ):
             if result.get(key) is not None:
                 output[key] = _to_builtin(result[key])
-
-        if result.get("gamma_calibration") is not None:
-            output["gamma_calibration"] = _to_builtin(result["gamma_calibration"])
 
     # Performance measurements may exist even without a solution.
     if result.get("performance") is not None:
@@ -421,12 +388,9 @@ def _save_hdf5(result: dict, path: Path) -> None:
         # Optional scalar parameter
         if result.get("alpha") is not None:
             f.attrs["alpha"] = result["alpha"]
-        for key in ("bound", "mip_gap"):
-            if result.get(key) is not None:
-                f.attrs[key] = float(result[key])
 
         # Two-horizon / rainflow metadata
-        for key in ("H1", "H2", "T", "method", "repair_model"):
+        for key in ("H1", "H2", "T", "method", "repair_model", "formulation"):
             if result.get(key) is not None:
                 f.attrs[key] = result[key]
 
@@ -434,7 +398,6 @@ def _save_hdf5(result: dict, path: Path) -> None:
         for key in (
             "tau",
             "gamma_beta",
-            "gamma_beta_bound",
             "replacement_mu",
             "repair_rho",
             "maximum_shape",
@@ -458,15 +421,8 @@ def _save_hdf5(result: dict, path: Path) -> None:
                 "v",
                 "A",
                 "tail_probability",
-                "gamma_shape_bound",
-                "gamma_tail_bound",
                 "m",
                 "r",
             ):
                 if result.get(key) is not None:
                     f.create_dataset(key, data=result[key])
-
-            if result.get("gamma_calibration") is not None:
-                f.attrs["gamma_calibration"] = json.dumps(
-                    _to_builtin(result["gamma_calibration"])
-                )

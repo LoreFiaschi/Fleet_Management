@@ -14,7 +14,25 @@ PROJECT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 STUDIES=${1:-scaling}
 NSHARDS=${2:-12}
 NAME=${NAME:-studies}
-OUT=${OUT:-$PROJECT/results}
+# MILP encoding (rainflow_v2): indicator | bigm. This is the knob the lp_gap
+# column measures -- the indicator encoding contributes nothing to the LP
+# relaxation, so its root bound is 0 and lp_gap is 1.0 by construction.
+FORM=${FORM:-}
+BIGM=${BIGM:-}
+case "${FORM:-indicator}" in
+    indicator|bigm) ;;
+    *) echo "ERROR: unknown FORM '$FORM'; pick from indicator,bigm" >&2; exit 1 ;;
+esac
+# A run folder is results/<stamp>_<study>/ and a shard writes results_shard<k>.csv
+# into it, so two submissions differing only in the encoding would overwrite each
+# other whenever they share a stamp. Give each encoding its own subtree by
+# default (override with OUT=). To compare the two, submit twice and point the
+# analysis at both folders -- every row carries a 'formulation' column.
+if [ -n "$FORM" ]; then
+    OUT=${OUT:-$PROJECT/results/$FORM}
+else
+    OUT=${OUT:-$PROJECT/results}
+fi
 MAXPAR=${MAXPAR:-10}                  # concurrent array tasks
 WALL=${WALL:-24:00:00}                # per-task Slurm limit
 CPUS=${CPUS:-4}                       # MUST be constant across a whole study
@@ -48,7 +66,7 @@ fi
 # A stale run_studies.py is the most wasteful failure here: every array task dies
 # in seconds with argparse exit code 2 and you only find out from the logs.
 for flag in --studies --shard --merge --run-stamp --threads --gurobi-params \
-            --lp-time-limit --band; do
+            --lp-time-limit --band --formulation; do
     if ! grep -q -- "\"$flag\"" "$PROJECT/run_studies.py"; then
         echo "ERROR: $PROJECT/run_studies.py does not support $flag -- it is an" >&2
         echo "       older version than these job scripts expect." >&2
@@ -78,6 +96,7 @@ done
 
 echo "project   : $PROJECT"
 echo "studies   : $STUDIES"
+echo "encoding  : ${FORM:-indicator (harness default)}${BIGM:+  bigM=$BIGM}"
 for s in ${STUDIES//,/ }; do
     echo "run folder: $OUT/${RUN_STAMP}_${s}"
 done
@@ -106,7 +125,7 @@ set +e
 source "$PROJECT/.venv-euler/bin/activate" 2>/dev/null
 python run_studies.py --plan --studies "$STUDIES" \
     --time-limit "${SOLVE_TL:-300}" --mip-gap "${MIP_GAP:-1e-4}" \
-    --plan-shards "$NSHARDS" ${EXTRA:-} 2>&1 \
+    --plan-shards "$NSHARDS" ${FORM:+--formulation "$FORM"} ${EXTRA:-} 2>&1 \
     | grep -E "^base case|^combos|^seeds|^time limit|^  -> |^TOTAL|^Worst case|^With --shard|^WARNING|screen +note|no:"
 PLAN_RC=${PIPESTATUS[0]}
 set -e
@@ -125,6 +144,7 @@ fi
 ARRAY_ID=$(PROJECT=$PROJECT STUDIES=$STUDIES NAME=$NAME OUT=$OUT NSHARDS=$NSHARDS \
     RUN_STAMP=$RUN_STAMP SOLVE_TL="${SOLVE_TL:-300}" MIP_GAP="${MIP_GAP:-1e-4}" \
     LP_TL="${LP_TL:-60}" LP_RELAX="${LP_RELAX:-1}" \
+    FORM="$FORM" BIGM="$BIGM" \
     GUROBI_PARAMS="${GUROBI_PARAMS:-}" EXTRA="${EXTRA:-}" \
     sbatch --parsable --array=0-$((NSHARDS - 1))%"$MAXPAR" \
            --time="$WALL" --cpus-per-task="$CPUS" --mem-per-cpu="$MEM" \
@@ -140,4 +160,4 @@ echo "watch with : squeue -u \$USER   /   myjobs -j $ARRAY_ID"
 echo "results in : $OUT/${RUN_STAMP}_<study>/  (merged_summary.txt when done)"
 echo
 echo "re-merge without re-solving (e.g. to change the band):"
-echo "  RUN_STAMP=$RUN_STAMP STUDIES=$STUDIES BAND=minmax sbatch euler/merge_studies.sbatch"
+echo "  RUN_STAMP=$RUN_STAMP STUDIES=$STUDIES OUT=$OUT BAND=minmax sbatch euler/merge_studies.sbatch"

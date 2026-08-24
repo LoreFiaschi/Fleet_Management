@@ -222,7 +222,7 @@ def _import_dispatch():
 def _import_solver():
     """Imported lazily so `analytic` / `--dry-run` work without Gurobi."""
     from fleet_management.config import load_config
-    from fleet_management.degradation_model.rainflow import solve as rainflow_solve
+    from fleet_management.degradation_model.rainflow_v2 import solve as rainflow_solve
     return load_config, rainflow_solve
 
 
@@ -385,28 +385,34 @@ class Scenario:
     H: int = 10                     # T = 2H; see design note 8
     # reliability
     tau: float = 1.0
-    epsilon: float = 0.1
-    rho: float = 0.6
+    epsilon: float = 0.02
+    rho: float = 0.9
     mu_0: float = 0.0
     v_0: float = 0.0
     # increment distribution
-    p: float = 1.0/3.0                 # Bernoulli success probability
+    p: float = 0.05                 # Bernoulli success probability
     n_target: float = 6.0           # calibration target for hoeffding's n_max
-    b_ref_fixed: float | None = 0.15  # freeze the increment scale (see SCALE_COUPLED)
-    severity_spread: float = 0.0   # missions span b_ref*(1 -+ spread)
+    b_ref_fixed: float | None = None  # freeze the increment scale (see SCALE_COUPLED)
+    severity_spread: float = 0.25   # missions span b_ref*(1 -+ spread)
     # costs (design note 3).  C_S is the alias the objective reads as C_D;
     # C_P is inert in the current objective; C_rep only matters with replacement.
     C_M: float = 1.0
-    C_R: float = 2.0
-    C_S: float = 3.0
-    C_P: float = 3.0
-    C_rep: float = 0.5
+    C_R: float = 0.5
+    C_S: float = 2.0
+    C_P: float = 1.0
+    C_rep: float = 25.0
     # model options
     repair_model: str = "ardinf"
-    reliability_impl: str = "tangent"
+    reliability_impl: str = "exact"
     pwl_points: int = 8             # segments used by reliability_impl='pwl'
     tangent_ref: float = 0.5        # tangent taken at tangent_ref*tau
-    allow_replacement: bool = True
+    allow_replacement: bool = False
+    # MILP encoding of the logical constraints (rainflow_v2).  'indicator' is the
+    # original model; 'bigm' substitutes nb out and writes linear big-M rows.
+    # The two have the SAME integer feasible set, so `objective` must agree --
+    # what changes is the relaxation, the size and the solve time.
+    formulation: str = "indicator"
+    bigM: float = 1.1               # fallback big-M; states live in [0, 1.1]
 
     # ---- derived quantities ------------------------------------------------
     @property
@@ -518,6 +524,8 @@ class Scenario:
             "reliability_impl": str(self.reliability_impl),
             "pwl_points": int(self.pwl_points),
             "tangent_ref": float(self.tangent_ref),
+            "formulation": str(self.formulation),
+            "bigM": float(self.bigM),
         }
         if self.allow_replacement:
             data["C_rep"] = float(self.C_rep)
@@ -531,7 +539,8 @@ class Scenario:
         return (f"F={self.F} M={self.M} L={self.L} H={self.H} (T={self.T}) "
                 f"tau={self.tau} eps={self.epsilon} rho={self.rho} p={self.p} "
                 f"b_ref={self.b_ref:.4g} impl={self.reliability_impl}"
-                + (f"({self.pwl_points})" if self.reliability_impl == "pwl" else ""))
+                + (f"({self.pwl_points})" if self.reliability_impl == "pwl" else "")
+                + f" form={self.formulation}")
 
     def to_yaml_dict(self) -> dict:
         """Human-readable record of the design point (not a solver input)."""
@@ -563,6 +572,8 @@ class Scenario:
                         "reliability_impl": self.reliability_impl,
                         "pwl_points": int(self.pwl_points),
                         "tangent_ref": float(self.tangent_ref),
+                        "formulation": self.formulation,
+                        "bigM": float(self.bigM),
                         "allow_replacement": bool(self.allow_replacement),
                         "note": "pwl_points/tangent_ref only affect the "
                                 "'pwl'/'tangent' implementations; markov and "
@@ -740,12 +751,9 @@ def feasible_hint(sc: Scenario, bound: str) -> bool:
 # ===========================================================================
 # One solve
 # ===========================================================================
-def run_case(sc: Scenario, bound: str, opts, run=None, label: str = ""
-             ) -> tuple[dict, dict]:
+def run_case(sc: Scenario, bound: str, opts, log_path=None) -> tuple[dict, dict]:
     """Solve one (scenario, bound); return (record, input dict)."""
     data = sc.to_input(bound)
-    log_path = solver_log_path(run, label) if run is not None else None
-    sched_path = schedule_path(run, label) if run is not None else None
     rec = {
         "timestamp": datetime.now().isoformat(timespec="seconds"),
         "bound": bound, "F": sc.F, "M": sc.M, "L": sc.L, "H": sc.H, "T": sc.T,
@@ -754,13 +762,13 @@ def run_case(sc: Scenario, bound: str, opts, run=None, label: str = ""
         "s_chernoff": sc.s_chernoff, "repair_model": sc.repair_model,
         "reliability_impl": sc.reliability_impl,
         "pwl_points": sc.pwl_points, "tangent_ref": sc.tangent_ref,
+        "formulation": sc.formulation, "bigM": sc.bigM,
         "allow_replacement": sc.allow_replacement,
         "C_M": sc.C_M, "C_R": sc.C_R, "C_S": sc.C_S, "C_P": sc.C_P,
         "threads": getattr(opts, "threads", None) or "",
         "gurobi_params": ",".join(f"{k}={v}" for k, v in
                                   sorted((_gurobi_params(opts) or {}).items())),
         "solver_log": (log_path.name if log_path is not None else ""),
-        "schedule_file": (sched_path.name if sched_path is not None else ""),
         "host": _HOSTNAME, "slurm_job": _SLURM_JOB,
         "git_branch": _GIT["git_branch"], "git_commit": _GIT["git_commit"],
         "n_max_analytic": n_max(sc, bound),
@@ -788,6 +796,8 @@ def run_case(sc: Scenario, bound: str, opts, run=None, label: str = ""
             reliability_impl=sc.reliability_impl,
             pwl_points=sc.pwl_points,
             tangent_ref=sc.tangent_ref,
+            formulation=sc.formulation,
+            bigM=sc.bigM,
             # On a shared cluster node Gurobi would otherwise spawn threads for
             # every core it can see, not for the cores Slurm gave the job.
             gurobi_params=_gurobi_params(opts, log_path),
@@ -829,8 +839,6 @@ def run_case(sc: Scenario, bound: str, opts, run=None, label: str = ""
         rec.update(monte_carlo_check(sc, res, n_mc, rng,
                                      getattr(opts, "mc_dist", "bernoulli")))
 
-    if sched_path is not None:
-        _write_schedule(sched_path, res)
     if md is not None:
         try:
             md.dispose()                         # release the Gurobi environment
@@ -921,26 +929,11 @@ def monte_carlo_check(sc: Scenario, res: dict, n_samples: int,
 
 def solver_log_path(run, label: str) -> "Path | None":
     """`<run folder>/solver_logs/<label>.log`, or None when logging is off."""
-    return _artefact_path(run, "log_mode", "solver_logs", label, ".log")
-
-
-def schedule_path(run, label: str) -> "Path | None":
-    """`<run folder>/schedules/<label>.csv`, or None when saving is off.
-
-    The schedule IS the answer the optimisation produced -- a cost figure without
-    it cannot be inspected, plotted or defended -- so this is on by default for
-    every test. The files are small (one row per vehicle x component x step).
-    """
-    return _artefact_path(run, "schedule_mode", "schedules", label, ".csv")
-
-
-def _artefact_path(run, mode_attr: str, subdir: str, label: str,
-                   ext: str) -> "Path | None":
-    if run is None or getattr(run, mode_attr, "off") == "off":
+    if getattr(run, "log_mode", "off") == "off":
         return None
-    d = run.dir / subdir
+    d = run.dir / "solver_logs"
     d.mkdir(parents=True, exist_ok=True)
-    return d / f"{_safe_filename(label)}{ext}"
+    return d / f"{_safe_filename(label)}.log"
 
 
 def _gurobi_params(opts, log_path=None) -> dict | None:
@@ -1043,13 +1036,12 @@ FIELDS = ["timestamp", "test", "parameter", "value", "bound", "status",
           "max_vio", "is_mip", "is_qcp",
           "F", "M", "L", "H", "T", "tau", "epsilon", "rho", "p", "b_ref",
           "mu_ref", "s_chernoff", "repair_model", "reliability_impl",
-          "pwl_points", "tangent_ref",
+          "pwl_points", "tangent_ref", "formulation", "bigM",
           "allow_replacement", "C_M", "C_R", "C_S", "C_P",
           "model", "req_mip_gap", "req_time_limit", "req_verbose", "traceback",
           "mc_samples", "mc_dist", "mc_p_max", "mc_p_max_cell", "mc_p_mean", "mc_ci95",
           "mc_slack", "mc_conservatism",
-          "threads", "gurobi_params", "solver_log", "schedule_file",
-          "host", "slurm_job",
+          "threads", "gurobi_params", "solver_log", "host", "slurm_job",
           "git_branch", "git_commit"]
 
 
@@ -1089,8 +1081,6 @@ class TestRun:
         mode = getattr(opts, "solver_log", "auto")
         self.log_mode = (("on" if test == "case" else "off")
                          if mode == "auto" else mode)
-        sched = getattr(opts, "save_schedule", "auto")
-        self.schedule_mode = "on" if sched == "auto" else sched
         self.stem = test
         self.csv_path = self.dir / f"results{self.tag}.csv"
         self.yaml_path = self.dir / f"results{self.tag}.yaml"
@@ -1853,7 +1843,8 @@ def test_base(sc: Scenario, opts, run: TestRun, impls) -> tuple[list, dict]:
         variant = sc.variant(reliability_impl=impl)
         print(f"  solving {bound}/{impl} ...", flush=True)
         run.note_progress(f"START base {bound}/{impl}")
-        rec, data = run_case(variant, bound, opts, run, f"base_{bound}_{impl}")
+        rec, data = run_case(variant, bound, opts,
+                             solver_log_path(run, f"base_{bound}_{impl}"))
         rec.update({"test": "base", "parameter": "-", "value": ""})
         run.add(rec, data, variant)
         vals[(bound, impl)] = rec.get("objective", math.nan)
@@ -1975,7 +1966,8 @@ def test_sweep(sc: Scenario, opts, run: TestRun, sweeps: dict,
                 variant = base_variant.variant(reliability_impl=impl)
                 print(f"  {param}={v} {bound}/{impl} ...", flush=True)
                 run.note_progress(f"START {param}={v} {bound}/{impl}")
-                rec, data = run_case(variant, bound, opts, run, f"{param}{v}_{bound}_{impl}")
+                rec, data = run_case(variant, bound, opts,
+                                     solver_log_path(run, f"{param}{v}_{bound}_{impl}"))
                 rec.update({"test": "sweep", "parameter": param, "value": v})
                 run.add(rec, data, variant)
                 vals[(bound, impl)] = rec.get("objective", math.nan)
@@ -2063,7 +2055,8 @@ def test_failure(sc: Scenario, opts, run: TestRun, ladders: dict,
                     continue
                 print(f"  {bound}/{impl} {param}={v} ...", flush=True)
                 run.note_progress(f"START {param}={v} {bound}/{impl}")
-                rec, data = run_case(variant, bound, opts, run, f"{param}{v}_{bound}_{impl}")
+                rec, data = run_case(variant, bound, opts,
+                                     solver_log_path(run, f"{param}{v}_{bound}_{impl}"))
                 rec.update({"test": "failure", "parameter": param, "value": v})
                 run.add(rec, data, variant)
                 n_runs[key] += 1
@@ -2196,7 +2189,8 @@ def test_impl(sc: Scenario, opts, run: TestRun, impls, pwl_ladder) -> tuple[list
             continue
         variant = sc.variant(reliability_impl=impl)
         print(f"  [impl] {bound}/{impl} ...", flush=True)
-        rec, data = run_case(variant, bound, opts, run, f"impl_{bound}_{impl}")
+        rec, data = run_case(variant, bound, opts,
+                             solver_log_path(run, f"impl_{bound}_{impl}"))
         rec.update({"test": "impl", "parameter": "impl", "value": impl})
         run.add(rec, data, variant)
         vals[(bound, impl)] = rec.get("objective", math.nan)
@@ -2247,7 +2241,8 @@ def test_impl(sc: Scenario, opts, run: TestRun, impls, pwl_ladder) -> tuple[list
                     continue
                 variant = sc.variant(reliability_impl="pwl", pwl_points=int(n))
                 print(f"  [impl] {bound}/pwl({n}) ...", flush=True)
-                rec, data = run_case(variant, bound, opts, run, f"pwl{n}_{bound}")
+                rec, data = run_case(variant, bound, opts,
+                                     solver_log_path(run, f"pwl{n}_{bound}"))
                 rec.update({"test": "impl", "parameter": "pwl_points",
                             "value": int(n)})
                 run.add(rec, data, variant)
@@ -2322,6 +2317,121 @@ def resolve_case_path(name: str, root: Path) -> Path:
                      + ", ".join(str(q) for q in cand))
 
 
+FORMULATIONS_ORDER = ("indicator", "bigm")
+
+
+def test_formulation(sc: Scenario, opts, run: TestRun, impls,
+                     formulations) -> tuple[list, dict]:
+    """(H4): does the big-M / substituted encoding buy anything?
+
+    `formulation='indicator'` and `formulation='bigm'` describe the SAME integer
+    feasible set -- they differ only in how the logical constraints are written
+    (see `rainflow_v2`).  Two things therefore have to be reported separately:
+
+      * **equivalence** -- the optimal objectives must agree to within the MIP
+        gap.  A disagreement is a bug in a big-M constant, not a result.  Run
+        this with a small --mip-gap (1e-6) before trusting any timing.
+      * **the trade** -- the big-M model has fewer binaries (no `nb`) but more
+        rows, and its rows are *in* the LP relaxation, which the indicator ones
+        are not.  So compare, per bound: model size, root/objective bound, node
+        count and solve time.
+
+    `obj_bound` at optimality is the objective itself and says nothing about the
+    relaxation; the informative column when both models solve to optimality is
+    `nodes`.  Use `run_studies.py --studies scaling` for the honest LP-gap
+    measurement, which solves the pure relaxation on a copy of the model.
+    """
+    lines = [f"base case: {sc.label()}",
+             f"formulations: {list(formulations)}   implementations: {list(impls)}",
+             ""]
+    combos = bound_impl_combos(impls, announce=True)
+    vals, sizes, times, nodes, bounds_ = {}, {}, {}, {}, {}
+    header = (f"{'bound':<10s} {'impl':<9s} {'form':<10s} {'status':<12s} "
+              f"{'cost':>12s} {'gap':>9s} {'time[s]':>9s} {'nodes':>9s} "
+              f"{'bin':>7s} {'constrs':>9s} {'gencon':>7s}")
+    lines += [header, "-" * len(header)]
+    for bound, impl in combos:
+        for form in formulations:
+            if not _mine(opts):
+                continue
+            variant = sc.variant(reliability_impl=impl, formulation=form)
+            print(f"  [formulation] {bound}/{impl}/{form} ...", flush=True)
+            rec, data = run_case(variant, bound, opts,
+                                 solver_log_path(run, f"form_{bound}_{impl}_{form}"))
+            rec.update({"test": "formulation", "parameter": "formulation",
+                        "value": form})
+            run.add(rec, data, variant)
+            key = (bound, impl, form)
+            vals[key] = rec.get("objective", math.nan)
+            times[key] = rec.get("runtime_s", math.nan)
+            nodes[key] = rec.get("nodes", math.nan)
+            bounds_[key] = rec.get("obj_bound", math.nan)
+            sizes[key] = (rec.get("n_bin"), rec.get("n_constrs"),
+                          rec.get("n_genconstrs"))
+            lines.append(f"{bound:<10s} {impl:<9s} {form:<10s} "
+                         f"{str(rec.get('status'))[:12]:<12s} "
+                         f"{_fmt(rec.get('objective')):>12s} "
+                         f"{_fmt(rec.get('mip_gap'), 3):>9s} "
+                         f"{_fmt(rec.get('runtime_s'), 2):>9s} "
+                         f"{_fmt(rec.get('nodes'), 0):>9s} "
+                         f"{_fmt(rec.get('n_bin'), 0):>7s} "
+                         f"{_fmt(rec.get('n_constrs'), 0):>9s} "
+                         f"{_fmt(rec.get('n_genconstrs'), 0):>7s}")
+    lines.append("")
+
+    tol = max(float(getattr(opts, "mip_gap", 0.0) or 0.0), 1e-6)
+    summary = {"H4": {}}
+    for bound, impl in combos:
+        have = [f for f in FORMULATIONS_ORDER if (bound, impl, f) in vals]
+        if len(have) < 2:
+            continue
+        costs = [vals[(bound, impl, f)] for f in have]
+        finite = [c for c in costs if isinstance(c, float) and math.isfinite(c)]
+        if len(finite) == len(costs) and finite:
+            spread = (max(finite) - min(finite)) / max(1e-12, abs(min(finite)))
+            agree = spread <= 2.0 * tol + 1e-9
+        else:                       # infeasible must be infeasible on both sides
+            agree = len({("inf" if c == math.inf else "fin"
+                          if isinstance(c, float) and math.isfinite(c) else "nan")
+                         for c in costs}) == 1
+            spread = math.nan
+        tag = "AGREE" if agree else "MISMATCH"
+        cost_txt = "  ".join(f"{f}={_fmt(vals[(bound, impl, f)])}" for f in have)
+        lines.append(f"(H4) {bound}/{impl}: {tag}   {cost_txt}")
+        lines.append("     time: " + "  ".join(
+            f"{f}={_fmt(times[(bound, impl, f)], 2)}s" for f in have)
+            + "   nodes: " + "  ".join(
+            f"{f}={_fmt(nodes[(bound, impl, f)], 0)}" for f in have))
+        lines.append("     size (bin/constrs/gencon): " + "  ".join(
+            f"{f}={sizes[(bound, impl, f)]}" for f in have))
+        if not agree:
+            lines.append("     VIOLATION the two encodings must have the same "
+                         "integer optimum. Suspect a big-M that is too small "
+                         "(raise --bigM or check the state upper bounds) before "
+                         "suspecting the model.")
+        ti, tb = times.get((bound, impl, "indicator")), times.get((bound, impl, "bigm"))
+        if all(isinstance(q, float) and math.isfinite(q) and q > 0 for q in (ti, tb)):
+            lines.append(f"     speed-up of bigm over indicator: {ti / tb:.2f}x")
+        summary["H4"][f"{bound}/{impl}"] = {
+            "agree": bool(agree), "cost_spread_rel": _to_builtin(spread),
+            "costs": {f: _to_builtin(vals[(bound, impl, f)]) for f in have},
+            "times": {f: _to_builtin(times[(bound, impl, f)]) for f in have},
+            "nodes": {f: _to_builtin(nodes[(bound, impl, f)]) for f in have},
+            "obj_bound": {f: _to_builtin(bounds_[(bound, impl, f)]) for f in have},
+            "size_bin_constr_gencon": {f: _to_builtin(sizes[(bound, impl, f)])
+                                       for f in have}}
+    lines.append("")
+    if getattr(opts, "shard_obj", None) is not None:
+        lines.append(f"shard {opts.shard_obj}: {len(run.rows)} run(s); (H4) is "
+                     f"evaluated by --merge once every shard has finished.")
+        return lines, {"shard": str(opts.shard_obj), "n_runs": len(run.rows)}
+    n_bad = sum(1 for v in summary["H4"].values() if not v["agree"])
+    lines.append(f"(H4) the two encodings agreed on "
+                 f"{len(summary['H4']) - n_bad}/{len(summary['H4'])} "
+                 f"(bound, impl) pair(s).")
+    return lines, summary
+
+
 def test_case(sc: Scenario, opts, run: TestRun, cases: list, in_root: Path
               ) -> tuple[list, dict]:
     """Solve one or more hand-written input files from `input/` as they are.
@@ -2372,7 +2482,6 @@ def test_case(sc: Scenario, opts, run: TestRun, cases: list, in_root: Path
             if key not in data and val is not None:
                 data[key] = val; injected[key] = val
         log_path = solver_log_path(run, name)
-        sched_path = schedule_path(run, name)
         gp = _gurobi_params(opts, log_path)
         if gp and "gurobi_params" not in data:
             data["gurobi_params"] = gp; injected["gurobi_params"] = gp
@@ -2399,7 +2508,6 @@ def test_case(sc: Scenario, opts, run: TestRun, cases: list, in_root: Path
                "gurobi_params": ",".join(f"{k}={v}" for k, v in
                                          sorted((gp or {}).items())),
                "solver_log": (log_path.name if log_path is not None else ""),
-               "schedule_file": (sched_path.name if sched_path is not None else ""),
                "host": _HOSTNAME, "slurm_job": _SLURM_JOB,
                "git_branch": _GIT["git_branch"], "git_commit": _GIT["git_commit"]}
 
@@ -2473,8 +2581,7 @@ def test_case(sc: Scenario, opts, run: TestRun, cases: list, in_root: Path
         x = res.get("x")
         rec["n_depot"] = float(np.sum(x[:, 0, :])) if x is not None else math.nan
 
-        if sched_path is not None:
-            _write_schedule(sched_path, res)
+        _dump_schedule(run, name, res)
         if md is not None:
             try:
                 md.dispose()
@@ -2504,7 +2611,7 @@ def test_case(sc: Scenario, opts, run: TestRun, cases: list, in_root: Path
     return lines, {"cases": summary}
 
 
-def _write_schedule(path: Path, res: dict) -> None:
+def _dump_schedule(run: TestRun, name: str, res: dict) -> None:
     """Long-format schedule + state trajectory, one row per (vehicle, comp, step).
 
     This is the artefact a plot script wants: activity, repair/replace flags and
@@ -2516,6 +2623,7 @@ def _write_schedule(path: Path, res: dict) -> None:
         return
     F, Jp1, T = x.shape
     L = mu.shape[1]
+    path = run.dir / f"schedule_{_safe_filename(name)}.csv"
     with path.open("w", newline="") as fh:
         w = csv.writer(fh)
         w.writerow(["vehicle", "component", "step", "activity", "mission",
@@ -2558,7 +2666,7 @@ _NUM_FIELDS = ("objective", "mip_gap", "obj_bound", "runtime_s", "wall_s",
                "n_max_analytic", "load", "n_repairs", "n_replacements",
                "n_depot", "mu_max", "v_max", "n_vars", "n_constrs", "n_bin",
                "nodes", "tau", "epsilon", "rho", "p", "b_ref", "mu_ref",
-               "s_chernoff", "tangent_ref", "C_M", "C_R", "C_S", "C_P")
+               "s_chernoff", "tangent_ref", "bigM", "C_M", "C_R", "C_S", "C_P")
 _INT_FIELDS = ("F", "M", "L", "H", "T", "pwl_points")
 
 
@@ -2797,6 +2905,54 @@ def merge_shards(out_root: Path, name: str, test: str, opts) -> int:
                       f"or use a MILP encoding (--impls tangent,pwl) where the gap "
                       f"actually closes.")
     report.append("")
+
+    # ---- (H4) formulation equivalence, across shards --------------------
+    form_rows = [r for r in rows if r.get("test") == "formulation"
+                 or r.get("parameter") == "formulation"]
+    if form_rows:
+        report.append("(H4) the two MILP encodings describe the same integer "
+                      "feasible set, so their optima must agree to within the MIP "
+                      "gap. A MISMATCH is a wrong big-M, not a result.")
+        by_pair = {}
+        for rec in form_rows:
+            key = (rec.get("bound"), impl_of_record(rec))
+            by_pair.setdefault(key, {})[str(rec.get("formulation")
+                                            or rec.get("value"))] = rec
+        n_agree = n_mismatch = 0
+        for (bound, impl), per_form in sorted(by_pair.items(), key=lambda kv: str(kv[0])):
+            forms = [f for f in FORMULATIONS_ORDER if f in per_form]
+            if len(forms) < 2:
+                continue
+            costs = [per_form[f].get("objective") for f in forms]
+            gaps_f = [per_form[f].get("mip_gap") for f in forms]
+            tol = max([g for g in gaps_f
+                       if isinstance(g, float) and math.isfinite(g)] or [0.0])
+            finite = [c for c in costs
+                      if isinstance(c, float) and math.isfinite(c)]
+            if len(finite) == len(costs) and finite:
+                spread = (max(finite) - min(finite)) / max(1e-12, abs(min(finite)))
+                agree = spread <= 2.0 * tol + 1e-6
+            else:                       # infeasible must be infeasible both sides
+                agree = len({classify(per_form[f]) for f in forms}) == 1
+                spread = math.nan
+            n_agree += agree
+            n_mismatch += (not agree)
+            txt = "  ".join(f"{f}={_fmt(per_form[f].get('objective'))}" for f in forms)
+            report.append(f"  {bound}/{impl}: {'AGREE' if agree else 'MISMATCH'}"
+                          f"   {txt}")
+            report.append("    time: " + "  ".join(
+                f"{f}={_fmt(per_form[f].get('runtime_s'), 2)}s" for f in forms)
+                + "   nodes: " + "  ".join(
+                f"{f}={_fmt(per_form[f].get('nodes'), 0)}" for f in forms)
+                + "   binaries: " + "  ".join(
+                f"{f}={_fmt(per_form[f].get('n_bin'), 0)}" for f in forms))
+            if not agree:
+                report.append("    VIOLATION raise --bigM or check the state upper "
+                              "bounds in rainflow_v2._tighten_bounds.")
+        report.append(f"  {n_agree} pair(s) agreed, {n_mismatch} mismatched.")
+        summary["H4_agree"] = n_agree
+        summary["H4_mismatch"] = n_mismatch
+        report.append("")
 
     # ---- (H2) from the failure rows -------------------------------------
     fail_rows = [r for r in rows if r.get("test") == "failure"]
@@ -3045,8 +3201,8 @@ def parse_args(argv=None):
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="Start with:  python test.py --tests analytic   (no Gurobi needed)")
     p.add_argument("--tests", default="analytic",
-                   help="comma list of analytic,base,sweep,impl,failure,case "
-                        "(default: analytic)")
+                   help="comma list of analytic,base,sweep,impl,formulation,"
+                        "failure,case (default: analytic)")
     p.add_argument("--case", default=None,
                    help="for --tests case: comma-separated input file names, "
                         "resolved against --input-dir (e.g. 'demo' -> "
@@ -3142,13 +3298,6 @@ def parse_args(argv=None):
                         "which guarantees survive misspecification.")
     p.add_argument("--mc-seed", type=int, default=0, dest="mc_seed",
                    help="seed for --verify-mc, so the check is reproducible")
-    p.add_argument("--save-schedule", default="auto", dest="save_schedule",
-                   choices=["auto", "on", "off"],
-                   help="write the optimised schedule of every solve to "
-                        "<run folder>/schedules/<label>.csv -- one row per "
-                        "vehicle x component x step with the activity, the "
-                        "repair/replace flags and the mu/v trajectory. On by "
-                        "default; the files are small.")
     p.add_argument("--solver-log", default="auto", dest="solver_log",
                    choices=["auto", "on", "off"],
                    help="write Gurobi's log per solve to <run folder>/solver_logs/. "
@@ -3203,6 +3352,20 @@ def parse_args(argv=None):
                    help="segments used by reliability_impl='pwl' (default 8)")
     p.add_argument("--tangent-ref", type=float, default=None, dest="tangent_ref",
                    help="tangent taken at tangent_ref*tau (default 0.5)")
+    p.add_argument("--formulation", default=None, dest="formulation",
+                   choices=["indicator", "bigm"],
+                   help="MILP encoding of the logical constraints: 'indicator' "
+                        "(default, the original model) or 'bigm' (nb substituted "
+                        "out, linear big-M rows, tighter relaxation). Both have "
+                        "the same integer optimum -- objectives that disagree are "
+                        "a bug, not a modelling choice.")
+    p.add_argument("--formulations", default=None,
+                   help="encodings to compare in the 'formulation' test, comma "
+                        f"separated; pick from {FORMULATIONS_ORDER} "
+                        "(e.g. --formulations indicator,bigm)")
+    p.add_argument("--bigM", type=float, default=None, dest="bigM",
+                   help="fallback big-M for a state with no finite bound "
+                        "(default 1.1); bounded states use their own bound")
     p.add_argument("--pwl-ladder", default=None,
                    help="in the 'impl' test, also sweep pwl_points, e.g. "
                         "'2,4,8,16' -- shows pwl converging to exact")
@@ -3227,6 +3390,19 @@ def parse_args(argv=None):
     args.impl_list = [im for im in IMPLS_ORDER if im in impls]
     # the scenario's own impl is the first one; each test overrides per run
     args.reliability_impl = args.impl_list[0]
+    # --formulations is the general form; --formulation the single-value shorthand
+    if args.formulations:
+        forms = [_clean(q) for q in args.formulations.split(",") if _clean(q)]
+    elif args.formulation:
+        forms = [args.formulation]
+    else:
+        forms = ["indicator"]
+    for form in forms:
+        if form not in FORMULATIONS_ORDER:
+            raise SystemExit(f"unknown formulation {form!r}; "
+                             f"pick from {FORMULATIONS_ORDER}")
+    args.formulation_list = [f for f in FORMULATIONS_ORDER if f in forms]
+    args.formulation = args.formulation_list[0]
     args.shard_obj = None
     if args.shard:
         try:
@@ -3248,6 +3424,7 @@ def scenario_from_args(args) -> Scenario:
     keys = ("F", "M", "L", "H", "tau", "epsilon", "rho", "p", "n_target",
             "C_M", "C_R", "C_S", "C_P", "C_rep", "repair_model",
             "reliability_impl", "pwl_points", "tangent_ref",
+            "formulation", "bigM",
             "severity_spread", "allow_replacement")
     overrides = {k: getattr(args, k) for k in keys if getattr(args, k) is not None}
     return Scenario(**overrides)
@@ -3346,6 +3523,8 @@ def main(argv=None) -> int:
         "impl": lambda r: test_impl(sc, args, r, args.impl_list,
                                     args.pwl_ladder_list),
         "failure": lambda r: test_failure(sc, args, r, ladders, args.impl_list),
+        "formulation": lambda r: test_formulation(sc, args, r, args.impl_list,
+                                                  args.formulation_list),
         "case": lambda r: test_case(sc, args, r, case_names, Path(args.input_dir)),
     }
     for test in tests:
@@ -3355,6 +3534,9 @@ def main(argv=None) -> int:
     if "case" in tests and not case_names:
         raise SystemExit("--tests case needs --case NAME[,NAME...] naming input "
                          f"file(s) under {args.input_dir}/")
+    if "formulation" in tests and len(args.formulation_list) < 2:
+        raise SystemExit("the 'formulation' test compares encodings, so give "
+                         "both: --formulations indicator,bigm")
     if "impl" in tests and len(args.impl_list) < 2 and not args.pwl_ladder_list:
         raise SystemExit("the 'impl' test compares implementations, so give at "
                          "least two: --impls tangent,pwl,exact "

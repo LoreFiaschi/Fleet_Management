@@ -25,6 +25,16 @@ NAME=${NAME:-bound_tightness}
 OUT=${OUT:-$PROJECT/results}
 PARAMS=${PARAMS:-L,H,M,F}
 IMPLS=${IMPLS:-exact}
+# MILP encoding of the logical constraints (rainflow_v2):
+#   FORM   one encoding for every solve in this shard: indicator | bigm
+#   FORMS  only for TEST=formulation, which solves BOTH and compares them
+#   BIGM   fallback big-M for a state with no finite bound (states are in [0,1.1])
+# Leaving FORM empty keeps the harness default ('indicator'), i.e. exactly the
+# model rainflow.py has always built -- so an old submission reproduces bit for
+# bit and only an explicit FORM= changes the encoding.
+FORM=${FORM:-}
+FORMS=${FORMS:-indicator,bigm}
+BIGM=${BIGM:-}
 EXTRA=${EXTRA:-}
 # --tests case only: comma-separated input file names, resolved under INPUT_DIR
 CASES=${CASES:-}
@@ -113,7 +123,7 @@ fi
 # Version check inside the task too, not only at submit time: a task can start
 # minutes after submission, and argparse's failure mode is a usage dump that buries
 # the real problem. Costs ~1 s.
-for flag in --threads --shard --gurobi-params; do
+for flag in --threads --shard --gurobi-params --formulation; do
     if ! python test.py --help 2>/dev/null | grep -q -- "$flag"; then
         echo "ERROR: this test.py does not support $flag -- it is older than these" >&2
         echo "       job scripts. On the login node:  git pull  (or scp the current" >&2
@@ -138,6 +148,11 @@ echo "project=$PROJECT"
 echo "python=$(which python)  gurobi=$(python -c 'import gurobipy;print(gurobipy.gurobi.version())')"
 echo "host=$(hostname)  task=${SLURM_ARRAY_TASK_ID:-0}/${NSHARDS}  cpus=${SLURM_CPUS_PER_TASK:-1}"
 echo "solve time limit=${SOLVE_TL}s  mip gap=${MIP_GAP:-1e-4}"
+if [ "$TEST" = "formulation" ]; then
+    echo "formulations=${FORMS} (compared against each other)"
+else
+    echo "formulation=${FORM:-indicator (harness default)}"
+fi
 echo "started $(date)"
 
 # A nonconvex MIQCP with a weak dual bound grows an enormous search tree (8e6
@@ -185,6 +200,16 @@ if [ "$TEST" = "case" ]; then
 else
     ARGS+=(--params "$PARAMS" --impls "$IMPLS")
 fi
+
+# The 'formulation' test needs BOTH encodings (it compares them), every other
+# test needs at most one. Passing --formulation to the formulation test would be
+# silently overridden by --formulations, so the two are mutually exclusive here.
+if [ "$TEST" = "formulation" ]; then
+    ARGS+=(--formulations "$FORMS")
+elif [ -n "$FORM" ]; then
+    ARGS+=(--formulation "$FORM")
+fi
+[ -n "$BIGM" ] && ARGS+=(--bigM "$BIGM")
 
 python test.py "${ARGS[@]}" $EXTRA
 
