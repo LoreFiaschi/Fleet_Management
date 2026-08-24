@@ -909,10 +909,25 @@ def solve_instrumented(sc: StudyScenario, bound: str, opts,
         except Exception:
             pass
 
-    # Root bound = the first dual bound the callback saw, i.e. after presolve
-    # and root cuts. Complementary to lp_obj, which is before both.
-    res["root_bound"] = next((b for b in trace.bound if math.isfinite(b)), math.nan)
+    # Root bound = the dual bound once Gurobi has FINISHED the root node, i.e.
+    # after presolve and root cuts. Taking the first finite bound instead is
+    # wrong and silently so: GRB.Callback.MIP fires before the root is processed,
+    # when ObjBnd is still the trivial bound (0 for a non-negative objective), so
+    # root_gap comes out as exactly 1.0 on every row. The last sample with
+    # NodeCount == 0 is the right one; fall back to the largest bound seen during
+    # root processing, and only then to the first finite value.
+    res["root_bound"] = _root_bound(trace)
     return res
+
+
+def _root_bound(trace: "Trace") -> float:
+    at_root = [b for b, n in zip(trace.bound, trace.nodes)
+               if math.isfinite(b) and n is not None and n <= 0]
+    if at_root:
+        # minimisation: the dual bound only rises, so the last (== largest)
+        # root sample is the bound Gurobi actually left the root node with
+        return float(max(at_root))
+    return next((b for b in trace.bound if math.isfinite(b)), math.nan)
 
 
 # ===========================================================================
@@ -1333,7 +1348,13 @@ def plot_effort_vs_params(rows, run, opts, metric: str, ylabel: str,
 def plot_relaxation(rows, run, opts):
     """The LP gap next to the final MIP gap: is the formulation weak, or is the
     search slow?  A large `lp_gap` that Gurobi closes anyway is a formulation
-    worth tightening; a small one that still takes minutes is a search problem."""
+    worth tightening; a small one that still takes minutes is a search problem.
+
+    Rows whose metric is entirely missing are DROPPED rather than drawn empty.
+    `lp_gap` is absent whenever the run used --no-lp-relax, and a blank panel
+    with axes and a legend looks like a plotting failure rather than a deliberate
+    omission -- which cost one debugging session already.
+    """
     plt = _pyplot()
     if plt is None:
         return None
@@ -1341,12 +1362,26 @@ def plot_relaxation(rows, run, opts):
               if any(r.get("parameter") == p for r in rows)]
     if not params:
         return None
-    fig, axes = plt.subplots(2, len(params), figsize=(3.6 * len(params), 6.0),
+
+    candidates = (("lp_gap", "LP relaxation gap"),
+                  ("root_gap", "root gap (after cuts)"),
+                  ("mip_gap", "final MIP gap"))
+    panels = []
+    for metric, lab in candidates:
+        vals = [_num(r, metric) for r in rows]
+        if any(math.isfinite(v) for v in vals):
+            panels.append((metric, lab))
+    if not panels:
+        print("  [plot] no relaxation metric has any data "
+              "(--no-lp-relax and no trace?); skipping the relaxation figure")
+        return None
+
+    fig, axes = plt.subplots(len(panels), len(params),
+                             figsize=(3.6 * len(params), 3.0 * len(panels)),
                              sharey="row", squeeze=False)
     for col, param in enumerate(params):
         sub = [r for r in rows if r.get("parameter") == param]
-        for row_i, (metric, lab) in enumerate((("lp_gap", "LP relaxation gap"),
-                                               ("root_gap", "root gap (after cuts)"))):
+        for row_i, (metric, lab) in enumerate(panels):
             ax = axes[row_i][col]
             agg = aggregate(sub, metric, "value", opts.band, True)
             for (bound, impl) in opts.combos:
@@ -1358,11 +1393,11 @@ def plot_relaxation(rows, run, opts):
                 ax.set_title(param, fontsize=9)
             if col == 0:
                 ax.set_ylabel(lab)
-            if row_i == 1:
+            if row_i == len(panels) - 1:
                 ax.set_xlabel(param)
     axes[0][0].legend(fontsize=7)
-    fig.suptitle("Relaxation strength: (z_MIP - z_LP)/|z_MIP| and the gap left "
-                 "after Gurobi's root cuts", fontsize=10)
+    fig.suptitle("Relaxation strength: how much of the gap is the formulation, "
+                 "and how much is the search?", fontsize=10)
     fig.tight_layout(rect=(0, 0, 1, 0.94))
     path = run.dir / f"{run.stem}_relaxation.png"
     fig.savefig(path, dpi=150)
@@ -2115,7 +2150,7 @@ def parse_args(argv=None):
 
     # ---- base case B ----
     g = p.add_argument_group("base case B")
-    g.add_argument("--F", type=int, default=3, help="base fleet size (default 3)")
+    g.add_argument("--F", type=int, default=4, help="base fleet size (default 4)")
     g.add_argument("--M", type=int, default=1, help="base mission count (default 1)")
     g.add_argument("--L", type=int, default=1, help="base components (default 1)")
     g.add_argument("--H", type=int, default=4,
@@ -2124,9 +2159,9 @@ def parse_args(argv=None):
     g.add_argument("--epsilon", type=float, default=None)
     g.add_argument("--rho", type=float, default=None)
     g.add_argument("--p", type=float, default=None)
-    g.add_argument("--severity-spread", type=float, default=0.0,
+    g.add_argument("--severity-spread", type=float, default=0.10,
                    dest="severity_spread",
-                   help="missions span b_ref*(1 -+ spread) (default 0.0, NOT "
+                   help="missions span b_ref*(1 -+ spread) (default 0.10, NOT "
                         "the Scenario default of 0.25). bernstein's drift term "
                         "uses the WORST mission's support, so a wide spread "
                         "collapses its budget to zero as soon as M > 1 and every "
@@ -2148,7 +2183,7 @@ def parse_args(argv=None):
                         "supports; keep it fixed across the study")
     g.add_argument("--tangent-ref", type=float, default=None, dest="tangent_ref")
     g.add_argument("--pwl-points", type=int, default=None, dest="pwl_points")
-    g.add_argument("--allow-replacement", action="store_true", default=True)
+    g.add_argument("--allow-replacement", action="store_true", default=None)
 
     # ---- ladders ----
     g = p.add_argument_group("ladders")
@@ -2217,7 +2252,7 @@ def parse_args(argv=None):
 
     # ---- solver ----
     g = p.add_argument_group("solver")
-    g.add_argument("--mip-gap", type=float, default=0.12,
+    g.add_argument("--mip-gap", type=float, default=1e-4,
                    help="MIP gap (default 1e-4; the model default 0.12 would make "
                         "every solve time a measurement of the heuristic, not of "
                         "the search)")
