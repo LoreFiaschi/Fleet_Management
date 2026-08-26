@@ -179,6 +179,39 @@ def dispatch_cell(ctx: FleetModel, i: int, l: int) -> None:
 # since the previous intervention and therefore requires separate mean and shape
 # latches.
 # ---------------------------------------------------------------------------
+def _add_big_m_equality(
+    model,
+    lhs,
+    rhs,
+    active,
+    *,
+    residual_lb: float,
+    residual_ub: float,
+    name: str,
+) -> None:
+    """Enforce ``lhs == rhs`` when ``active == 1`` using bounded Big-M rows.
+
+    ``residual_lb`` and ``residual_ub`` must bound ``lhs - rhs`` when the
+    equation is inactive.  Keeping the two sides asymmetric is materially
+    tighter than using one fleet-wide constant.
+    """
+    lower = float(residual_lb)
+    upper = float(residual_ub)
+    if not np.isfinite(lower) or not np.isfinite(upper) or lower > upper:
+        raise ValueError(
+            f"invalid Big-M residual bounds for {name}: [{lower}, {upper}]"
+        )
+    residual = lhs - rhs
+    model.addConstr(
+        residual <= max(0.0, upper) * (1 - active),
+        name=f"{name}_ub",
+    )
+    model.addConstr(
+        residual >= -max(0.0, -lower) * (1 - active),
+        name=f"{name}_lb",
+    )
+
+
 class GammaCellBuilder:
     """Finite-horizon common-rate tail bound for Gamma cells.
 
@@ -349,6 +382,7 @@ class GammaCellBuilder:
             "replacement_shape": replacement_shape,
             "calibrations": calibrations,
             "calibration_seconds": calibration_seconds,
+            "dynamics_formulation": "tight_big_m",
         }
 
     def add_cell(self, ctx: FleetModel, i: int, l: int) -> None:
@@ -372,9 +406,17 @@ class GammaCellBuilder:
         # since the previous intervention, represented by the mean and shape latches.
         rho = float(ctx.rho[i, l])
         remaining = 1.0 - rho
+        shape_ub = maximum
+        mean_ub = float(ctx.tau[i, l])
+        removed_ub = mean_ub
         for k in range(ctx.T):
             A_prev = initial_shape if k == 0 else A_var[i, l, k - 1]
             mu_prev = float(ctx.mu_0[i, l]) if k == 0 else ctx.mu_var[i, l, k - 1]
+            A_prev_lb = A_prev_ub = initial_shape if k == 0 else None
+            mu_prev_lb = mu_prev_ub = float(ctx.mu_0[i, l]) if k == 0 else None
+            if k > 0:
+                A_prev_lb, A_prev_ub = 0.0, shape_ub
+                mu_prev_lb, mu_prev_ub = 0.0, mean_ub
             mean_latch_prev = (
                 0.0 if k == 0 else mean_latch[i, l, k - 1]
             ) if use_latch else None
@@ -393,24 +435,35 @@ class GammaCellBuilder:
                 ctx.x[i, j, k] * float(shape_profile[j - 1, h])
                 for j in range(1, ctx.M + 1)
             )
+            maximum_shape_increment = max(
+                [0.0]
+                + [float(shape_profile[j, h]) for j in range(ctx.M)]
+            )
             mean_inc = gp.quicksum(
                 ctx.x[i, j, k] * ctx.mu_inc(i, j - 1, l, k)
                 for j in range(1, ctx.M + 1)
             )
+            maximum_mean_increment = max(
+                [0.0]
+                + [float(ctx.mu_inc(i, j, l, k)) for j in range(ctx.M)]
+            )
 
-            md.addGenConstrIndicator(
-                ctx.nb[i, l, k], True,
-                A_var[i, l, k] == A_prev + shape_inc,
+            _add_big_m_equality(
+                md, A_var[i, l, k], A_prev + shape_inc, ctx.nb[i, l, k],
+                residual_lb=-(A_prev_ub + maximum_shape_increment),
+                residual_ub=shape_ub - A_prev_lb,
                 name=f"A_gamma_carry_{i}_{l}_{k}",
             )
-            md.addGenConstrIndicator(
-                ctx.nb[i, l, k], True,
-                ctx.mu_var[i, l, k] == mu_prev + mean_inc,
+            _add_big_m_equality(
+                md, ctx.mu_var[i, l, k], mu_prev + mean_inc, ctx.nb[i, l, k],
+                residual_lb=-(mu_prev_ub + maximum_mean_increment),
+                residual_ub=mean_ub - mu_prev_lb,
                 name=f"mu_gamma_carry_{i}_{l}_{k}",
             )
-            md.addGenConstrIndicator(
-                ctx.nb[i, l, k], True,
-                ctx.z_var[i, l, k] == 0.0,
+            _add_big_m_equality(
+                md, ctx.z_var[i, l, k], 0.0, ctx.nb[i, l, k],
+                residual_lb=0.0,
+                residual_ub=removed_ub,
                 name=f"z_gamma_zero_{i}_{l}_{k}",
             )
             repaired_shape = (
@@ -425,70 +478,105 @@ class GammaCellBuilder:
                 else remaining * mu_prev
             )
 
-            md.addGenConstrIndicator(
-                ctx.m_rep[i, l, k], True,
-                A_var[i, l, k] == repaired_shape,
+            shape_latch_prev_lb = shape_latch_prev_ub = 0.0
+            mean_latch_prev_lb = mean_latch_prev_ub = 0.0
+            if use_latch and k > 0:
+                shape_latch_prev_lb, shape_latch_prev_ub = 0.0, shape_ub
+                mean_latch_prev_lb, mean_latch_prev_ub = 0.0, mean_ub
+            repaired_shape_lb = remaining * A_prev_lb
+            repaired_shape_ub = remaining * A_prev_ub
+            repaired_mean_lb = remaining * mu_prev_lb
+            repaired_mean_ub = remaining * mu_prev_ub
+            if use_latch:
+                repaired_shape_lb += rho * shape_latch_prev_lb
+                repaired_shape_ub += rho * shape_latch_prev_ub
+                repaired_mean_lb += rho * mean_latch_prev_lb
+                repaired_mean_ub += rho * mean_latch_prev_ub
+
+            _add_big_m_equality(
+                md, A_var[i, l, k], repaired_shape, ctx.m_rep[i, l, k],
+                residual_lb=-repaired_shape_ub,
+                residual_ub=shape_ub - repaired_shape_lb,
                 name=f"A_gamma_{repair_model}_{i}_{l}_{k}",
             )
-            md.addGenConstrIndicator(
-                ctx.m_rep[i, l, k], True,
-                ctx.mu_var[i, l, k] == repaired_mean,
+            _add_big_m_equality(
+                md, ctx.mu_var[i, l, k], repaired_mean, ctx.m_rep[i, l, k],
+                residual_lb=-repaired_mean_ub,
+                residual_ub=mean_ub - repaired_mean_lb,
                 name=f"mu_gamma_{repair_model}_{i}_{l}_{k}",
             )
-            md.addGenConstrIndicator(
-                ctx.m_rep[i, l, k], True,
-                ctx.z_var[i, l, k] == mu_prev - ctx.mu_var[i, l, k],
+            _add_big_m_equality(
+                md, ctx.z_var[i, l, k], mu_prev - ctx.mu_var[i, l, k],
+                ctx.m_rep[i, l, k],
+                residual_lb=-mu_prev_ub,
+                residual_ub=removed_ub - mu_prev_lb + mean_ub,
                 name=f"z_gamma_{repair_model}_{i}_{l}_{k}",
             )
             if use_latch:
                 # Mission/idle: retain the states stored at the previous intervention.
-                md.addGenConstrIndicator(
-                    ctx.nb[i, l, k], True,
-                    mean_latch[i, l, k] == mean_latch_prev,
+                _add_big_m_equality(
+                    md, mean_latch[i, l, k], mean_latch_prev, ctx.nb[i, l, k],
+                    residual_lb=-mean_latch_prev_ub,
+                    residual_ub=mean_ub - mean_latch_prev_lb,
                     name=f"gmu_gamma_hold_{i}_{l}_{k}",
                 )
-                md.addGenConstrIndicator(
-                    ctx.nb[i, l, k], True,
-                    shape_latch[i, l, k] == shape_latch_prev,
+                _add_big_m_equality(
+                    md, shape_latch[i, l, k], shape_latch_prev, ctx.nb[i, l, k],
+                    residual_lb=-shape_latch_prev_ub,
+                    residual_ub=shape_ub - shape_latch_prev_lb,
                     name=f"gA_gamma_hold_{i}_{l}_{k}",
                 )
 
                 # Repair: the repaired states become the new intervention reference.
-                md.addGenConstrIndicator(
-                    ctx.m_rep[i, l, k], True,
-                    mean_latch[i, l, k] == ctx.mu_var[i, l, k],
+                _add_big_m_equality(
+                    md, mean_latch[i, l, k], ctx.mu_var[i, l, k],
+                    ctx.m_rep[i, l, k],
+                    residual_lb=-mean_ub,
+                    residual_ub=mean_ub,
                     name=f"gmu_gamma_setm_{i}_{l}_{k}",
                 )
-                md.addGenConstrIndicator(
-                    ctx.m_rep[i, l, k], True,
-                    shape_latch[i, l, k] == A_var[i, l, k],
+                _add_big_m_equality(
+                    md, shape_latch[i, l, k], A_var[i, l, k],
+                    ctx.m_rep[i, l, k],
+                    residual_lb=-shape_ub,
+                    residual_ub=shape_ub,
                     name=f"gA_gamma_setm_{i}_{l}_{k}",
                 )
             if ctx.allow_replacement:
-                md.addGenConstrIndicator(
-                    ctx.r_rep[i, l, k], True,
-                    A_var[i, l, k] == replacement_shape,
+                _add_big_m_equality(
+                    md, A_var[i, l, k], replacement_shape, ctx.r_rep[i, l, k],
+                    residual_lb=-replacement_shape,
+                    residual_ub=shape_ub - replacement_shape,
                     name=f"A_gamma_repl_{i}_{l}_{k}",
                 )
-                md.addGenConstrIndicator(
-                    ctx.r_rep[i, l, k], True,
-                    ctx.mu_var[i, l, k] == float(ctx.mu_new[i, l]),
+                replacement_mean = float(ctx.mu_new[i, l])
+                _add_big_m_equality(
+                    md, ctx.mu_var[i, l, k], replacement_mean,
+                    ctx.r_rep[i, l, k],
+                    residual_lb=-replacement_mean,
+                    residual_ub=mean_ub - replacement_mean,
                     name=f"mu_gamma_repl_{i}_{l}_{k}",
                 )
-                md.addGenConstrIndicator(
-                    ctx.r_rep[i, l, k], True,
-                    ctx.z_var[i, l, k] == mu_prev - float(ctx.mu_new[i, l]),
+                _add_big_m_equality(
+                    md, ctx.z_var[i, l, k], mu_prev - replacement_mean,
+                    ctx.r_rep[i, l, k],
+                    residual_lb=-mu_prev_ub + replacement_mean,
+                    residual_ub=removed_ub - mu_prev_lb + replacement_mean,
                     name=f"z_gamma_repl_{i}_{l}_{k}",
                 )
                 if use_latch:
-                    md.addGenConstrIndicator(
-                        ctx.r_rep[i, l, k], True,
-                        mean_latch[i, l, k] == float(ctx.mu_new[i, l]),
+                    _add_big_m_equality(
+                        md, mean_latch[i, l, k], replacement_mean,
+                        ctx.r_rep[i, l, k],
+                        residual_lb=-replacement_mean,
+                        residual_ub=mean_ub - replacement_mean,
                         name=f"gmu_gamma_setr_{i}_{l}_{k}",
                     )
-                    md.addGenConstrIndicator(
-                        ctx.r_rep[i, l, k], True,
-                        shape_latch[i, l, k] == replacement_shape,
+                    _add_big_m_equality(
+                        md, shape_latch[i, l, k], replacement_shape,
+                        ctx.r_rep[i, l, k],
+                        residual_lb=-replacement_shape,
+                        residual_ub=shape_ub - replacement_shape,
                         name=f"gA_gamma_setr_{i}_{l}_{k}",
                     )
             md.addConstr(
@@ -597,6 +685,7 @@ class GammaCellBuilder:
         out["gamma_shape_increment"] = shape_operating
         out["gamma_shape_increment_trans"] = shape_transitory
         out["gamma_maximum_shape"] = maximum_shape
+        out["gamma_dynamics_formulation"] = data["dynamics_formulation"]
         if mean_latch_solution is not None:
             out["gamma_mean_latch"] = mean_latch_solution
             out["gamma_shape_latch"] = shape_latch_solution

@@ -340,6 +340,7 @@ def _build_serializable_output(result: dict) -> dict:
         "bound_method",
         "repair_model",
         "reliability_impl",
+        "gamma_dynamics_formulation",
     ):
         if result.get(key) is not None:
             output[key] = _to_builtin(result[key])

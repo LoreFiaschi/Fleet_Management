@@ -42,6 +42,7 @@ def main() -> None:
             "degradation",
             "models",
             "reliability_impl",
+            "gamma_dynamics_formulation",
             "H1",
             "H2",
             "T",
@@ -63,6 +64,7 @@ def main() -> None:
             "degradation",
             "models",
             "reliability_impl",
+            "gamma_dynamics_formulation",
             "H1",
             "H2",
             "T",
@@ -86,6 +88,8 @@ def main() -> None:
         raise AssertionError(
             f"wrong reliability implementation {result['reliability_impl']!r}"
         )
+    if result["gamma_dynamics_formulation"] != "tight_big_m":
+        raise AssertionError("public Gamma route did not use tight Big-M dynamics")
     if (result["H1"], result["H2"], result["T"]) != (2, 3, 5):
         raise AssertionError("unequal public-interface horizon was not preserved")
 
@@ -126,6 +130,7 @@ def main() -> None:
     print("status       :", result["status"])
     print("objective    :", result["objective"])
     print("backend      :", result["backend"])
+    print("dynamics     :", result["gamma_dynamics_formulation"])
     print("horizon      :", [result["H1"], result["H2"], result["T"]])
     print("common rates :", np.asarray(result["gamma_beta_bound"]).ravel())
     print("max tail     :", float(np.max(tail)))

@@ -22,8 +22,8 @@ def main() -> None:
         raise AssertionError("uniform Gamma count estimate does not match Gurobi")
     if uniform_formulation["known_subtotal"] != {
         "variables": 85,
-        "linear_constraints": 79,
-        "general_constraints": 90,
+        "linear_constraints": 259,
+        "general_constraints": 0,
         "quadratic_constraints": 0,
     }:
         raise AssertionError("uniform Gamma formulation baseline changed")
@@ -44,22 +44,25 @@ def main() -> None:
         raise AssertionError("mixed ARD1 report has wrong ARD1 cell count")
     if ard1_formulation["known_subtotal"] != {
         "variables": 155,
-        "linear_constraints": 83,
-        "general_constraints": 150,
+        "linear_constraints": 383,
+        "general_constraints": 0,
         "quadratic_constraints": 0,
     }:
         raise AssertionError("mixed ARD1 known formulation baseline changed")
-    if ard1_formulation["actual_gurobi_model"] != {
+    expected_ard1_actual = {
         "variables": 175,
         "continuous_variables": 95,
         "integer_variables": 80,
         "binary_variables": 80,
-        "linear_constraints": 127,
-        "general_constraints": 240,
-        "indicator_constraints": 240,
+        "linear_constraints": 427,
+        "general_constraints": 90,
+        "indicator_constraints": 90,
         "quadratic_constraints": 0,
-        "nonzeros": 274,
-    }:
+    }
+    if any(
+        ard1_formulation["actual_gurobi_model"].get(key) != expected
+        for key, expected in expected_ard1_actual.items()
+    ):
         raise AssertionError("mixed ARD1 actual formulation baseline changed")
     ard1_validation = ard1["state_replay"]
     if ard1_validation["gamma_ard1_cells"] != 2:

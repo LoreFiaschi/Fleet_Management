@@ -64,13 +64,18 @@ def estimate_gamma_formulation(cfg, *, allow_replacement: bool) -> dict[str, Any
         "physical_mean_repeatability": gamma_cells,
         "ard1_mean_latch_repeatability": gamma_ard1_cells,
         "ard1_shape_latch_repeatability": gamma_ard1_cells,
+        # Every previously indicated equality becomes an upper and lower Big-M row.
+        "big_m_state_dynamics": (
+            2 * gamma_cells * T * (6 + 3 * replacement)
+        ),
+        "ard1_mean_latch_big_m_dynamics": (
+            2 * gamma_ard1_cells * T * (2 + replacement)
+        ),
+        "ard1_shape_latch_big_m_dynamics": (
+            2 * gamma_ard1_cells * T * (2 + replacement)
+        ),
     }
-    gamma_general = {
-        # no-action, repair and optional replacement each define A, mu and z
-        "indicator_dynamics": gamma_cells * T * (6 + 3 * replacement),
-        "ard1_mean_latch_dynamics": gamma_ard1_cells * T * (2 + replacement),
-        "ard1_shape_latch_dynamics": gamma_ard1_cells * T * (2 + replacement),
-    }
+    gamma_general = {}
 
     shared_variable_total = sum(shared_binary.values()) + sum(shared_continuous.values())
     shared_linear_total = sum(shared_linear.values())
@@ -90,8 +95,8 @@ def estimate_gamma_formulation(cfg, *, allow_replacement: bool) -> dict[str, Any
                 "Ordinary Gurobi rows reported by Model.NumConstrs."
             ),
             "general_constraints": (
-                "Indicator constraints reported by Model.NumGenConstrs; their "
-                "triggered equalities are not counted again as linear rows."
+                "Gamma introduces no general constraints after the tight Big-M "
+                "conversion. Nonzero mixed-fleet totals belong to other blocks."
             ),
             "shared": (
                 "Variables and rows created once for the complete fleet."
@@ -103,11 +108,11 @@ def estimate_gamma_formulation(cfg, *, allow_replacement: bool) -> dict[str, Any
         "formulas": {
             "gamma_shape_variables": "N_gamma * T",
             "gamma_ard1_latch_variables": "2 * N_gamma_ard1 * T",
-            "gamma_indicator_constraints": (
-                "N_gamma * T * (6 + 3*I_replacement)"
+            "gamma_big_m_state_rows": (
+                "2 * N_gamma * T * (6 + 3*I_replacement)"
             ),
-            "gamma_ard1_latch_indicators": (
-                "2 * N_gamma_ard1 * T * (2 + I_replacement)"
+            "gamma_ard1_latch_big_m_rows": (
+                "4 * N_gamma_ard1 * T * (2 + I_replacement)"
             ),
             "gamma_reliability_rows": "N_gamma * T",
             "gamma_repeatability_rows": (
@@ -141,7 +146,9 @@ def estimate_gamma_formulation(cfg, *, allow_replacement: bool) -> dict[str, Any
         "interpretation": (
             "For a uniform Gamma fleet the known subtotal should equal the "
             "actual Gurobi totals. For a mixed fleet, remaining variables and "
-            "constraints are contributed by non-Gamma degradation blocks."
+            "constraints are contributed by non-Gamma degradation blocks. "
+            "Gamma dynamics use two bounded linear Big-M rows per conditional "
+            "equality and therefore contribute no indicator constraints."
         ),
     }
 
