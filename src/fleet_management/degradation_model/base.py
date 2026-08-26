@@ -171,19 +171,22 @@ def dispatch_cell(ctx: FleetModel, i: int, l: int) -> None:
 # The numerical calibration is independent of Gurobi. This block consumes its
 # bounded mission shapes, creates A', and keeps physical expected damage mu as a
 # separate shared state. Initial and replacement distributions are calibrated as
-# mutually exclusive seed histories. ARD-inf and ARD1 repairs receive no
-# reduction in the tail-bound shape (a safe pathwise-dominance baseline), while
-# their physical expected-damage recursions are represented exactly. ARD1 uses
-# a separate mean latch containing the state immediately after the last action.
+# mutually exclusive seed histories.
+#
+# At repair, the common bounding rate remains fixed and the bounding shape is
+# reduced consistently with the selected repair model. ARD-inf contracts the
+# complete mean and shape states. ARD1 contracts only the damage accumulated
+# since the previous intervention and therefore requires separate mean and shape
+# latches.
 # ---------------------------------------------------------------------------
 class GammaCellBuilder:
     """Finite-horizon common-rate tail bound for Gamma cells.
 
-    Initial and replacement distributions are jointly calibrated with all
-    finite-horizon increment combinations. Both supported repair models keep
-    the bounding shape unchanged. ARD-inf contracts the complete physical mean;
-    ARD1 contracts only damage accumulated since the last action through an
-    additional mean latch.
+    Initial and replacement distributions are jointly calibrated with the
+    finite-horizon mission increments. The common bounding rate remains fixed
+    during repair, while the physical mean and bounding shape are contracted
+    according to ARD-inf or ARD1. ARD1 uses separate mean and bounding-shape
+    latches storing the state after the previous intervention.
     """
 
     name = "gamma"
@@ -231,6 +234,12 @@ class GammaCellBuilder:
             ctx.model.addVars(ard1_keys, lb=0.0, name="gmu_gamma")
             if ard1_keys else None
         )
+
+        shape_latch = (
+            ctx.model.addVars(ard1_keys, lb=0.0, name="gA_gamma")
+            if ard1_keys else None
+        )
+
         common_rate = np.zeros((ctx.F, ctx.L))
         maximum_shape = np.zeros((ctx.F, ctx.L))
         bounded_trans = {}
@@ -321,6 +330,7 @@ class GammaCellBuilder:
                 A_var[i, l, k].UB = float(maximum_shape[i, l])
                 if mean_latch is not None and (i, l) in ard1_cells:
                     mean_latch[i, l, k].UB = float(ctx.tau[i, l])
+                    shape_latch[i, l, k].UB = float(maximum_shape[i, l])
 
         ctx.extras["gamma"] = {
             "cells": cells,
@@ -330,6 +340,7 @@ class GammaCellBuilder:
             },
             "A_var": A_var,
             "mean_latch": mean_latch,
+            "shape_latch": shape_latch,
             "common_rate": common_rate,
             "maximum_shape": maximum_shape,
             "bounded_trans": bounded_trans,
@@ -353,21 +364,25 @@ class GammaCellBuilder:
         repair_model = data["repair_model"][i, l]
         use_latch = repair_model == "ard1"
         mean_latch = data["mean_latch"]
+        shape_latch = data["shape_latch"]
         md = ctx.model
 
-        # Neither repair model gets a decrease in A'. This is safe because both
-        # repair operators are pathwise non-increasing. The finite-history
-        # calibration already bounds the corresponding unrepaired history plus
-        # future non-negative increments. Physical mu still follows the selected
-        # repair model exactly, so repair can help the shared capacity state.
+        # Repair retains the common bounding rate and contracts the bounding shape.
+        # ARD-inf acts on the complete state. ARD1 acts only on the part accumulated
+        # since the previous intervention, represented by the mean and shape latches.
         rho = float(ctx.rho[i, l])
         remaining = 1.0 - rho
         for k in range(ctx.T):
             A_prev = initial_shape if k == 0 else A_var[i, l, k - 1]
             mu_prev = float(ctx.mu_0[i, l]) if k == 0 else ctx.mu_var[i, l, k - 1]
-            latch_prev = (
+            mean_latch_prev = (
                 0.0 if k == 0 else mean_latch[i, l, k - 1]
             ) if use_latch else None
+
+            shape_latch_prev = (
+                0.0 if k == 0 else shape_latch[i, l, k - 1]
+            ) if use_latch else None
+
             if k < ctx.H1:
                 shape_profile = trans
                 h = k
@@ -398,14 +413,22 @@ class GammaCellBuilder:
                 ctx.z_var[i, l, k] == 0.0,
                 name=f"z_gamma_zero_{i}_{l}_{k}",
             )
+            repaired_shape = (
+                remaining * A_prev + rho * shape_latch_prev
+                if use_latch
+                else remaining * A_prev
+            )
+
+            repaired_mean = (
+                remaining * mu_prev + rho * mean_latch_prev
+                if use_latch
+                else remaining * mu_prev
+            )
+
             md.addGenConstrIndicator(
                 ctx.m_rep[i, l, k], True,
-                A_var[i, l, k] == A_prev,
+                A_var[i, l, k] == repaired_shape,
                 name=f"A_gamma_{repair_model}_{i}_{l}_{k}",
-            )
-            repaired_mean = (
-                remaining * mu_prev + rho * latch_prev
-                if use_latch else remaining * mu_prev
             )
             md.addGenConstrIndicator(
                 ctx.m_rep[i, l, k], True,
@@ -418,15 +441,28 @@ class GammaCellBuilder:
                 name=f"z_gamma_{repair_model}_{i}_{l}_{k}",
             )
             if use_latch:
+                # Mission/idle: retain the states stored at the previous intervention.
                 md.addGenConstrIndicator(
                     ctx.nb[i, l, k], True,
-                    mean_latch[i, l, k] == latch_prev,
+                    mean_latch[i, l, k] == mean_latch_prev,
                     name=f"gmu_gamma_hold_{i}_{l}_{k}",
                 )
+                md.addGenConstrIndicator(
+                    ctx.nb[i, l, k], True,
+                    shape_latch[i, l, k] == shape_latch_prev,
+                    name=f"gA_gamma_hold_{i}_{l}_{k}",
+                )
+
+                # Repair: the repaired states become the new intervention reference.
                 md.addGenConstrIndicator(
                     ctx.m_rep[i, l, k], True,
                     mean_latch[i, l, k] == ctx.mu_var[i, l, k],
                     name=f"gmu_gamma_setm_{i}_{l}_{k}",
+                )
+                md.addGenConstrIndicator(
+                    ctx.m_rep[i, l, k], True,
+                    shape_latch[i, l, k] == A_var[i, l, k],
+                    name=f"gA_gamma_setm_{i}_{l}_{k}",
                 )
             if ctx.allow_replacement:
                 md.addGenConstrIndicator(
@@ -450,6 +486,11 @@ class GammaCellBuilder:
                         mean_latch[i, l, k] == float(ctx.mu_new[i, l]),
                         name=f"gmu_gamma_setr_{i}_{l}_{k}",
                     )
+                    md.addGenConstrIndicator(
+                        ctx.r_rep[i, l, k], True,
+                        shape_latch[i, l, k] == replacement_shape,
+                        name=f"gA_gamma_setr_{i}_{l}_{k}",
+                    )
             md.addConstr(
                 A_var[i, l, k] <= maximum,
                 name=f"rel_gamma_{i}_{l}_{k}",
@@ -471,6 +512,10 @@ class GammaCellBuilder:
                 mean_latch[i, l, k_end] <= mean_latch[i, l, k_start],
                 name=f"loop_gmu_gamma_{i}_{l}",
             )
+            md.addConstr(
+                shape_latch[i, l, k_end] <= shape_latch[i, l, k_start],
+                name=f"loop_gA_gamma_{i}_{l}",
+            )
 
     def extract(self, ctx: FleetModel, cfg, out: dict) -> None:
         """Add bounding shapes, rates, tails, and concise calibration metadata."""
@@ -481,14 +526,29 @@ class GammaCellBuilder:
         data = ctx.extras["gamma"]
         shape = np.zeros((ctx.F, ctx.L, ctx.T))
         tail = np.zeros((ctx.F, ctx.L, ctx.T))
-        latch = (
+
+        shape_operating = np.zeros((ctx.F, ctx.L, ctx.M, ctx.H2))
+        shape_transitory = np.zeros((ctx.F, ctx.L, ctx.M, ctx.H1))
+        maximum_shape = np.zeros((ctx.F, ctx.L))
+
+        mean_latch_solution = (
             np.zeros((ctx.F, ctx.L, ctx.T))
             if data["mean_latch"] is not None else None
+        )
+
+        shape_latch_solution = (
+            np.zeros((ctx.F, ctx.L, ctx.T))
+            if data["shape_latch"] is not None else None
         )
         summaries = []
         for i, l in data["cells"]:
             rate = float(data["common_rate"][i, l])
             calibration = data["calibrations"][i, l]
+
+            shape_operating[i, l] = data["bounded_operating"][i, l]
+            shape_transitory[i, l] = data["bounded_trans"][i, l]
+            maximum_shape[i, l] = data["maximum_shape"][i, l]
+
             constraints = calibration.compressed.constraints
             for k in range(ctx.T):
                 value = data["A_var"][i, l, k].X
@@ -496,8 +556,9 @@ class GammaCellBuilder:
                 tail[i, l, k] = gamma_distribution.sf(
                     float(ctx.tau[i, l]), a=value, scale=1.0 / rate
                 ) if value > 0.0 else 0.0
-                if latch is not None and (i, l) in data["ard1_cells"]:
-                    latch[i, l, k] = data["mean_latch"][i, l, k].X
+                if mean_latch_solution is not None and (i, l) in data["ard1_cells"]:
+                    mean_latch_solution[i, l, k] = data["mean_latch"][i, l, k].X
+                    shape_latch_solution[i, l, k] = data["shape_latch"][i, l, k].X
             repair_model = str(cfg.repair_model[i, l])
             summaries.append({
                 "i": i,
@@ -527,14 +588,18 @@ class GammaCellBuilder:
                 "worst_calibration_margin": calibration.worst_tail_margin,
                 "initial_bounded_shape": calibration.initial_bounded_shape,
                 "replacement_bounded_shape": calibration.replacement_bounded_shape,
-                "repair_bound": f"{repair_model}_no_tail_credit",
+                "repair_bound": f"{repair_model}_fixed_rate_shape_scaling",
             })
         out["gamma_shape_bound"] = shape
         out["gamma_tail_bound"] = tail
         out["gamma_beta_bound"] = data["common_rate"]
         out["gamma_calibration"] = summaries
-        if latch is not None:
-            out["gamma_mean_latch"] = latch
+        out["gamma_shape_increment"] = shape_operating
+        out["gamma_shape_increment_trans"] = shape_transitory
+        out["gamma_maximum_shape"] = maximum_shape
+        if mean_latch_solution is not None:
+            out["gamma_mean_latch"] = mean_latch_solution
+            out["gamma_shape_latch"] = shape_latch_solution
 
 
 register_cell_builder("gamma", GammaCellBuilder())

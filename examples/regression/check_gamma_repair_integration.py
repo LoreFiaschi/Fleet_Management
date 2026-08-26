@@ -1,10 +1,18 @@
-"""Force one Gamma ARD-inf repair and verify its solver dynamics."""
+"""Force one Gamma ARD-inf repair and verify fixed-rate shape scaling."""
 
 from fleet_management.config import load_config
 from fleet_management.degradation_model.base import (
     build_fleet,
     resolve_run_options,
 )
+
+
+def assert_close(actual, expected, name, tolerance=1e-8):
+    if abs(float(actual) - float(expected)) > tolerance:
+        raise AssertionError(
+            f"{name}: got {float(actual):.12g}, "
+            f"expected {float(expected):.12g}"
+        )
 
 
 def main() -> None:
@@ -39,39 +47,73 @@ def main() -> None:
     )
 
     opts = resolve_run_options(cfg)
-    ctx = build_fleet(cfg, opts, model_name="gamma_forced_repair_test")
+    ctx = build_fleet(
+        cfg,
+        opts,
+        model_name="gamma_forced_ardinf_repair_test",
+    )
 
     # Force vehicle 0, component 0 to repair at the first step.
-    ctx.model.addConstr(ctx.m_rep[0, 0, 0] == 1, name="force_gamma_repair")
+    ctx.model.addConstr(
+        ctx.m_rep[0, 0, 0] == 1,
+        name="force_gamma_ardinf_repair",
+    )
     ctx.model.optimize()
 
     if ctx.model.SolCount == 0:
-        raise AssertionError("forced-repair model has no feasible solution")
+        raise AssertionError("forced ARD-inf repair model has no feasible solution")
 
     data = ctx.extras["gamma"]
-    shape_after = data["A_var"][0, 0, 0].X
+
+    rho = float(cfg.rho[0, 0])
+    remaining = 1.0 - rho
+    common_rate = float(data["common_rate"][0, 0])
+
     shape_before = float(data["initial_shape"][0, 0])
-    mean_after = ctx.mu_var[0, 0, 0].X
-    removed_mean = ctx.z_var[0, 0, 0].X
+    shape_after = float(data["A_var"][0, 0, 0].X)
 
-    expected_mean = (1.0 - cfg.rho[0, 0]) * cfg.mu_0[0, 0]
-    expected_removed = cfg.rho[0, 0] * cfg.mu_0[0, 0]
+    mean_before = float(cfg.mu_0[0, 0])
+    mean_after = float(ctx.mu_var[0, 0, 0].X)
+    removed_mean = float(ctx.z_var[0, 0, 0].X)
 
-    tol = 1e-8
-    if abs(shape_after - shape_before) > tol:
-        raise AssertionError("repair incorrectly reduced the Gamma bounding shape")
-    if abs(mean_after - expected_mean) > tol:
-        raise AssertionError("repair physical-mean transition is incorrect")
-    if abs(removed_mean - expected_removed) > tol:
-        raise AssertionError("repair removed-damage value is incorrect")
+    expected_shape = remaining * shape_before
+    expected_mean = remaining * mean_before
+    expected_removed = rho * mean_before
 
-    print("PASS forced Gamma ARD-inf repair integration")
-    print("shape before :", shape_before)
-    print("shape after  :", shape_after)
-    print("mean before  :", cfg.mu_0[0, 0])
-    print("mean after   :", mean_after)
-    print("removed mean :", removed_mean)
-    print("objective    :", ctx.model.ObjVal)
+    assert_close(
+        shape_after,
+        expected_shape,
+        "ARD-inf repaired bounding shape",
+    )
+    assert_close(
+        mean_after,
+        expected_mean,
+        "ARD-inf repaired physical mean",
+    )
+    assert_close(
+        removed_mean,
+        expected_removed,
+        "ARD-inf removed physical mean",
+    )
+
+    # This case uses the same exact and bounding rate, so the shape-derived
+    # mean must coincide with the separately stored physical mean.
+    assert_close(
+        shape_after / common_rate,
+        mean_after,
+        "fixed-rate shape-derived mean",
+    )
+
+    print("PASS fixed-rate Gamma ARD-inf repair integration")
+    print("remaining fraction :", remaining)
+    print("common rate       :", common_rate)
+    print("shape before      :", shape_before)
+    print("shape after       :", shape_after)
+    print("expected shape    :", expected_shape)
+    print("mean before       :", mean_before)
+    print("mean after        :", mean_after)
+    print("removed mean      :", removed_mean)
+    print("objective         :", ctx.model.ObjVal)
 
 
 if __name__ == "__main__":

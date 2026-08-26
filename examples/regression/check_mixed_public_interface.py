@@ -8,7 +8,7 @@ from tempfile import TemporaryDirectory
 import numpy as np
 import yaml
 
-from fleet_management import solve, validate_gamma_tail_bound_files
+from fleet_management import solve, validate_gamma_replay_files
 
 
 HERE = Path(__file__).resolve().parent
@@ -18,14 +18,13 @@ INPUT = HERE / "mixed_gamma_rainflow_public.yaml"
 def main() -> None:
     with TemporaryDirectory(prefix="mixed-public-") as directory:
         result_path = Path(directory) / "result.yaml"
-        validation_path = Path(directory) / "gamma_validation.yaml"
+        validation_path = Path(directory) / "gamma_replay.yaml"
         result = solve(str(INPUT), str(result_path))
         saved = yaml.safe_load(result_path.read_text(encoding="utf-8"))
-        report = validate_gamma_tail_bound_files(
+        report = validate_gamma_replay_files(
             INPUT,
             result_path,
             validation_path,
-            include_steps=True,
             raise_on_failure=True,
         )
 
@@ -72,7 +71,7 @@ def main() -> None:
     # Two vehicles times one Gamma component times five steps. Rainflow cells
     # are intentionally excluded from the exact Gamma replay.
     if not report["valid"]:
-        raise AssertionError("exact mixed Gamma report is invalid")
+        raise AssertionError("mixed Gamma schedule/state replay is invalid")
     if report["gamma_cells"] != 2:
         raise AssertionError("validator did not select exactly the Gamma cells")
     if report["transitions_checked"] != 10:
@@ -91,8 +90,7 @@ def main() -> None:
     print("Gamma transitions  :", report["transitions_checked"])
     print("Gamma replacements :", report["replacements"])
     print("Gamma repairs      :", report["repairs"])
-    print("worst tail margin  :", report["minimum_conservativeness_margin"])
-    print("reliability slack  :", report["minimum_reliability_slack"])
+    print("maximum state errors:", report["maximum_errors"])
 
 
 if __name__ == "__main__":

@@ -373,6 +373,10 @@ def _build_serializable_output(result: dict) -> dict:
             "gamma_shape_bound",
             "gamma_tail_bound",
             "gamma_mean_latch",
+            "gamma_shape_latch",
+            "gamma_shape_increment",
+            "gamma_shape_increment_trans",
+            "gamma_maximum_shape",
             "m",
             "r",
         ):

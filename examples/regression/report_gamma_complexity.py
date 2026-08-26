@@ -9,7 +9,7 @@ from tempfile import TemporaryDirectory
 
 import yaml
 
-from fleet_management import solve, validate_gamma_tail_bound_files
+from fleet_management import solve, validate_gamma_replay_files
 
 
 HERE = Path(__file__).resolve().parent
@@ -25,7 +25,7 @@ def build_case_report(name: str, input_path: Path, directory: Path) -> dict:
     validation_path = directory / f"{name}_validation.yaml"
     solve(str(input_path), str(result_path))
     saved_result = yaml.safe_load(result_path.read_text(encoding="utf-8"))
-    validation = validate_gamma_tail_bound_files(
+    validation = validate_gamma_replay_files(
         input_path,
         result_path,
         validation_path,
@@ -51,22 +51,15 @@ def build_case_report(name: str, input_path: Path, directory: Path) -> dict:
         },
         "gurobi_formulation": saved_result["gamma_formulation"],
         "solve_performance": saved_result["performance"],
-        "exact_validation": {
+        "state_replay": {
             "valid": validation["valid"],
             "gamma_cells": validation["gamma_cells"],
             "gamma_ard1_cells": validation["gamma_ard1_cells"],
             "transitions_checked": validation["transitions_checked"],
             "repairs": validation["repairs"],
             "replacements": validation["replacements"],
-            "minimum_conservativeness_margin": validation[
-                "minimum_conservativeness_margin"
-            ],
-            "minimum_reliability_slack": validation[
-                "minimum_reliability_slack"
-            ],
-            "maximum_latch_error": validation["maximum_latch_error"],
+            "maximum_errors": validation["maximum_errors"],
             "timing": validation["timing"],
-            "numerics": validation["numerics"],
         },
     }
 
@@ -80,12 +73,12 @@ def build_complexity_report() -> dict:
         }
 
     return {
-        "report": "Gamma tail-bound complexity and timing",
-        "report_version": 1,
+        "report": "Gamma calibration, formulation, solve and replay diagnostics",
+        "report_version": 2,
         "generated_utc": datetime.now(timezone.utc).isoformat(),
         "scope": (
             "Separates offline tail calibration, Gurobi formulation/solve, and "
-            "independent exact post-solve validation."
+            "lightweight post-solve schedule/state replay."
         ),
         "interpretation": {
             "deterministic_values": (
@@ -96,9 +89,9 @@ def build_complexity_report() -> dict:
                 "All fields ending in _seconds, Gurobi work, iterations and node "
                 "counts depend on hardware, software versions and solver settings."
             ),
-            "signed_tail_check": (
-                "minimum_conservativeness_margin is p_bound - p_exact_upper; "
-                "values slightly below zero within numerical tolerance are valid."
+            "replay_check": (
+                "maximum_errors compares replayed physical mean, bounding shape, "
+                "removed mean and ARD1 latch states with the serialized solution."
             ),
         },
         "cases": cases,

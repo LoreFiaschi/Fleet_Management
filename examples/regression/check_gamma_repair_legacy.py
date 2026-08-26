@@ -1,5 +1,5 @@
 """Offline signed check for the conservative ARD-inf Gamma transition."""
-
+# DEPRECATED
 from __future__ import annotations
 
 from scipy.stats import gamma

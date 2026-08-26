@@ -43,31 +43,31 @@ def main() -> None:
     if ard1_formulation["gamma_ard1_cells"] != 2:
         raise AssertionError("mixed ARD1 report has wrong ARD1 cell count")
     if ard1_formulation["known_subtotal"] != {
-        "variables": 145,
-        "linear_constraints": 81,
-        "general_constraints": 120,
+        "variables": 155,
+        "linear_constraints": 83,
+        "general_constraints": 150,
         "quadratic_constraints": 0,
     }:
         raise AssertionError("mixed ARD1 known formulation baseline changed")
     if ard1_formulation["actual_gurobi_model"] != {
-        "variables": 165,
-        "continuous_variables": 85,
+        "variables": 175,
+        "continuous_variables": 95,
         "integer_variables": 80,
         "binary_variables": 80,
-        "linear_constraints": 125,
-        "general_constraints": 210,
-        "indicator_constraints": 210,
+        "linear_constraints": 127,
+        "general_constraints": 240,
+        "indicator_constraints": 240,
         "quadratic_constraints": 0,
-        "nonzeros": 270,
+        "nonzeros": 274,
     }:
         raise AssertionError("mixed ARD1 actual formulation baseline changed")
-    ard1_validation = ard1["exact_validation"]
+    ard1_validation = ard1["state_replay"]
     if ard1_validation["gamma_ard1_cells"] != 2:
         raise AssertionError("mixed ARD1 validator selected wrong cells")
     if ard1_validation["repairs"] < 1:
         raise AssertionError("mixed ARD1 complexity case contains no Gamma repair")
-    if ard1_validation["maximum_latch_error"] > 1e-8:
-        raise AssertionError("mixed ARD1 complexity case has a latch mismatch")
+    if max(ard1_validation["maximum_errors"].values()) > 1e-8:
+        raise AssertionError("mixed ARD1 complexity case has a replay mismatch")
 
     for case_name, case in report["cases"].items():
         if case["outcome"]["status"] != "optimal":
@@ -101,19 +101,15 @@ def main() -> None:
             if cell["calibration_seconds"] < 0.0:
                 raise AssertionError(f"{case_name} calibration time is negative")
 
-        validation = case["exact_validation"]
+        validation = case["state_replay"]
         if not validation["valid"]:
-            raise AssertionError(f"{case_name} exact validation failed")
+            raise AssertionError(f"{case_name} schedule/state replay failed")
+        if max(validation["maximum_errors"].values()) > 1e-8:
+            raise AssertionError(f"{case_name} contains a replay mismatch")
         require_nonnegative(
             validation["timing"],
-            (
-                "validation_wall_seconds",
-                "exact_tail_seconds",
-                "replay_and_reporting_seconds",
-                "exact_tail_evaluations",
-                "nonempty_convolutions",
-            ),
-            f"{case_name}.exact_validation.timing",
+            ("validation_wall_seconds",),
+            f"{case_name}.state_replay.timing",
         )
 
     print("PASS Gamma complexity and timing diagnostics")
@@ -125,7 +121,7 @@ def main() -> None:
     print("ARD1 Gamma repairs    :", ard1_validation["repairs"])
     print("uniform calibration s:", uniform["offline_calibration"]["total_seconds"])
     print("uniform optimizer s  :", uniform["solve_performance"]["optimizer_call_seconds"])
-    print("uniform validation s :", uniform["exact_validation"]["timing"]["validation_wall_seconds"])
+    print("uniform replay s     :", uniform["state_replay"]["timing"]["validation_wall_seconds"])
 
 
 if __name__ == "__main__":

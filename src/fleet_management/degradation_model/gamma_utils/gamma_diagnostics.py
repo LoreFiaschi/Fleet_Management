@@ -54,6 +54,7 @@ def estimate_gamma_formulation(cfg, *, allow_replacement: bool) -> dict[str, Any
     gamma_variables = {
         "bounding_shape_A": gamma_cells * T,
         "ard1_physical_mean_latch": gamma_ard1_cells * T,
+        "ard1_bounding_shape_latch": gamma_ard1_cells * T,
     }
     gamma_linear = {
         # m<=x, nb definition, and additionally r<=x when replacement is enabled
@@ -61,12 +62,14 @@ def estimate_gamma_formulation(cfg, *, allow_replacement: bool) -> dict[str, Any
         "tail_reliability": gamma_cells * T,
         "shape_repeatability": gamma_cells,
         "physical_mean_repeatability": gamma_cells,
-        "ard1_latch_repeatability": gamma_ard1_cells,
+        "ard1_mean_latch_repeatability": gamma_ard1_cells,
+        "ard1_shape_latch_repeatability": gamma_ard1_cells,
     }
     gamma_general = {
         # no-action, repair and optional replacement each define A, mu and z
         "indicator_dynamics": gamma_cells * T * (6 + 3 * replacement),
-        "ard1_latch_dynamics": gamma_ard1_cells * T * (2 + replacement),
+        "ard1_mean_latch_dynamics": gamma_ard1_cells * T * (2 + replacement),
+        "ard1_shape_latch_dynamics": gamma_ard1_cells * T * (2 + replacement),
     }
 
     shared_variable_total = sum(shared_binary.values()) + sum(shared_continuous.values())
@@ -99,16 +102,16 @@ def estimate_gamma_formulation(cfg, *, allow_replacement: bool) -> dict[str, Any
         },
         "formulas": {
             "gamma_shape_variables": "N_gamma * T",
-            "gamma_ard1_latch_variables": "N_gamma_ard1 * T",
+            "gamma_ard1_latch_variables": "2 * N_gamma_ard1 * T",
             "gamma_indicator_constraints": (
                 "N_gamma * T * (6 + 3*I_replacement)"
             ),
             "gamma_ard1_latch_indicators": (
-                "N_gamma_ard1 * T * (2 + I_replacement)"
+                "2 * N_gamma_ard1 * T * (2 + I_replacement)"
             ),
             "gamma_reliability_rows": "N_gamma * T",
             "gamma_repeatability_rows": (
-                "2 * N_gamma + N_gamma_ard1"
+                "2 * N_gamma + 2 * N_gamma_ard1"
             ),
             "gamma_maintenance_gating_rows": (
                 "N_gamma * T * (2 + I_replacement)"

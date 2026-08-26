@@ -8,7 +8,7 @@ from tempfile import TemporaryDirectory
 import numpy as np
 import yaml
 
-from fleet_management import solve, validate_gamma_tail_bound_files
+from fleet_management import solve, validate_gamma_replay_files
 
 
 HERE = Path(__file__).resolve().parent
@@ -21,11 +21,10 @@ def main() -> None:
         validation_path = Path(directory) / "validation.yaml"
         result = solve(str(INPUT), str(result_path))
         saved = yaml.safe_load(result_path.read_text(encoding="utf-8"))
-        report = validate_gamma_tail_bound_files(
+        report = validate_gamma_replay_files(
             INPUT,
             result_path,
             validation_path,
-            include_steps=True,
             raise_on_failure=True,
         )
         if not validation_path.is_file():
@@ -63,33 +62,22 @@ def main() -> None:
         raise AssertionError("public optimum contains no Gamma replacement")
 
     if not report["valid"]:
-        raise AssertionError("exact public Gamma ARD1 validation failed")
+        raise AssertionError("public Gamma ARD1 schedule/state replay failed")
     if report["gamma_cells"] != 2 or report["gamma_ard1_cells"] != 2:
         raise AssertionError("validator selected the wrong Gamma ARD1 cells")
     if report["repairs"] != gamma_repairs:
         raise AssertionError("validator repair count differs from solver result")
     if report["replacements"] != gamma_replacements:
         raise AssertionError("validator replacement count differs from solver result")
-    if report["maximum_latch_error"] > 1e-8:
-        raise AssertionError("exact validator did not reproduce the ARD1 latch")
-    if report["minimum_conservativeness_margin"] < -1e-8:
-        raise AssertionError("Gamma ARD1 reliability envelope is non-conservative")
-    if report["minimum_reliability_slack"] < -1e-8:
-        raise AssertionError("Gamma ARD1 reliability limit was violated")
-
-    repaired_steps = [
-        step for step in report["steps"] if step["event"] == "repair"
-    ]
-    if not repaired_steps or not all(
-        step["repair_model"] == "ard1" for step in repaired_steps
-    ):
-        raise AssertionError("exact replay did not identify ARD1 repair events")
-    if not any(step["frozen_term_count"] > 0 for step in repaired_steps):
-        raise AssertionError("ARD1 repair did not freeze any exact Gamma history")
+    if max(report["maximum_errors"].values()) > 1e-8:
+        raise AssertionError(
+            f"Gamma ARD1 replay mismatch: {report['maximum_errors']}"
+        )
 
     calibration = result["gamma_calibration"]
     if not calibration or not all(
-        cell["repair_bound"] == "ard1_no_tail_credit" for cell in calibration
+        cell["repair_bound"] == "ard1_fixed_rate_shape_scaling"
+        for cell in calibration
     ):
         raise AssertionError("Gamma ARD1 repair-bound metadata is incorrect")
 
@@ -97,9 +85,9 @@ def main() -> None:
     if formulation["gamma_cells"] != 2 or formulation["gamma_ard1_cells"] != 2:
         raise AssertionError("ARD1 formulation estimate has wrong cell counts")
     if formulation["known_subtotal"] != {
-        "variables": 145,
-        "linear_constraints": 81,
-        "general_constraints": 120,
+        "variables": 155,
+        "linear_constraints": 83,
+        "general_constraints": 150,
         "quadratic_constraints": 0,
     }:
         raise AssertionError("public mixed ARD1 formulation baseline changed")
@@ -111,9 +99,7 @@ def main() -> None:
     print("Gamma ARD1 cells    :", report["gamma_ard1_cells"])
     print("Gamma repairs       :", gamma_repairs)
     print("Gamma replacements  :", gamma_replacements)
-    print("maximum latch error :", report["maximum_latch_error"])
-    print("worst tail margin   :", report["minimum_conservativeness_margin"])
-    print("reliability slack   :", report["minimum_reliability_slack"])
+    print("maximum state errors:", report["maximum_errors"])
     print("known Gamma subtotal:", formulation["known_subtotal"])
 
 
