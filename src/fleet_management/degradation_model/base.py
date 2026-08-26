@@ -212,6 +212,118 @@ def _add_big_m_equality(
     )
 
 
+def _gamma_reachable_upper_bounds(
+    *,
+    initial_mean: float,
+    replacement_mean: float,
+    mean_increments: np.ndarray,
+    mean_limit: float,
+    initial_shape: float,
+    replacement_shape: float,
+    shape_increments: np.ndarray,
+    shape_limit: float,
+    remaining: float,
+    repair_model: str,
+    allow_replacement: bool,
+) -> dict[str, np.ndarray]:
+    """Return safe time-indexed bounds for one finite-horizon Gamma cell.
+
+    ``mean_increments`` and ``shape_increments`` contain one non-negative
+    upper bound per time step.  Normal operation adds at most that amount;
+    repair cannot increase either state; replacement resets it to the supplied
+    seed.  ARD1 latches are treated separately because normal operation holds
+    them and an intervention resets them to the post-intervention state.
+
+    The recursion deliberately over-approximates reachability.  It is therefore
+    safe for Big-M construction without solving the scheduling problem first.
+    """
+    mean_inc = np.asarray(mean_increments, dtype=float)
+    shape_inc = np.asarray(shape_increments, dtype=float)
+    if mean_inc.ndim != 1 or shape_inc.shape != mean_inc.shape:
+        raise ValueError(
+            "Gamma reachable-bound increments must be equal 1-D arrays."
+        )
+    if np.any(mean_inc < 0.0) or np.any(shape_inc < 0.0):
+        raise ValueError("Gamma reachable-bound increments must be non-negative.")
+
+    T = int(mean_inc.size)
+    mean_upper = np.empty(T, dtype=float)
+    shape_upper = np.empty(T, dtype=float)
+    removed_upper = np.empty(T, dtype=float)
+    mean_latch_upper = np.zeros(T, dtype=float)
+    shape_latch_upper = np.zeros(T, dtype=float)
+
+    previous_mean = float(initial_mean)
+    previous_shape = float(initial_shape)
+    previous_mean_latch = 0.0
+    previous_shape_latch = 0.0
+    use_latch = repair_model == "ard1"
+    repaired_fraction = 1.0 - float(remaining)
+
+    for k in range(T):
+        if use_latch:
+            repaired_mean = (
+                remaining * previous_mean
+                + repaired_fraction * previous_mean_latch
+            )
+            repaired_shape = (
+                remaining * previous_shape
+                + repaired_fraction * previous_shape_latch
+            )
+        else:
+            repaired_mean = remaining * previous_mean
+            repaired_shape = remaining * previous_shape
+
+        mean_candidates = [previous_mean + float(mean_inc[k]), repaired_mean]
+        shape_candidates = [previous_shape + float(shape_inc[k]), repaired_shape]
+        if allow_replacement:
+            mean_candidates.append(float(replacement_mean))
+            shape_candidates.append(float(replacement_shape))
+
+        current_mean = min(float(mean_limit), max(mean_candidates))
+        current_shape = min(float(shape_limit), max(shape_candidates))
+        mean_upper[k] = max(0.0, current_mean)
+        shape_upper[k] = max(0.0, current_shape)
+
+        # ARD1 removes rho * (state - latch).  The latch has lower bound zero,
+        # so rho * previous_mean is the safe reachable upper bound for both
+        # repair models.
+        repair_removed = max(0.0, repaired_fraction * previous_mean)
+        replacement_removed = (
+            max(0.0, previous_mean - float(replacement_mean))
+            if allow_replacement else 0.0
+        )
+        removed_upper[k] = min(
+            float(mean_limit), max(repair_removed, replacement_removed)
+        )
+
+        if use_latch:
+            mean_latch_candidates = [previous_mean_latch, repaired_mean]
+            shape_latch_candidates = [previous_shape_latch, repaired_shape]
+            if allow_replacement:
+                mean_latch_candidates.append(float(replacement_mean))
+                shape_latch_candidates.append(float(replacement_shape))
+            mean_latch_upper[k] = min(
+                mean_upper[k], float(mean_limit), max(mean_latch_candidates)
+            )
+            shape_latch_upper[k] = min(
+                shape_upper[k], float(shape_limit), max(shape_latch_candidates)
+            )
+            previous_mean_latch = float(mean_latch_upper[k])
+            previous_shape_latch = float(shape_latch_upper[k])
+
+        previous_mean = float(mean_upper[k])
+        previous_shape = float(shape_upper[k])
+
+    return {
+        "mean": mean_upper,
+        "shape": shape_upper,
+        "removed_mean": removed_upper,
+        "mean_latch": mean_latch_upper,
+        "shape_latch": shape_latch_upper,
+    }
+
+
 class GammaCellBuilder:
     """Finite-horizon common-rate tail bound for Gamma cells.
 
@@ -281,6 +393,7 @@ class GammaCellBuilder:
         replacement_shape = np.zeros((ctx.F, ctx.L))
         calibrations = {}
         calibration_seconds = {}
+        reachable_upper_bounds = {}
 
         beta_trans_cfg = getattr(cfg, "gamma_beta_trans", None)
         beta_bound_cfg = getattr(cfg, "gamma_beta_bound", None)
@@ -359,11 +472,27 @@ class GammaCellBuilder:
             )
             calibration_seconds[i, l] = time.perf_counter() - calibration_start
             ctx.impl_of[(i, l)] = "gamma_finite_tail"
+            bounds = _gamma_reachable_upper_bounds(
+                initial_mean=float(ctx.mu_0[i, l]),
+                replacement_mean=float(ctx.mu_new[i, l]),
+                mean_increments=np.max(combined_mu, axis=0),
+                mean_limit=float(ctx.tau[i, l]),
+                initial_shape=float(initial_shape[i, l]),
+                replacement_shape=float(replacement_shape[i, l]),
+                shape_increments=np.max(calibration.bounded_shapes, axis=0),
+                shape_limit=float(maximum_shape[i, l]),
+                remaining=1.0 - float(ctx.rho[i, l]),
+                repair_model=repair_model,
+                allow_replacement=ctx.allow_replacement,
+            )
+            reachable_upper_bounds[i, l] = bounds
             for k in range(ctx.T):
-                A_var[i, l, k].UB = float(maximum_shape[i, l])
+                A_var[i, l, k].UB = float(bounds["shape"][k])
+                ctx.mu_var[i, l, k].UB = float(bounds["mean"][k])
+                ctx.z_var[i, l, k].UB = float(bounds["removed_mean"][k])
                 if mean_latch is not None and (i, l) in ard1_cells:
-                    mean_latch[i, l, k].UB = float(ctx.tau[i, l])
-                    shape_latch[i, l, k].UB = float(maximum_shape[i, l])
+                    mean_latch[i, l, k].UB = float(bounds["mean_latch"][k])
+                    shape_latch[i, l, k].UB = float(bounds["shape_latch"][k])
 
         ctx.extras["gamma"] = {
             "cells": cells,
@@ -382,7 +511,9 @@ class GammaCellBuilder:
             "replacement_shape": replacement_shape,
             "calibrations": calibrations,
             "calibration_seconds": calibration_seconds,
+            "reachable_upper_bounds": reachable_upper_bounds,
             "dynamics_formulation": "tight_big_m",
+            "big_m_bound_strategy": "time_dependent_reachable",
         }
 
     def add_cell(self, ctx: FleetModel, i: int, l: int) -> None:
@@ -395,6 +526,7 @@ class GammaCellBuilder:
         initial_shape = float(data["initial_shape"][i, l])
         replacement_shape = float(data["replacement_shape"][i, l])
         maximum = float(data["maximum_shape"][i, l])
+        reachable = data["reachable_upper_bounds"][i, l]
         repair_model = data["repair_model"][i, l]
         use_latch = repair_model == "ard1"
         mean_latch = data["mean_latch"]
@@ -406,17 +538,21 @@ class GammaCellBuilder:
         # since the previous intervention, represented by the mean and shape latches.
         rho = float(ctx.rho[i, l])
         remaining = 1.0 - rho
-        shape_ub = maximum
-        mean_ub = float(ctx.tau[i, l])
-        removed_ub = mean_ub
         for k in range(ctx.T):
+            shape_ub = float(reachable["shape"][k])
+            mean_ub = float(reachable["mean"][k])
+            removed_ub = float(reachable["removed_mean"][k])
+            shape_latch_ub = float(reachable["shape_latch"][k])
+            mean_latch_ub = float(reachable["mean_latch"][k])
             A_prev = initial_shape if k == 0 else A_var[i, l, k - 1]
             mu_prev = float(ctx.mu_0[i, l]) if k == 0 else ctx.mu_var[i, l, k - 1]
             A_prev_lb = A_prev_ub = initial_shape if k == 0 else None
             mu_prev_lb = mu_prev_ub = float(ctx.mu_0[i, l]) if k == 0 else None
             if k > 0:
-                A_prev_lb, A_prev_ub = 0.0, shape_ub
-                mu_prev_lb, mu_prev_ub = 0.0, mean_ub
+                A_prev_lb = 0.0
+                A_prev_ub = float(reachable["shape"][k - 1])
+                mu_prev_lb = 0.0
+                mu_prev_ub = float(reachable["mean"][k - 1])
             mean_latch_prev = (
                 0.0 if k == 0 else mean_latch[i, l, k - 1]
             ) if use_latch else None
@@ -481,8 +617,10 @@ class GammaCellBuilder:
             shape_latch_prev_lb = shape_latch_prev_ub = 0.0
             mean_latch_prev_lb = mean_latch_prev_ub = 0.0
             if use_latch and k > 0:
-                shape_latch_prev_lb, shape_latch_prev_ub = 0.0, shape_ub
-                mean_latch_prev_lb, mean_latch_prev_ub = 0.0, mean_ub
+                shape_latch_prev_lb = 0.0
+                shape_latch_prev_ub = float(reachable["shape_latch"][k - 1])
+                mean_latch_prev_lb = 0.0
+                mean_latch_prev_ub = float(reachable["mean_latch"][k - 1])
             repaired_shape_lb = remaining * A_prev_lb
             repaired_shape_ub = remaining * A_prev_ub
             repaired_mean_lb = remaining * mu_prev_lb
@@ -517,13 +655,13 @@ class GammaCellBuilder:
                 _add_big_m_equality(
                     md, mean_latch[i, l, k], mean_latch_prev, ctx.nb[i, l, k],
                     residual_lb=-mean_latch_prev_ub,
-                    residual_ub=mean_ub - mean_latch_prev_lb,
+                    residual_ub=mean_latch_ub - mean_latch_prev_lb,
                     name=f"gmu_gamma_hold_{i}_{l}_{k}",
                 )
                 _add_big_m_equality(
                     md, shape_latch[i, l, k], shape_latch_prev, ctx.nb[i, l, k],
                     residual_lb=-shape_latch_prev_ub,
-                    residual_ub=shape_ub - shape_latch_prev_lb,
+                    residual_ub=shape_latch_ub - shape_latch_prev_lb,
                     name=f"gA_gamma_hold_{i}_{l}_{k}",
                 )
 
@@ -532,14 +670,14 @@ class GammaCellBuilder:
                     md, mean_latch[i, l, k], ctx.mu_var[i, l, k],
                     ctx.m_rep[i, l, k],
                     residual_lb=-mean_ub,
-                    residual_ub=mean_ub,
+                    residual_ub=mean_latch_ub,
                     name=f"gmu_gamma_setm_{i}_{l}_{k}",
                 )
                 _add_big_m_equality(
                     md, shape_latch[i, l, k], A_var[i, l, k],
                     ctx.m_rep[i, l, k],
                     residual_lb=-shape_ub,
-                    residual_ub=shape_ub,
+                    residual_ub=shape_latch_ub,
                     name=f"gA_gamma_setm_{i}_{l}_{k}",
                 )
             if ctx.allow_replacement:
@@ -569,14 +707,14 @@ class GammaCellBuilder:
                         md, mean_latch[i, l, k], replacement_mean,
                         ctx.r_rep[i, l, k],
                         residual_lb=-replacement_mean,
-                        residual_ub=mean_ub - replacement_mean,
+                        residual_ub=mean_latch_ub - replacement_mean,
                         name=f"gmu_gamma_setr_{i}_{l}_{k}",
                     )
                     _add_big_m_equality(
                         md, shape_latch[i, l, k], replacement_shape,
                         ctx.r_rep[i, l, k],
                         residual_lb=-replacement_shape,
-                        residual_ub=shape_ub - replacement_shape,
+                        residual_ub=shape_latch_ub - replacement_shape,
                         name=f"gA_gamma_setr_{i}_{l}_{k}",
                     )
             md.addConstr(
@@ -648,6 +786,7 @@ class GammaCellBuilder:
                     mean_latch_solution[i, l, k] = data["mean_latch"][i, l, k].X
                     shape_latch_solution[i, l, k] = data["shape_latch"][i, l, k].X
             repair_model = str(cfg.repair_model[i, l])
+            reachable = data["reachable_upper_bounds"][i, l]
             summaries.append({
                 "i": i,
                 "l": l,
@@ -677,6 +816,15 @@ class GammaCellBuilder:
                 "initial_bounded_shape": calibration.initial_bounded_shape,
                 "replacement_bounded_shape": calibration.replacement_bounded_shape,
                 "repair_bound": f"{repair_model}_fixed_rate_shape_scaling",
+                "big_m_bound_strategy": data["big_m_bound_strategy"],
+                "maximum_reachable_mean": float(np.max(reachable["mean"])),
+                "maximum_reachable_shape": float(np.max(reachable["shape"])),
+                "maximum_reachable_mean_latch": float(
+                    np.max(reachable["mean_latch"])
+                ),
+                "maximum_reachable_shape_latch": float(
+                    np.max(reachable["shape_latch"])
+                ),
             })
         out["gamma_shape_bound"] = shape
         out["gamma_tail_bound"] = tail
@@ -686,6 +834,7 @@ class GammaCellBuilder:
         out["gamma_shape_increment_trans"] = shape_transitory
         out["gamma_maximum_shape"] = maximum_shape
         out["gamma_dynamics_formulation"] = data["dynamics_formulation"]
+        out["gamma_big_m_bound_strategy"] = data["big_m_bound_strategy"]
         if mean_latch_solution is not None:
             out["gamma_mean_latch"] = mean_latch_solution
             out["gamma_shape_latch"] = shape_latch_solution

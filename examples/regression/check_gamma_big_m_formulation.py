@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
+import numpy as np
 import yaml
 
 from fleet_management.config import load_config
@@ -71,10 +72,66 @@ def check_case(cfg, name: str) -> dict:
     if estimate["gamma_attributable"]["general_constraint_total"] != 0:
         raise AssertionError(f"{name} estimator still counts Gamma indicators")
 
+    gamma = context.extras["gamma"]
+    strict_state_bounds = 0
+    strict_latch_bounds = 0
+    for i, l in gamma["cells"]:
+        bounds = gamma["reachable_upper_bounds"][i, l]
+        shape_limit = float(gamma["maximum_shape"][i, l])
+        mean_limit = float(context.tau[i, l])
+        for key in ("mean", "shape", "removed_mean"):
+            values = np.asarray(bounds[key], dtype=float)
+            if values.shape != (context.T,) or np.any(~np.isfinite(values)):
+                raise AssertionError(f"{name} has invalid reachable {key} bounds")
+            if np.any(values < 0.0):
+                raise AssertionError(f"{name} has negative reachable {key} bounds")
+        if np.any(bounds["mean"] > mean_limit + 1e-12):
+            raise AssertionError(f"{name} mean bounds exceed tau")
+        if np.any(bounds["shape"] > shape_limit + 1e-12):
+            raise AssertionError(f"{name} shape bounds exceed A_max")
+
+        for k in range(context.T):
+            if abs(context.mu_var[i, l, k].UB - bounds["mean"][k]) > 1e-12:
+                raise AssertionError(f"{name} did not apply its mean bound")
+            if abs(gamma["A_var"][i, l, k].UB - bounds["shape"][k]) > 1e-12:
+                raise AssertionError(f"{name} did not apply its shape bound")
+            if abs(context.z_var[i, l, k].UB - bounds["removed_mean"][k]) > 1e-12:
+                raise AssertionError(f"{name} did not apply its removed-mean bound")
+        strict_state_bounds += int(np.count_nonzero(bounds["mean"] < mean_limit - 1e-12))
+        strict_state_bounds += int(np.count_nonzero(bounds["shape"] < shape_limit - 1e-12))
+
+        if (i, l) in gamma["ard1_cells"]:
+            if np.any(bounds["mean_latch"] > bounds["mean"] + 1e-12):
+                raise AssertionError(f"{name} mean-latch bounds exceed state bounds")
+            if np.any(bounds["shape_latch"] > bounds["shape"] + 1e-12):
+                raise AssertionError(f"{name} shape-latch bounds exceed state bounds")
+            for k in range(context.T):
+                if abs(
+                    gamma["mean_latch"][i, l, k].UB
+                    - bounds["mean_latch"][k]
+                ) > 1e-12:
+                    raise AssertionError(f"{name} did not apply its mean-latch bound")
+                if abs(
+                    gamma["shape_latch"][i, l, k].UB
+                    - bounds["shape_latch"][k]
+                ) > 1e-12:
+                    raise AssertionError(f"{name} did not apply its shape-latch bound")
+            strict_latch_bounds += int(
+                np.count_nonzero(bounds["mean_latch"] < mean_limit - 1e-12)
+            )
+            strict_latch_bounds += int(
+                np.count_nonzero(bounds["shape_latch"] < shape_limit - 1e-12)
+            )
+
+    if strict_state_bounds == 0:
+        raise AssertionError(f"{name} produced no tighter time-dependent bounds")
+
     return {
         "variables": actual["variables"],
         "linear_constraints": actual["linear_constraints"],
         "indicator_constraints": actual["indicator_constraints"],
+        "strict_state_bounds": strict_state_bounds,
+        "strict_latch_bounds": strict_latch_bounds,
     }
 
 
