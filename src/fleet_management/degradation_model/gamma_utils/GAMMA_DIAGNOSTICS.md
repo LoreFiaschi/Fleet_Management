@@ -109,7 +109,7 @@ bounds and Big-M coefficients without introducing additional variables or
 constraints. Solver output records:
 
 ```text
-gamma_dynamics: tight_big_m
+gamma_dynamics_formulation: tight_big_m
 gamma_big_m_bound_strategy: time_dependent_reachable
 ```
 

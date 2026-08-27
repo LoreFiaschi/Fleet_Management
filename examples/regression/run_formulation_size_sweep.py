@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import argparse
 
-from fleet_management.formulation_sweep import sweep_formulation_dimensions
+from fleet_management.formulation_size_sweep import sweep_formulation_dimensions
 
 
 def comma_separated_integers(text: str) -> list[int]:

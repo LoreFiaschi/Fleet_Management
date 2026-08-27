@@ -52,6 +52,212 @@ def plot_mixed_management(input_file_path: str, plot_file_path: str | None = Non
     _draw_solution(_normalise_solution(_read_input(input_file)), plot_path)
 
 
+def plot_horizon_sweep(
+    sweep_report_path: str,
+    plot_file_path: str | None = None,
+) -> None:
+    """Visualize an operating-horizon sweep report.
+
+    The left panel compares ``J_op / H2`` and distinguishes proven optimal
+    cases from feasible incumbents stopped by a solver limit. The right panel
+    separates optimizer time from deterministic formulation growth.
+    """
+    report_path = Path(sweep_report_path)
+    if not report_path.exists():
+        raise FileNotFoundError(f"Sweep report not found: {sweep_report_path}")
+    if report_path.suffix.lower() not in {".yaml", ".yml", ".json"}:
+        raise ValueError("Horizon-sweep reports must be YAML or JSON files.")
+
+    plot_path = _resolve_plot_path(
+        "horizon_sweep.png" if plot_file_path is None else plot_file_path
+    )
+    if plot_path.suffix.lower() not in SUPPORTED_PLOT_EXTENSIONS:
+        raise ValueError(
+            f"Unsupported plot file type {plot_path.suffix!r}; expected one of "
+            f"{sorted(SUPPORTED_PLOT_EXTENSIONS)}."
+        )
+    if not plot_path.parent.exists():
+        raise FileNotFoundError(f"Plot directory does not exist: {plot_path.parent}")
+    if not os.access(plot_path.parent, os.W_OK):
+        raise PermissionError(f"Plot directory is not writable: {plot_path.parent}")
+
+    _draw_horizon_sweep(_normalise_horizon_sweep(_read_input(report_path)), plot_path)
+
+
+def _normalise_horizon_sweep(report: dict[str, Any]) -> dict[str, Any]:
+    cases = report.get("cases")
+    if not isinstance(cases, list) or not cases:
+        raise ValueError("Horizon-sweep report must contain a nonempty 'cases' list.")
+
+    rows: list[dict[str, Any]] = []
+    for index, case in enumerate(cases):
+        if not isinstance(case, dict) or case.get("H2") is None:
+            raise ValueError(f"Horizon-sweep case {index} has no H2 value.")
+        formulation = case.get("formulation") or {}
+        timing = case.get("timing") or {}
+        status = str(case.get("status", "unknown"))
+        cost = _optional_float(case.get("J_op_average"))
+        rows.append({
+            "H2": int(case["H2"]),
+            "T": int(case.get("T", int(report.get("H1", 0)) + int(case["H2"]))),
+            "status": status,
+            "cost": cost,
+            "runtime": _optional_float(
+                timing.get("optimizer_call_seconds", case.get("optimizer_seconds"))
+            ),
+            "variables": _optional_float(formulation.get("variables")),
+            "linear_constraints": _optional_float(
+                formulation.get("linear_constraints")
+            ),
+            "has_incumbent": (
+                cost is not None
+                and status not in {"infeasible", "inf_or_unbounded", "unbounded"}
+            ),
+        })
+    rows.sort(key=lambda row: row["H2"])
+
+    fixed = report.get("fixed_dimensions") or {}
+    best_proven = report.get("best_proven_H2", report.get("best_H2"))
+    best_incumbent = report.get("best_incumbent_H2", best_proven)
+    return {
+        "rows": rows,
+        "F": fixed.get("F"),
+        "M": fixed.get("M"),
+        "L": fixed.get("L"),
+        "H1": fixed.get("H1", report.get("H1")),
+        "budget": report.get("transitory_budget"),
+        "best_proven_H2": None if best_proven is None else int(best_proven),
+        "best_incumbent_H2": None if best_incumbent is None else int(best_incumbent),
+        "best_incumbent_status": report.get("best_incumbent_status"),
+    }
+
+
+def _draw_horizon_sweep(view: dict[str, Any], plot_path: Path) -> None:
+    rows = view["rows"]
+    h2 = np.asarray([row["H2"] for row in rows], dtype=float)
+    costs = np.asarray([
+        np.nan if row["cost"] is None else row["cost"] for row in rows
+    ])
+    runtimes = np.asarray([
+        np.nan if row["runtime"] is None else row["runtime"] for row in rows
+    ])
+    variables = np.asarray([
+        np.nan if row["variables"] is None else row["variables"] for row in rows
+    ])
+    constraints = np.asarray([
+        np.nan if row["linear_constraints"] is None
+        else row["linear_constraints"] for row in rows
+    ])
+
+    figure, (cost_ax, scale_ax) = plt.subplots(1, 2, figsize=(13.2, 6.2))
+    feasible = np.asarray([row["has_incumbent"] for row in rows], dtype=bool)
+    optimal = np.asarray([row["status"] == "optimal" for row in rows], dtype=bool)
+    limited = feasible & ~optimal
+
+    if np.count_nonzero(feasible) > 1:
+        cost_ax.plot(h2[feasible], costs[feasible], color="#9ca3af",
+                     linewidth=1.5, zorder=1)
+    cost_ax.scatter(h2[optimal], costs[optimal], s=72, marker="o",
+                    facecolor="#2563eb", edgecolor="white", linewidth=0.9,
+                    label="proven optimal", zorder=3)
+    cost_ax.scatter(h2[limited], costs[limited], s=82, marker="D",
+                    facecolor="white", edgecolor="#d97706", linewidth=1.8,
+                    label="feasible incumbent", zorder=3)
+
+    for row in rows:
+        if row["cost"] is None:
+            continue
+        cost_ax.annotate(
+            f"{row['cost']:.3g}", (row["H2"], row["cost"]),
+            xytext=(0, 9), textcoords="offset points", ha="center",
+            fontsize=8, color="#374151",
+        )
+
+    proven_h2 = view["best_proven_H2"]
+    incumbent_h2 = view["best_incumbent_H2"]
+    if proven_h2 is not None:
+        row = _row_at_h2(rows, proven_h2)
+        if row is not None and row["cost"] is not None:
+            cost_ax.scatter([proven_h2], [row["cost"]], s=230, marker="*",
+                            facecolor="#16a34a", edgecolor="#14532d",
+                            linewidth=0.8, label="best proven", zorder=5)
+    if incumbent_h2 is not None and incumbent_h2 != proven_h2:
+        row = _row_at_h2(rows, incumbent_h2)
+        if row is not None and row["cost"] is not None:
+            cost_ax.scatter([incumbent_h2], [row["cost"]], s=175, marker="P",
+                            facecolor="#f59e0b", edgecolor="#92400e",
+                            linewidth=0.8, label="best incumbent", zorder=5)
+
+    cost_ax.set_title("Operating objective", loc="left", fontweight="bold")
+    cost_ax.set_xlabel("Operating horizon $H_2$")
+    cost_ax.set_ylabel("$J_{op} / H_2$  (lower is better)")
+    cost_ax.set_xticks(h2)
+    cost_ax.grid(axis="both", color="#e5e7eb", linewidth=0.8)
+    cost_ax.legend(frameon=False, loc="best")
+
+    runtime_mask = np.isfinite(runtimes) & (runtimes > 0.0)
+    if np.any(runtime_mask):
+        scale_ax.plot(h2[runtime_mask], runtimes[runtime_mask], marker="o",
+                      color="#d97706", linewidth=2.0, label="optimizer time")
+        scale_ax.set_yscale("log")
+    scale_ax.set_xlabel("Operating horizon $H_2$")
+    scale_ax.set_ylabel("Optimizer time [s] (log scale)", color="#b45309")
+    scale_ax.tick_params(axis="y", labelcolor="#b45309")
+    scale_ax.set_xticks(h2)
+    scale_ax.grid(axis="both", color="#e5e7eb", linewidth=0.8)
+
+    count_ax = scale_ax.twinx()
+    if np.any(np.isfinite(variables)):
+        count_ax.plot(h2, variables, marker="s", color="#2563eb",
+                      linewidth=1.8, label="variables")
+    if np.any(np.isfinite(constraints)):
+        count_ax.plot(h2, constraints, marker="^", color="#7c3aed",
+                      linewidth=1.8, label="linear constraints")
+    count_ax.set_ylabel("Formulation count", color="#4b5563")
+    count_ax.tick_params(axis="y", labelcolor="#4b5563")
+    scale_ax.set_title("Computational growth", loc="left", fontweight="bold")
+
+    handles_left, labels_left = scale_ax.get_legend_handles_labels()
+    handles_right, labels_right = count_ax.get_legend_handles_labels()
+    scale_ax.legend(handles_left + handles_right, labels_left + labels_right,
+                    frameon=False, loc="upper left")
+
+    for row in rows:
+        colour = "#15803d" if row["status"] == "optimal" else "#b45309"
+        scale_ax.annotate(row["status"].replace("_", " "),
+                          (row["H2"], 0.02), xycoords=("data", "axes fraction"),
+                          rotation=90, ha="center", va="bottom", fontsize=7,
+                          color=colour)
+
+    dimensions = ", ".join(
+        f"{name}={view[name]}" for name in ("F", "M", "L", "H1")
+        if view[name] is not None
+    )
+    budget = "" if view["budget"] is None else f";  $B_{{trans}}$={view['budget']:g}"
+    figure.suptitle("Operating-horizon sweep", x=0.02, y=0.975, ha="left",
+                    fontsize=16, fontweight="bold")
+    figure.text(0.02, 0.925, dimensions + budget, fontsize=9, color="#4b5563")
+    figure.text(
+        0.5, 0.035,
+        "A time-limit incumbent may have a lower observed cost than the best "
+        "proven case; it is not an optimality certificate.",
+        ha="center", fontsize=8.5, color="#4b5563",
+    )
+    figure.subplots_adjust(
+        left=0.075, right=0.925, top=0.84, bottom=0.18, wspace=0.32
+    )
+    figure.savefig(plot_path, dpi=170, bbox_inches="tight")
+    plt.close(figure)
+
+
+def _row_at_h2(rows: list[dict[str, Any]], h2: int) -> dict[str, Any] | None:
+    return next((row for row in rows if row["H2"] == h2), None)
+
+
+def _optional_float(value: Any) -> float | None:
+    return None if value is None else float(value)
+
+
 def _normalise_solution(data: dict[str, Any]) -> dict[str, Any]:
     required = ("F", "M", "mu_0", "mu", "x")
     missing = [key for key in required if data.get(key) is None]

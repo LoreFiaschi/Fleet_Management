@@ -19,7 +19,7 @@ def main() -> None:
         raise AssertionError(
             "public plot_mixed_management does not route to mixed_plotter.py"
         )
-    
+
     result = {
         "status": "time_limit",
         "objective": 4.4245,
