@@ -34,6 +34,7 @@ import numpy as np
 SUPPORTED_MODELS = ("rainflow", "gamma", "gaussian", "inverse_gaussian")
 RAINFLOW_BOUNDS = ("markov", "cantelli", "hoeffding", "bernstein", "chernoff")
 REPAIR_MODELS = ("ard1", "ardinf")
+GAMMA_CALIBRATION_METHODS = ("repeated_increment", "finite_count")
 _NEEDS_SUPPORT = ("hoeffding", "bernstein")
 _NEEDS_CGF = ("chernoff",)
 # Bounds whose descriptor is NOT closed under the ARD1 (latched) repair
@@ -71,6 +72,10 @@ class FleetConfig:
     gamma_beta_bound: Optional[np.ndarray] = None # selected common rate (F,L)
     gamma_beta_0: Optional[np.ndarray] = None     # exact initial-state rate (F,L)
     gamma_beta_new: Optional[np.ndarray] = None   # exact replacement-state rate (F,L)
+    # Offline common-rate surrogate construction.  ``repeated_increment`` is
+    # the mentor-style m*, beta*, alpha* contract; ``finite_count`` retains
+    # the earlier all-count-vector LP as a comparison/regression path.
+    gamma_calibration_method: str = "finite_count"
     # per-mission profiles (F, L, M, H2)  [transitory: H1]
     mu: np.ndarray = None
     v: Optional[np.ndarray] = None
@@ -105,6 +110,7 @@ class FleetConfig:
                "mu_0": float(self.mu_0[i, l]),
                "mu": self.mu[i, l],                                   # (M, H2)
                "replacement_mu": float(self.replacement_mu[i, l])}
+        out["gamma_calibration_method"] = self.gamma_calibration_method
         for name, arr in (("v_0", self.v_0), ("replacement_v", self.replacement_v),
                           ("s_chernoff", self.s_chernoff),
                           ("gamma_beta_bound", self.gamma_beta_bound),
@@ -312,6 +318,9 @@ def load_config(data: dict) -> FleetConfig:
         gamma_beta_0=_fl_scalar(data.get("gamma_beta_0"), F, L, "gamma_beta_0"),
         gamma_beta_new=_fl_scalar(data.get("gamma_beta_new"), F, L,
                                   "gamma_beta_new"),
+        gamma_calibration_method=str(
+            data.get("gamma_calibration_method", "finite_count")
+        ).strip().lower(),
         mu=_flmh_prof(data["mu"], F, L, M, H_prof, "mu"),
         v=_flmh_prof(data.get("v"), F, L, M, H_prof, "v"),
         support=_flmh_prof(data.get("support"), F, L, M, H_prof, "support"),
@@ -325,10 +334,18 @@ def load_config(data: dict) -> FleetConfig:
                                       "allow_replacement", "depot_capacity",
                                       "gurobi_params",
                                       "reliability_impl", "pwl_points", "tangent_ref",
-                                      "replacement_as_new")
+                                      "replacement_as_new", "objective_mode",
+                                      "transitory_budget")
                  if k in data},
         raw=data,
     )
+
+    if cfg.gamma_calibration_method not in GAMMA_CALIBRATION_METHODS:
+        raise ValueError(
+            "'gamma_calibration_method' must be one of "
+            f"{GAMMA_CALIBRATION_METHODS}; got "
+            f"{cfg.gamma_calibration_method!r}."
+        )
 
     _validate_cells(cfg)
     return cfg

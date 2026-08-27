@@ -27,11 +27,20 @@ PUBLIC_INPUT = HERE / "gamma_tail_bound_public.yaml"
 
 def validate_public_replacement_case() -> dict:
     with TemporaryDirectory(prefix="gamma-exact-public-") as directory:
+        calibration_input = Path(directory) / "finite_count_input.yaml"
+        input_data = yaml.safe_load(PUBLIC_INPUT.read_text(encoding="utf-8"))
+        # The exact convolution validator certifies the earlier finite-count
+        # method.  The mentor-style repeated-increment method has a deliberately
+        # narrower homogeneous-repetition contract and is tested separately.
+        input_data["gamma_calibration_method"] = "finite_count"
+        calibration_input.write_text(
+            yaml.safe_dump(input_data, sort_keys=False), encoding="utf-8"
+        )
         result_path = Path(directory) / "result.yaml"
         report_path = Path(directory) / "validation.yaml"
-        solve(str(PUBLIC_INPUT), str(result_path))
+        solve(str(calibration_input), str(result_path))
         report = validate_gamma_tail_bound_files(
-            PUBLIC_INPUT,
+            calibration_input,
             result_path,
             report_path,
             include_steps=True,
@@ -49,7 +58,7 @@ def validate_public_replacement_case() -> dict:
         unsafe_path.write_text(
             yaml.safe_dump(unsafe, sort_keys=False), encoding="utf-8"
         )
-        unsafe_report = validate_gamma_tail_bound_files(PUBLIC_INPUT, unsafe_path)
+        unsafe_report = validate_gamma_tail_bound_files(calibration_input, unsafe_path)
         if unsafe_report["valid"]:
             raise AssertionError("unsafe Gamma bound did not invalidate the result")
         if not any(

@@ -325,7 +325,7 @@ def _gamma_reachable_upper_bounds(
 
 
 class GammaCellBuilder:
-    """Finite-horizon common-rate tail bound for Gamma cells.
+    """Selectable common-rate Gamma surrogate for modular Gamma cells.
 
     Initial and replacement distributions are jointly calibrated with the
     finite-horizon mission increments. The common bounding rate remains fixed
@@ -339,6 +339,7 @@ class GammaCellBuilder:
     def prepare(self, ctx: FleetModel, cfg, cells, opts: dict) -> None:
         """Calibrate mission shapes offline and create the bounding state."""
         from fleet_management.degradation_model.gamma_utils.gamma_tail_bound import (
+            calculate_repeated_seeded_profile_tail_bound_parameters,
             calculate_seeded_profile_tail_bound_parameters,
             required_shape_for_tail,
         )
@@ -397,6 +398,9 @@ class GammaCellBuilder:
 
         beta_trans_cfg = getattr(cfg, "gamma_beta_trans", None)
         beta_bound_cfg = getattr(cfg, "gamma_beta_bound", None)
+        calibration_method = getattr(
+            cfg, "gamma_calibration_method", "finite_count"
+        )
         for i, l in cells:
             repair_model = str(cfg.repair_model[i, l])
             if repair_model not in {"ardinf", "ard1"}:
@@ -443,21 +447,36 @@ class GammaCellBuilder:
             beta_0_cfg = getattr(cfg, "gamma_beta_0", None)
             beta_new_cfg = getattr(cfg, "gamma_beta_new", None)
             calibration_start = time.perf_counter()
-            calibration = calculate_seeded_profile_tail_bound_parameters(
-                expected_damage=combined_mu,
-                rates=combined_beta,
-                threshold=float(ctx.tau[i, l]),
-                max_total_count=ctx.T,
-                initial_expected_damage=float(ctx.mu_0[i, l]),
-                initial_rate=(
+            calibration_kwargs = {
+                "expected_damage": combined_mu,
+                "rates": combined_beta,
+                "threshold": float(ctx.tau[i, l]),
+                "max_total_count": ctx.T,
+                "initial_expected_damage": float(ctx.mu_0[i, l]),
+                "initial_rate": (
                     None if beta_0_cfg is None else float(beta_0_cfg[i, l])
                 ),
-                replacement_expected_damage=float(ctx.mu_new[i, l]),
-                replacement_rate=(
+                "replacement_expected_damage": float(ctx.mu_new[i, l]),
+                "replacement_rate": (
                     None if beta_new_cfg is None else float(beta_new_cfg[i, l])
                 ),
-                common_rate=selected_rate,
-            )
+                "common_rate": selected_rate,
+            }
+            if calibration_method == "repeated_increment":
+                calibration = calculate_repeated_seeded_profile_tail_bound_parameters(
+                    epsilon=float(ctx.eps[i, l]),
+                    **calibration_kwargs,
+                )
+                ctx.impl_of[(i, l)] = "gamma_repeated_tail"
+            elif calibration_method == "finite_count":
+                calibration = calculate_seeded_profile_tail_bound_parameters(
+                    **calibration_kwargs,
+                )
+                ctx.impl_of[(i, l)] = "gamma_finite_tail"
+            else:
+                raise ValueError(
+                    f"unsupported gamma_calibration_method={calibration_method!r}"
+                )
             split = ctx.H1
             bounded_trans[i, l] = calibration.bounded_shapes[..., :split]
             bounded_operating[i, l] = calibration.bounded_shapes[..., split:]
@@ -471,7 +490,6 @@ class GammaCellBuilder:
                 float(ctx.tau[i, l]),
             )
             calibration_seconds[i, l] = time.perf_counter() - calibration_start
-            ctx.impl_of[(i, l)] = "gamma_finite_tail"
             bounds = _gamma_reachable_upper_bounds(
                 initial_mean=float(ctx.mu_0[i, l]),
                 replacement_mean=float(ctx.mu_new[i, l]),
@@ -511,6 +529,7 @@ class GammaCellBuilder:
             "replacement_shape": replacement_shape,
             "calibrations": calibrations,
             "calibration_seconds": calibration_seconds,
+            "calibration_method": calibration_method,
             "reachable_upper_bounds": reachable_upper_bounds,
             "dynamics_formulation": "tight_big_m",
             "big_m_bound_strategy": "time_dependent_reachable",
@@ -775,7 +794,12 @@ class GammaCellBuilder:
             shape_transitory[i, l] = data["bounded_trans"][i, l]
             maximum_shape[i, l] = data["maximum_shape"][i, l]
 
-            constraints = calibration.compressed.constraints
+            repeated_method = data["calibration_method"] == "repeated_increment"
+            constraints = (
+                calibration.checks
+                if repeated_method
+                else calibration.compressed.constraints
+            )
             for k in range(ctx.T):
                 value = data["A_var"][i, l, k].X
                 shape[i, l, k] = value
@@ -787,31 +811,44 @@ class GammaCellBuilder:
                     shape_latch_solution[i, l, k] = data["shape_latch"][i, l, k].X
             repair_model = str(cfg.repair_model[i, l])
             reachable = data["reachable_upper_bounds"][i, l]
-            summaries.append({
+            summary = {
                 "i": i,
                 "l": l,
+                "method": data["calibration_method"],
+                "guarantee_scope": (
+                    "homogeneous_repetitions_per_increment_type"
+                    if repeated_method else "finite_count_vectors"
+                ),
                 "common_rate": rate,
                 "increment_types": int(calibration.type_max_counts.size),
                 "increment_opportunities": int(calibration.original_shapes.size),
                 "seed_types": int(calibration.increment_offset),
-                "calibration_lp_variables": int(
-                    calibration.compressed.original_shapes.size
+                "calibration_lp_variables": (
+                    0
+                    if repeated_method
+                    else int(calibration.compressed.original_shapes.size)
                 ),
                 "tail_constraints": len(constraints),
                 "calibration_seconds": float(
                     data["calibration_seconds"][i, l]
                 ),
-                "total_convolution_series_terms": int(sum(
-                    item.convolution_series_terms for item in constraints
-                )),
-                "maximum_convolution_series_terms": int(max(
-                    (item.convolution_series_terms for item in constraints),
-                    default=0,
-                )),
-                "maximum_convolution_remaining_mass": float(max(
-                    (item.convolution_remaining_mass for item in constraints),
-                    default=0.0,
-                )),
+                "total_convolution_series_terms": (
+                    0 if repeated_method else int(sum(
+                        item.convolution_series_terms for item in constraints
+                    ))
+                ),
+                "maximum_convolution_series_terms": (
+                    0 if repeated_method else int(max(
+                        (item.convolution_series_terms for item in constraints),
+                        default=0,
+                    ))
+                ),
+                "maximum_convolution_remaining_mass": (
+                    0.0 if repeated_method else float(max(
+                        (item.convolution_remaining_mass for item in constraints),
+                        default=0.0,
+                    ))
+                ),
                 "worst_calibration_margin": calibration.worst_tail_margin,
                 "initial_bounded_shape": calibration.initial_bounded_shape,
                 "replacement_bounded_shape": calibration.replacement_bounded_shape,
@@ -825,11 +862,18 @@ class GammaCellBuilder:
                 "maximum_reachable_shape_latch": float(
                     np.max(reachable["shape_latch"])
                 ),
-            })
+            }
+            if repeated_method:
+                safe_counts = calibration.maximum_safe_counts
+                summary["maximum_safe_counts"] = safe_counts.tolist()
+                summary["minimum_safe_count"] = int(np.min(safe_counts))
+                summary["maximum_safe_count"] = int(np.max(safe_counts))
+            summaries.append(summary)
         out["gamma_shape_bound"] = shape
         out["gamma_tail_bound"] = tail
         out["gamma_beta_bound"] = data["common_rate"]
         out["gamma_calibration"] = summaries
+        out["gamma_calibration_method"] = data["calibration_method"]
         out["gamma_shape_increment"] = shape_operating
         out["gamma_shape_increment_trans"] = shape_transitory
         out["gamma_maximum_shape"] = maximum_shape
@@ -878,6 +922,16 @@ def resolve_run_options(cfg, **overrides) -> dict:
                                   o.get("tangent_ref"), 0.5)),
         "replacement_as_new": bool(pick(overrides.get("replacement_as_new"),
                                         o.get("replacement_as_new"), True)),
+        "objective_mode": str(pick(
+            overrides.get("objective_mode"),
+            o.get("objective_mode"),
+            "total",
+        )).strip().lower(),
+        "transitory_budget": pick(
+            overrides.get("transitory_budget"),
+            o.get("transitory_budget"),
+            None,
+        ),
     }
 
 
@@ -1039,21 +1093,73 @@ def add_maintenance_gating(ctx: FleetModel, i: int, l: int) -> None:
             md.addConstr(nb[i, l, k] == 1 - m_rep[i, l, k], name=f"nb_def_{i}_{l}_{k}")
 
 
-def build_objective(ctx: FleetModel, costs: dict) -> None:
-    """J = C_M(x) + C_R(z) + C_rep(r) + C_D(u):
-    maintenance access, imperfect repair, replacement, damage regularisation."""
+def build_objective(ctx: FleetModel, costs: dict, opts: dict) -> None:
+    """Build either the legacy total cost or the two-phase horizon objective.
+
+    Each step uses the same intentionally simple cost expression.  In
+    ``operating_average`` mode the transitory sum is budget-constrained and
+    Gurobi minimizes the average operating cost ``J_op / H2``.
+    """
     md, F, L, T = ctx.model, ctx.F, ctx.L, ctx.T
     C_M, C_R, C_D, C_rep = costs["C_M"], costs["C_R"], costs["C_D"], costs["C_rep"]
-    obj = gp.LinExpr()
+    J_trans = gp.LinExpr()
+    J_op = gp.LinExpr()
     for k in range(T):
-        obj += C_D * ctx.u_var[k]
+        step_cost = gp.LinExpr(C_D * ctx.u_var[k])
         for i in range(F):
-            obj += C_M * ctx.x[i, 0, k]
+            step_cost += C_M * ctx.x[i, 0, k]
             for l in range(L):
-                obj += C_R * ctx.z_var[i, l, k]
+                step_cost += C_R * ctx.z_var[i, l, k]
                 if ctx.allow_replacement:
-                    obj += C_rep * ctx.r_rep[i, l, k]
-    md.setObjective(obj, GRB.MINIMIZE)
+                    step_cost += C_rep * ctx.r_rep[i, l, k]
+        if k < ctx.H1:
+            J_trans += step_cost
+        else:
+            J_op += step_cost
+
+    mode = str(opts.get("objective_mode", "total")).strip().lower()
+    budget = opts.get("transitory_budget")
+    if mode == "total":
+        if budget is not None:
+            raise ValueError(
+                "transitory_budget requires objective_mode='operating_average'."
+            )
+        objective = J_trans + J_op
+        md.setObjective(objective, GRB.MINIMIZE)
+    elif mode == "operating_average":
+        if budget is None:
+            raise ValueError(
+                "objective_mode='operating_average' requires transitory_budget."
+            )
+        budget = float(budget)
+        if not np.isfinite(budget) or budget < 0.0:
+            raise ValueError("transitory_budget must be finite and non-negative.")
+        md.addConstr(J_trans <= budget, name="transitory_cost_budget")
+        objective = (1.0 / ctx.H2) * J_op
+        # The primary target is the operating average.  Minimizing J_trans as
+        # a lower-priority objective removes slack from auxiliary cost states
+        # (notably u_k) without changing the chosen primary optimum.
+        md.ModelSense = GRB.MINIMIZE
+        md.setObjectiveN(
+            objective, index=0, priority=2, weight=1.0,
+            name="operating_average_cost",
+        )
+        md.setObjectiveN(
+            J_trans, index=1, priority=1, weight=1.0,
+            name="transitory_cost_tiebreak",
+        )
+    else:
+        raise ValueError(
+            "objective_mode must be 'total' or 'operating_average'; "
+            f"got {mode!r}."
+        )
+
+    ctx.extras["phase_costs"] = {
+        "mode": mode,
+        "transitory_budget": budget,
+        "J_trans": J_trans,
+        "J_op": J_op,
+    }
 
 
 # ===========================================================================
@@ -1146,6 +1252,17 @@ def extract_solution(ctx: FleetModel, cfg, model) -> dict:
     meta.update({"objective": model.ObjVal, "mip_gap": gap, "bound": objbnd,
                  "x": x_sol, "mu": mu_sol, "v": v_sol, "z": z_sol,
                  "m": m_sol, "r": r_sol, "u": u_sol})
+    phase = ctx.extras.get("phase_costs")
+    if phase is not None:
+        J_trans = float(phase["J_trans"].getValue())
+        J_op = float(phase["J_op"].getValue())
+        meta.update({
+            "objective_mode": phase["mode"],
+            "transitory_budget": phase["transitory_budget"],
+            "J_trans": J_trans,
+            "J_op": J_op,
+            "J_op_average": J_op / ctx.H2,
+        })
     return meta
 
 
@@ -1171,7 +1288,7 @@ def build_fleet(cfg, opts: dict, model_name: str = "fleet_management_mixed") -> 
         builder.prepare(ctx, cfg, ctx.cells_of(name), opts)
 
     # shared objective and general constraints
-    build_objective(ctx, resolve_costs(cfg, cfg.tau))
+    build_objective(ctx, resolve_costs(cfg, cfg.tau), opts)
     add_base_constraints(ctx, int(opts["depot_capacity"]))
 
     # per-cell blocks

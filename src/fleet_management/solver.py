@@ -330,6 +330,9 @@ def _build_serializable_output(result: dict) -> dict:
     for key in ("bound", "mip_gap"):
         if result.get(key) is not None:
             output[key] = float(result[key])
+    for key in ("transitory_budget", "J_trans", "J_op", "J_op_average"):
+        if result.get(key) is not None:
+            output[key] = float(result[key])
 
     # Two-horizon / rainflow metadata
     for key in (
@@ -342,6 +345,8 @@ def _build_serializable_output(result: dict) -> dict:
         "reliability_impl",
         "gamma_dynamics_formulation",
         "gamma_big_m_bound_strategy",
+        "gamma_calibration_method",
+        "objective_mode",
     ):
         if result.get(key) is not None:
             output[key] = _to_builtin(result[key])
@@ -456,9 +461,15 @@ def _save_hdf5(result: dict, path: Path) -> None:
                 f.attrs[key] = float(result[key])
 
         # Two-horizon / rainflow metadata
-        for key in ("H1", "H2", "T", "method", "repair_model"):
+        for key in (
+            "H1", "H2", "T", "method", "repair_model",
+            "gamma_calibration_method", "objective_mode",
+        ):
             if result.get(key) is not None:
                 f.attrs[key] = result[key]
+        for key in ("transitory_budget", "J_trans", "J_op", "J_op_average"):
+            if result.get(key) is not None:
+                f.attrs[key] = float(result[key])
 
         # Method-specific arrays
         for key in (

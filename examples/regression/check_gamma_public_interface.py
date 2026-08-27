@@ -44,6 +44,7 @@ def main() -> None:
             "reliability_impl",
             "gamma_dynamics_formulation",
             "gamma_big_m_bound_strategy",
+            "gamma_calibration_method",
             "H1",
             "H2",
             "T",
@@ -67,6 +68,7 @@ def main() -> None:
             "reliability_impl",
             "gamma_dynamics_formulation",
             "gamma_big_m_bound_strategy",
+            "gamma_calibration_method",
             "H1",
             "H2",
             "T",
@@ -86,7 +88,7 @@ def main() -> None:
         raise AssertionError(f"expected modular backend, got {result['backend']!r}")
     if result["degradation"] != "gamma" or result["models"] != ["gamma"]:
         raise AssertionError("uniform Gamma model identity was not preserved")
-    if result["reliability_impl"] != "gamma_finite_tail":
+    if result["reliability_impl"] != "gamma_repeated_tail":
         raise AssertionError(
             f"wrong reliability implementation {result['reliability_impl']!r}"
         )
@@ -94,6 +96,8 @@ def main() -> None:
         raise AssertionError("public Gamma route did not use tight Big-M dynamics")
     if result["gamma_big_m_bound_strategy"] != "time_dependent_reachable":
         raise AssertionError("public Gamma route did not use reachable Big-M bounds")
+    if result["gamma_calibration_method"] != "repeated_increment":
+        raise AssertionError("public Gamma route selected the wrong calibration")
     if (result["H1"], result["H2"], result["T"]) != (2, 3, 5):
         raise AssertionError("unequal public-interface horizon was not preserved")
 
@@ -116,6 +120,11 @@ def main() -> None:
         raise AssertionError("expected one Gamma calibration summary per cell")
     if any(item["tail_constraints"] <= 0 for item in result["gamma_calibration"]):
         raise AssertionError("Gamma calibration generated no tail constraints")
+    if any(
+        not item.get("maximum_safe_counts")
+        for item in result["gamma_calibration"]
+    ):
+        raise AssertionError("Gamma calibration did not report m* values")
     if any(
         item["worst_calibration_margin"] < -1e-10
         for item in result["gamma_calibration"]

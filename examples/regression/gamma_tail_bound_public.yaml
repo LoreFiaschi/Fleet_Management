@@ -39,6 +39,7 @@ gamma_beta_trans:
     -
       - [13.0, 10.0]
 gamma_beta_bound: 10.0
+gamma_calibration_method: repeated_increment
 gamma_beta_0:
   - [14.0]
   - [12.0]

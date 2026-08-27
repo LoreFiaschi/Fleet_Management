@@ -91,16 +91,26 @@ def main() -> None:
         if not cells:
             raise AssertionError(f"{case_name} has no Gamma calibration diagnostics")
         for cell in cells:
-            for key in (
-                "increment_opportunities",
-                "increment_types",
-                "calibration_lp_variables",
-                "tail_constraints",
-                "total_convolution_series_terms",
-                "maximum_convolution_series_terms",
-            ):
+            for key in ("increment_opportunities", "increment_types", "tail_constraints"):
                 if cell[key] <= 0:
                     raise AssertionError(f"{case_name} calibration {key} is not positive")
+            if cell["method"] == "repeated_increment":
+                if cell["calibration_lp_variables"] != 0:
+                    raise AssertionError("repeated calibration unexpectedly reports an LP")
+                if cell["total_convolution_series_terms"] != 0:
+                    raise AssertionError("repeated calibration unexpectedly used convolution")
+                if not cell.get("maximum_safe_counts"):
+                    raise AssertionError("repeated calibration did not report m*")
+            else:
+                for key in (
+                    "calibration_lp_variables",
+                    "total_convolution_series_terms",
+                    "maximum_convolution_series_terms",
+                ):
+                    if cell[key] <= 0:
+                        raise AssertionError(
+                            f"{case_name} calibration {key} is not positive"
+                        )
             if cell["calibration_seconds"] < 0.0:
                 raise AssertionError(f"{case_name} calibration time is negative")
 

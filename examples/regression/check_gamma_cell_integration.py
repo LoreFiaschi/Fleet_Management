@@ -45,6 +45,7 @@ def main() -> None:
                 [[[16.0, 10.0]], [[10.0, 10.0]]],
             ],
             "gamma_beta_bound": [10.0, 10.0],
+            "gamma_calibration_method": "repeated_increment",
             "gamma_beta_0": [14.0, 10.0],
             "gamma_beta_new": [11.0, 10.0],
             "C_M": 1.0,
@@ -71,8 +72,14 @@ def main() -> None:
     tol = 1e-7
     if np.max(result["gamma_tail_bound"][:, gamma_component, :]) > 0.1 + tol:
         raise AssertionError("Gamma reliability limit was violated")
-    if any(item["tail_constraints"] != 47 for item in result["gamma_calibration"]):
-        raise AssertionError("expected 47 jointly calibrated seeded histories per cell")
+    if any(item["tail_constraints"] <= 0 for item in result["gamma_calibration"]):
+        raise AssertionError("repeated-increment calibration generated no checks")
+    if any(
+        item["method"] != "repeated_increment"
+        or not item.get("maximum_safe_counts")
+        for item in result["gamma_calibration"]
+    ):
+        raise AssertionError("mentor-style m* calibration metadata is missing")
 
     k_start, k_end = cfg.H1 - 1, cfg.T - 1
     shape = result["gamma_shape_bound"][:, gamma_component, :]
