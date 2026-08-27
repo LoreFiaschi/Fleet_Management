@@ -49,6 +49,10 @@ def estimate_gamma_formulation(cfg, *, allow_replacement: bool) -> dict[str, Any
         "depot_capacity": T,
         "aggregate_damage_capacity": T,
         "safety_regularisation": F * T,
+        "transitory_budget": int(
+            str(cfg.options.get("objective_mode", "total")).strip().lower()
+            == "operating_average"
+        ),
     }
 
     gamma_variables = {

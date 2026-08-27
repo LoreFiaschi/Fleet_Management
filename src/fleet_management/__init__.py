@@ -6,7 +6,8 @@ from fleet_management.degradation_model.gamma_utils.gamma_validator import valid
 from fleet_management.degradation_model.gamma_utils.gamma_tail_validator import validate_gamma_tail_bound_files, validate_gamma_tail_bound_schedule
 from fleet_management.degradation_model.gamma_utils.gamma_replay_validator import validate_gamma_replay_files, validate_gamma_replay_schedule
 from fleet_management.horizon_sweep import sweep_operating_horizons
+from fleet_management.formulation_sweep import sweep_formulation_dimensions
 from fleet_management.utils.model_registry import SUPPORTED_DEGRADATIONS, REQUIRED_KEYS_BY_DEGRADATION, extract_degradation_parameters, broadcast_4d_param
 
 
-__all__ = ["solve", "sweep_operating_horizons", "plot_management", "validate", "validate_baseline_assignment_feasibility", "validate_gamma_result", "validate_gamma_tail_bound_files", "validate_gamma_tail_bound_schedule", "validate_gamma_replay_files", "validate_gamma_replay_schedule"]
+__all__ = ["solve", "sweep_operating_horizons", "plot_management", "validate", "validate_baseline_assignment_feasibility", "validate_gamma_result", "validate_gamma_tail_bound_files", "validate_gamma_tail_bound_schedule", "validate_gamma_replay_files", "validate_gamma_replay_schedule", "sweep_formulation_dimensions"]

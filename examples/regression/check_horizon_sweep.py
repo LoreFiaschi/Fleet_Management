@@ -8,9 +8,40 @@ from tempfile import TemporaryDirectory
 import yaml
 
 from fleet_management import sweep_operating_horizons
+from fleet_management.horizon_sweep import _select_horizon_cases
 
 
 def main() -> None:
+    synthetic = [
+        {
+            "H2": 12,
+            "status": "optimal",
+            "J_trans": 0.24,
+            "J_op_average": 0.66,
+        },
+        {
+            "H2": 16,
+            "status": "time_limit",
+            "J_trans": 0.24,
+            "J_op_average": 0.61,
+        },
+    ]
+
+    proven, incumbent = _select_horizon_cases(
+        synthetic,
+        budget=10.0,
+    )
+
+    if proven is None or proven["H2"] != 12:
+        raise AssertionError(
+            "time-limit case displaced the proven optimum"
+        )
+
+    if incumbent is None or incumbent["H2"] != 16:
+        raise AssertionError(
+            "best feasible incumbent was not retained"
+        )
+    
     scenario = {
         "F": 2,
         "M": 1,
@@ -65,8 +96,25 @@ def main() -> None:
     expected_best = min(
         report["cases"], key=lambda row: row["J_op_average"]
     )["H2"]
-    if report["best_H2"] != expected_best:
-        raise AssertionError("best H2 does not minimize J_op/H2")
+    if report["best_proven_H2"] != expected_best:
+        raise AssertionError(
+            "best proven H2 does not minimize J_op/H2"
+        )
+
+    if report["best_incumbent_H2"] != expected_best:
+        raise AssertionError(
+            "best incumbent H2 does not minimize J_op/H2"
+        )
+
+    if report["best_incumbent_status"] != "optimal":
+        raise AssertionError(
+            "optimal regression incumbent has wrong status"
+        )
+
+    if report["best_H2"] != report["best_proven_H2"]:
+        raise AssertionError(
+            "legacy best_H2 is not the proven selection"
+        )
     if saved["best_H2"] != report["best_H2"]:
         raise AssertionError("saved sweep report changed the selected horizon")
     for row in report["cases"]:
@@ -92,7 +140,8 @@ def main() -> None:
             f"H2={row['H2']}: J_trans={row['J_trans']:.6g}, "
             f"J_op/H2={row['J_op_average']:.6g}"
         )
-    print("best H2:", report["best_H2"])
+    print("best proven H2   :", report["best_proven_H2"])
+    print("best incumbent H2:", report["best_incumbent_H2"])
 
 
 if __name__ == "__main__":

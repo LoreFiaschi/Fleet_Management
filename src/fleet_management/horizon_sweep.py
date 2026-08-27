@@ -94,6 +94,34 @@ def _formulation_growth(rows: list[dict]) -> dict | None:
     return growth
 
 
+def _select_horizon_cases(
+    rows: list[dict], budget: float
+) -> tuple[dict | None, dict | None]:
+    """Return the best proven case and the best feasible incumbent."""
+    feasible = [
+        row
+        for row in rows
+        if row["J_op_average"] is not None
+        and row["status"]
+        not in {"infeasible", "inf_or_unbounded", "unbounded"}
+        and row["J_trans"] is not None
+        and row["J_trans"] <= budget + 1e-8
+    ]
+    proven = [row for row in feasible if row["status"] == "optimal"]
+
+    best_incumbent = (
+        min(feasible, key=lambda row: row["J_op_average"])
+        if feasible
+        else None
+    )
+    best_proven = (
+        min(proven, key=lambda row: row["J_op_average"])
+        if proven
+        else None
+    )
+    return best_proven, best_incumbent
+
+
 def sweep_operating_horizons(
     input_path: str | Path,
     operating_horizons: Iterable[int],
@@ -211,13 +239,8 @@ def sweep_operating_horizons(
                 },
             })
 
-    eligible = [
-        row for row in rows
-        if row["J_op_average"] is not None
-        and row["status"] not in {"infeasible", "inf_or_unbounded", "unbounded"}
-        and row["J_trans"] <= budget + 1e-8
-    ]
-    best = min(eligible, key=lambda row: row["J_op_average"]) if eligible else None
+        best_proven, best_incumbent = _select_horizon_cases(rows, budget)
+
     report = {
         "input": str(source),
         "objective": "minimize J_op / H2 subject to J_trans <= B_trans",
@@ -232,8 +255,45 @@ def sweep_operating_horizons(
         "transitory_budget": budget,
         "cases": rows,
         "formulation_growth": _formulation_growth(rows),
-        "best_H2": None if best is None else best["H2"],
-        "best_J_op_average": None if best is None else best["J_op_average"],
+        "selection_interpretation": {
+            "best_proven": (
+                "Minimum J_op/H2 among cases with status='optimal'."
+            ),
+            "best_incumbent": (
+                "Minimum feasible J_op/H2 found, including cases stopped "
+                "by a time or solution limit; it is not necessarily optimal."
+            ),
+            "legacy_fields": (
+                "best_H2 and best_J_op_average are aliases for the proven "
+                "selection, retained for compatibility."
+            ),
+        },
+        "best_proven_H2": (
+            None if best_proven is None else best_proven["H2"]
+        ),
+        "best_proven_J_op_average": (
+            None if best_proven is None
+            else best_proven["J_op_average"]
+        ),
+        "best_incumbent_H2": (
+            None if best_incumbent is None else best_incumbent["H2"]
+        ),
+        "best_incumbent_J_op_average": (
+            None if best_incumbent is None
+            else best_incumbent["J_op_average"]
+        ),
+        "best_incumbent_status": (
+            None if best_incumbent is None else best_incumbent["status"]
+        ),
+
+        # Backward-compatible aliases now refer only to a proven optimum.
+        "best_H2": (
+            None if best_proven is None else best_proven["H2"]
+        ),
+        "best_J_op_average": (
+            None if best_proven is None
+            else best_proven["J_op_average"]
+        ),
     }
 
     if output_path is not None:
