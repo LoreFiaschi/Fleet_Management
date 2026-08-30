@@ -27,6 +27,9 @@ OUT=${OUT:-$PROJECT/results}
 WALL=${WALL:-00:30:00}
 CPUS=${CPUS:-1}
 MEM=${MEM:-4g}
+# Seconds per SOLVE, distinct from WALL which bounds the whole job. Only the
+# solve tests use it; (S2) never solves.
+SOLVE_TL=${SOLVE_TL:-120}
 # A build benchmark on a shared node measures the neighbours as much as the code.
 # Set EXCLUSIVE=1 for any number you intend to put in a report.
 EXCLUSIVE=${EXCLUSIVE:-0}
@@ -79,9 +82,71 @@ fi
 # src/fleet_management/ or in fleet_management/, and once `pip install -e` has
 # run it can be resolved from somewhere else entirely -- so guessing a directory
 # is both fragile and beside the point. What has to be true is that the
-# interpreter the job will use can import it, which is what this asks.
+# interpreter the job will use can import it.
+#
+# But a LOGIN shell usually has no modules loaded: `bash euler/setup_euler.sh`
+# does its `module load` in a subshell, so nothing persists to the shell you
+# submit from. The venv's python then resolves to a module path whose runtime
+# libraries are not set up, and NumPy fails to load its C extension -- which it
+# reports as the famously misleading "you should not try to import numpy from
+# its source directory". So load the modules here first, exactly as the job
+# does, and diagnose the interpreter before blaming the package.
+if ! command -v module >/dev/null 2>&1; then
+    for init in /etc/profile.d/modules.sh \
+                /cluster/apps/modules/init/bash \
+                /usr/share/lmod/lmod/init/bash; do
+        [ -f "$init" ] && . "$init" && break
+    done
+fi
+if command -v module >/dev/null 2>&1; then
+    # No `module purge`: this is the user's interactive shell, not a job.
+    module load stack/2024-06 python/3.12.8 gurobi/12.0.1 >/dev/null 2>&1 || true
+fi
 source "$PROJECT/.venv-euler/bin/activate" 2>/dev/null || true
-PKG_CHECK=$(python - <<'PKGPY' 2>&1
+
+# Stage A: is the interpreter itself usable? A failure here says nothing about
+# rainflow_sparse, and must not be reported as though it did.
+ENV_CHECK=$(python - <<'ENVPY' 2>&1
+try:
+    import numpy, scipy, gurobipy
+    print(f"OK numpy {numpy.__version__}, scipy {scipy.__version__}, "
+          f"gurobipy {gurobipy.gurobi.version()}")
+except Exception as exc:
+    print(f"FAIL {type(exc).__name__}: {exc}")
+ENVPY
+) || true
+# `|| true` is load-bearing under `set -e`: the probe catches its own
+# exceptions and exits 0, but a BROKEN interpreter -- the case this probe
+# exists to detect -- exits 1, and the shell would die on the assignment
+# itself, silently, before printing a word of the diagnosis.
+if [ "${ENV_CHECK#OK }" = "$ENV_CHECK" ]; then
+    echo "WARNING cannot use the venv interpreter from this shell, so the" >&2
+    echo "        package check below is a filename check rather than a real" >&2
+    echo "        import. The reason was:" >&2
+    echo "          ${ENV_CHECK#FAIL }" >&2
+    echo "        A login shell has no modules loaded and setup_euler.sh loads" >&2
+    echo "        them in a subshell, so they do not persist. Fix with:" >&2
+    echo "          module load stack/2024-06 python/3.12.8 gurobi/12.0.1" >&2
+    echo "        (NumPy reports a broken C extension as 'you should not try to" >&2
+    echo "        import numpy from its source directory', which is a red" >&2
+    echo "        herring -- it is the module environment, not your files.)" >&2
+    echo "        Submitting anyway: the JOB loads its own modules and runs the" >&2
+    echo "        authoritative check in euler/run_sparse.sbatch." >&2
+    FOUND=""
+    for cand in "$PROJECT/src/fleet_management/degradation_model" \
+                "$PROJECT/fleet_management/degradation_model"; do
+        [ -f "$cand/rainflow_sparse.py" ] && FOUND="$cand/rainflow_sparse.py" && break
+    done
+    if [ -z "$FOUND" ]; then
+        echo "ERROR: and rainflow_sparse.py is not in either standard location:" >&2
+        echo "         $PROJECT/src/fleet_management/degradation_model/" >&2
+        echo "         $PROJECT/fleet_management/degradation_model/" >&2
+        echo "       Put it next to base.py and rainflow_v2.py." >&2
+        exit 1
+    fi
+    echo "package   : $FOUND  (found on disk; not import-verified)"
+else
+    PKG_CHECK=$(python - <<'PKGPY' 2>&1
 import sys
 try:
     from fleet_management.degradation_model import rainflow_sparse
@@ -97,22 +162,26 @@ if missing:
 else:
     print(f"OK {rainflow_sparse.__file__}")
 PKGPY
-)
-case "$PKG_CHECK" in
-    OK\ *)
-        echo "package   : ${PKG_CHECK#OK }" ;;
-    *)
-        echo "ERROR: cannot import fleet_management.degradation_model.rainflow_sparse" >&2
-        echo "       ${PKG_CHECK#FAIL }" >&2
-        echo "       It goes in the package next to base.py and rainflow_v2.py --" >&2
-        echo "       src/fleet_management/degradation_model/ in a src layout," >&2
-        echo "       fleet_management/degradation_model/ otherwise. Locate the" >&2
-        echo "       package with:" >&2
-        echo "         python -c 'import fleet_management.degradation_model as m; print(m.__path__)'" >&2
-        echo "       A stale build/ directory or a second copy on sys.path can" >&2
-        echo "       also shadow the one you just edited." >&2
-        exit 1 ;;
-esac
+) || true
+    case "$PKG_CHECK" in
+        OK\ *)
+            echo "python    : $(which python)  (${ENV_CHECK#OK })"
+            echo "package   : ${PKG_CHECK#OK }" ;;
+        *)
+            echo "ERROR: cannot import fleet_management.degradation_model.rainflow_sparse" >&2
+            echo "       ${PKG_CHECK#FAIL }" >&2
+            echo "       The interpreter is fine (${ENV_CHECK#OK }), so this is" >&2
+            echo "       about the package. rainflow_sparse.py goes next to" >&2
+            echo "       base.py and rainflow_v2.py -- that is" >&2
+            echo "       src/fleet_management/degradation_model/ in a src" >&2
+            echo "       layout, fleet_management/degradation_model/ otherwise." >&2
+            echo "       Locate the package with:" >&2
+            echo "         python -c 'import fleet_management.degradation_model as m; print(m.__path__)'" >&2
+            echo "       A stale build/ directory or a second copy on sys.path" >&2
+            echo "       can also shadow the one you just edited." >&2
+            exit 1 ;;
+    esac
+fi
 # A stale harness is the cheapest failure to catch and the most annoying to
 # diagnose from a log: argparse exits 2 with a usage dump.
 for flag in --tests --encodings --factors --repeats --run-stamp --solve; do
@@ -138,6 +207,7 @@ echo "project   : $PROJECT"
 echo "tests     : $TESTS"
 echo "encodings : $ENCODINGS  (each compared loop vs sparse assembly)"
 echo "base case : F=${F:-8} M=${M:-2} L=${L:-2} H=${H:-6}  ladder x${FACTORS:-1,2,4,8}"
+echo "limits    : per-solve ${SOLVE_TL}s, Slurm wall $WALL"
 echo "run folder: $OUT/${RUN_STAMP}_${NAME}"
 if [ "$EXCLUSIVE" = "1" ]; then
     echo "node      : EXCLUSIVE (timings are quotable)"
@@ -160,13 +230,54 @@ echo "note      : do not edit the code until the job has finished"
 EXTRA_SBATCH=()
 [ "$EXCLUSIVE" = "1" ] && EXTRA_SBATCH+=(--exclusive)
 
+# Print the resource request before making it. "Requested node configuration is
+# not available" is Slurm saying no node in any partition you can reach matches
+# this combination, and it names none of the numbers -- so they have to be here.
+SBATCH_ARGS=(--parsable --time="$WALL" --cpus-per-task="$CPUS"
+             --mem-per-cpu="$MEM" "${EXTRA_SBATCH[@]}")
+echo "request   : sbatch ${SBATCH_ARGS[*]} euler/run_sparse.sbatch"
+
+set +e
 JOB_ID=$(PROJECT=$PROJECT TESTS=$TESTS ENCODINGS=$ENCODINGS NAME=$NAME OUT=$OUT \
     RUN_STAMP=$RUN_STAMP \
     F="${F:-8}" M="${M:-2}" L="${L:-2}" H="${H:-6}" \
     FACTORS="${FACTORS:-1,2,4,8}" REPEATS="${REPEATS:-3}" \
-    SOLVE="${SOLVE:-0}" EXTRA="${EXTRA:-}" \
-    sbatch --parsable --time="$WALL" --cpus-per-task="$CPUS" \
-           --mem-per-cpu="$MEM" "${EXTRA_SBATCH[@]}" euler/run_sparse.sbatch)
+    SOLVE="${SOLVE:-0}" SOLVE_TL="$SOLVE_TL" EXTRA="${EXTRA:-}" \
+    sbatch "${SBATCH_ARGS[@]}" euler/run_sparse.sbatch 2>&1)
+SB_RC=$?
+set -e
+if [ $SB_RC -ne 0 ]; then
+    echo "ERROR: sbatch refused the job:" >&2
+    echo "       $JOB_ID" >&2
+    echo >&2
+    case "$JOB_ID" in
+      *"node configuration is not available"*)
+        echo "       That means no node in a partition you can reach satisfies" >&2
+        echo "       this combination. In order of likelihood:" >&2
+        if [ "$EXCLUSIVE" = "1" ]; then
+            echo "         1. --exclusive. Whole-node reservations are often" >&2
+            echo "            restricted, and asking for one core exclusively is" >&2
+            echo "            an odd shape for Slurm to match. Try without it:" >&2
+            echo "              EXCLUSIVE=0 bash euler/submit_sparse.sh" >&2
+            echo "            For quiet timings, ask for a full node's worth of" >&2
+            echo "            cores instead of --exclusive, e.g. CPUS=8." >&2
+        fi
+        echo "         2. --mem-per-cpu=$MEM may exceed the partition's" >&2
+        echo "            MaxMemPerCPU. This job peaks under 0.2 GB at the" >&2
+        echo "            default ladder, so MEM=2g is plenty." >&2
+        echo "         3. --time=$WALL may exceed the partition's MaxTime." >&2
+        echo >&2
+        echo "       Check what is actually offered:" >&2
+        echo "         sinfo -o '%P %l %c %m %a'          # partitions: time, cpus, mem" >&2
+        echo "         scontrol show partition | grep -E 'PartitionName|MaxTime|MaxMemPerCPU'" >&2
+        ;;
+      *)
+        echo "       Check the request printed above against:" >&2
+        echo "         sinfo -o '%P %l %c %m %a'" >&2
+        ;;
+    esac
+    exit 1
+fi
 echo "job       : $JOB_ID  ($CPUS cpus, $MEM/cpu, $WALL)"
 echo "            (the build is serial Python; CPUS only affects Gurobi in the"
 echo "             solve test and under SOLVE=1)"

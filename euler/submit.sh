@@ -41,6 +41,24 @@ else
     OUT=${OUT:-$PROJECT/results}
 fi
 MAXPAR=${MAXPAR:-10}                  # concurrent array tasks
+
+# TWO different time limits, and confusing them is the usual way to lose a run:
+#   SOLVE_TL  seconds Gurobi may spend on ONE solve (test.py --time-limit).
+#             Without it a single intractable MIQCP eats the whole task and
+#             takes every later solve in that shard with it. SOLVE_TL=0 means
+#             no per-solve limit -- only sensible for the failure test, where
+#             feasibility rather than cost is the measurement.
+#   WALL      Slurm's limit on the whole ARRAY TASK, i.e. on all the solves that
+#             shard has to get through. Must comfortably exceed
+#             SOLVE_TL x (runs per shard), or the task is killed mid-CSV.
+# These are exported EXPLICITLY below rather than left to sbatch's default
+# --export=ALL: a site that sets --export=NONE would otherwise silently fall
+# back to run_array.sbatch's built-in defaults and you would never be told.
+SOLVE_TL=${SOLVE_TL:-900}
+MIP_GAP=${MIP_GAP:-1e-4}
+WALL=${WALL:-24:00:00}                # per array TASK, not for the whole array
+CPUS=${CPUS:-4}                       # MUST be constant across runs you compare
+MEM=${MEM:-4g}                        # per cpu
 # One timestamp for the WHOLE run. Every array task starts at a different minute,
 # so if each computed its own the shards would land in different folders and could
 # never be merged. Format YYYYMMDDHHMM -> results/<stamp>_<test>/
@@ -92,6 +110,8 @@ done
 
 echo "project   : $PROJECT"
 echo "run folder: $OUT/${RUN_STAMP}_${TEST}"
+echo "limits    : per-solve ${SOLVE_TL}s (0 = none), mip gap $MIP_GAP,"
+echo "            Slurm wall $WALL per task, $CPUS cpus, $MEM/cpu"
 if [ "$TEST" = "formulation" ]; then
     echo "encoding  : $FORMS  (solved BOTH and compared -- (H4))"
     case "$FORMS" in
@@ -133,8 +153,12 @@ fi
 ARRAY_ID=$(PROJECT=$PROJECT TEST=$TEST NAME=$NAME OUT=$OUT NSHARDS=$NSHARDS \
     RUN_STAMP=$RUN_STAMP CASES="${CASES:-}" INPUT_DIR="${INPUT_DIR:-input}" \
     FORM="$FORM" FORMS="$FORMS" BIGM="$BIGM" \
-    sbatch --parsable --array=0-$((NSHARDS - 1))%"$MAXPAR" euler/run_array.sbatch)
-echo "array job : $ARRAY_ID  ($NSHARDS shards, max $MAXPAR running at once)"
+    SOLVE_TL="$SOLVE_TL" MIP_GAP="$MIP_GAP" \
+    GUROBI_PARAMS="${GUROBI_PARAMS:-}" EXTRA="${EXTRA:-}" \
+    sbatch --parsable --array=0-$((NSHARDS - 1))%"$MAXPAR" \
+           --time="$WALL" --cpus-per-task="$CPUS" --mem-per-cpu="$MEM" \
+           euler/run_array.sbatch)
+echo "array job : $ARRAY_ID  ($NSHARDS shards, max $MAXPAR at once, $CPUS cpus, $WALL)"
 
 MERGE_ID=$(PROJECT=$PROJECT TEST=$TEST NAME=$NAME OUT=$OUT RUN_STAMP=$RUN_STAMP \
     CASES="${CASES:-}" INPUT_DIR="${INPUT_DIR:-input}" \

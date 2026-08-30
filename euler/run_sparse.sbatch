@@ -2,8 +2,14 @@
 #SBATCH --job-name=fleet_sparse
 #SBATCH --ntasks=1                    # always 1 on Euler
 #SBATCH --cpus-per-task=1             # nothing here is parallel; see the note below
-#SBATCH --mem-per-cpu=8g              # the big end of the ladder holds ~4M nonzeros
-#SBATCH --time=04:00:00
+#SBATCH --mem-per-cpu=4g              # measured peak is <0.2 GB at the default ladder
+#SBATCH --time=00:30:00               # measured payload is ~1 min; short jobs backfill
+#
+# These three are deliberately modest. submit_sparse.sh overrides them from
+# WALL / CPUS / MEM, and an over-large request is not free: "Requested node
+# configuration is not available" is Slurm refusing a combination that no node
+# it can offer you matches, and a 4 h / 8 GB-per-core ask is a good way to
+# provoke it for a job that needs one minute and 200 MB.
 #SBATCH --output=logs/%x_%j.out
 #SBATCH --error=logs/%x_%j.err
 #
@@ -48,6 +54,10 @@ REPEATS=${REPEATS:-3}
 # MIPs plus two LPs per case, and the structural comparison is the check with
 # teeth anyway.
 SOLVE=${SOLVE:-0}
+# Seconds Gurobi may spend on ONE solve, in (S3) and under SOLVE=1. Distinct
+# from the Slurm --time, which bounds the whole task. Only the solve tests use
+# it: (S2) never solves, so it cannot be affected.
+SOLVE_TL=${SOLVE_TL:-120}
 
 # `module` is a shell function set up by the login profile. A batch script runs a
 # NON-login shell, so on some setups it is undefined here and the task dies
@@ -160,7 +170,7 @@ echo "python=$(which python)  gurobi=$(python -c 'import gurobipy;print(gurobipy
 echo "host=$(hostname)  cpus=${SLURM_CPUS_PER_TASK:-1}"
 echo "tests=$TESTS  encodings=$ENCODINGS  stamp=$RUN_STAMP"
 echo "base case: F=$F M=$M L=$L H=$H   ladder x$FACTORS   repeats=$REPEATS"
-echo "solve=$SOLVE"
+echo "solve=$SOLVE  per-solve time limit=${SOLVE_TL}s"
 echo "started $(date)"
 
 # NumPy/SciPy do not parallelise anything on this path (no BLAS calls -- it is
@@ -192,7 +202,8 @@ ARGS=(--tests "$TESTS"
       --F "$F" --M "$M" --L "$L" --H "$H"
       --factors "$FACTORS"
       --repeats "$REPEATS"
-      --threads "${SLURM_CPUS_PER_TASK:-1}")
+      --threads "${SLURM_CPUS_PER_TASK:-1}"
+      --time-limit "$SOLVE_TL")
 [ "$SOLVE" = "1" ] && ARGS+=(--solve)
 
 python test_sparse_version.py "${ARGS[@]}" $EXTRA
