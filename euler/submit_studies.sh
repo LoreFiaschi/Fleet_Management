@@ -14,14 +14,23 @@ PROJECT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 STUDIES=${1:-scaling}
 NSHARDS=${2:-12}
 NAME=${NAME:-studies}
-# MILP encoding (rainflow_v2): indicator | bigm. This is the knob the lp_gap
-# column measures -- the indicator encoding contributes nothing to the LP
-# relaxation, so its root bound is 0 and lp_gap is 1.0 by construction.
+# MILP encoding x assembly (rainflow_v2 / rainflow_sparse).
+#   indicator | bigm        the two ENCODINGS. This is the knob the lp_gap
+#                           column measures -- the indicator encoding
+#                           contributes nothing to the LP relaxation, so its
+#                           root bound is 0 and lp_gap is 1.0 by construction.
+#   sparse | bigm_sparse    the same two programs, assembled through the matrix
+#                           API. Identical rows and identical lp_gap; what
+#                           changes is only how long the BUILD takes (~2x for
+#                           indicator, ~5-7x for bigm). Worth using on the large
+#                           end of a scaling ladder, where the per-cell
+#                           addConstr loop starts to show up next to the solve.
 FORM=${FORM:-}
 BIGM=${BIGM:-}
 case "${FORM:-indicator}" in
-    indicator|bigm) ;;
-    *) echo "ERROR: unknown FORM '$FORM'; pick from indicator,bigm" >&2; exit 1 ;;
+    indicator|bigm|sparse|bigm_sparse) ;;
+    *) echo "ERROR: unknown FORM '$FORM'; pick from" >&2
+       echo "       indicator,bigm,sparse,bigm_sparse" >&2; exit 1 ;;
 esac
 # A run folder is results/<stamp>_<study>/ and a shard writes results_shard<k>.csv
 # into it, so two submissions differing only in the encoding would overwrite each

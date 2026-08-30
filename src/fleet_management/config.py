@@ -274,11 +274,16 @@ def load_config(data: dict) -> FleetConfig:
         support_trans=_flmh_prof(data.get("support_trans"), F, L, M, H1, "support_trans"),
         cgf_trans=_flmh_prof(data.get("cgf_trans"), F, L, M, H1, "cgf_trans"),
         costs={k: float(data[k]) for k in ("C_M", "C_R", "C_D", "C_S", "C_P", "C_rep") if k in data},
+        # NOTE: "formulation" / "bigM" / "z_exact" select the MILP *encoding*
+        # (base.FORMULATIONS: indicator | bigm | sparse).  They belong here
+        # rather than only as solve() kwargs, so that an input file can pin an
+        # encoding and `solver.solve(path)` reproduces it.
         options={k: data[k] for k in ("verbose", "mip_gap", "time_limit", "fast",
                                       "allow_replacement", "depot_capacity",
                                       "gurobi_params",
                                       "reliability_impl", "pwl_points", "tangent_ref",
-                                      "formulation", "bigM", "z_exact")
+                                      "formulation", "bigM", "z_exact",
+                                      "repeatability")
                  if k in data},
         raw=data,
     )

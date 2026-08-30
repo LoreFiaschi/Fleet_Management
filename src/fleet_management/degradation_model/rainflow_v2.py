@@ -91,6 +91,8 @@ from gurobipy import GRB
 from fleet_management.degradation_model.base import (
     FleetModel as _RFModel,          # shared context (alias keeps the local name)
     add_base_constraints,
+    assembly_of,
+    encoding_of,
     add_maintenance_gating,
     build_fleet,
     build_objective,
@@ -114,7 +116,11 @@ _REPAIR_MODELS = ("ard1", "ardinf")
 
 _ARD1_UNSUPPORTED = ("chernoff",)
 
-FORMULATIONS = ("indicator", "bigm")
+# A 2x2 grid of (encoding, assembly) flattened into one string; see
+# base.FORMULATIONS / encoding_of / assembly_of.  'sparse' is the 'indicator'
+# program and 'bigm_sparse' the 'bigm' program, both assembled through the
+# matrix API (rainflow_sparse).  prepare() is shared by all four.
+FORMULATIONS = ("indicator", "bigm", "sparse", "bigm_sparse")
 
 
 # ===========================================================================
@@ -185,10 +191,11 @@ def prepare(ctx: _RFModel, cfg, cells, opts: dict) -> None:
     ctx.bigM = float(opts.get("bigM", ctx.bigM))
     if not (ctx.bigM > 0.0):
         raise ValueError(f"bigM must be positive (got {ctx.bigM}).")
-    if ctx.formulation == "bigm" and ctx.nb is not None:
+    if encoding_of(ctx.formulation) == "bigm" and ctx.nb is not None:
         # base only drops nb when it was told the formulation up front
-        raise ValueError("formulation='bigm' needs the context built with the "
-                         "same option; pass it through resolve_run_options.")
+        raise ValueError(f"formulation={ctx.formulation!r} needs the context "
+                         f"built with the same option; pass it through "
+                         f"resolve_run_options.")
 
     # z is pinned by minimisation whenever repairing costs something
     costs = _resolve_costs(cfg, cfg.tau)
@@ -271,7 +278,10 @@ def prepare(ctx: _RFModel, cfg, cells, opts: dict) -> None:
         ctx.K_var = md.addVars(F, L, T, lb=0.0, name="K")
 
     # big-M values are read off these bounds, so they must be set first
-    _tighten_bounds(ctx, cfg, cells)
+    if assembly_of(ctx.formulation) == "sparse":
+        _tighten_bounds_vec(ctx, cfg, cells)
+    else:
+        _tighten_bounds(ctx, cfg, cells)
     md.update()                       # make the fresh UBs readable
 
 
@@ -285,8 +295,14 @@ def extract(ctx: _RFModel, cfg, out: dict) -> None:
 # Rainflow cell = gating + state recursion + reliability
 # ===========================================================================
 def _add_rainflow_cell(ctx: _RFModel, i: int, l: int) -> None:
+    if assembly_of(ctx.formulation) == "sparse":
+        raise RuntimeError(
+            f"formulation={ctx.formulation!r} assembles the whole fleet at "
+            f"once; the per-cell dispatch loop must not be reached. "
+            f"base.build_fleet should have routed to "
+            f"rainflow_sparse.build_fleet_sparse.")
     add_maintenance_gating(ctx, i, l)        # shared (base); nb-aware
-    if str(ctx.formulation) == "bigm":
+    if encoding_of(ctx.formulation) == "bigm":
         _add_rainflow_state_bigm(ctx, i, l)
     else:
         _add_rainflow_state_ind(ctx, i, l)
@@ -643,6 +659,51 @@ def _add_rainflow_state_ind(ctx: _RFModel, i: int, l: int) -> None:
                                          name=f"K_repl_{i}_{l}_{k}")
 
 
+def _repeatability(ctx: _RFModel, i: int, l: int, k_ref: int, k_end: int) -> None:
+    """Rainflow's share of eq. (loop_impl) for one cell.
+
+    ``base.add_repeatability_constraints`` has already imposed the mean row
+    ``mu[k_end] <= mu[k_ref]`` (the "all bounds" line).  What is left is one row
+    per EXTRA descriptor this cell's bound carries, because a loop is only
+    closed when every state the reliability constraint reads is no worse at the
+    end of the horizon than at the end of the transitory phase:
+
+        v[k_end] <= v[k_ref]    Cantelli, Bernstein   (``_TRACK_V``)
+        R[k_end] <= R[k_ref]    Hoeffding
+        K[k_end] <= K[k_ref]    Chernoff
+
+    Markov reads only the mean, so it contributes nothing here and is fully
+    covered by the shared row.
+
+    The K row extends the three lines of the reference: Chernoff's cumulant
+    accumulator is the whole state of such a cell, so leaving it out would close
+    the loop on a quantity (mu) that the Chernoff reliability row never reads,
+    and the cycle would not in fact be repeatable.  It is imposed for the same
+    reason as R, and drops out for every other bound.
+
+    The ARD1 latch registers (gmu / gv / gR) are deliberately NOT constrained.
+    They are memory of the last intervention rather than degradation state: they
+    only ever enter as the floor a further repair cannot go below, so a row on
+    them would restrict the schedule without being required by the loop.
+
+    These rows are purely linear and read only the state variables, so they are
+    identical under all four formulations; ``rainflow_sparse._repeatability_rows``
+    emits the same set through the matrix API.  If you add a descriptor here,
+    add it there too -- ``test_sparse_version.py`` will fail loudly if you don't.
+    """
+    md = ctx.model
+    bound = str(ctx.bound_of[i, l])
+    if bool(ctx.track_v_of[i, l]) and ctx.v_var is not None:
+        md.addConstr(ctx.v_var[i, l, k_end] <= ctx.v_var[i, l, k_ref],
+                     name=f"rep_v_{i}_{l}")
+    if bound == "hoeffding" and ctx.R_var is not None:
+        md.addConstr(ctx.R_var[i, l, k_end] <= ctx.R_var[i, l, k_ref],
+                     name=f"rep_R_{i}_{l}")
+    if bound == "chernoff" and ctx.K_var is not None:
+        md.addConstr(ctx.K_var[i, l, k_end] <= ctx.K_var[i, l, k_ref],
+                     name=f"rep_K_{i}_{l}")
+
+
 # ===========================================================================
 # ############  RELIABILITY CONSTRAINTS  -- bounds x implementations  ########
 # ===========================================================================
@@ -806,7 +867,7 @@ def _rel_quadratic_pwl(ctx: _RFModel, i: int, l: int) -> None:
     c2, c1, Qvar = _cap_coeffs(ctx, i, l, bound)
     K = max(1, int(ctx.pwl_points))
     edges = np.linspace(0.0, tau, K + 1)          # breakpoints in mu
-    bigm = str(ctx.formulation) == "bigm"
+    bigm = encoding_of(ctx.formulation) == "bigm"
 
     for k in range(T):
         md.addConstr(ctx.mu_var[i, l, k] <= tau, name=f"rel_{i}_{l}_{k}_gap")
@@ -922,6 +983,75 @@ def _add_reliability(ctx: _RFModel, i: int, l: int) -> None:
 # ===========================================================================
 # Bound tightening
 # ===========================================================================
+def _tighten_bounds_vec(ctx: _RFModel, cfg, cells) -> None:
+    """Vectorised twin of ``_tighten_bounds``: identical numbers, one setAttr
+    per variable block instead of one assignment per variable.
+
+    Used only by ``formulation='sparse'``.  The scalar version below is the
+    reference and is left untouched; ``test_sparse_version.py`` compares the
+    two models variable by variable, which is what makes replacing a
+    ``Theta(F*L*T)`` loop safe to do.
+    """
+    md, F, L, T = ctx.model, ctx.F, ctx.L, ctx.T
+    inf = float(GRB.INFINITY)
+    cell_mask = np.zeros((F, L), dtype=bool)
+    for i, l in cells:
+        cell_mask[i, l] = True
+
+    tau = np.asarray(ctx.tau, dtype=float)
+    eps = np.asarray(ctx.eps, dtype=float)
+    is_markov = np.asarray([[str(ctx.bound_of[i, l]) == "markov"
+                             for l in range(L)] for i in range(F)])
+    latch = np.asarray(ctx.latch_of, dtype=bool)
+    track_v = np.asarray(ctx.track_v_of, dtype=bool)
+
+    def _apply(block, ub_fl):
+        """Broadcast an (F, L) bound over the horizon and set it in one call."""
+        if block is None:
+            return
+        md.setAttr(GRB.Attr.UB, list(block.values()),
+                   np.repeat(ub_fl.ravel(), T).tolist())
+
+    # mu / z: build_context already set tau everywhere; only rainflow cells move
+    mu_ub = np.where(cell_mask, np.where(is_markov, eps * tau, tau), tau)
+    _apply(ctx.mu_var, mu_ub)
+    _apply(ctx.z_var, np.where(cell_mask, tau, tau))
+
+    if ctx.gmu is not None:
+        _apply(ctx.gmu, np.where(cell_mask & latch, mu_ub, inf))
+
+    if ctx.v_var is not None:
+        v_ub = np.full((F, L), inf)
+        for i, l in cells:
+            if not track_v[i, l]:
+                continue
+            vmax = _cell_max(cfg.v, cfg.v_trans, i, l)
+            v_reach = float(ctx.v_0[i, l]) + T * vmax
+            v_ub[i, l] = (min(v_reach, eps[i, l] / (1.0 - eps[i, l])
+                              * tau[i, l] * tau[i, l])
+                          if str(ctx.bound_of[i, l]) == "cantelli" else v_reach)
+        _apply(ctx.v_var, v_ub)
+        if ctx.gv is not None:
+            _apply(ctx.gv, np.where(cell_mask & latch & track_v, v_ub, inf))
+
+    if ctx.R_var is not None:
+        R_ub = np.full((F, L), inf)
+        for i, l in cells:
+            if str(ctx.bound_of[i, l]) == "hoeffding":
+                R_ub[i, l] = float(T * (_cell_max(cfg.support, cfg.support_trans,
+                                                  i, l) ** 2))
+        _apply(ctx.R_var, R_ub)
+        if ctx.gR is not None:
+            _apply(ctx.gR, np.where(np.isfinite(R_ub) & latch, R_ub, inf))
+
+    if ctx.K_var is not None:
+        K_ub = np.full((F, L), inf)
+        for i, l in cells:
+            if str(ctx.bound_of[i, l]) == "chernoff":
+                K_ub[i, l] = float(T * _cell_max(cfg.cgf, cfg.cgf_trans, i, l))
+        _apply(ctx.K_var, K_ub)
+
+
 def _tighten_bounds(ctx: _RFModel, cfg, cells) -> None:
     """Set valid, tight upper bounds per rainflow cell (strengthens the
     relaxation without changing the optimum). Unused-cell entries of a shared
@@ -973,6 +1103,12 @@ class RainflowCellBuilder:
     prepare = staticmethod(prepare)
     add_cell = staticmethod(_add_rainflow_cell)
     extract = staticmethod(extract)
+    # Without this hook base.add_repeatability_constraints closes the loop on the
+    # MEAN ONLY, so a cantelli / hoeffding / bernstein / chernoff cell could end
+    # the horizon with a larger variance / range / cumulant budget than it
+    # started the operating phase with -- i.e. a "repeatable" cycle that is not
+    # repeatable in the quantity its reliability row actually reads.
+    repeatability = staticmethod(_repeatability)
 
 
 register_cell_builder("rainflow", RainflowCellBuilder())

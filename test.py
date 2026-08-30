@@ -72,8 +72,14 @@ Design notes -- READ BEFORE TRUSTING A RESULT
        optimizer already has an incentive to suppress damage on its own.  If it
        suppresses enough, the reliability constraint never binds at the optimum
        and every bound returns the same schedule -- a pass that proves nothing.
-       Every row records n_repairs / n_depot / mu_max, and the summary flags the
-       run as uninformative when those are identical across bounds.  If that
+       Every row records n_repairs / n_depot / n_idle / mu_max, and the summary
+       flags the run as uninformative when those are identical across bounds.
+       Note that n_depot counts PAID maintenance slots (x[i,0,k]) only: the
+       assignment constraint is `sum_j x <= 1`, so a vehicle may also be left
+       unassigned, which is free.  That case is n_idle, and `n_depot_noop`
+       counts depot steps where no repair or replacement fired -- expected to
+       be 0 at a closed optimum, since idling instead would be strictly
+       cheaper for an identical state trajectory.  If that
        happens, lower C_S (--C-S 0.05) rather than doubting the bounds.
      * The *ordering* in (H1) does not depend on the coefficients at all (nested
        feasible sets, identical objective).  Only the size of the separation
@@ -748,6 +754,40 @@ def feasible_hint(sc: Scenario, bound: str) -> bool:
     return capacity >= sc.T * sc.M
 
 
+def _assignment_counts(x, m, r) -> dict:
+    """Depot / idle / wasted-depot counts from the assignment variable.
+
+    ``n_depot``  paid maintenance slots, sum of x[i,0,k].
+    ``n_idle``   vehicle-steps with no assignment at all (the slack in
+                 ``sum_j x[i,j,k] <= 1``); free, and invisible unless counted
+                 here, since the schedule dump used to label them "depot".
+    ``n_depot_noop``  depot steps at which neither repair nor replacement
+                 fires.  Repair is gated on a same-step depot day with no lead
+                 time, so such a step buys nothing and costs C_M: idling
+                 instead is strictly cheaper and leaves the state identical.
+                 A nonzero count on a run reported "optimal" therefore means
+                 the gap is not closed (check mip_gap) -- it is a cheap
+                 canary for a schedule that looks busier than it needs to be.
+    """
+    if x is None:
+        return {"n_depot": math.nan, "n_idle": math.nan,
+                "n_depot_noop": math.nan}
+    F, Jp1, T = x.shape
+    depot = x[:, 0, :] > 0.5                                   # (F, T)
+    assigned = np.sum(x > 0.5, axis=1) > 0                     # (F, T)
+    out = {"n_depot": float(np.sum(x[:, 0, :])),
+           "n_idle": float(np.sum(~assigned))}
+    if m is None and r is None:
+        out["n_depot_noop"] = math.nan
+        return out
+    acted = np.zeros((F, T), dtype=bool)
+    for arr in (m, r):
+        if arr is not None:
+            acted |= np.any(np.asarray(arr) > 0.5, axis=1)     # any component
+    out["n_depot_noop"] = float(np.sum(depot & ~acted))
+    return out
+
+
 # ===========================================================================
 # One solve
 # ===========================================================================
@@ -830,7 +870,7 @@ def run_case(sc: Scenario, bound: str, opts, log_path=None) -> tuple[dict, dict]
                           ("v_max", res.get("v"), np.max)):
         rec[key] = float(red(arr)) if arr is not None else math.nan
     x = res.get("x")
-    rec["n_depot"] = float(np.sum(x[:, 0, :])) if x is not None else math.nan
+    rec.update(_assignment_counts(x, res.get("m"), res.get("r")))
 
     n_mc = int(getattr(opts, "verify_mc", 0) or 0)
     if n_mc > 0 and isinstance(rec.get("objective"), float) \
@@ -1029,7 +1069,8 @@ def classify(rec: dict) -> str:
 FIELDS = ["timestamp", "test", "parameter", "value", "bound", "status",
           "objective", "mip_gap", "obj_bound", "runtime_s", "wall_s",
           "verdict", "n_max_analytic", "load", "feasible_hint",
-          "n_repairs", "n_replacements", "n_depot", "mu_max", "v_max",
+          "n_repairs", "n_replacements", "n_depot", "n_idle",
+          "n_depot_noop", "mu_max", "v_max",
           "n_vars", "n_constrs", "n_qconstrs", "n_genconstrs", "n_sos",
           "n_nz", "n_qnz", "n_int", "n_bin", "nodes", "iterations",
           "bar_iterations", "sol_count", "work", "obj_val", "obj_bound_c",
@@ -1835,6 +1876,7 @@ def test_base(sc: Scenario, opts, run: TestRun, impls) -> tuple[list, dict]:
     vals, gaps, times, lines = {}, {}, {}, [f"base case: {sc.label()}", ""]
     header = (f"{'bound':<10s} {'impl':<9s} {'status':<12s} {'cost':>12s} "
               f"{'gap':>9s} {'time[s]':>9s} {'repairs':>8s} {'depot':>7s} "
+              f"{'idle':>6s} "
               f"{'mu_max':>9s} {'n_max':>8s} {'P(D>tau)':>10s}")
     lines += [header, "-" * len(header)]
     for bound, impl in combos:
@@ -1856,6 +1898,7 @@ def test_base(sc: Scenario, opts, run: TestRun, impls) -> tuple[list, dict]:
                      f"{_fmt(rec.get('runtime_s'), 2):>9s} "
                      f"{_fmt(rec.get('n_repairs'), 0):>8s} "
                      f"{_fmt(rec.get('n_depot'), 0):>7s} "
+                     f"{_fmt(rec.get('n_idle'), 0):>6s} "
                      f"{_fmt(rec.get('mu_max'), 4):>9s} "
                      f"{rec.get('n_max_analytic', float('nan')):8.2f} "
                      f"{_fmt(rec.get('mc_p_max'), 5):>10s}")
@@ -2579,7 +2622,7 @@ def test_case(sc: Scenario, opts, run: TestRun, cases: list, in_root: Path
                               ("v_max", res.get("v"), np.max)):
             rec[key] = float(red(arr)) if arr is not None else math.nan
         x = res.get("x")
-        rec["n_depot"] = float(np.sum(x[:, 0, :])) if x is not None else math.nan
+        rec.update(_assignment_counts(x, res.get("m"), res.get("r")))
 
         _dump_schedule(run, name, res)
         if md is not None:
@@ -2611,11 +2654,40 @@ def test_case(sc: Scenario, opts, run: TestRun, cases: list, in_root: Path
     return lines, {"cases": summary}
 
 
+def _activity_of(x, i: int, k: int, Jp1: int) -> tuple:
+    """Label vehicle i's assignment at step k as (activity, mission index).
+
+    The base assignment constraint is ``sum_j x[i,j,k] <= 1``, NOT ``== 1``, so
+    an unassigned vehicle is a legal and meaningful outcome: it rests without
+    accruing damage and without paying the C_M depot charge.  That is an *idle*
+    step and it is not the same thing as a *depot* step (``x[i,0,k] == 1``),
+    which costs C_M and is what `base.add_maintenance_gating` gates repair and
+    replacement on.  Collapsing the two -- i.e. reading "no mission" as "depot"
+    -- makes idling invisible in the dump and makes an optimal schedule look
+    like it is burning depot days for nothing.
+
+    A mission takes precedence if the solution somehow assigns more than one
+    activity (only reachable through integrality tolerances or a model bug), so
+    a corrupt solution still dumps rather than raising here.
+    """
+    j = next((q for q in range(1, Jp1) if x[i, q, k] > 0.5), None)
+    if j is not None:
+        return f"mission_{j}", j
+    if x[i, 0, k] > 0.5:
+        return "depot", 0
+    return "idle", 0
+
+
 def _dump_schedule(run: TestRun, name: str, res: dict) -> None:
     """Long-format schedule + state trajectory, one row per (vehicle, comp, step).
 
     This is the artefact a plot script wants: activity, repair/replace flags and
     the mean/variance trajectory, without having to reload the solver.
+
+    ``activity`` is one of ``mission_<j>``, ``depot`` (x[i,0,k] == 1, a paid
+    maintenance slot, the only step at which repair/replace may fire) or
+    ``idle`` (no assignment at all).  ``mission`` is 0 for both depot and idle,
+    so read ``activity`` -- not ``mission`` -- to tell them apart.
     """
     x, m, r = res.get("x"), res.get("m"), res.get("r")
     mu, v = res.get("mu"), res.get("v")
@@ -2630,8 +2702,7 @@ def _dump_schedule(run: TestRun, name: str, res: dict) -> None:
                     "repair", "replace", "mu", "v"])
         for i in range(F):
             for k in range(T):
-                j = next((q for q in range(1, Jp1) if x[i, q, k] > 0.5), 0)
-                act = "depot" if j == 0 else f"mission_{j}"
+                act, j = _activity_of(x, i, k, Jp1)
                 for l in range(L):
                     w.writerow([i, l, k, act, j,
                                 int(m[i, l, k] > 0.5) if m is not None else "",
@@ -2642,7 +2713,8 @@ def _dump_schedule(run: TestRun, name: str, res: dict) -> None:
 
 def _uninformative(rows: list[dict]) -> bool:
     """True when every bound gave the same intervention pattern."""
-    sigs = {(r.get("n_repairs"), r.get("n_depot"), r.get("n_replacements"))
+    sigs = {(r.get("n_repairs"), r.get("n_depot"), r.get("n_idle"),
+             r.get("n_replacements"))
             for r in rows if r.get("status") == "optimal"}
     return len(sigs) == 1 and len(rows) > 1
 
@@ -2664,7 +2736,8 @@ def _fmt(value, digits: int = 4) -> str:
 # ===========================================================================
 _NUM_FIELDS = ("objective", "mip_gap", "obj_bound", "runtime_s", "wall_s",
                "n_max_analytic", "load", "n_repairs", "n_replacements",
-               "n_depot", "mu_max", "v_max", "n_vars", "n_constrs", "n_bin",
+               "n_depot", "n_idle", "n_depot_noop",
+               "mu_max", "v_max", "n_vars", "n_constrs", "n_bin",
                "nodes", "tau", "epsilon", "rho", "p", "b_ref", "mu_ref",
                "s_chernoff", "tangent_ref", "bigM", "C_M", "C_R", "C_S", "C_P")
 _INT_FIELDS = ("F", "M", "L", "H", "T", "pwl_points")

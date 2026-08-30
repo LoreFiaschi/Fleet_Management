@@ -20,6 +20,8 @@ Where things live (the "clear locations")
         _add_maintenance_gating       eq. 3 gating (m, r, nb)
         _add_rainflow_state           mean / variance / ARD latch / z / R / K recursion
         _add_reliability              -> RELIABILITY_BOUNDS[bound][impl](ctx, i, l) <== bounds
+      _repeatability                per-cell loop closure on v / R / K; the mean
+                                    row is shared (base.add_repeatability_constraints)
       _add_gamma_cell               PLACEHOLDER (work in progress)
 
 Reliability bounds  ***edit / add formulations here***
@@ -39,8 +41,13 @@ Time axis has a transitory phase ``H1`` (steps 0..H1-1, run-up from ``mu_0``) an
 an operating phase ``H2`` (steps H1..H1+H2-1); ``T = H1 + H2``. A single-int
 ``H`` gives ``H1 = H2 = H`` and ``T = 2H``. Operating-phase profiles come from
 ``cfg`` as ``(F, L, M, H2)``; optional transitory profiles are ``(F, L, M, H1)``
-and reused from the operating profile when absent. (No periodicity/repeatability
-condition is imposed: the objective follows the slide's four cost terms.)
+and reused from the operating profile when absent.
+
+The operating phase is a *repeatable* cycle: the repeatability constraints
+require every descriptor of a cell to be no worse at step ``T-1`` than at step
+``H1-1`` (mean in ``base``, v / R / K here).  They are on by default; pass
+``repeatability=False`` for the open-horizon problem, whose end-of-horizon state
+is unconstrained and therefore drifts upward once maintenance stops paying off.
 
 Author: Johann Tschan  (revised; modular Step-2 rewrite)
 """
@@ -88,7 +95,8 @@ _ARD1_UNSUPPORTED = ("chernoff",)
 def solve(cfg, *, allow_replacement=None, depot_capacity=None,
           verbose=None, mip_gap=None, time_limit=None, fast=None,
           gurobi_params=None,
-          reliability_impl=None, pwl_points=None, tangent_ref=None) -> dict:
+          reliability_impl=None, pwl_points=None, tangent_ref=None,
+          repeatability=None) -> dict:
     """Solve a fleet from a normalized ``FleetConfig``.
 
     The shared skeleton (variables, general constraints, objective) comes from
@@ -103,6 +111,7 @@ def solve(cfg, *, allow_replacement=None, depot_capacity=None,
         verbose=verbose, mip_gap=mip_gap, time_limit=time_limit, fast=fast,
         gurobi_params=gurobi_params, reliability_impl=reliability_impl,
         pwl_points=pwl_points, tangent_ref=tangent_ref,
+        repeatability=repeatability,
     )
     # ``rainflow_v2`` owns the registered "rainflow" name (it carries both
     # encodings). Pin OUR builder for this solve only, so this legacy entry
@@ -372,6 +381,46 @@ def _add_rainflow_state(ctx: _RFModel, i: int, l: int) -> None:
             if allow_rep:
                 md.addGenConstrIndicator(r_rep[i, l, k], True, K_var[i, l, k] == 0.0,
                                          name=f"K_repl_{i}_{l}_{k}")
+
+
+def _repeatability(ctx: _RFModel, i: int, l: int, k_ref: int, k_end: int) -> None:
+    """Rainflow's share of eq. (loop_impl) for one cell.
+
+    ``base.add_repeatability_constraints`` has already imposed the mean row
+    ``mu[k_end] <= mu[k_ref]`` (the "all bounds" line).  What is left is one row
+    per EXTRA descriptor this cell's bound carries, because a loop is only
+    closed when every state the reliability constraint reads is no worse at the
+    end of the horizon than at the end of the transitory phase:
+
+        v[k_end] <= v[k_ref]    Cantelli, Bernstein   (``_TRACK_V``)
+        R[k_end] <= R[k_ref]    Hoeffding
+        K[k_end] <= K[k_ref]    Chernoff
+
+    Markov reads only the mean, so it contributes nothing here and is fully
+    covered by the shared row.
+
+    The K row extends the three lines of the reference: Chernoff's cumulant
+    accumulator is the whole state of such a cell, so leaving it out would close
+    the loop on a quantity (mu) that the Chernoff reliability row never reads,
+    and the cycle would not in fact be repeatable.  It is imposed for the same
+    reason as R, and drops out for every other bound.
+
+    The ARD1 latch registers (gmu / gv / gR) are deliberately NOT constrained.
+    They are memory of the last intervention rather than degradation state: they
+    only ever enter as the floor a further repair cannot go below, so a row on
+    them would restrict the schedule without being required by the loop.
+    """
+    md = ctx.model
+    bound = str(ctx.bound_of[i, l])
+    if bool(ctx.track_v_of[i, l]) and ctx.v_var is not None:
+        md.addConstr(ctx.v_var[i, l, k_end] <= ctx.v_var[i, l, k_ref],
+                     name=f"rep_v_{i}_{l}")
+    if bound == "hoeffding" and ctx.R_var is not None:
+        md.addConstr(ctx.R_var[i, l, k_end] <= ctx.R_var[i, l, k_ref],
+                     name=f"rep_R_{i}_{l}")
+    if bound == "chernoff" and ctx.K_var is not None:
+        md.addConstr(ctx.K_var[i, l, k_end] <= ctx.K_var[i, l, k_ref],
+                     name=f"rep_K_{i}_{l}")
 
 
 # ===========================================================================
@@ -665,6 +714,7 @@ class RainflowCellBuilder:
     prepare = staticmethod(prepare)
     add_cell = staticmethod(_add_rainflow_cell)
     extract = staticmethod(extract)
+    repeatability = staticmethod(_repeatability)
 
 
 register_cell_builder("rainflow", RainflowCellBuilder())

@@ -11,15 +11,23 @@ PROJECT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 TEST=${1:-sweep}
 NSHARDS=${2:-20}
 NAME=${NAME:-bound_tightness}
-# MILP encoding (rainflow_v2). FORM picks one encoding for the whole submission;
-# TEST=formulation instead solves BOTH (FORMS) and checks they agree.
+# MILP encoding x assembly (rainflow_v2 / rainflow_sparse). FORM picks one for
+# the whole submission; TEST=formulation instead solves BOTH (FORMS) and checks
+# they agree.
+#   indicator | bigm            the two ENCODINGS (different LP relaxations)
+#   sparse | bigm_sparse        the same two programs, assembled through the
+#                               matrix API -- identical rows, faster to build
+# Comparing an encoding with its own sparse twin here would be pointless: they
+# are the same model, so (H4) would report AGREE by construction. Use
+# euler/submit_sparse.sh, which compares them as objects rather than by cost.
 FORM=${FORM:-}
 FORMS=${FORMS:-indicator,bigm}
 BIGM=${BIGM:-}
 for f in ${FORM:-} ${FORMS//,/ }; do
     case "$f" in
-        indicator|bigm) ;;
-        *) echo "ERROR: unknown formulation '$f'; pick from indicator,bigm" >&2
+        indicator|bigm|sparse|bigm_sparse) ;;
+        *) echo "ERROR: unknown formulation '$f'; pick from" >&2
+           echo "       indicator,bigm,sparse,bigm_sparse" >&2
            exit 1 ;;
     esac
 done

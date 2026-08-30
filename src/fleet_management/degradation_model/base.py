@@ -8,7 +8,8 @@ a cell uses:
   parameters, increment accessors);
 * the shared variables and the general constraints / problem equations
   (assignment, mission demand, depot capacity, aggregate-damage cap, safety
-  ``u``);
+  ``u``, and the repeatability / loop-closure rows that make the operating
+  phase a repeatable cycle);
 * the objective  ``J = C_M(x) + C_R(z) + C_rep(r) + C_D(u)``;
 * solution extraction, status decoding, run-option and cost resolution.
 
@@ -38,6 +39,7 @@ Layering
 
 from __future__ import annotations
 
+import time
 from dataclasses import dataclass, field
 from typing import Callable, Dict, Optional, Protocol
 
@@ -158,6 +160,66 @@ class CellBuilder(Protocol):
     def add_cell(self, ctx: FleetModel, i: int, l: int) -> None:
         """Add the constraints of one (vehicle, component) cell."""
         ...
+
+    def repeatability(self, ctx: FleetModel, i: int, l: int,
+                      k_ref: int, k_end: int) -> None:
+        """OPTIONAL: this model's loop-closure rows for one cell.
+
+        Called by ``add_repeatability_constraints`` once per cell, after the
+        model-agnostic mean row ``mu[k_end] <= mu[k_ref]`` has been added.  A
+        model implements this only for the extra descriptors it tracks (rainflow
+        adds v / R / K); omitting the hook leaves the cell with the mean row.
+        """
+        ...
+
+
+# ---------------------------------------------------------------------------
+# MILP encodings of the logical constraints.  These are *assembly* choices as
+# much as modelling ones:
+#   'indicator'  Gurobi general indicator constraints, one addConstr per row
+#                (the reference build; rainflow_v2)
+#   'bigm'       the same logic as plain linear rows, nb substituted out
+#                (a DIFFERENT relaxation; rainflow_v2)
+#   'sparse'     row-for-row identical to 'indicator', assembled through the
+#                matrix API from scipy.sparse blocks (rainflow_sparse)
+# ---------------------------------------------------------------------------
+FORMULATIONS = ("indicator", "bigm", "sparse", "bigm_sparse")
+
+# The four values are a 2x2 grid of two independent choices that the historical
+# single-string option flattens:
+#
+#                    assembly='loop'      assembly='sparse'
+#   encoding='indicator'   'indicator'          'sparse'
+#   encoding='bigm'        'bigm'               'bigm_sparse'
+#
+# The ENCODING is a modelling choice: 'indicator' and 'bigm' have the same
+# integer feasible set but different LP relaxations (run_studies' lp_gap column).
+# The ASSEMBLY is not a modelling choice at all: for a fixed encoding the two
+# assemblies emit the identical program and differ only in how many Python-level
+# API calls it takes to write it down.  Read a formulation string through
+# ``encoding_of`` / ``assembly_of`` rather than comparing it to a literal.
+_ENCODING = {"indicator": "indicator", "sparse": "indicator",
+             "bigm": "bigm", "bigm_sparse": "bigm"}
+_ASSEMBLY = {"indicator": "loop", "bigm": "loop",
+             "sparse": "sparse", "bigm_sparse": "sparse"}
+
+
+def encoding_of(formulation: str) -> str:
+    """'indicator' or 'bigm': which MILP encoding of the logical constraints."""
+    try:
+        return _ENCODING[str(formulation).lower()]
+    except KeyError:
+        raise ValueError(f"unknown formulation {formulation!r}; "
+                         f"pick from {FORMULATIONS}.") from None
+
+
+def assembly_of(formulation: str) -> str:
+    """'loop' (one addConstr per row) or 'sparse' (matrix API)."""
+    try:
+        return _ASSEMBLY[str(formulation).lower()]
+    except KeyError:
+        raise ValueError(f"unknown formulation {formulation!r}; "
+                         f"pick from {FORMULATIONS}.") from None
 
 
 CELL_BUILDERS: Dict[str, CellBuilder] = {}
@@ -289,6 +351,9 @@ def resolve_run_options(cfg, **overrides) -> dict:
                                 o.get("formulation"), "indicator")).lower(),
         "bigM": float(pick(overrides.get("bigM"), o.get("bigM"), 1.1)),
         "z_exact": pick(overrides.get("z_exact"), o.get("z_exact"), None),
+        # loop-closure / repeatability of the operating phase (eq. loop_impl)
+        "repeatability": bool(pick(overrides.get("repeatability"),
+                                   o.get("repeatability"), True)),
     }
 
 
@@ -369,9 +434,9 @@ def build_context(cfg, opts: dict, model_name: str = "fleet_management") -> Flee
                              opts["fast"], opts["gurobi_params"])
 
     formulation = str(opts.get("formulation", "indicator")).lower()
-    if formulation not in ("indicator", "bigm"):
+    if formulation not in FORMULATIONS:
         raise ValueError(f"unknown formulation {formulation!r}; "
-                         f"pick from ('indicator', 'bigm').")
+                         f"pick from {FORMULATIONS}.")
 
     x = md.addVars(F, M + 1, T, vtype=GRB.BINARY, name="x")
     m_rep = md.addVars(F, L, T, vtype=GRB.BINARY, name="m")
@@ -379,7 +444,7 @@ def build_context(cfg, opts: dict, model_name: str = "fleet_management") -> Flee
     # nb = 1 - m - r is an *implied* binary: the big-M formulation substitutes it
     # out (F*L*T fewer binaries) and reads it through ctx.nb_of / ctx.act_of.
     nb = (md.addVars(F, L, T, vtype=GRB.BINARY, name="nb")
-          if formulation != "bigm" else None)
+          if encoding_of(formulation) != "bigm" else None)
     mu_var = md.addVars(F, L, T, lb=0.0, name="mu")
     z_var = md.addVars(F, L, T, lb=0.0, name="z")
     u_var = md.addVars(T, lb=0.0, name="u")
@@ -400,13 +465,22 @@ def build_context(cfg, opts: dict, model_name: str = "fleet_management") -> Flee
         z_exact=opts.get("z_exact"),
     )
 
-    # generically valid bounds; a model's prepare may tighten them further
-    for i in range(F):
-        for l in range(L):
-            t = float(cfg.tau[i, l])
-            for k in range(T):
-                ctx.mu_var[i, l, k].UB = t
-                ctx.z_var[i, l, k].UB = t
+    # Generically valid bounds; a model's prepare may tighten them further.
+    # The scalar loop is kept for the reference builds so that 'indicator' is
+    # untouched by the sparse work and stays the thing the report describes;
+    # the sparse path sets the same numbers with one setAttr per block, which
+    # matters because this loop is itself Theta(F*L*T) Python iterations.
+    if assembly_of(formulation) == "sparse":
+        tau_T = np.repeat(np.asarray(cfg.tau, dtype=float).ravel(), T)
+        for block in (ctx.mu_var, ctx.z_var):
+            md.setAttr(GRB.Attr.UB, list(block.values()), tau_T.tolist())
+    else:
+        for i in range(F):
+            for l in range(L):
+                t = float(cfg.tau[i, l])
+                for k in range(T):
+                    ctx.mu_var[i, l, k].UB = t
+                    ctx.z_var[i, l, k].UB = t
     return ctx
 
 
@@ -468,6 +542,67 @@ def add_maintenance_gating(ctx: FleetModel, i: int, l: int) -> None:
                          name=f"nb_def_{i}_{l}_{k}")
         else:
             md.addConstr(nb[i, l, k] == 1 - m_rep[i, l, k], name=f"nb_def_{i}_{l}_{k}")
+
+
+def loop_indices(ctx: FleetModel):
+    """The two time indices the repeatability constraints compare, or None.
+
+    The reference splits the horizon into a transitory phase k = 1..H1 and an
+    operating phase k = H1+1..H with H = H1 + H2.  On this module's 0-based
+    axis (k = 0..T-1, T = H1 + H2) the end of the transitory phase is
+    ``H1 - 1`` and the end of the operating phase is ``T - 1``.
+
+    Returns ``(k_ref, k_end)`` = (end of transitory, end of horizon), or None
+    when the horizon has no operating phase to close (H1 >= T), in which case
+    every row would read ``s[T-1] <= s[T-1]`` and is dropped rather than added
+    as a redundant constraint.
+    """
+    if ctx.H1 < 1 or ctx.H1 >= ctx.T:
+        return None
+    return ctx.H1 - 1, ctx.T - 1
+
+
+def add_repeatability_constraints(ctx: FleetModel) -> None:
+    """Moment-based repeatability (loop-closure) constraints, eq. (loop_impl).
+
+    The operating phase is meant to be a cycle the fleet can repeat
+    indefinitely, so the state at the end of the horizon must be no worse than
+    the state the operating phase started from::
+
+        mu[i,l,H] <= mu[i,l,H1]     all bounds          (mean, here)
+        v [i,l,H] <= v [i,l,H1]     Cantelli, Bernstein (per-model hook)
+        R [i,l,H] <= R [i,l,H1]     Hoeffding           (per-model hook)
+
+    The mean row is model-agnostic -- every cell drives ``ctx.mu_var`` whatever
+    its degradation model -- so it is imposed here for every cell.  Each further
+    descriptor belongs to the model that created its variable, so this function
+    then calls the cell builder's optional ``repeatability(ctx, i, l, k_ref,
+    k_end)`` hook; a builder without one contributes the mean row only.
+
+    Two things to be aware of when reading a solution:
+
+    * The rows are RELATIVE, not absolute.  A schedule can also satisfy them by
+      accumulating *more* damage before ``H1``, which raises the right-hand
+      side.  What keeps that in check is the ``C_D(u)`` objective term, not
+      these constraints.
+    * Imposing them can make an instance infeasible that was feasible without,
+      whenever the operating phase cannot be closed at all -- e.g. the cheapest
+      per-step increment exceeds what repair can remove given ``rho`` and the
+      depot capacity.  That is a genuine statement about the instance, not a
+      bug; ``repeatability=False`` recovers the open-horizon problem.
+    """
+    idx = loop_indices(ctx)
+    if idx is None:
+        return
+    k_ref, k_end = idx
+    md = ctx.model
+    for i, l in ctx.all_cells():
+        md.addConstr(ctx.mu_var[i, l, k_end] <= ctx.mu_var[i, l, k_ref],
+                     name=f"rep_mu_{i}_{l}")
+        hook = getattr(resolve_builder(ctx, str(ctx.model_of[i, l])),
+                       "repeatability", None)
+        if hook is not None:
+            hook(ctx, i, l, k_ref, k_end)
 
 
 def build_objective(ctx: FleetModel, costs: dict) -> None:
@@ -538,6 +673,7 @@ def extract_solution(ctx: FleetModel, cfg, model) -> dict:
         "bound_method": collapse(cfg.bound_method),
         "repair_model": collapse(cfg.repair_model),
         "reliability_impl": collapse_dict(ctx.impl_of, F, L),
+        "repeatability": bool(ctx.extras.get("repeatability", False)),
         "models": cfg.models,
         "F": F, "H": cfg.H, "H1": ctx.H1, "H2": ctx.H2, "T": T, "M": M, "L": L,
         "tau": cfg.tau, "mu_0": cfg.mu_0, "v_0": cfg.v_0, "model": model,
@@ -607,7 +743,14 @@ def build_fleet(cfg, opts: dict, model_name: str = "fleet_management_mixed",
     ``builders`` pins a specific implementation for a model name for this solve
     only (see ``resolve_builder``); everything else comes from the registry.
     """
+    _t0 = time.perf_counter()
     _load_builders()
+    if assembly_of(opts.get("formulation", "indicator")) == "sparse":
+        # Whole-fleet array assembly instead of the per-cell dispatch loop
+        # below.  Same rows, same columns, same optimum -- see rainflow_sparse.
+        from fleet_management.degradation_model import rainflow_sparse
+        return rainflow_sparse.build_fleet_sparse(cfg, opts, model_name=model_name)
+
     ctx = build_context(cfg, opts, model_name=model_name)
     if builders:
         ctx.extras["_builders"] = dict(builders)
@@ -626,6 +769,12 @@ def build_fleet(cfg, opts: dict, model_name: str = "fleet_management_mixed",
     for i in range(cfg.F):
         for l in range(cfg.L):
             dispatch_cell(ctx, i, l)
+
+    # loop closure, last: it reads the state variables the cell blocks drive
+    ctx.extras["repeatability"] = bool(opts.get("repeatability", True))
+    if ctx.extras["repeatability"]:
+        add_repeatability_constraints(ctx)
+    ctx.extras["build_s"] = time.perf_counter() - _t0
     return ctx
 
 

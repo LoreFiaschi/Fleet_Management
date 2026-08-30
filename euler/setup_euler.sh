@@ -4,8 +4,8 @@
 #   cd ~/<your-project> && bash euler/setup_euler.sh
 #
 # Creates .venv-euler on top of the Euler python module. The module already ships
-# numpy / matplotlib / pyyaml, so --system-site-packages means the only thing that
-# has to come from PyPI is gurobipy.
+# numpy / matplotlib / pyyaml, so --system-site-packages means the only things
+# that have to come from PyPI are gurobipy and scipy.
 set -euo pipefail
 
 # Project root is derived from THIS script's location, never hardcoded: the
@@ -45,11 +45,13 @@ fi
 source "$VENV/bin/activate"
 python -m pip install --upgrade pip
 python -m pip install "gurobipy==${GUROBI#gurobi/}"
-# SciPy is optional: run_studies uses linear_sum_assignment for the
-# symmetry-corrected first-period flip metric, and falls back to brute force for
-# F <= 8 (and reports NaN above that) when it is absent.
-python -m pip install scipy || echo "note: scipy not installed; flip_matched will"\
-    " fall back to brute force for F <= 8"
+# SciPy is REQUIRED, not optional, since the sparse assembly landed:
+#   * rainflow_sparse builds the constraint matrix as COO triplets and converts
+#     to CSR before handing it to addMConstr, so formulation='sparse' /
+#     'bigm_sparse' raise ImportError without it;
+#   * run_studies uses linear_sum_assignment for the symmetry-corrected
+#     first-period flip metric (it can fall back to brute force for F <= 8).
+python -m pip install scipy
 if [ -f "$PROJECT/pyproject.toml" ]; then
     python -m pip install -e "$PROJECT"          # the fleet_management package
 fi
@@ -74,10 +76,19 @@ python test.py --tests analytic --no-plots --out "$PROJECT/results" \
                --name euler_check | tail -20
 
 echo
-echo "== smoke test 2b: are BOTH MILP encodings present and equivalent? =="
-# rainflow_v2 carries the 'indicator' (original) and 'bigm' encodings of the same
-# model. They must reach the SAME optimum -- a disagreement means a big-M is
-# wrong, and it is far cheaper to find that here than in a 20-shard array.
+echo "== smoke test 2b: are ALL FOUR formulations present and equivalent? =="
+# `formulation` flattens a 2x2 grid of (encoding, assembly):
+#
+#                        assembly='loop'      assembly='sparse'
+#   encoding='indicator'   'indicator'          'sparse'
+#   encoding='bigm'        'bigm'               'bigm_sparse'
+#
+# The ENCODING is a modelling choice: indicator and bigm describe the same
+# integer feasible set but different LP relaxations, so their OPTIMA must agree
+# -- a disagreement means a big-M is wrong, and it is far cheaper to find that
+# here than in a 20-shard array. The ASSEMBLY is not a modelling choice at all:
+# for a fixed encoding the two must produce the identical model, so their sizes
+# must agree too, exactly and not approximately.
 if python -c "import fleet_management.degradation_model.rainflow_v2" 2>/dev/null; then
     python - <<'FORMCHECK'
 from fleet_management.config import load_config
@@ -89,23 +100,74 @@ data = {"model": "rainflow", "bound_method": "cantelli", "repair_model": "ard1",
         "tau": 1.0, "epsilon": 0.1, "rho": 0.8, "mu_0": 0.05, "v_0": 0.0,
         "mu": p * b, "v": p * (1 - p) * b * b, "support": b, "cgf": 0.1,
         "C_M": 1.0, "C_R": 0.5, "C_S": 2.0, "C_P": 1.0}
-out = {}
-for form in ("indicator", "bigm"):
+obj, size = {}, {}
+for form in ("indicator", "sparse", "bigm", "bigm_sparse"):
     r = rf.solve(load_config(data), verbose=0, mip_gap=1e-9, time_limit=60,
                  reliability_impl="tangent", formulation=form)
     md = r["model"]
-    out[form] = r["objective"]
-    print(f"  {form:<10} obj={r['objective']:.6f}  binaries={md.NumBinVars}  "
-          f"rows={md.NumConstrs}  genconstrs={md.NumGenConstrs}")
+    obj[form] = r["objective"]
+    size[form] = (md.NumBinVars, md.NumConstrs, md.NumGenConstrs, md.NumNZs)
+    print(f"  {form:<12} obj={r['objective']:.6f}  binaries={md.NumBinVars}  "
+          f"rows={md.NumConstrs}  genconstrs={md.NumGenConstrs}  "
+          f"nnz={md.NumNZs}")
     md.dispose()
-a, c = out["indicator"], out["bigm"]
+
+# 1. the ENCODING axis: same optimum, different model
+a, c = obj["indicator"], obj["bigm"]
 assert abs(a - c) <= 1e-6 * max(1.0, abs(a)), (
     f"the two encodings disagree ({a} vs {c}) -- do not submit jobs")
-print("  both encodings agree; FORM=indicator|bigm is safe to use")
+
+# 2. the ASSEMBLY axis: the SAME model, so the sizes must match exactly. This is
+#    a weak check compared with test_sparse_version.py's row-by-row comparison,
+#    but it costs nothing and catches a half-installed rainflow_sparse.
+for enc, sp in (("indicator", "sparse"), ("bigm", "bigm_sparse")):
+    assert size[enc] == size[sp], (
+        f"{enc} and {sp} must build the IDENTICAL model, but their sizes "
+        f"differ: {size[enc]} vs {size[sp]}. Run "
+        f"'python test_sparse_version.py --tests equivalence' for the "
+        f"row-by-row diff before submitting anything.")
+    assert abs(obj[enc] - obj[sp]) <= 1e-9 * max(1.0, abs(obj[enc])), (
+        f"{enc} and {sp} disagree on the optimum ({obj[enc]} vs {obj[sp]})")
+
+# 3. the loop-closure rows must be there at all. Without rainflow_v2's
+#    'repeatability' hook the operating phase closes on the MEAN only, so a
+#    cantelli cell can end the horizon with a larger variance than it started
+#    with -- a "repeatable" cycle that is not repeatable in the quantity its own
+#    reliability row reads. Silent, and it changes every result.
+from fleet_management.degradation_model.rainflow_v2 import RainflowCellBuilder
+assert getattr(RainflowCellBuilder, "repeatability", None) is not None, (
+    "rainflow_v2.RainflowCellBuilder has no 'repeatability' hook: the loop "
+    "closes on the mean only and every descriptor (v / R / K) is unconstrained "
+    "at the end of the horizon. Update rainflow_v2.py before submitting.")
+print("  all four formulations agree; "
+      "FORM=indicator|bigm|sparse|bigm_sparse is safe to use")
+print("  loop-closure hook present (v / R / K are closed, not just the mean)")
 FORMCHECK
 else
     echo "  WARNING rainflow_v2.py not found in the package -- FORM=bigm will fail."
     echo "          Put it in fleet_management/degradation_model/ next to base.py."
+fi
+
+echo
+echo "== smoke test 2c: does the sparse-assembly harness run? =="
+# One CI-sized pass of test_sparse_version.py: it builds every (encoding,
+# assembly) pair and compares them as objects -- columns with their types,
+# bounds and objective coefficients, and the linear / indicator / quadratic rows
+# as canonicalised multisets. Seconds, and it is the check that actually has
+# teeth. A non-zero exit means the two assemblies differ; do not submit.
+if [ -f "$PROJECT/test_sparse_version.py" ]; then
+    if python test_sparse_version.py --quick --no-plots \
+            --out "$PROJECT/results" --name euler_check 2>&1 | tail -25; then
+        echo "  sparse assembly verified; submit_sparse.sh is safe to use"
+    else
+        echo "  ERROR test_sparse_version.py failed -- the sparse assembly does" >&2
+        echo "        NOT reproduce the reference build. Do not submit jobs" >&2
+        echo "        with FORM=sparse or FORM=bigm_sparse." >&2
+        exit 1
+    fi
+else
+    echo "  note: test_sparse_version.py not found in the project root; skipping."
+    echo "        (Needed only if you intend to use the sparse assembly.)"
 fi
 
 if [ "$HAVE_STUDIES" = "1" ]; then
@@ -133,6 +195,8 @@ echo "Setup done. Submit work with:"
 echo "  bash euler/submit.sh sweep 20                    # bound tests (test.py)"
 echo "  FORM=bigm bash euler/submit.sh sweep 20          # ... with the big-M encoding"
 echo "  bash euler/submit.sh formulation 4               # compare both encodings"
+echo "  bash euler/submit_sparse.sh                      # sparse assembly: equivalence + build cost"
+echo "  EXCLUSIVE=1 bash euler/submit_sparse.sh          # ... with quotable timings"
 if [ "$HAVE_STUDIES" = "1" ]; then
     echo "  bash euler/submit_studies.sh scaling 12          # studies (run_studies.py)"
     echo "  FORM=bigm bash euler/submit_studies.sh scaling 12  # ... big-M (lp_gap!)"
