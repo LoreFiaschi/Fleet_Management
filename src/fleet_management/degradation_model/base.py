@@ -675,6 +675,11 @@ def extract_solution(ctx: FleetModel, cfg, model) -> dict:
         "reliability_impl": collapse_dict(ctx.impl_of, F, L),
         "repeatability": bool(ctx.extras.get("repeatability", False)),
         "models": cfg.models,
+        # Wall seconds spent CONSTRUCTING the model, exclusive of the solve.
+        # This is the only thing that differs between an encoding and its
+        # sparse-assembly twin, so it has to leave the builder or the two are
+        # indistinguishable from outside.
+        "build_s": ctx.extras.get("build_s"),
         "F": F, "H": cfg.H, "H1": ctx.H1, "H2": ctx.H2, "T": T, "M": M, "L": L,
         "tau": cfg.tau, "mu_0": cfg.mu_0, "v_0": cfg.v_0, "model": model,
     }

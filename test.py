@@ -820,7 +820,8 @@ def run_case(sc: Scenario, bound: str, opts, log_path=None) -> tuple[dict, dict]
     if opts.dry_run:
         _import_config()(data)                   # still validates the input
         rec.update({"status": "dry_run", "objective": math.nan, "mip_gap": math.nan,
-                    "obj_bound": math.nan, "runtime_s": math.nan, "wall_s": math.nan})
+                    "obj_bound": math.nan, "runtime_s": math.nan, "wall_s": math.nan,
+                    "build_s": math.nan})
         return rec, data
 
     load_config, rainflow_solve = _import_solver()
@@ -857,6 +858,12 @@ def run_case(sc: Scenario, bound: str, opts, log_path=None) -> tuple[dict, dict]
         "mip_gap": _f(res.get("mip_gap")),
         "obj_bound": _f(res.get("bound")),
         "wall_s": wall,
+        # wall_s covers build + solve; runtime_s is Gurobi's solve alone. build_s
+        # is what the sparse assembly changes, and without it a
+        # formulation=indicator,sparse comparison has nothing to look at: the
+        # two are the same program, so runtime_s and nodes must agree and only
+        # the construction cost moves.
+        "build_s": _f(res.get("build_s")),
     })
 
     md = res.get("model")
@@ -1067,7 +1074,7 @@ def classify(rec: dict) -> str:
 # Bookkeeping: one folder per test; CSV + YAML, streamed
 # ===========================================================================
 FIELDS = ["timestamp", "test", "parameter", "value", "bound", "status",
-          "objective", "mip_gap", "obj_bound", "runtime_s", "wall_s",
+          "objective", "mip_gap", "obj_bound", "runtime_s", "wall_s", "build_s",
           "verdict", "n_max_analytic", "load", "feasible_hint",
           "n_repairs", "n_replacements", "n_depot", "n_idle",
           "n_depot_noop", "mu_max", "v_max",
@@ -2360,7 +2367,14 @@ def resolve_case_path(name: str, root: Path) -> Path:
                      + ", ".join(str(q) for q in cand))
 
 
-FORMULATIONS_ORDER = ("indicator", "bigm")
+# Four values, but only TWO models: the string flattens a 2x2 grid of
+# (encoding, assembly).  'sparse' is the 'indicator' program and 'bigm_sparse'
+# the 'bigm' program, both assembled through the matrix API (rainflow_sparse).
+# Within an encoding the objective, node count and LP bound must match EXACTLY,
+# not merely within the gap -- test_sparse_version.py is what checks that in
+# detail.  (H4) below is about the encoding axis, so read it across
+# indicator/bigm and treat the sparse twins as replicates.
+FORMULATIONS_ORDER = ("indicator", "sparse", "bigm", "bigm_sparse")
 
 
 def test_formulation(sc: Scenario, opts, run: TestRun, impls,
@@ -2388,10 +2402,10 @@ def test_formulation(sc: Scenario, opts, run: TestRun, impls,
              f"formulations: {list(formulations)}   implementations: {list(impls)}",
              ""]
     combos = bound_impl_combos(impls, announce=True)
-    vals, sizes, times, nodes, bounds_ = {}, {}, {}, {}, {}
-    header = (f"{'bound':<10s} {'impl':<9s} {'form':<10s} {'status':<12s} "
-              f"{'cost':>12s} {'gap':>9s} {'time[s]':>9s} {'nodes':>9s} "
-              f"{'bin':>7s} {'constrs':>9s} {'gencon':>7s}")
+    vals, sizes, times, nodes, bounds_, builds = {}, {}, {}, {}, {}, {}
+    header = (f"{'bound':<10s} {'impl':<9s} {'form':<12s} {'status':<12s} "
+              f"{'cost':>12s} {'gap':>9s} {'build[s]':>9s} {'time[s]':>9s} "
+              f"{'nodes':>9s} {'bin':>7s} {'constrs':>9s} {'gencon':>7s}")
     lines += [header, "-" * len(header)]
     for bound, impl in combos:
         for form in formulations:
@@ -2409,12 +2423,14 @@ def test_formulation(sc: Scenario, opts, run: TestRun, impls,
             times[key] = rec.get("runtime_s", math.nan)
             nodes[key] = rec.get("nodes", math.nan)
             bounds_[key] = rec.get("obj_bound", math.nan)
+            builds[key] = rec.get("build_s", math.nan)
             sizes[key] = (rec.get("n_bin"), rec.get("n_constrs"),
                           rec.get("n_genconstrs"))
-            lines.append(f"{bound:<10s} {impl:<9s} {form:<10s} "
+            lines.append(f"{bound:<10s} {impl:<9s} {form:<12s} "
                          f"{str(rec.get('status'))[:12]:<12s} "
                          f"{_fmt(rec.get('objective')):>12s} "
                          f"{_fmt(rec.get('mip_gap'), 3):>9s} "
+                         f"{_fmt(rec.get('build_s'), 3):>9s} "
                          f"{_fmt(rec.get('runtime_s'), 2):>9s} "
                          f"{_fmt(rec.get('nodes'), 0):>9s} "
                          f"{_fmt(rec.get('n_bin'), 0):>7s} "
@@ -2439,12 +2455,31 @@ def test_formulation(sc: Scenario, opts, run: TestRun, impls,
                          for c in costs}) == 1
             spread = math.nan
         tag = "AGREE" if agree else "MISMATCH"
+        # An encoding and its sparse twin are the SAME program, so AGREE here is
+        # true by construction and proves nothing. Say so, rather than letting a
+        # green tag look like evidence.
+        pairs = [(a, b) for a, b in (("indicator", "sparse"),
+                                     ("bigm", "bigm_sparse"))
+                 if a in have and b in have]
+        for a, b in pairs:
+            ta, tb = builds.get((bound, impl, a)), builds.get((bound, impl, b))
+            speed = (f"{ta / tb:.2f}x faster to build"
+                     if all(isinstance(q, float) and math.isfinite(q) and q > 0
+                            for q in (ta, tb)) else "build time unavailable")
+            lines.append(
+                f"     note: {a} and {b} are the same program in two "
+                f"assemblies, so AGREE is true by construction and says "
+                f"nothing. What IS informative: {b} is {speed}, while nodes "
+                f"and runtime must match. Use test_sparse_version.py for the "
+                f"structural comparison.")
         cost_txt = "  ".join(f"{f}={_fmt(vals[(bound, impl, f)])}" for f in have)
         lines.append(f"(H4) {bound}/{impl}: {tag}   {cost_txt}")
         lines.append("     time: " + "  ".join(
             f"{f}={_fmt(times[(bound, impl, f)], 2)}s" for f in have)
             + "   nodes: " + "  ".join(
             f"{f}={_fmt(nodes[(bound, impl, f)], 0)}" for f in have))
+        lines.append("     build: " + "  ".join(
+            f"{f}={_fmt(builds[(bound, impl, f)], 3)}s" for f in have))
         lines.append("     size (bin/constrs/gencon): " + "  ".join(
             f"{f}={sizes[(bound, impl, f)]}" for f in have))
         if not agree:
@@ -3426,12 +3461,15 @@ def parse_args(argv=None):
     p.add_argument("--tangent-ref", type=float, default=None, dest="tangent_ref",
                    help="tangent taken at tangent_ref*tau (default 0.5)")
     p.add_argument("--formulation", default=None, dest="formulation",
-                   choices=["indicator", "bigm"],
-                   help="MILP encoding of the logical constraints: 'indicator' "
-                        "(default, the original model) or 'bigm' (nb substituted "
-                        "out, linear big-M rows, tighter relaxation). Both have "
-                        "the same integer optimum -- objectives that disagree are "
-                        "a bug, not a modelling choice.")
+                   choices=["indicator", "bigm", "sparse", "bigm_sparse"],
+                   help="encoding x assembly of the logical constraints. "
+                        "ENCODING: 'indicator' (default, the original model) or "
+                        "'bigm' (nb substituted out, linear big-M rows, tighter "
+                        "relaxation) -- same integer optimum, so objectives "
+                        "that disagree are a bug, not a modelling choice. "
+                        "ASSEMBLY: add the '_sparse' twin ('sparse', "
+                        "'bigm_sparse') to build the SAME program through the "
+                        "matrix API; it must match its loop twin row for row.")
     p.add_argument("--formulations", default=None,
                    help="encodings to compare in the 'formulation' test, comma "
                         f"separated; pick from {FORMULATIONS_ORDER} "
