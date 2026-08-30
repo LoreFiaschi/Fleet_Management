@@ -19,9 +19,14 @@ TESTS=${TESTS:-equivalence,scaling,solve}
 ENCODINGS=${ENCODINGS:-indicator,bigm}
 NAME=${NAME:-sparse}
 OUT=${OUT:-$PROJECT/results}
-WALL=${WALL:-04:00:00}
-CPUS=${CPUS:-2}
-MEM=${MEM:-8g}
+# Measured, not guessed: the default payload is ~1 min of compute and peaks
+# under 0.2 GB. 30 min of wall time backfills far better on Euler than 4 h, and
+# a single core is right because the build -- which is what this harness
+# measures -- is serial Python. Raise CPUS only if you set SOLVE=1 on a grid
+# whose instances are actually hard.
+WALL=${WALL:-00:30:00}
+CPUS=${CPUS:-1}
+MEM=${MEM:-4g}
 # A build benchmark on a shared node measures the neighbours as much as the code.
 # Set EXCLUSIVE=1 for any number you intend to put in a report.
 EXCLUSIVE=${EXCLUSIVE:-0}
@@ -58,19 +63,56 @@ if [ ! -d "$PROJECT/.venv-euler" ]; then
     exit 1
 fi
 MISSING=""
-for f in euler/run_sparse.sbatch "$PROJECT/test_sparse_version.py" \
-         "$PROJECT/fleet_management/degradation_model/rainflow_sparse.py"; do
+for f in euler/run_sparse.sbatch "$PROJECT/test_sparse_version.py"; do
     [ -f "$f" ] || MISSING="$MISSING $f"
 done
 if [ -n "$MISSING" ]; then
     echo "ERROR: missing file(s):$MISSING" >&2
-    echo "       test_sparse_version.py goes in the project ROOT (next to" >&2
-    echo "       test.py); rainflow_sparse.py goes in the package next to" >&2
-    echo "       base.py and rainflow_v2.py. The .sbatch files travel with the" >&2
-    echo "       .sh files -- commit and push the whole euler/ folder, then" >&2
-    echo "       'git pull' here (or scp them up)." >&2
+    echo "       test_sparse_version.py goes in the project ROOT, next to" >&2
+    echo "       test.py. The .sbatch files travel with the .sh files -- commit" >&2
+    echo "       and push the whole euler/ folder, then 'git pull' here (or scp" >&2
+    echo "       them up)." >&2
     exit 1
 fi
+
+# rainflow_sparse is checked by IMPORT, not by path. The package may sit in
+# src/fleet_management/ or in fleet_management/, and once `pip install -e` has
+# run it can be resolved from somewhere else entirely -- so guessing a directory
+# is both fragile and beside the point. What has to be true is that the
+# interpreter the job will use can import it, which is what this asks.
+source "$PROJECT/.venv-euler/bin/activate" 2>/dev/null || true
+PKG_CHECK=$(python - <<'PKGPY' 2>&1
+import sys
+try:
+    from fleet_management.degradation_model import rainflow_sparse
+    from fleet_management.degradation_model.base import FORMULATIONS
+except Exception as exc:
+    print(f"FAIL {type(exc).__name__}: {exc}")
+    sys.exit(0)
+missing = [f for f in ("indicator", "bigm", "sparse", "bigm_sparse")
+           if f not in FORMULATIONS]
+if missing:
+    print(f"FAIL base.FORMULATIONS is missing {missing}: base.py and "
+          f"rainflow_v2.py have not been updated alongside rainflow_sparse.py")
+else:
+    print(f"OK {rainflow_sparse.__file__}")
+PKGPY
+)
+case "$PKG_CHECK" in
+    OK\ *)
+        echo "package   : ${PKG_CHECK#OK }" ;;
+    *)
+        echo "ERROR: cannot import fleet_management.degradation_model.rainflow_sparse" >&2
+        echo "       ${PKG_CHECK#FAIL }" >&2
+        echo "       It goes in the package next to base.py and rainflow_v2.py --" >&2
+        echo "       src/fleet_management/degradation_model/ in a src layout," >&2
+        echo "       fleet_management/degradation_model/ otherwise. Locate the" >&2
+        echo "       package with:" >&2
+        echo "         python -c 'import fleet_management.degradation_model as m; print(m.__path__)'" >&2
+        echo "       A stale build/ directory or a second copy on sys.path can" >&2
+        echo "       also shadow the one you just edited." >&2
+        exit 1 ;;
+esac
 # A stale harness is the cheapest failure to catch and the most annoying to
 # diagnose from a log: argparse exits 2 with a usage dump.
 for flag in --tests --encodings --factors --repeats --run-stamp --solve; do
@@ -126,6 +168,8 @@ JOB_ID=$(PROJECT=$PROJECT TESTS=$TESTS ENCODINGS=$ENCODINGS NAME=$NAME OUT=$OUT 
     sbatch --parsable --time="$WALL" --cpus-per-task="$CPUS" \
            --mem-per-cpu="$MEM" "${EXTRA_SBATCH[@]}" euler/run_sparse.sbatch)
 echo "job       : $JOB_ID  ($CPUS cpus, $MEM/cpu, $WALL)"
+echo "            (the build is serial Python; CPUS only affects Gurobi in the"
+echo "             solve test and under SOLVE=1)"
 echo
 echo "watch with : squeue -u \$USER   /   myjobs -j $JOB_ID"
 echo "results in : $OUT/${RUN_STAMP}_${NAME}/"

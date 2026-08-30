@@ -1,7 +1,7 @@
 #!/usr/bin/bash
 #SBATCH --job-name=fleet_sparse
 #SBATCH --ntasks=1                    # always 1 on Euler
-#SBATCH --cpus-per-task=2             # see the note on threads below
+#SBATCH --cpus-per-task=1             # nothing here is parallel; see the note below
 #SBATCH --mem-per-cpu=8g              # the big end of the ladder holds ~4M nonzeros
 #SBATCH --time=04:00:00
 #SBATCH --output=logs/%x_%j.out
@@ -148,8 +148,9 @@ missing = [f for f in need if f not in FORMULATIONS]
 if missing:
     raise SystemExit(
         f"ERROR: base.FORMULATIONS is missing {missing}. This package predates "
-        f"the sparse assembly; put rainflow_sparse.py in "
-        f"fleet_management/degradation_model/ and update base.py / rainflow_v2.py.")
+        f"the sparse assembly; put rainflow_sparse.py in the package next to "
+        f"base.py (src/fleet_management/degradation_model/ in a src layout) "
+        f"and update base.py / rainflow_v2.py.")
 assert assembly_of("bigm_sparse") == "sparse"
 print("formulations ok:", FORMULATIONS)
 FORMCHECK
@@ -162,14 +163,28 @@ echo "base case: F=$F M=$M L=$L H=$H   ladder x$FACTORS   repeats=$REPEATS"
 echo "solve=$SOLVE"
 echo "started $(date)"
 
-# --threads 1: (S2) measures how long it takes to BUILD a model in Python, which
-#   is single-threaded and would only be perturbed by Gurobi's. It matters for
-#   the (S3) solve and for --solve, so it is pinned rather than left to Gurobi's
-#   "one thread per core I can see", which on a shared Euler node oversubscribes
-#   the machine and shows up in get_inefficient_jobs.
+# NumPy/SciPy do not parallelise anything on this path (no BLAS calls -- it is
+# ravel_multi_index, repeat, fancy indexing and a COO -> CSR conversion), but
+# OpenBLAS still spins up a thread pool sized to the cores it can see when it is
+# imported. Idle threads on a shared node are exactly what get_inefficient_jobs
+# reports, so cap them at the allocation.
+export OMP_NUM_THREADS=${SLURM_CPUS_PER_TASK:-1}
+export OPENBLAS_NUM_THREADS=${SLURM_CPUS_PER_TASK:-1}
+export MKL_NUM_THREADS=${SLURM_CPUS_PER_TASK:-1}
+
+# --threads: this harness is SINGLE-THREADED where it matters. (S2) measures how
+#   long it takes to BUILD a model in Python -- a serial loop of API calls plus a
+#   COO -> CSR conversion, none of which Gurobi or NumPy parallelises -- and it
+#   never solves at all. Threads therefore affect only (S3) and --solve, and it
+#   is pinned to what Slurm actually granted rather than left to Gurobi's "one
+#   thread per core I can SEE", which on a shared Euler node oversubscribes the
+#   machine and shows up in get_inefficient_jobs.
+#   Keep CPUS constant across submissions whose solve times you intend to
+#   compare, for the same reason run_studies.py does.
 # Reserve a whole node with --exclusive (see submit_sparse.sh) if you intend to
 # quote the timing numbers: a build benchmark on a shared node measures the
-# neighbours as much as the code.
+# neighbours as much as the code -- and asking for one core does NOT stop a
+# neighbour from saturating the memory bandwidth you are measuring against.
 ARGS=(--tests "$TESTS"
       --encodings "$ENCODINGS"
       --name "$NAME" --out "$OUT"

@@ -145,7 +145,8 @@ print("  loop-closure hook present (v / R / K are closed, not just the mean)")
 FORMCHECK
 else
     echo "  WARNING rainflow_v2.py not found in the package -- FORM=bigm will fail."
-    echo "          Put it in fleet_management/degradation_model/ next to base.py."
+    echo "          Put it in the package next to base.py -- that is"
+    echo "          src/fleet_management/degradation_model/ in a src layout."
 fi
 
 echo
