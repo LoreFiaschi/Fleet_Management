@@ -327,20 +327,19 @@ def _gamma_reachable_upper_bounds(
 class GammaCellBuilder:
     """Selectable common-rate Gamma surrogate for modular Gamma cells.
 
-    Initial and replacement distributions are jointly calibrated with the
-    finite-horizon mission increments. The common bounding rate remains fixed
-    during repair, while the physical mean and bounding shape are contracted
-    according to ARD-inf or ARD1. ARD1 uses separate mean and bounding-shape
-    latches storing the state after the previous intervention.
+    The current route calibrates each repeated mission-increment type and each
+    alternative seed state at one common rate. The common bounding rate remains
+    fixed during repair, while the physical mean and bounding shape are
+    contracted according to ARD-inf or ARD1. ARD1 uses separate mean and
+    bounding-shape latches storing the state after the previous intervention.
     """
 
     name = "gamma"
 
     def prepare(self, ctx: FleetModel, cfg, cells, opts: dict) -> None:
         """Calibrate mission shapes offline and create the bounding state."""
-        from fleet_management.degradation_model.gamma_utils.gamma_tail_bound import (
+        from fleet_management.degradation_model.gamma_utils.gamma_repeated_calibration import (
             calibrate_gamma_cell_tail_bound,
-            calculate_seeded_profile_tail_bound_parameters,
             required_shape_for_tail,
         )
 
@@ -399,7 +398,7 @@ class GammaCellBuilder:
         beta_trans_cfg = getattr(cfg, "gamma_beta_trans", None)
         beta_bound_cfg = getattr(cfg, "gamma_beta_bound", None)
         calibration_method = getattr(
-            cfg, "gamma_calibration_method", "repeated_increment"
+            cfg, "gamma_calibration_method", "finite_count"
         )
         for i, l in cells:
             repair_model = str(cfg.repair_model[i, l])
@@ -469,7 +468,11 @@ class GammaCellBuilder:
                 )
                 ctx.impl_of[(i, l)] = "gamma_repeated_tail"
             elif calibration_method == "finite_count":
-                calibration = calibrate_gamma_cell_tail_bound(
+                from fleet_management.degradation_model.gamma_utils.gamma_tail_bound import (
+                    calculate_seeded_profile_tail_bound_parameters,
+                )
+
+                calibration = calculate_seeded_profile_tail_bound_parameters(
                     **calibration_kwargs,
                 )
                 ctx.impl_of[(i, l)] = "gamma_finite_tail"

@@ -5,7 +5,7 @@ from __future__ import annotations
 import numpy as np
 from scipy.stats import gamma
 
-from fleet_management.degradation_model.gamma_utils.gamma_tail_bound import (
+from fleet_management.degradation_model.gamma_utils.gamma_repeated_calibration import (
     calibrate_gamma_cell_tail_bound,
     calibrate_repeated_increment_tail_bound,
 )
