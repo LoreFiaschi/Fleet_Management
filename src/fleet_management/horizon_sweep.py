@@ -97,7 +97,7 @@ def _formulation_growth(rows: list[dict]) -> dict | None:
 def _select_horizon_cases(
     rows: list[dict], budget: float
 ) -> tuple[dict | None, dict | None]:
-    """Return the best proven case and the best feasible incumbent."""
+    """Return the best proven case and the best feasible."""
     feasible = [
         row
         for row in rows
@@ -109,7 +109,7 @@ def _select_horizon_cases(
     ]
     proven = [row for row in feasible if row["status"] == "optimal"]
 
-    best_incumbent = (
+    best_feasible = (
         min(feasible, key=lambda row: row["J_op_average"])
         if feasible
         else None
@@ -119,7 +119,7 @@ def _select_horizon_cases(
         if proven
         else None
     )
-    return best_proven, best_incumbent
+    return best_proven, best_feasible
 
 
 def sweep_operating_horizons(
@@ -239,7 +239,7 @@ def sweep_operating_horizons(
                 },
             })
 
-        best_proven, best_incumbent = _select_horizon_cases(rows, budget)
+        best_proven, best_feasible = _select_horizon_cases(rows, budget)
 
     report = {
         "input": str(source),
@@ -259,7 +259,7 @@ def sweep_operating_horizons(
             "best_proven": (
                 "Minimum J_op/H2 among cases with status='optimal'."
             ),
-            "best_incumbent": (
+            "best_feasible": (
                 "Minimum feasible J_op/H2 found, including cases stopped "
                 "by a time or solution limit; it is not necessarily optimal."
             ),
@@ -275,15 +275,15 @@ def sweep_operating_horizons(
             None if best_proven is None
             else best_proven["J_op_average"]
         ),
-        "best_incumbent_H2": (
-            None if best_incumbent is None else best_incumbent["H2"]
+        "best_feasible_H2": (
+            None if best_feasible is None else best_feasible["H2"]
         ),
-        "best_incumbent_J_op_average": (
-            None if best_incumbent is None
-            else best_incumbent["J_op_average"]
+        "best_feasible_J_op_average": (
+            None if best_feasible is None
+            else best_feasible["J_op_average"]
         ),
-        "best_incumbent_status": (
-            None if best_incumbent is None else best_incumbent["status"]
+        "best_feasible_status": (
+            None if best_feasible is None else best_feasible["status"]
         ),
 
         # Backward-compatible aliases now refer only to a proven optimum.

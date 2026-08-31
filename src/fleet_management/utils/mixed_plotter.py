@@ -59,7 +59,7 @@ def plot_horizon_sweep(
     """Visualize an operating-horizon sweep report.
 
     The left panel compares ``J_op / H2`` and distinguishes proven optimal
-    cases from feasible incumbents stopped by a solver limit. The right panel
+    cases from feasible stopped by a solver limit. The right panel
     separates optimizer time from deterministic formulation growth.
     """
     report_path = Path(sweep_report_path)
@@ -102,6 +102,7 @@ def _normalise_horizon_sweep(report: dict[str, Any]) -> dict[str, Any]:
             "T": int(case.get("T", int(report.get("H1", 0)) + int(case["H2"]))),
             "status": status,
             "cost": cost,
+            "J_trans": _optional_float(case.get("J_trans")),
             "runtime": _optional_float(
                 timing.get("optimizer_call_seconds", case.get("optimizer_seconds"))
             ),
@@ -109,7 +110,7 @@ def _normalise_horizon_sweep(report: dict[str, Any]) -> dict[str, Any]:
             "linear_constraints": _optional_float(
                 formulation.get("linear_constraints")
             ),
-            "has_incumbent": (
+            "has_feasible": (
                 cost is not None
                 and status not in {"infeasible", "inf_or_unbounded", "unbounded"}
             ),
@@ -117,18 +118,41 @@ def _normalise_horizon_sweep(report: dict[str, Any]) -> dict[str, Any]:
     rows.sort(key=lambda row: row["H2"])
 
     fixed = report.get("fixed_dimensions") or {}
-    best_proven = report.get("best_proven_H2", report.get("best_H2"))
-    best_incumbent = report.get("best_incumbent_H2", best_proven)
+    budget = _optional_float(report.get("transitory_budget"))
+    feasible_rows = [
+        row for row in rows
+        if row["has_feasible"]
+        and (
+            budget is None
+            or row["J_trans"] is None
+            or row["J_trans"] <= budget + 1e-8
+        )
+    ]
+    proven_rows = [row for row in feasible_rows if row["status"] == "optimal"]
+    best_proven_row = (
+        min(proven_rows, key=lambda row: row["cost"])
+        if proven_rows else None
+    )
+    best_feasible_row = (
+        min(feasible_rows, key=lambda row: row["cost"])
+        if feasible_rows else None
+    )
     return {
         "rows": rows,
         "F": fixed.get("F"),
         "M": fixed.get("M"),
         "L": fixed.get("L"),
         "H1": fixed.get("H1", report.get("H1")),
-        "budget": report.get("transitory_budget"),
-        "best_proven_H2": None if best_proven is None else int(best_proven),
-        "best_incumbent_H2": None if best_incumbent is None else int(best_incumbent),
-        "best_incumbent_status": report.get("best_incumbent_status"),
+        "budget": budget,
+        "best_proven_H2": (
+            None if best_proven_row is None else best_proven_row["H2"]
+        ),
+        "best_feasible_H2": (
+            None if best_feasible_row is None else best_feasible_row["H2"]
+        ),
+        "best_feasible_status": (
+            None if best_feasible_row is None else best_feasible_row["status"]
+        ),
     }
 
 
@@ -150,7 +174,7 @@ def _draw_horizon_sweep(view: dict[str, Any], plot_path: Path) -> None:
     ])
 
     figure, (cost_ax, scale_ax) = plt.subplots(1, 2, figsize=(13.2, 6.2))
-    feasible = np.asarray([row["has_incumbent"] for row in rows], dtype=bool)
+    feasible = np.asarray([row["has_feasible"] for row in rows], dtype=bool)
     optimal = np.asarray([row["status"] == "optimal" for row in rows], dtype=bool)
     limited = feasible & ~optimal
 
@@ -162,7 +186,7 @@ def _draw_horizon_sweep(view: dict[str, Any], plot_path: Path) -> None:
                     label="proven optimal", zorder=3)
     cost_ax.scatter(h2[limited], costs[limited], s=82, marker="D",
                     facecolor="white", edgecolor="#d97706", linewidth=1.8,
-                    label="feasible incumbent", zorder=3)
+                    label="feasible", zorder=3)
 
     for row in rows:
         if row["cost"] is None:
@@ -174,19 +198,19 @@ def _draw_horizon_sweep(view: dict[str, Any], plot_path: Path) -> None:
         )
 
     proven_h2 = view["best_proven_H2"]
-    incumbent_h2 = view["best_incumbent_H2"]
+    feasible_h2 = view["best_feasible_H2"]
     if proven_h2 is not None:
         row = _row_at_h2(rows, proven_h2)
         if row is not None and row["cost"] is not None:
             cost_ax.scatter([proven_h2], [row["cost"]], s=230, marker="*",
                             facecolor="#16a34a", edgecolor="#14532d",
                             linewidth=0.8, label="best proven", zorder=5)
-    if incumbent_h2 is not None and incumbent_h2 != proven_h2:
-        row = _row_at_h2(rows, incumbent_h2)
+    if feasible_h2 is not None and feasible_h2 != proven_h2:
+        row = _row_at_h2(rows, feasible_h2)
         if row is not None and row["cost"] is not None:
-            cost_ax.scatter([incumbent_h2], [row["cost"]], s=175, marker="P",
+            cost_ax.scatter([feasible_h2], [row["cost"]], s=175, marker="P",
                             facecolor="#f59e0b", edgecolor="#92400e",
-                            linewidth=0.8, label="best incumbent", zorder=5)
+                            linewidth=0.8, label="best feasible", zorder=5)
 
     cost_ax.set_title("Operating objective", loc="left", fontweight="bold")
     cost_ax.set_xlabel("Operating horizon $H_2$")
@@ -239,7 +263,7 @@ def _draw_horizon_sweep(view: dict[str, Any], plot_path: Path) -> None:
     figure.text(0.02, 0.925, dimensions + budget, fontsize=9, color="#4b5563")
     figure.text(
         0.5, 0.035,
-        "A time-limit incumbent may have a lower observed cost than the best "
+        "A time-limit feasible may have a lower observed cost than the best "
         "proven case; it is not an optimality certificate.",
         ha="center", fontsize=8.5, color="#4b5563",
     )
@@ -263,7 +287,7 @@ def _normalise_solution(data: dict[str, Any]) -> dict[str, Any]:
     missing = [key for key in required if data.get(key) is None]
     if missing:
         raise ValueError(
-            "The result does not contain a plottable incumbent; missing "
+            "The result does not contain a plottable feasible case; missing "
             + ", ".join(missing)
         )
 

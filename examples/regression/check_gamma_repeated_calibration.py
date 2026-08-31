@@ -6,7 +6,7 @@ import numpy as np
 from scipy.stats import gamma
 
 from fleet_management.degradation_model.gamma_utils.gamma_tail_bound import (
-    calculate_repeated_seeded_profile_tail_bound_parameters,
+    calibrate_gamma_cell_tail_bound,
     calibrate_repeated_increment_tail_bound,
 )
 
@@ -67,7 +67,7 @@ def main() -> None:
     if unsafe.checks[0].reliability_slack >= 0.0:
         raise AssertionError("an m*=0 increment was not marked above epsilon")
 
-    profile = calculate_repeated_seeded_profile_tail_bound_parameters(
+    profile = calibrate_gamma_cell_tail_bound(
         expected_damage=np.asarray([[0.1] * 4, [0.2] * 4]),
         rates=np.asarray([[20.0] * 4, [15.0] * 4]),
         threshold=0.5,

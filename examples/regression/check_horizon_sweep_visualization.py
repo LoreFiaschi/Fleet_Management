@@ -46,9 +46,9 @@ def main() -> None:
         "cases": cases,
         "best_proven_H2": 12,
         "best_proven_J_op_average": 0.661948,
-        "best_incumbent_H2": 16,
-        "best_incumbent_J_op_average": 0.617563,
-        "best_incumbent_status": "time_limit",
+        "best_feasible_H2": 16,
+        "best_feasible_J_op_average": 0.617563,
+        "best_feasible_status": "time_limit",
     }
 
     with TemporaryDirectory(prefix="horizon-sweep-visualisation-") as directory:
@@ -68,7 +68,7 @@ def main() -> None:
 
     print("PASS operating-horizon sweep visualisation")
     print("best proven H2   : 12")
-    print("best incumbent H2: 16 (time limit)")
+    print("best feasible H2: 16 (time limit)")
     print("panels            : operating cost, runtime and formulation growth")
 
 

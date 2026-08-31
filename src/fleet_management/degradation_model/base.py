@@ -339,7 +339,7 @@ class GammaCellBuilder:
     def prepare(self, ctx: FleetModel, cfg, cells, opts: dict) -> None:
         """Calibrate mission shapes offline and create the bounding state."""
         from fleet_management.degradation_model.gamma_utils.gamma_tail_bound import (
-            calculate_repeated_seeded_profile_tail_bound_parameters,
+            calibrate_gamma_cell_tail_bound,
             calculate_seeded_profile_tail_bound_parameters,
             required_shape_for_tail,
         )
@@ -399,7 +399,7 @@ class GammaCellBuilder:
         beta_trans_cfg = getattr(cfg, "gamma_beta_trans", None)
         beta_bound_cfg = getattr(cfg, "gamma_beta_bound", None)
         calibration_method = getattr(
-            cfg, "gamma_calibration_method", "finite_count"
+            cfg, "gamma_calibration_method", "repeated_increment"
         )
         for i, l in cells:
             repair_model = str(cfg.repair_model[i, l])
@@ -463,13 +463,13 @@ class GammaCellBuilder:
                 "common_rate": selected_rate,
             }
             if calibration_method == "repeated_increment":
-                calibration = calculate_repeated_seeded_profile_tail_bound_parameters(
+                calibration = calibrate_gamma_cell_tail_bound(
                     epsilon=float(ctx.eps[i, l]),
                     **calibration_kwargs,
                 )
                 ctx.impl_of[(i, l)] = "gamma_repeated_tail"
             elif calibration_method == "finite_count":
-                calibration = calculate_seeded_profile_tail_bound_parameters(
+                calibration = calibrate_gamma_cell_tail_bound(
                     **calibration_kwargs,
                 )
                 ctx.impl_of[(i, l)] = "gamma_finite_tail"

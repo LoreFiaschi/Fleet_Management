@@ -75,7 +75,7 @@ class FleetConfig:
     # Offline common-rate surrogate construction.  ``repeated_increment`` is
     # the mentor-style m*, beta*, alpha* contract; ``finite_count`` retains
     # the earlier all-count-vector LP as a comparison/regression path.
-    gamma_calibration_method: str = "finite_count"
+    gamma_calibration_method: str = "repeated_increment"
     # per-mission profiles (F, L, M, H2)  [transitory: H1]
     mu: np.ndarray = None
     v: Optional[np.ndarray] = None
@@ -319,7 +319,7 @@ def load_config(data: dict) -> FleetConfig:
         gamma_beta_new=_fl_scalar(data.get("gamma_beta_new"), F, L,
                                   "gamma_beta_new"),
         gamma_calibration_method=str(
-            data.get("gamma_calibration_method", "finite_count")
+            data.get("gamma_calibration_method", "repeated_increment")
         ).strip().lower(),
         mu=_flmh_prof(data["mu"], F, L, M, H_prof, "mu"),
         v=_flmh_prof(data.get("v"), F, L, M, H_prof, "v"),

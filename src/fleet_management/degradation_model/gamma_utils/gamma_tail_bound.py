@@ -614,7 +614,7 @@ def calibrate_repeated_increment_tail_bound(
     )
 
 
-def calculate_repeated_seeded_profile_tail_bound_parameters(
+def calibrate_gamma_cell_tail_bound(
     expected_damage: ArrayLike,
     rates: ArrayLike,
     threshold: float,
