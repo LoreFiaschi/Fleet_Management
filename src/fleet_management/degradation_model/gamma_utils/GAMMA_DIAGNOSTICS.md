@@ -78,21 +78,18 @@ reported separately where the selected fixture uses them.
 
 ## Gamma Gurobi formulation counts
 
-The counts below refer only to vehicle/component cells assigned to Gamma.
-`T = H1 + H2`, and `I_replacement` equals one when replacement is enabled.
+Let `N_gamma` be the number of Gamma vehicle/component cells,
+`N_gamma_ard1` the subset using ARD1, `T = H1 + H2`, and
+`I_replacement` equal one when replacement is enabled.
 
 ```text
-Gamma shape variables      = Gamma component cells * T
-Gamma ARD1 latch variables = 2 * Gamma ARD1 component cells * T
-Gamma Big-M dynamics rows  = 2 * Gamma component cells * T
-                             * (6 + 3*I_replacement)
-                           + 4 * Gamma ARD1 component cells * T
-                             * (2 + I_replacement)
-Gamma reliability rows     = Gamma component cells * T
-Gamma repeatability rows   = 2 * Gamma component cells
-                           + 2 * Gamma ARD1 component cells
-Gamma maintenance rows     = Gamma component cells * T
-                              * (2 + I_replacement)
+Gamma shape variables       = N_gamma * T
+Gamma ARD1 latch variables  = 2 * N_gamma_ard1 * T
+Gamma Big-M dynamics rows   = 2*N_gamma*T*(6 + 3*I_replacement)
+                            + 4*N_gamma_ard1*T*(2 + I_replacement)
+Gamma reliability rows      = N_gamma * T
+Gamma repeatability rows    = 2*N_gamma + 2*N_gamma_ard1
+Gamma maintenance rows      = N_gamma * T * (2 + I_replacement)
 ```
 
 The Gamma block uses ordinary linear Big-M rows and introduces no indicator,
@@ -114,12 +111,6 @@ constraints. Solver output records:
 ```text
 gamma_dynamics_formulation: tight_big_m
 gamma_big_m_bound_strategy: time_dependent_reachable
-gamma_formulation:
-  big_m_implementation:
-    conditional_equalities: <count>
-    linear_rows: <twice the count>
-    minimum_coefficient: <smallest positive M>
-    maximum_coefficient: <largest positive M>
 ```
 
 At fixed common rate, both ARD-infinity and ARD1 scale the Gamma bounding shape
@@ -130,7 +121,9 @@ resets them.
 
 For the supplied uniform Gamma fixture, the known shared/Gamma subtotal is
 compared directly with the complete Gurobi model. In mixed fixtures, the
-remaining variables and constraints belong to the remaining-life block.
+remaining variables and constraints belong to the rainflow block. A transitory
+budget or other externally added row can also appear as a small remainder and
+should be identified explicitly rather than attributed to Gamma dynamics.
 
 ## Lightweight state replay
 
@@ -143,8 +136,7 @@ inequalities.
 Main replay fields are:
 
 - `gamma_cells`: number of Gamma vehicle/component cells replayed.
-- `transitions_checked`: number of Gamma vehicle/component cells multiplied by
-  the total horizon length `T`.
+- `transitions_checked = N_gamma * T`.
 - `repairs` and `replacements`: interventions encountered in the schedule.
 - `maximum_errors`: largest differences between replayed and saved mean, shape,
   removed-damage, latch, reliability and repeatability values.
@@ -182,7 +174,8 @@ python .\examples\regression\run_horizon_sweep.py `
     --h2-range 2 32 `
     --stop-on-gradient `
     --gradient-tolerance 0.001 `
-    --maximum-stopping-gap 0.05
+    --maximum-stopping-gap 0.05 `
+    --transitory-budget 10
 ```
 
 The formulation-size sweep varies `F`, `M`, `L`, and `T` one at a time and
@@ -191,15 +184,10 @@ slopes describe the selected baseline only because the general formulation
 contains interaction terms such as `F*M*T` and `F*L*T`.
 
 The horizon sweep keeps `F`, `M`, `L`, and `H1` fixed while varying `H2`. It
-reports total, continuous, integer and binary variables, linear constraints,
-calibration time, optimizer time, node count, the
+reports formulation size, calibration time, optimizer time, node count, the
 operating objective `J_op/H2`, its best bound and the relative MIP gap. The
 operating-average model is deliberately single-objective so this bound and gap
 certify the same quantity that is compared across horizons.
-
-The first `H1` steps are an initialization phase. Their decisions and state
-transitions remain constrained and influence the operating phase, but their
-cost is not part of the objective and no initialization-cost budget is imposed.
 
 With gradient stopping enabled, the sweep continues in increasing `H2` until
 the relative operating-cost gradient per added unit of `H2` is sufficiently
