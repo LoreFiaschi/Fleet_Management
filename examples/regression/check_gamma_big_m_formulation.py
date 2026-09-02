@@ -72,6 +72,25 @@ def check_case(cfg, name: str) -> dict:
     if estimate["gamma_attributable"]["general_constraint_total"] != 0:
         raise AssertionError(f"{name} estimator still counts Gamma indicators")
 
+    big_m = getattr(context.model, "_tight_big_m_summary", None)
+    if not big_m or big_m["conditional_equalities"] <= 0:
+        raise AssertionError(f"{name} did not record its Big-M implementation")
+    expected_big_m_rows = sum(
+        estimate["gamma_attributable"]["linear_constraints"][key]
+        for key in (
+            "big_m_state_dynamics",
+            "ard1_mean_latch_big_m_dynamics",
+            "ard1_shape_latch_big_m_dynamics",
+        )
+    )
+    if big_m["linear_rows"] != expected_big_m_rows:
+        raise AssertionError(
+            f"{name} recorded {big_m['linear_rows']} Big-M rows; "
+            f"expected {expected_big_m_rows}"
+        )
+    if big_m["maximum_coefficient"] <= 0.0:
+        raise AssertionError(f"{name} recorded no positive Big-M coefficient")
+
     gamma = context.extras["gamma"]
     strict_state_bounds = 0
     strict_latch_bounds = 0
@@ -130,6 +149,10 @@ def check_case(cfg, name: str) -> dict:
         "variables": actual["variables"],
         "linear_constraints": actual["linear_constraints"],
         "indicator_constraints": actual["indicator_constraints"],
+        "big_m_conditional_equalities": big_m["conditional_equalities"],
+        "big_m_linear_rows": big_m["linear_rows"],
+        "minimum_big_m": big_m["minimum_coefficient"],
+        "maximum_big_m": big_m["maximum_coefficient"],
         "strict_state_bounds": strict_state_bounds,
         "strict_latch_bounds": strict_latch_bounds,
     }

@@ -40,7 +40,7 @@ __all__ = [
 
 @dataclass(frozen=True)
 class RepeatedTailCheck:
-    """One repeated-sum comparison used by the mentor-style calibration."""
+    """One repeated-sum comparison used by the calibration."""
 
     repetitions: int
     exact_tail_probability: float
@@ -106,7 +106,7 @@ class RepeatedIncrementTailBoundResult:
 
 @dataclass(frozen=True)
 class GammaRepeatedSeededProfileTailBoundResult:
-    """Mentor-style repeated-increment calibration for one Gamma cell."""
+    """Repeated-increment calibration for one Gamma cell."""
 
     expected_damage: FloatArray
     original_rates: FloatArray
@@ -344,7 +344,7 @@ def calibrate_gamma_cell_tail_bound(
     common_rate: float | None = None,
     feasibility_tolerance: float = 1e-9,
 ) -> GammaRepeatedSeededProfileTailBoundResult:
-    """Calibrate mission types independently with the mentor-style contract."""
+    """Calibrate mission types independently with the contract."""
 
     means = np.asarray(expected_damage, dtype=float)
     if means.size == 0 or np.any(~np.isfinite(means)) or np.any(means <= 0.0):

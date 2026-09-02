@@ -96,6 +96,7 @@ def _count_case(data: dict, parameter: str, value: int) -> dict:
         "allow_replacement": allow_replacement,
         "counts": {
             "variables": known["variables"],
+            "integer_variables": binary_total,
             "binary_variables": binary_total,
             "continuous_variables": continuous_total,
             "linear_constraints": known["linear_constraints"],
@@ -117,7 +118,6 @@ def _count_case(data: dict, parameter: str, value: int) -> dict:
             ),
             "gamma_reliability_rows": gamma_rows["tail_reliability"],
             "gamma_repeatability_rows": repeatability_rows,
-            "transitory_budget_rows": shared_rows["transitory_budget"],
         },
         "normalized_counts": {
             "variables_per_time_step": known["variables"] / cfg.T,
@@ -149,7 +149,10 @@ def _growth(cases: list[dict], parameter: str) -> dict | None:
         "to_value": last["changed_value"],
         "parameter_increase": delta,
     }
-    for name in ("variables", "binary_variables", "continuous_variables", "linear_constraints"):
+    for name in (
+        "variables", "integer_variables", "binary_variables",
+        "continuous_variables", "linear_constraints",
+    ):
         increase = last["counts"][name] - first["counts"][name]
         result[f"added_{name}"] = increase
         result[f"{name}_per_unit_{parameter}"] = increase / delta
@@ -227,11 +230,12 @@ def sweep_formulation_dimensions(
         "formulas": {
             "assignment_variables": "F * (M + 1) * T",
             "gamma_cells": "F * L for a uniform Gamma fleet",
-            "gamma_shape_variables": "N_gamma * T",
+            "gamma_shape_variables": "F * L * T for a uniform Gamma fleet",
             "gamma_big_m_state_rows": (
-                "2 * N_gamma * T * (6 + 3*I_replacement)"
+                "12 * F * L * T without replacement; "
+                "18 * F * L * T with replacement"
             ),
-            "gamma_reliability_rows": "N_gamma * T",
+            "gamma_reliability_rows": "F * L * T for a uniform Gamma fleet",
         },
         "sweeps": sweeps,
     }

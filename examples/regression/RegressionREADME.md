@@ -53,7 +53,7 @@ package may still require the dependencies declared in `pyproject.toml`.
 
 | Script | Type | What it protects | Why it is kept |
 |---|---|---|---|
-| `check_gamma_repeated_calibration.py` | numerical | Current repeated-increment \(m^*,\beta^*,\alpha^*\) calibration | Directly tests the mentor-style calibration contract. |
+| `check_gamma_repeated_calibration.py` | numerical | Current repeated-increment \(m^*,\beta^*,\alpha^*\) calibration | Directly tests the calibration contract. |
 | `check_gamma_tail_bound.py` | numerical | Earlier finite-count calibration and broadcasting | Retained as a comparison/regression path while both calibration methods remain in the code. |
 | `check_gamma_convolution_quadrature.py` | numerical | Moschopoulos convolution against independent quadrature | Ensures the production tail calculation is not self-validating. |
 | `check_gamma_randomized_properties.py` | numerical | Fixed-seed randomized shapes, rates and count combinations | Broadens coverage beyond hand-selected examples. |
@@ -85,9 +85,9 @@ reported schedule and states without performing exact convolution.
 
 | Script | Type | What it protects or produces |
 |---|---|---|
-| `check_horizon_phase_objective.py` | solver | \(J_{\mathrm{trans}}\le B_{\mathrm{trans}}\) and objective \(J_{\mathrm{op}}/H_2\). |
-| `check_horizon_sweep.py` | solver | Proven-optimum versus best-incumbent horizon selection. |
-| `run_horizon_sweep.py` | runner | Solves a user-selected list of operating horizons and writes a compact YAML report. |
+| `check_operating_average_objective.py` | solver | Single operating-phase objective \(J_{\mathrm{op}}/H_2\), including its bound and MIP gap. The initialization phase remains constrained but has no cost budget. |
+| `check_horizon_sweep.py` | solver | Certified objective bounds/MIP gaps, proven-versus-feasible selection and the gap-qualified gradient stopping rule. |
+| `run_horizon_sweep.py` | runner | Solves an explicit list or inclusive range of operating horizons and writes a compact YAML report. |
 | `check_formulation_sweep.py` | analytical | Deterministic one-factor-at-a-time \(F/M/L/T\) formulation counts. |
 | `run_formulation_size_sweep.py` | runner | Writes the full analytical formulation-size sweep report. |
 | `check_gamma_complexity_diagnostics.py` | solver | Predicted counts against actual Gurobi model statistics. |
@@ -99,9 +99,22 @@ Examples:
 python .\examples\regression\run_horizon_sweep.py `
   .\input\gamma_horizon_local.yaml `
   .\results\gamma_horizon_local_sweep.yaml `
-  --h2 2 4 `
-  --transitory-budget 10
+  --h2-range 2 20 `
+  --stop-on-gradient `
+  --gradient-tolerance 0.001 `
+  --maximum-stopping-gap 0.05
 ```
+
+The stopping tolerance is a relative change in `J_op/H2` per added unit of
+`H2`. By default, two consecutive flat gradients are required. A positive
+gradient stops after its first gap-qualified occurrence. Cases whose MIP gap
+exceeds `--maximum-stopping-gap` are recorded but cannot stop the sweep. The
+upper value supplied through `--h2-range` is always a hard safety limit.
+The YAML output is rewritten after every completed horizon. If Slurm stops the
+job before the complete candidate range is evaluated, the file remains a valid
+checkpoint with `complete: false` and identifies `last_completed_H2`.
+Every case records total, continuous, integer and binary variable counts, as
+well as linear constraints and solver diagnostics.
 
 ```powershell
 python .\examples\regression\run_formulation_size_sweep.py `

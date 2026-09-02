@@ -34,7 +34,6 @@ def main() -> None:
         "C_D": 2.0,
         "C_rep": 0.2,
         "objective_mode": "operating_average",
-        "transitory_budget": 10.0,
     }
 
     with TemporaryDirectory(prefix="formulation-sweep-") as directory:
@@ -76,17 +75,18 @@ def main() -> None:
     baseline = report["sweeps"]["F"]["cases"][0]
     if baseline["counts"] != {
         "variables": 60,
+        "integer_variables": 32,
         "binary_variables": 32,
         "continuous_variables": 28,
-        "linear_constraints": 153,
+        "linear_constraints": 152,
         "general_constraints": 0,
         "quadratic_constraints": 0,
     }:
         raise AssertionError(
             f"analytical baseline changed: {baseline['counts']}"
         )
-    if baseline["selected_breakdown"]["transitory_budget_rows"] != 1:
-        raise AssertionError("transitory-budget row was not counted")
+    if baseline["counts"]["integer_variables"] != 32:
+        raise AssertionError("integer-variable count was not retained")
 
     print("PASS deterministic formulation-size sweep")
     for parameter, sweep in report["sweeps"].items():

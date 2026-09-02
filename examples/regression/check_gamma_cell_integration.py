@@ -79,7 +79,7 @@ def main() -> None:
         or not item.get("maximum_safe_counts")
         for item in result["gamma_calibration"]
     ):
-        raise AssertionError("mentor-style m* calibration metadata is missing")
+        raise AssertionError("m* calibration metadata is missing")
 
     k_start, k_end = cfg.H1 - 1, cfg.T - 1
     shape = result["gamma_shape_bound"][:, gamma_component, :]

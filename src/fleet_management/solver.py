@@ -59,6 +59,8 @@ def solve(input_path: str, results_path: str = None) -> dict:   # was -> None, n
 
     # --- Solve (uniform single-model is bridged; heterogeneous -> Step 2) ---
     result = _solve_mixed(cfg)
+    result.setdefault("model_assignment", cfg.model.astype(str).tolist())
+    result.setdefault("component_names", list(cfg.component_names))
 
     result.setdefault("performance", {})                        # performance measurement
 
@@ -317,6 +319,8 @@ def _build_serializable_output(result: dict) -> dict:
         "degradation": result["degradation"],
         "backend": result.get("backend"),
         "models": _to_builtin(result.get("models", [])),
+        "model_assignment": _to_builtin(result.get("model_assignment")),
+        "component_names": _to_builtin(result.get("component_names", [])),
         "F": result["F"],
         "M": result["M"],
         "H": result["H"],
@@ -330,7 +334,7 @@ def _build_serializable_output(result: dict) -> dict:
     for key in ("bound", "mip_gap"):
         if result.get(key) is not None:
             output[key] = float(result[key])
-    for key in ("transitory_budget", "J_trans", "J_op", "J_op_average"):
+    for key in ("J_op", "J_op_average"):
         if result.get(key) is not None:
             output[key] = float(result[key])
 
@@ -467,7 +471,10 @@ def _save_hdf5(result: dict, path: Path) -> None:
         ):
             if result.get(key) is not None:
                 f.attrs[key] = result[key]
-        for key in ("transitory_budget", "J_trans", "J_op", "J_op_average"):
+        for key in ("component_names", "model_assignment"):
+            if result.get(key) is not None:
+                f.attrs[key] = json.dumps(_to_builtin(result[key]))
+        for key in ("J_op", "J_op_average"):
             if result.get(key) is not None:
                 f.attrs[key] = float(result[key])
 

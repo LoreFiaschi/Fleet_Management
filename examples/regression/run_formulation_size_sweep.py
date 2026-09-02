@@ -39,7 +39,10 @@ def main() -> None:
 
     print("PASS deterministic F/M/L/T formulation-size sweep")
     print("baseline:", report["baseline_dimensions"])
-    print("parameter  value   F   M   L   T   variables   linear rows")
+    print(
+        "parameter  value   F   M   L   T   variables   continuous   "
+        "integer   binary   linear rows"
+    )
     for parameter, sweep in report["sweeps"].items():
         for case in sweep["cases"]:
             dimensions = case["dimensions"]
@@ -49,6 +52,9 @@ def main() -> None:
                 f"{dimensions['F']:>2}  {dimensions['M']:>2}  "
                 f"{dimensions['L']:>2}  {dimensions['T']:>2}  "
                 f"{counts['variables']:>9}   "
+                f"{counts['continuous_variables']:>10}   "
+                f"{counts['integer_variables']:>7}   "
+                f"{counts['binary_variables']:>6}   "
                 f"{counts['linear_constraints']:>11}"
             )
     print("report:", arguments.output)

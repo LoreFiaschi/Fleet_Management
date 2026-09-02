@@ -97,16 +97,24 @@ def _normalise_horizon_sweep(report: dict[str, Any]) -> dict[str, Any]:
         timing = case.get("timing") or {}
         status = str(case.get("status", "unknown"))
         cost = _optional_float(case.get("J_op_average"))
+        mip_gap = _optional_float(case.get("mip_gap"))
         rows.append({
             "H2": int(case["H2"]),
             "T": int(case.get("T", int(report.get("H1", 0)) + int(case["H2"]))),
             "status": status,
             "cost": cost,
-            "J_trans": _optional_float(case.get("J_trans")),
+            "objective_bound": _optional_float(case.get("objective_bound")),
+            "mip_gap": mip_gap,
             "runtime": _optional_float(
                 timing.get("optimizer_call_seconds", case.get("optimizer_seconds"))
             ),
             "variables": _optional_float(formulation.get("variables")),
+            "continuous_variables": _optional_float(
+                formulation.get("continuous_variables")
+            ),
+            "integer_variables": _optional_float(
+                formulation.get("integer_variables")
+            ),
             "linear_constraints": _optional_float(
                 formulation.get("linear_constraints")
             ),
@@ -114,21 +122,18 @@ def _normalise_horizon_sweep(report: dict[str, Any]) -> dict[str, Any]:
                 cost is not None
                 and status not in {"infeasible", "inf_or_unbounded", "unbounded"}
             ),
+            "is_proven": (
+                status == "optimal"
+                and mip_gap is not None
+                and np.isfinite(mip_gap)
+                and mip_gap <= 1e-8
+            ),
         })
     rows.sort(key=lambda row: row["H2"])
 
     fixed = report.get("fixed_dimensions") or {}
-    budget = _optional_float(report.get("transitory_budget"))
-    feasible_rows = [
-        row for row in rows
-        if row["has_feasible"]
-        and (
-            budget is None
-            or row["J_trans"] is None
-            or row["J_trans"] <= budget + 1e-8
-        )
-    ]
-    proven_rows = [row for row in feasible_rows if row["status"] == "optimal"]
+    feasible_rows = [row for row in rows if row["has_feasible"]]
+    proven_rows = [row for row in feasible_rows if row["is_proven"]]
     best_proven_row = (
         min(proven_rows, key=lambda row: row["cost"])
         if proven_rows else None
@@ -143,7 +148,6 @@ def _normalise_horizon_sweep(report: dict[str, Any]) -> dict[str, Any]:
         "M": fixed.get("M"),
         "L": fixed.get("L"),
         "H1": fixed.get("H1", report.get("H1")),
-        "budget": budget,
         "best_proven_H2": (
             None if best_proven_row is None else best_proven_row["H2"]
         ),
@@ -165,8 +169,13 @@ def _draw_horizon_sweep(view: dict[str, Any], plot_path: Path) -> None:
     runtimes = np.asarray([
         np.nan if row["runtime"] is None else row["runtime"] for row in rows
     ])
-    variables = np.asarray([
-        np.nan if row["variables"] is None else row["variables"] for row in rows
+    continuous = np.asarray([
+        np.nan if row["continuous_variables"] is None
+        else row["continuous_variables"] for row in rows
+    ])
+    integers = np.asarray([
+        np.nan if row["integer_variables"] is None
+        else row["integer_variables"] for row in rows
     ])
     constraints = np.asarray([
         np.nan if row["linear_constraints"] is None
@@ -175,8 +184,23 @@ def _draw_horizon_sweep(view: dict[str, Any], plot_path: Path) -> None:
 
     figure, (cost_ax, scale_ax) = plt.subplots(1, 2, figsize=(13.2, 6.2))
     feasible = np.asarray([row["has_feasible"] for row in rows], dtype=bool)
-    optimal = np.asarray([row["status"] == "optimal" for row in rows], dtype=bool)
+    optimal = np.asarray([row["is_proven"] for row in rows], dtype=bool)
     limited = feasible & ~optimal
+
+    bounds = np.asarray([
+        np.nan if row["objective_bound"] is None
+        else row["objective_bound"] for row in rows
+    ])
+    bound_intervals = feasible & np.isfinite(bounds) & np.isfinite(costs)
+    nonzero_intervals = bound_intervals & ~np.isclose(bounds, costs)
+    if np.any(nonzero_intervals):
+        lower = np.minimum(bounds[nonzero_intervals], costs[nonzero_intervals])
+        upper = np.maximum(bounds[nonzero_intervals], costs[nonzero_intervals])
+        cost_ax.vlines(
+            h2[nonzero_intervals], lower, upper,
+            color="#d97706", linewidth=2.0, alpha=0.75,
+            label="feasible/bound interval", zorder=2,
+        )
 
     if np.count_nonzero(feasible) > 1:
         cost_ax.plot(h2[feasible], costs[feasible], color="#9ca3af",
@@ -191,8 +215,12 @@ def _draw_horizon_sweep(view: dict[str, Any], plot_path: Path) -> None:
     for row in rows:
         if row["cost"] is None:
             continue
+        gap_label = ""
+        if row["mip_gap"] is not None and row["mip_gap"] > 1e-8:
+            gap_label = f"\n({100.0 * row['mip_gap']:.1f}% gap)"
         cost_ax.annotate(
-            f"{row['cost']:.3g}", (row["H2"], row["cost"]),
+            f"{row['cost']:.3g}{gap_label}",
+            (row["H2"], row["cost"]),
             xytext=(0, 9), textcoords="offset points", ha="center",
             fontsize=8, color="#374151",
         )
@@ -231,9 +259,12 @@ def _draw_horizon_sweep(view: dict[str, Any], plot_path: Path) -> None:
     scale_ax.grid(axis="both", color="#e5e7eb", linewidth=0.8)
 
     count_ax = scale_ax.twinx()
-    if np.any(np.isfinite(variables)):
-        count_ax.plot(h2, variables, marker="s", color="#2563eb",
-                      linewidth=1.8, label="variables")
+    if np.any(np.isfinite(continuous)):
+        count_ax.plot(h2, continuous, marker="s", color="#2563eb",
+                      linewidth=1.8, label="continuous variables")
+    if np.any(np.isfinite(integers)):
+        count_ax.plot(h2, integers, marker="D", color="#0891b2",
+                      linewidth=1.8, label="integer variables")
     if np.any(np.isfinite(constraints)):
         count_ax.plot(h2, constraints, marker="^", color="#7c3aed",
                       linewidth=1.8, label="linear constraints")
@@ -248,7 +279,10 @@ def _draw_horizon_sweep(view: dict[str, Any], plot_path: Path) -> None:
 
     for row in rows:
         colour = "#15803d" if row["status"] == "optimal" else "#b45309"
-        scale_ax.annotate(row["status"].replace("_", " "),
+        status_label = row["status"].replace("_", " ")
+        if row["mip_gap"] is not None:
+            status_label += f"; {100.0 * row['mip_gap']:.1f}% gap"
+        scale_ax.annotate(status_label,
                           (row["H2"], 0.02), xycoords=("data", "axes fraction"),
                           rotation=90, ha="center", va="bottom", fontsize=7,
                           color=colour)
@@ -257,13 +291,12 @@ def _draw_horizon_sweep(view: dict[str, Any], plot_path: Path) -> None:
         f"{name}={view[name]}" for name in ("F", "M", "L", "H1")
         if view[name] is not None
     )
-    budget = "" if view["budget"] is None else f";  $B_{{trans}}$={view['budget']:g}"
     figure.suptitle("Operating-horizon sweep", x=0.02, y=0.975, ha="left",
                     fontsize=16, fontweight="bold")
-    figure.text(0.02, 0.925, dimensions + budget, fontsize=9, color="#4b5563")
+    figure.text(0.02, 0.925, dimensions, fontsize=9, color="#4b5563")
     figure.text(
         0.5, 0.035,
-        "A time-limit feasible may have a lower observed cost than the best "
+        "A time-limited feasible solution may have a lower observed cost than the best "
         "proven case; it is not an optimality certificate.",
         ha="center", fontsize=8.5, color="#4b5563",
     )
@@ -324,6 +357,7 @@ def _normalise_solution(data: dict[str, Any]) -> dict[str, Any]:
         "x": x, "m": _optional_array(data, "m", (F, L, T)),
         "r": _optional_array(data, "r", (F, L, T)), "grid": grid, "tau": tau,
         "models": _model_grid(data, F, L),
+        "component_names": _component_names(data, L),
     }
 
 
@@ -331,7 +365,8 @@ def _draw_solution(view: dict[str, Any], plot_path: Path) -> None:
     F, M, L, T = (view[key] for key in ("F", "M", "L", "T"))
     H1, H2, n_cols = view["H1"], view["H2"], T + 1
     width = max(10.5, min(22.0, 0.64 * n_cols + 4.8))
-    height = max(4.8, 0.78 * F + 2.1)
+    row_count = F * L
+    height = max(4.8, 0.58 * row_count + 2.1)
     fig = plt.figure(figsize=(width, height), constrained_layout=True)
     gs = fig.add_gridspec(1, 2, width_ratios=(max(n_cols, 7), 4.2))
     ax, stats_ax = fig.add_subplot(gs[0, 0]), fig.add_subplot(gs[0, 1])
@@ -339,65 +374,73 @@ def _draw_solution(view: dict[str, Any], plot_path: Path) -> None:
     cmap = mcolors.LinearSegmentedColormap.from_list(
         "damage_fraction", ["#2ca25f", "#fee08b", "#d73027"]
     )
-    norm, strip_h = mcolors.Normalize(0.0, 1.0, clip=True), 1.0 / L
+    norm = mcolors.Normalize(0.0, 1.0, clip=True)
     for i in range(F):
-        for column in range(n_cols):
-            for l in range(L):
+        for l in range(L):
+            row = i * L + l
+            for column in range(n_cols):
                 fraction = view["grid"][i, l, column] / view["tau"][i, l]
                 ax.add_patch(mpatches.Rectangle(
-                    (column - 0.5, i - 0.5 + l * strip_h), 1.0, strip_h,
+                    (column - 0.5, row - 0.5), 1.0, 1.0,
                     facecolor=cmap(norm(fraction)), edgecolor="none",
                 ))
 
     for i in range(F):
-        ax.text(0, i, "init", ha="center", va="center", fontsize=7,
-                color="#111827", fontweight="bold")
-        for k in range(T):
-            label, category = _action_label(view, i, k, M)
-            ax.text(k + 1, i, label, ha="center", va="center", fontsize=8.5,
-                    fontweight="bold", color=ACTION_COLOURS[category],
-                    bbox={"boxstyle": "round,pad=0.16", "facecolor": "white",
-                          "edgecolor": ACTION_COLOURS[category], "alpha": 0.88,
-                          "linewidth": 0.8})
+        for l in range(L):
+            row = i * L + l
+            for k in range(T):
+                label, category = _component_action_label(view, i, l, k, M)
+                ax.text(k + 1, row, label, ha="center", va="center", fontsize=8.5,
+                        fontweight="bold", fontfamily="monospace",
+                        color=ACTION_COLOURS[category],
+                        bbox={"boxstyle": "round,pad=0.16", "facecolor": "white",
+                              "edgecolor": ACTION_COLOURS[category], "alpha": 0.88,
+                              "linewidth": 0.8})
 
     ax.set_xlim(-0.5, n_cols - 0.5)
-    ax.set_ylim(F - 0.5, -0.5)
+    ax.set_ylim(row_count - 0.5, -0.5)
     ax.set_xticks(range(n_cols))
     ax.set_xticklabels(["initial", *range(T)], rotation=45 if T > 12 else 0,
                        ha="right" if T > 12 else "center")
-    ax.set_yticks(range(F))
-    ax.set_yticklabels([_vehicle_label(view["models"], i) for i in range(F)])
+    ax.set_yticks(range(row_count))
+    ax.set_yticklabels([
+        _component_row_label(view, i, l)
+        for i in range(F) for l in range(L)
+    ])
     ax.set_xlabel("Time step")
     ax.set_ylabel("Vehicle and component model")
-    ax.set_title("Schedule and physical expected damage", loc="left", pad=12,
+    ax.set_title("Schedule and physical expected damage", loc="left", pad=42,
                  fontweight="bold")
 
-    for i in range(F + 1):
-        ax.axhline(i - 0.5, color="#111827", linewidth=0.65)
+    for row in range(row_count + 1):
+        linewidth = 0.9 if row % L == 0 else 0.4
+        colour = "#111827" if row % L == 0 else "#9ca3af"
+        ax.axhline(row - 0.5, color=colour, linewidth=linewidth)
     for column in range(n_cols + 1):
         ax.axvline(column - 0.5, color="#4b5563", linewidth=0.35)
-    if L > 1:
-        for i in range(F):
-            for l in range(1, L):
-                ax.axhline(i - 0.5 + l * strip_h, color="white", linewidth=0.7)
-
     if 0 < H1 < T:
         ax.axvline(H1 + 0.5, color="#2563eb", linewidth=2.0, linestyle="--")
-        ax.text((H1 + 1) / 2, -0.68, "transitory", ha="center", va="bottom",
-                color="#2563eb", fontsize=8)
-        ax.text(H1 + 0.5 + H2 / 2, -0.68, "operating", ha="center", va="bottom",
-                color="#2563eb", fontsize=8)
+        ax.text(
+            (H1 + 1) / 2, 1.015, "initialization",
+            transform=ax.get_xaxis_transform(), ha="center", va="bottom",
+            color="#2563eb", fontsize=8,
+        )
+        ax.text(
+            H1 + 0.5 + H2 / 2, 1.015, "operating",
+            transform=ax.get_xaxis_transform(), ha="center", va="bottom",
+            color="#2563eb", fontsize=8,
+        )
 
     scalar = plt.cm.ScalarMappable(cmap=cmap, norm=norm)
     scalar.set_array([])
     fig.colorbar(scalar, ax=ax, label="physical mean / failure threshold",
                  fraction=0.032, pad=0.02)
     handles = [mpatches.Patch(facecolor="white", edgecolor=colour, label=label)
-               for label, colour in (("mission Mj", ACTION_COLOURS["mission"]),
-                                     ("idle", ACTION_COLOURS["idle"]),
-                                     ("repair R", ACTION_COLOURS["repair"]),
-                                     ("replacement P", ACTION_COLOURS["replacement"]),
-                                     ("depot D", ACTION_COLOURS["depot"]))]
+               for label, colour in (("M$_j$ mission", ACTION_COLOURS["mission"]),
+                                     ("I idle", ACTION_COLOURS["idle"]),
+                                     ("R repair", ACTION_COLOURS["repair"]),
+                                     ("P replacement", ACTION_COLOURS["replacement"]),
+                                     ("D depot", ACTION_COLOURS["depot"]))]
     ax.legend(handles=handles, loc="upper center", bbox_to_anchor=(0.5, -0.17),
               ncol=5, frameon=False, fontsize=8)
     _draw_statistics(stats_ax, view)
@@ -407,25 +450,20 @@ def _draw_solution(view: dict[str, Any], plot_path: Path) -> None:
     plt.close(fig)
 
 
-def _action_label(view: dict[str, Any], i: int, k: int, M: int) -> tuple[str, str]:
-    repaired = np.flatnonzero(view["m"][i, :, k] > 0.5)
-    replaced = np.flatnonzero(view["r"][i, :, k] > 0.5)
-    if repaired.size and replaced.size:
-        return "R/P", "mixed_intervention"
-    if replaced.size:
-        return _component_action("P", replaced), "replacement"
-    if repaired.size:
-        return _component_action("R", repaired), "repair"
+def _component_action_label(
+    view: dict[str, Any], i: int, l: int, k: int, M: int
+) -> tuple[str, str]:
+    """Return the action applied to one vehicle-component cell."""
+    if view["r"][i, l, k] > 0.5:
+        return "P", "replacement"
+    if view["m"][i, l, k] > 0.5:
+        return "R", "repair"
     assigned = np.flatnonzero(view["x"][i, 1:M + 1, k] > 0.5)
     if assigned.size:
         return f"M{int(assigned[0]) + 1}", "mission"
     if view["x"][i, 0, k] > 0.5:
         return "D", "depot"
-    return "-", "idle"
-
-
-def _component_action(symbol: str, components: np.ndarray) -> str:
-    return f"{symbol}{int(components[0]) + 1}" if components.size == 1 else symbol
+    return "I", "idle"
 
 
 def _draw_statistics(ax, view: dict[str, Any]) -> None:
@@ -444,7 +482,6 @@ def _draw_statistics(ax, view: dict[str, Any]) -> None:
     ]
     if data.get("objective_mode") is not None:
         lines += [("Objective mode", _compact(data.get("objective_mode")), "#111827"),
-                  ("J_trans", _number(data.get("J_trans")), "#111827"),
                   ("J_op / H2", _number(data.get("J_op_average")), "#111827")]
     if data.get("mip_gap") is not None:
         lines.append(("MIP gap", f"{100.0 * float(data['mip_gap']):.2f}%", "#111827"))
@@ -489,7 +526,9 @@ def _draw_statistics(ax, view: dict[str, Any]) -> None:
 
 
 def _model_grid(data: dict[str, Any], F: int, L: int) -> np.ndarray:
-    candidate = data.get("reliability_impl")
+    candidate = data.get("model_assignment")
+    if candidate is None:
+        candidate = data.get("reliability_impl")
     if candidate is None:
         candidate = data.get("models", data.get("degradation", "unknown"))
     arr = np.asarray(candidate, dtype=object)
@@ -503,10 +542,21 @@ def _model_grid(data: dict[str, Any], F: int, L: int) -> np.ndarray:
     return np.full((F, L), label, dtype=object)
 
 
-def _vehicle_label(model_grid: np.ndarray, i: int) -> str:
-    parts = [f"C{l + 1}:{_model_abbreviation(model_grid[i, l])}"
-             for l in range(model_grid.shape[1])]
-    return f"Vehicle {i + 1}\n" + "  ".join(parts)
+def _component_names(data: dict[str, Any], L: int) -> list[str]:
+    names = data.get("component_names")
+    if names is None:
+        return [f"Component {l + 1}" for l in range(L)]
+    if isinstance(names, str):
+        names = [names]
+    if len(names) != L:
+        raise ValueError(f"component_names has length {len(names)}; expected {L}")
+    return [str(name) for name in names]
+
+
+def _component_row_label(view: dict[str, Any], i: int, l: int) -> str:
+    component = view["component_names"][l]
+    model = _model_abbreviation(view["models"][i, l])
+    return f"Vehicle {i + 1} — {component}\n{model}"
 
 
 def _model_abbreviation(value: Any) -> str:
@@ -516,7 +566,7 @@ def _model_abbreviation(value: Any) -> str:
         return "Gamma"
 
     if ("rain" in text or "remaining" in text or text == "exact"):
-        return "Rainflow"
+        return "Remaining-life"
 
     return str(value)
 

@@ -803,8 +803,7 @@ def calculate_tail_bound_parameters(
     Notes
     -----
     If an increment already has ``beta_q == common_rate``, its singleton
-    constraint normally forces ``A'_q = A_q``.  This is the mentor's "no room
-    for further improvement" case.  Other shapes can be lowered only as far as
+    constraint normally forces ``A'_q = A_q``. Other shapes can be lowered only as far as
     the complete set of individual and accumulated tail constraints permits.
     """
 

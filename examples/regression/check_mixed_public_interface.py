@@ -39,6 +39,12 @@ def main() -> None:
         raise AssertionError("mixed degradation identity was not preserved")
     if result["models"] != ["gamma", "rainflow"]:
         raise AssertionError(f"unexpected model list {result['models']!r}")
+    if result["component_names"] != ["Battery", "Tires"]:
+        raise AssertionError("component names were not preserved")
+    if result["model_assignment"] != [
+        ["gamma", "rainflow"], ["gamma", "rainflow"]
+    ]:
+        raise AssertionError("per-cell model assignment was not preserved")
     if (result["H1"], result["H2"], result["T"]) != (2, 3, 5):
         raise AssertionError("unequal mixed horizon was not preserved")
 
@@ -77,7 +83,10 @@ def main() -> None:
     if report["transitions_checked"] != 10:
         raise AssertionError("wrong number of mixed Gamma transitions")
 
-    for key in ("backend", "degradation", "models", "reliability_impl"):
+    for key in (
+        "backend", "degradation", "models", "reliability_impl",
+        "component_names", "model_assignment",
+    ):
         if saved.get(key) != result.get(key):
             raise AssertionError(f"{key} changed during YAML serialization")
 

@@ -27,6 +27,8 @@ def main() -> None:
         "backend": "modular",
         "degradation": "mixed",
         "models": ["gamma", "rainflow"],
+        "model_assignment": [["gamma", "rainflow"], ["gamma", "rainflow"]],
+        "component_names": ["Battery", "Tires"],
         "reliability_impl": [["gamma", "rainflow"], ["gamma", "rainflow"]],
         "repair_model": ["ardinf", "ard1"],
         "F": 2,
@@ -55,7 +57,6 @@ def main() -> None:
             [[0, 0, 0, 1, 0], [0, 0, 0, 1, 0]],
         ],
         "objective_mode": "operating_average",
-        "J_trans": 0.24,
         "J_op": 3.52,
         "J_op_average": 1.1733333333,
         "performance": {
@@ -83,9 +84,9 @@ def main() -> None:
             raise AssertionError("visualisation appears blank")
 
     print("PASS compact mixed-fleet result visualisation")
-    print("shows schedule actions : mission, idle, repair, replacement")
+    print("shows schedule actions : Mj, I, R, P and D on every component row")
     print("shows degradation      : physical mean / threshold")
-    print("shows model assignment : Gamma and rainflow")
+    print("shows component/model   : Battery/Tires, Gamma/Remaining-life")
     print("shows run statistics   : status, objective, dimensions, formulation, timing")
 
 

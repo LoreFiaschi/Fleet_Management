@@ -30,7 +30,7 @@ def validate_public_replacement_case() -> dict:
         calibration_input = Path(directory) / "finite_count_input.yaml"
         input_data = yaml.safe_load(PUBLIC_INPUT.read_text(encoding="utf-8"))
         # The exact convolution validator certifies the earlier finite-count
-        # method.  The mentor-style repeated-increment method has a deliberately
+        # method.  The repeated-increment method has a deliberately
         # narrower homogeneous-repetition contract and is tested separately.
         input_data["gamma_calibration_method"] = "finite_count"
         calibration_input.write_text(

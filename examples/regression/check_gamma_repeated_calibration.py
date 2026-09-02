@@ -1,4 +1,4 @@
-"""Regression for the mentor-style m*, beta*, alpha* Gamma calibration."""
+"""Regression for the m*, beta*, alpha* Gamma calibration."""
 
 from __future__ import annotations
 

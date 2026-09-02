@@ -163,7 +163,7 @@ solves, and writes the results.
 | `input_path` | `str` | Path to the input data file. |
 | `results_path` | `str`, optional | Output file path. Defaults to `"output.yaml"`; a bare name gets `.yaml`. |
 
-### `plot_management(input_file_path, plot_file_path=None)`
+### `plot_mixed_management(input_file_path, plot_file_path=None)`
 
 Reads solver output and produces a colour-coded schedule grid.
 
@@ -172,11 +172,12 @@ Reads solver output and produces a colour-coded schedule grid.
 | `input_file_path` | `str` | Path to a solver output file. |
 | `plot_file_path` | `str`, optional | Output image path. Defaults to `"output.png"`; a bare name gets `.png`. |
 
-The plot is an `F x (T+1)` grid; each cell is split into `L` horizontal strips
-(one per component), coloured green→red by `mu / tau`. It reads a per-cell
-`(F, L)` threshold (or scalar / per-component). A blue divider marks the
-transitory/operating boundary for two-horizon schedules. Cell annotations:
-mission number `j` (assigned), gear (maintenance), or "zzz" cloud (idle).
+The plot contains one row per vehicle/component pair and `T+1` columns. The
+first column shows the initial state without an action annotation; subsequent
+columns use `M_j`, `I`, `R`, `P`, or `D` for mission, idle, repair,
+replacement, or depot. Rows are coloured green→red by `mu / tau` and labelled
+with `component_names` plus the assigned Gamma or remaining-life model. A blue
+divider marks the initialization/operating boundary.
 
 Supported image formats: **PNG** (`.png`), **PDF** (`.pdf`).
 
@@ -188,6 +189,7 @@ Supported image formats: **PNG** (`.png`), **PDF** (`.pdf`).
 | `objective` | Optimal objective (or `null`) |
 | `degradation` | `rainflow`, `gamma`, or `mixed` |
 | `F`, `M`, `H`, `L`, `H1`, `H2`, `T` | Dimensions and horizons |
+| `component_names`, `model_assignment` | Stable component labels and per-cell degradation models used by the visualizer |
 | `tau` | Failure threshold, `(F, L)` |
 | `bound_method`, `repair_model` | Per-cell selectors (scalar when uniform, else nested list) |
 | `reliability_impl` | Reliability implementation used (scalar when uniform) |

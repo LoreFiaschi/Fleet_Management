@@ -201,13 +201,39 @@ def _add_big_m_equality(
         raise ValueError(
             f"invalid Big-M residual bounds for {name}: [{lower}, {upper}]"
         )
+    upper_m = max(0.0, upper)
+    lower_m = max(0.0, -lower)
+    summary = getattr(model, "_tight_big_m_summary", None)
+    if summary is None:
+        summary = {
+            "conditional_equalities": 0,
+            "linear_rows": 0,
+            "minimum_coefficient": None,
+            "maximum_coefficient": 0.0,
+        }
+        model._tight_big_m_summary = summary
+    coefficients = (upper_m, lower_m)
+    positive = [value for value in coefficients if value > 0.0]
+    summary["conditional_equalities"] += 1
+    summary["linear_rows"] += 2
+    if positive:
+        current_minimum = min(positive)
+        summary["minimum_coefficient"] = (
+            current_minimum
+            if summary["minimum_coefficient"] is None
+            else min(summary["minimum_coefficient"], current_minimum)
+        )
+        summary["maximum_coefficient"] = max(
+            summary["maximum_coefficient"], max(positive)
+        )
+
     residual = lhs - rhs
     model.addConstr(
-        residual <= max(0.0, upper) * (1 - active),
+        residual <= upper_m * (1 - active),
         name=f"{name}_ub",
     )
     model.addConstr(
-        residual >= -max(0.0, -lower) * (1 - active),
+        residual >= -lower_m * (1 - active),
         name=f"{name}_lb",
     )
 
@@ -930,11 +956,6 @@ def resolve_run_options(cfg, **overrides) -> dict:
             o.get("objective_mode"),
             "total",
         )).strip().lower(),
-        "transitory_budget": pick(
-            overrides.get("transitory_budget"),
-            o.get("transitory_budget"),
-            None,
-        ),
     }
 
 
@@ -1097,15 +1118,17 @@ def add_maintenance_gating(ctx: FleetModel, i: int, l: int) -> None:
 
 
 def build_objective(ctx: FleetModel, costs: dict, opts: dict) -> None:
-    """Build either the legacy total cost or the two-phase horizon objective.
+    """Build the total-cost or operating-average objective.
 
-    Each step uses the same intentionally simple cost expression.  In
-    ``operating_average`` mode the transitory sum is budget-constrained and
-    Gurobi minimizes the average operating cost ``J_op / H2``.
+    ``operating_average`` treats the first ``H1`` steps as initialization:
+    they remain fully constrained, but their costs are not optimized and no
+    initialization-cost budget is imposed.  The single objective ``J_op / H2``
+    gives Gurobi bounds and MIP gaps for exactly the quantity compared by the
+    horizon sweep.
     """
     md, F, L, T = ctx.model, ctx.F, ctx.L, ctx.T
     C_M, C_R, C_D, C_rep = costs["C_M"], costs["C_R"], costs["C_D"], costs["C_rep"]
-    J_trans = gp.LinExpr()
+    J_total = gp.LinExpr()
     J_op = gp.LinExpr()
     for k in range(T):
         step_cost = gp.LinExpr(C_D * ctx.u_var[k])
@@ -1115,42 +1138,20 @@ def build_objective(ctx: FleetModel, costs: dict, opts: dict) -> None:
                 step_cost += C_R * ctx.z_var[i, l, k]
                 if ctx.allow_replacement:
                     step_cost += C_rep * ctx.r_rep[i, l, k]
-        if k < ctx.H1:
-            J_trans += step_cost
-        else:
+        J_total += step_cost
+        if k >= ctx.H1:
             J_op += step_cost
 
     mode = str(opts.get("objective_mode", "total")).strip().lower()
-    budget = opts.get("transitory_budget")
     if mode == "total":
-        if budget is not None:
-            raise ValueError(
-                "transitory_budget requires objective_mode='operating_average'."
-            )
-        objective = J_trans + J_op
-        md.setObjective(objective, GRB.MINIMIZE)
+        md.setObjective(J_total, GRB.MINIMIZE)
     elif mode == "operating_average":
-        if budget is None:
-            raise ValueError(
-                "objective_mode='operating_average' requires transitory_budget."
-            )
-        budget = float(budget)
-        if not np.isfinite(budget) or budget < 0.0:
-            raise ValueError("transitory_budget must be finite and non-negative.")
-        md.addConstr(J_trans <= budget, name="transitory_cost_budget")
         objective = (1.0 / ctx.H2) * J_op
-        # The primary target is the operating average.  Minimizing J_trans as
-        # a lower-priority objective removes slack from auxiliary cost states
-        # (notably u_k) without changing the chosen primary optimum.
-        md.ModelSense = GRB.MINIMIZE
-        md.setObjectiveN(
-            objective, index=0, priority=2, weight=1.0,
-            name="operating_average_cost",
-        )
-        md.setObjectiveN(
-            J_trans, index=1, priority=1, weight=1.0,
-            name="transitory_cost_tiebreak",
-        )
+        # Do not add a secondary objective here.  Gurobi's ordinary ObjBound
+        # and MIPGap attributes do not provide a primary-objective certificate
+        # for a hierarchical multi-objective solve.  A single objective makes
+        # every saved bound and gap directly comparable across H2 cases.
+        md.setObjective(objective, GRB.MINIMIZE)
     else:
         raise ValueError(
             "objective_mode must be 'total' or 'operating_average'; "
@@ -1159,9 +1160,13 @@ def build_objective(ctx: FleetModel, costs: dict, opts: dict) -> None:
 
     ctx.extras["phase_costs"] = {
         "mode": mode,
-        "transitory_budget": budget,
-        "J_trans": J_trans,
         "J_op": J_op,
+        "costs": {
+            "C_M": float(C_M),
+            "C_R": float(C_R),
+            "C_D": float(C_D),
+            "C_rep": float(C_rep),
+        },
     }
 
 
@@ -1217,11 +1222,20 @@ def extract_solution(ctx: FleetModel, cfg, model) -> dict:
         "repair_model": collapse(cfg.repair_model),
         "reliability_impl": collapse_dict(ctx.impl_of, F, L),
         "models": cfg.models,
+        "model_assignment": np.asarray(cfg.model).astype(str).tolist(),
+        "component_names": list(cfg.component_names),
         "F": F, "H": cfg.H, "H1": ctx.H1, "H2": ctx.H2, "T": T, "M": M, "L": L,
         "tau": cfg.tau, "mu_0": cfg.mu_0, "v_0": cfg.v_0, "model": model,
     }
+    try:
+        objbnd = float(model.ObjBound)
+    except (AttributeError, gp.GurobiError):
+        objbnd = None
+
     if model.SolCount == 0:
-        meta.update({"objective": None, "mip_gap": None, "bound": None,
+        # A relative MIP gap is undefined without an incumbent.  The best
+        # bound may still be informative and is retained when Gurobi exposes it.
+        meta.update({"objective": None, "mip_gap": None, "bound": objbnd,
                      "x": None, "mu": None, "v": None, "z": None,
                      "m": None, "r": None, "u": None})
         return meta
@@ -1230,17 +1244,11 @@ def extract_solution(ctx: FleetModel, cfg, model) -> dict:
         gap = float(model.MIPGap)
     except (AttributeError, gp.GurobiError):
         gap = None
-    try:
-        objbnd = float(model.ObjBound)
-    except (AttributeError, gp.GurobiError):
-        objbnd = None
-
     x_sol = np.zeros((F, M + 1, T)); mu_sol = np.zeros((F, L, T))
     v_sol = np.zeros((F, L, T)); z_sol = np.zeros((F, L, T))
     m_sol = np.zeros((F, L, T)); r_sol = np.zeros((F, L, T)); u_sol = np.zeros(T)
     track_v = ctx.track_v_of
     for k in range(T):
-        u_sol[k] = ctx.u_var[k].X
         for i in range(F):
             for j in range(M + 1):
                 x_sol[i, j, k] = ctx.x[i, j, k].X
@@ -1252,17 +1260,30 @@ def extract_solution(ctx: FleetModel, cfg, model) -> dict:
                 m_sol[i, l, k] = ctx.m_rep[i, l, k].X
                 if ctx.allow_replacement:
                     r_sol[i, l, k] = ctx.r_rep[i, l, k].X
+    # ``u`` is an epigraph of the largest vehicle-level aggregate damage.  It
+    # is automatically tight in objective-active periods, but may otherwise
+    # contain arbitrary slack (for example in the initialization phase). Save the
+    # canonical tight value so reported phase costs describe the schedule and
+    # states rather than an arbitrary auxiliary-variable value.
+    for k in range(T):
+        u_sol[k] = max(float(np.sum(mu_sol[i, :, k])) for i in range(F))
     meta.update({"objective": model.ObjVal, "mip_gap": gap, "bound": objbnd,
                  "x": x_sol, "mu": mu_sol, "v": v_sol, "z": z_sol,
                  "m": m_sol, "r": r_sol, "u": u_sol})
     phase = ctx.extras.get("phase_costs")
     if phase is not None:
-        J_trans = float(phase["J_trans"].getValue())
-        J_op = float(phase["J_op"].getValue())
+        coefficients = phase["costs"]
+        step_costs = np.zeros(T, dtype=float)
+        for k in range(T):
+            step_costs[k] = (
+                coefficients["C_D"] * u_sol[k]
+                + coefficients["C_M"] * float(np.sum(x_sol[:, 0, k]))
+                + coefficients["C_R"] * float(np.sum(z_sol[:, :, k]))
+                + coefficients["C_rep"] * float(np.sum(r_sol[:, :, k]))
+            )
+        J_op = float(np.sum(step_costs[ctx.H1:]))
         meta.update({
             "objective_mode": phase["mode"],
-            "transitory_budget": phase["transitory_budget"],
-            "J_trans": J_trans,
             "J_op": J_op,
             "J_op_average": J_op / ctx.H2,
         })
@@ -1340,6 +1361,14 @@ def solve_mixed(cfg, **overrides) -> dict:
         "optimizer_call_seconds": optimizer_seconds,
         "solution_extraction_seconds": extraction_seconds,
         "backend_wall_seconds": time.perf_counter() - backend_start,
+        "requested_time_limit_seconds": (
+            None if opts["time_limit"] is None else float(opts["time_limit"])
+        ),
+        "requested_mip_gap": (
+            None if opts["mip_gap"] is None else float(opts["mip_gap"])
+        ),
+        "threads": int(ctx.model.Params.Threads),
+        "seed": int(ctx.model.Params.Seed),
     })
     if "gamma" in ctx.extras:
         performance["gamma_calibration_seconds"] = float(sum(
@@ -1365,6 +1394,16 @@ def solve_mixed(cfg, **overrides) -> dict:
         formulation["comparison"] = compare_estimate_with_actual(
             formulation, formulation["actual_gurobi_model"]
         )
+        big_m_summary = dict(getattr(ctx.model, "_tight_big_m_summary", {}))
+        big_m_summary.update({
+            "encoding": "residual = lhs - rhs; active binary b",
+            "upper_row": "residual <= M_upper * (1 - b)",
+            "lower_row": "residual >= -M_lower * (1 - b)",
+            "M_upper": "max(0, upper bound on lhs - rhs)",
+            "M_lower": "max(0, minus lower bound on lhs - rhs)",
+            "bound_strategy": "time_dependent_reachable",
+        })
+        formulation["big_m_implementation"] = big_m_summary
         out["gamma_formulation"] = formulation
     performance["backend_wall_seconds"] = time.perf_counter() - backend_start
     out["performance"] = performance

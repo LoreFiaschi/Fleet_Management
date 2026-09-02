@@ -55,6 +55,7 @@ class FleetConfig:
     H2: int
     T: int
     H_prof: int
+    component_names: list[str] = field(default_factory=list)
     # per-cell (F, L)
     model: np.ndarray = None        # str
     bound_method: np.ndarray = None  # str ('' for non-rainflow cells)
@@ -73,7 +74,7 @@ class FleetConfig:
     gamma_beta_0: Optional[np.ndarray] = None     # exact initial-state rate (F,L)
     gamma_beta_new: Optional[np.ndarray] = None   # exact replacement-state rate (F,L)
     # Offline common-rate surrogate construction.  ``repeated_increment`` is
-    # the mentor-style m*, beta*, alpha* contract; ``finite_count`` retains
+    # the m*, beta*, alpha* contract; ``finite_count`` retains
     # the earlier all-count-vector LP as a comparison/regression path.
     gamma_calibration_method: str = "repeated_increment"
     # per-mission profiles (F, L, M, H2)  [transitory: H1]
@@ -192,6 +193,28 @@ def _fl_str(value, F, L, name, default=None):
     raise ValueError(f"'{name}' shape {arr.shape} must be a string, ({L},), or ({F},{L}).")
 
 
+def _component_names(value, L: int) -> list[str]:
+    """Return one stable, human-readable name for each component index."""
+    if value is None:
+        return [f"Component {index + 1}" for index in range(L)]
+    if isinstance(value, str):
+        if L != 1:
+            raise ValueError(
+                "'component_names' must contain one name per component when L > 1"
+            )
+        names = [value]
+    else:
+        names = [str(item) for item in value]
+    if len(names) != L:
+        raise ValueError(
+            f"'component_names' has length {len(names)}; expected L={L}"
+        )
+    names = [name.strip() for name in names]
+    if any(not name for name in names):
+        raise ValueError("'component_names' entries must be nonempty")
+    return names
+
+
 def _flmh_prof(value, F, L, M, H, name):
     """scalar / (M,) / (L,M) / (L,M,H) / (F,L,M) / (F,L,M,H) -> (F, L, M, H)."""
     if value is None:
@@ -296,6 +319,7 @@ def load_config(data: dict) -> FleetConfig:
 
     cfg = FleetConfig(
         F=F, M=M, L=L, H=H_written, H1=H1, H2=H2, T=T, H_prof=H_prof, model=model,
+        component_names=_component_names(data.get("component_names"), L),
         bound_method=_fl_str(alias("bound_method", "method"), F, L, "bound_method",
                              default="cantelli"),
         repair_model=_fl_str(data.get("repair_model"), F, L, "repair_model", default="ard1"),
@@ -334,8 +358,7 @@ def load_config(data: dict) -> FleetConfig:
                                       "allow_replacement", "depot_capacity",
                                       "gurobi_params",
                                       "reliability_impl", "pwl_points", "tangent_ref",
-                                      "replacement_as_new", "objective_mode",
-                                      "transitory_budget")
+                                      "replacement_as_new", "objective_mode")
                  if k in data},
         raw=data,
     )

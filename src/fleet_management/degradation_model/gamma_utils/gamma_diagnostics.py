@@ -49,10 +49,6 @@ def estimate_gamma_formulation(cfg, *, allow_replacement: bool) -> dict[str, Any
         "depot_capacity": T,
         "aggregate_damage_capacity": T,
         "safety_regularisation": F * T,
-        "transitory_budget": int(
-            str(cfg.options.get("objective_mode", "total")).strip().lower()
-            == "operating_average"
-        ),
     }
 
     gamma_variables = {
@@ -110,20 +106,20 @@ def estimate_gamma_formulation(cfg, *, allow_replacement: bool) -> dict[str, Any
             ),
         },
         "formulas": {
-            "gamma_shape_variables": "N_gamma * T",
-            "gamma_ard1_latch_variables": "2 * N_gamma_ard1 * T",
+            "gamma_shape_variables": "Gamma component cells * T",
+            "gamma_ard1_latch_variables": "2 * Gamma ARD1 component cells * T",
             "gamma_big_m_state_rows": (
-                "2 * N_gamma * T * (6 + 3*I_replacement)"
+                "2 * Gamma component cells * T * (6 + 3*I_replacement)"
             ),
             "gamma_ard1_latch_big_m_rows": (
-                "4 * N_gamma_ard1 * T * (2 + I_replacement)"
+                "4 * Gamma ARD1 component cells * T * (2 + I_replacement)"
             ),
-            "gamma_reliability_rows": "N_gamma * T",
+            "gamma_reliability_rows": "Gamma component cells * T",
             "gamma_repeatability_rows": (
-                "2 * N_gamma + 2 * N_gamma_ard1"
+                "2 * Gamma component cells + 2 * Gamma ARD1 component cells"
             ),
             "gamma_maintenance_gating_rows": (
-                "N_gamma * T * (2 + I_replacement)"
+                "Gamma component cells * T * (2 + I_replacement)"
             ),
         },
         "shared": {
