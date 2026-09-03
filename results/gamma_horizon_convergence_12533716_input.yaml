@@ -1,0 +1,52 @@
+# Coarse Euler experiment for operating-horizon convergence.
+#
+# Fixed between cases:
+#   F=4, M=1, L=1, H1=4, degradation parameters, costs and solver settings.
+# Varied by examples/regression/run_horizon_sweep.py:
+#   H2 only. The scalar mission profile broadcasts to every candidate horizon.
+F: 4
+M: 1
+L: 1
+H: [4, 4]
+
+# Used by the result visualizer. Supply exactly L names.
+component_names: [Battery]
+
+model: gamma
+repair_model: ardinf
+gamma_calibration_method: repeated_increment
+
+# One homogeneous mission increment type:
+# Delta D ~ Gamma(A=mu*beta=0.4, rate beta=20).
+mu: 0.02
+gamma_beta: 20.0
+gamma_beta_bound: 10.0
+
+# Zero initial and replacement seeds isolate repeated mission increments.
+mu_0: 0.0
+replacement_mu: 0.0
+allow_replacement: false
+
+tau: 0.6
+epsilon: 0.1
+rho: 0.5
+depot_capacity: 1
+
+# Simple costs retained for the current scope.
+C_M: 1.0
+C_R: 0.5
+C_D: 2.0
+C_rep: 0.2
+
+# H1 is a constrained initialization phase. Only J_op/H2 is optimized;
+# there is no J_trans and no initialization-cost budget.
+objective_mode: operating_average
+
+# Applied separately to every H2 case. MIPGap=0 asks for a proof, while the
+# time limit still returns and reports the best feasible solution and gap.
+mip_gap: 0.0
+time_limit: 6000
+verbose: 1
+gurobi_params:
+  Threads: 4
+  Seed: 1

@@ -1,0 +1,463 @@
+input: input/gamma_horizon_euler_overnight.yaml
+complete: true
+last_completed_H2: 64
+objective: minimize J_op / H2 over the operating phase
+varied_parameter: H2
+fixed_dimensions:
+  F: 4
+  M: 1
+  L: 1
+  H1: 4
+H1: 4
+planned_operating_horizons:
+- 44
+- 48
+- 52
+- 56
+- 60
+- 64
+evaluated_operating_horizons:
+- 44
+- 48
+- 52
+- 56
+- 60
+- 64
+stopping_rule:
+  enabled: true
+  interpretation: Stop after a gap-qualified positive relative cost gradient, or after
+    the requested number of consecutive gap-qualified gradients whose magnitude is
+    within the tolerance.
+  relative_gradient_tolerance_per_H2: 0.001
+  flat_gradients_required: 2
+  minimum_cases: 4
+  maximum_mip_gap_for_stopping: 0.05
+  reason: candidate_range_exhausted
+  stopped_early: false
+cases:
+- H1: 4
+  H2: 44
+  T: 48
+  dimensions:
+    F: 4
+    M: 1
+    L: 1
+    H1: 4
+    H2: 44
+    T: 48
+  status: time_limit
+  objective: 0.5548589792628237
+  J_op: 24.413800127403135
+  J_op_average: 0.5548590938046167
+  objective_bound: 0.26401085942335917
+  absolute_mip_gap: 0.2908481198394645
+  mip_gap: 0.5241838569971066
+  requested_mip_gap: 0.0
+  time_limit_seconds: 6000.0
+  optimizer_seconds: 6000.002813490923
+  solutions_found: 10
+  formulation:
+    variables: 1392
+    continuous_variables: 624
+    integer_variables: 768
+    binary_variables: 768
+    linear_constraints: 3416
+    general_constraints: 0
+    indicator_constraints: 0
+    quadratic_constraints: 0
+    nonzeros: 9752
+    gamma_cells: 4
+    gamma_ard1_cells: 0
+    known_shared_gamma_subtotal:
+      variables: 1392
+      linear_constraints: 3416
+      general_constraints: 0
+      quadratic_constraints: 0
+    known_subtotal_matches_actual: true
+  calibration:
+    method: repeated_increment
+    gamma_cells: 4
+    common_rates:
+    - 10.0
+    minimum_safe_count: 20
+    maximum_safe_count: 20
+    minimum_bounded_increment_shape: 0.16858047539794113
+    maximum_bounded_increment_shape: 0.16858047539794113
+    increment_types: 4
+    increment_opportunities: 192
+    tail_constraints: 80
+    calibration_seconds: 0.14103406481444836
+  timing:
+    model_construction_seconds: 0.38515680900309235
+    gamma_calibration_seconds: 0.14103406481444836
+    optimizer_call_seconds: 6000.002813490923
+    solution_extraction_seconds: 0.014002730953507125
+    backend_wall_seconds: 6000.402132611023
+    branch_and_bound_nodes: 731382.0
+    simplex_iterations: 185013443.0
+    work_units: 13989.219987239177
+  cost_gradient_per_H2: null
+  relative_cost_gradient_per_H2: null
+  gradient_classification: unavailable
+  gradient_stopping_eligible: false
+- H1: 4
+  H2: 48
+  T: 52
+  dimensions:
+    F: 4
+    M: 1
+    L: 1
+    H1: 4
+    H2: 48
+    T: 52
+  status: time_limit
+  objective: 0.5552620061238601
+  J_op: 26.652578124999987
+  J_op_average: 0.555262044270833
+  objective_bound: 0.25284314356427934
+  absolute_mip_gap: 0.3024188625595808
+  mip_gap: 0.5446417352966185
+  requested_mip_gap: 0.0
+  time_limit_seconds: 6000.0
+  optimizer_seconds: 6000.002667040913
+  solutions_found: 10
+  formulation:
+    variables: 1508
+    continuous_variables: 676
+    integer_variables: 832
+    binary_variables: 832
+    linear_constraints: 3700
+    general_constraints: 0
+    indicator_constraints: 0
+    quadratic_constraints: 0
+    nonzeros: 10568
+    gamma_cells: 4
+    gamma_ard1_cells: 0
+    known_shared_gamma_subtotal:
+      variables: 1508
+      linear_constraints: 3700
+      general_constraints: 0
+      quadratic_constraints: 0
+    known_subtotal_matches_actual: true
+  calibration:
+    method: repeated_increment
+    gamma_cells: 4
+    common_rates:
+    - 10.0
+    minimum_safe_count: 20
+    maximum_safe_count: 20
+    minimum_bounded_increment_shape: 0.16858047539794113
+    maximum_bounded_increment_shape: 0.16858047539794113
+    increment_types: 4
+    increment_opportunities: 208
+    tail_constraints: 80
+    calibration_seconds: 0.11452718276996166
+  timing:
+    model_construction_seconds: 0.2538099620724097
+    gamma_calibration_seconds: 0.11452718276996166
+    optimizer_call_seconds: 6000.002667040913
+    solution_extraction_seconds: 0.015967605053447187
+    backend_wall_seconds: 6000.2726192181
+    branch_and_bound_nodes: 475294.0
+    simplex_iterations: 163525154.0
+    work_units: 13830.897988822746
+  cost_gradient_per_H2: 0.0001007376165540752
+  relative_cost_gradient_per_H2: 0.0001815553131937098
+  gradient_classification: flat
+  gradient_stopping_eligible: false
+- H1: 4
+  H2: 52
+  T: 56
+  dimensions:
+    F: 4
+    M: 1
+    L: 1
+    H1: 4
+    H2: 52
+    T: 56
+  status: time_limit
+  objective: 0.5584612878683874
+  J_op: 29.039994113169715
+  J_op_average: 0.5584614252532638
+  objective_bound: 0.24615623585533478
+  absolute_mip_gap: 0.3123050520130527
+  mip_gap: 0.5592241732727831
+  requested_mip_gap: 0.0
+  time_limit_seconds: 6000.0
+  optimizer_seconds: 6000.005811679992
+  solutions_found: 10
+  formulation:
+    variables: 1624
+    continuous_variables: 728
+    integer_variables: 896
+    binary_variables: 896
+    linear_constraints: 3984
+    general_constraints: 0
+    indicator_constraints: 0
+    quadratic_constraints: 0
+    nonzeros: 11384
+    gamma_cells: 4
+    gamma_ard1_cells: 0
+    known_shared_gamma_subtotal:
+      variables: 1624
+      linear_constraints: 3984
+      general_constraints: 0
+      quadratic_constraints: 0
+    known_subtotal_matches_actual: true
+  calibration:
+    method: repeated_increment
+    gamma_cells: 4
+    common_rates:
+    - 10.0
+    minimum_safe_count: 20
+    maximum_safe_count: 20
+    minimum_bounded_increment_shape: 0.16858047539794113
+    maximum_bounded_increment_shape: 0.16858047539794113
+    increment_types: 4
+    increment_opportunities: 224
+    tail_constraints: 80
+    calibration_seconds: 0.11527460999786854
+  timing:
+    model_construction_seconds: 0.26971914898604155
+    gamma_calibration_seconds: 0.11527460999786854
+    optimizer_call_seconds: 6000.005811679992
+    solution_extraction_seconds: 0.016602695104666054
+    backend_wall_seconds: 6000.292278870009
+    branch_and_bound_nodes: 437462.0
+    simplex_iterations: 153583739.0
+    work_units: 14668.994138174334
+  cost_gradient_per_H2: 0.0007998452456076943
+  relative_cost_gradient_per_H2: 0.0014404824782469087
+  gradient_classification: increase
+  gradient_stopping_eligible: false
+- H1: 4
+  H2: 56
+  T: 60
+  dimensions:
+    F: 4
+    M: 1
+    L: 1
+    H1: 4
+    H2: 56
+    T: 60
+  status: time_limit
+  objective: 0.5549999081971247
+  J_op: 31.07999591285271
+  J_op_average: 0.5549999270152269
+  objective_bound: 0.2269695111153193
+  absolute_mip_gap: 0.3280303970818055
+  mip_gap: 0.5910458582729994
+  requested_mip_gap: 0.0
+  time_limit_seconds: 6000.0
+  optimizer_seconds: 6000.021673345938
+  solutions_found: 10
+  formulation:
+    variables: 1740
+    continuous_variables: 780
+    integer_variables: 960
+    binary_variables: 960
+    linear_constraints: 4268
+    general_constraints: 0
+    indicator_constraints: 0
+    quadratic_constraints: 0
+    nonzeros: 12200
+    gamma_cells: 4
+    gamma_ard1_cells: 0
+    known_shared_gamma_subtotal:
+      variables: 1740
+      linear_constraints: 4268
+      general_constraints: 0
+      quadratic_constraints: 0
+    known_subtotal_matches_actual: true
+  calibration:
+    method: repeated_increment
+    gamma_cells: 4
+    common_rates:
+    - 10.0
+    minimum_safe_count: 20
+    maximum_safe_count: 20
+    minimum_bounded_increment_shape: 0.16858047539794113
+    maximum_bounded_increment_shape: 0.16858047539794113
+    increment_types: 4
+    increment_opportunities: 240
+    tail_constraints: 80
+    calibration_seconds: 0.11663926299661398
+  timing:
+    model_construction_seconds: 0.3174456169363111
+    gamma_calibration_seconds: 0.11663926299661398
+    optimizer_call_seconds: 6000.021673345938
+    solution_extraction_seconds: 0.017527453950606287
+    backend_wall_seconds: 6000.356790229096
+    branch_and_bound_nodes: 386394.0
+    simplex_iterations: 151253069.0
+    work_units: 15037.99586361055
+  cost_gradient_per_H2: -0.0008653745595092188
+  relative_cost_gradient_per_H2: -0.0015495690845912394
+  gradient_classification: decrease
+  gradient_stopping_eligible: false
+- H1: 4
+  H2: 60
+  T: 64
+  dimensions:
+    F: 4
+    M: 1
+    L: 1
+    H1: 4
+    H2: 60
+    T: 64
+  status: time_limit
+  objective: 0.5552867729975521
+  J_op: 33.31720645814774
+  J_op_average: 0.5552867743024623
+  objective_bound: 0.21422908130590798
+  absolute_mip_gap: 0.3410576916916441
+  mip_gap: 0.6142010007739688
+  requested_mip_gap: 0.0
+  time_limit_seconds: 6000.0
+  optimizer_seconds: 6000.010873860912
+  solutions_found: 10
+  formulation:
+    variables: 1856
+    continuous_variables: 832
+    integer_variables: 1024
+    binary_variables: 1024
+    linear_constraints: 4552
+    general_constraints: 0
+    indicator_constraints: 0
+    quadratic_constraints: 0
+    nonzeros: 13016
+    gamma_cells: 4
+    gamma_ard1_cells: 0
+    known_shared_gamma_subtotal:
+      variables: 1856
+      linear_constraints: 4552
+      general_constraints: 0
+      quadratic_constraints: 0
+    known_subtotal_matches_actual: true
+  calibration:
+    method: repeated_increment
+    gamma_cells: 4
+    common_rates:
+    - 10.0
+    minimum_safe_count: 20
+    maximum_safe_count: 20
+    minimum_bounded_increment_shape: 0.16858047539794113
+    maximum_bounded_increment_shape: 0.16858047539794113
+    increment_types: 4
+    increment_opportunities: 256
+    tail_constraints: 80
+    calibration_seconds: 0.11575573915615678
+  timing:
+    model_construction_seconds: 0.28754906891845167
+    gamma_calibration_seconds: 0.11575573915615678
+    optimizer_call_seconds: 6000.010873860912
+    solution_extraction_seconds: 0.0182739399606362
+    backend_wall_seconds: 6000.316832875018
+    branch_and_bound_nodes: 316040.0
+    simplex_iterations: 156939916.0
+    work_units: 15206.610286381685
+  cost_gradient_per_H2: 7.171182180884528e-05
+  relative_cost_gradient_per_H2: 0.000129210506737378
+  gradient_classification: flat
+  gradient_stopping_eligible: false
+- H1: 4
+  H2: 64
+  T: 68
+  dimensions:
+    F: 4
+    M: 1
+    L: 1
+    H1: 4
+    H2: 64
+    T: 68
+  status: time_limit
+  objective: 0.5656991577148438
+  J_op: 36.20474609375
+  J_op_average: 0.5656991577148438
+  objective_bound: 0.2103804649536716
+  absolute_mip_gap: 0.35531869276117223
+  mip_gap: 0.628105394741069
+  requested_mip_gap: 0.0
+  time_limit_seconds: 6000.0
+  optimizer_seconds: 6000.029010097962
+  solutions_found: 1
+  formulation:
+    variables: 1972
+    continuous_variables: 884
+    integer_variables: 1088
+    binary_variables: 1088
+    linear_constraints: 4836
+    general_constraints: 0
+    indicator_constraints: 0
+    quadratic_constraints: 0
+    nonzeros: 13832
+    gamma_cells: 4
+    gamma_ard1_cells: 0
+    known_shared_gamma_subtotal:
+      variables: 1972
+      linear_constraints: 4836
+      general_constraints: 0
+      quadratic_constraints: 0
+    known_subtotal_matches_actual: true
+  calibration:
+    method: repeated_increment
+    gamma_cells: 4
+    common_rates:
+    - 10.0
+    minimum_safe_count: 20
+    maximum_safe_count: 20
+    minimum_bounded_increment_shape: 0.16858047539794113
+    maximum_bounded_increment_shape: 0.16858047539794113
+    increment_types: 4
+    increment_opportunities: 272
+    tail_constraints: 80
+    calibration_seconds: 0.12716929125599563
+  timing:
+    model_construction_seconds: 0.34931199403945357
+    gamma_calibration_seconds: 0.12716929125599563
+    optimizer_call_seconds: 6000.029010097962
+    solution_extraction_seconds: 0.020163247012533247
+    backend_wall_seconds: 6000.398637765902
+    branch_and_bound_nodes: 344549.0
+    simplex_iterations: 175559774.0
+    work_units: 14967.752860476672
+  cost_gradient_per_H2: 0.002603095853095372
+  relative_cost_gradient_per_H2: 0.004687840542151067
+  gradient_classification: increase
+  gradient_stopping_eligible: false
+formulation_growth:
+  from_H2: 44
+  to_H2: 64
+  added_time_steps: 20
+  added_variables: 580
+  variables_per_added_time_step: 29.0
+  added_continuous_variables: 260
+  continuous_variables_per_added_time_step: 13.0
+  added_integer_variables: 320
+  integer_variables_per_added_time_step: 16.0
+  added_binary_variables: 320
+  binary_variables_per_added_time_step: 16.0
+  added_linear_constraints: 1420
+  linear_constraints_per_added_time_step: 71.0
+  added_general_constraints: 0
+  general_constraints_per_added_time_step: 0.0
+  added_indicator_constraints: 0
+  indicator_constraints_per_added_time_step: 0.0
+  added_quadratic_constraints: 0
+  quadratic_constraints_per_added_time_step: 0.0
+  added_nonzeros: 4080
+  nonzeros_per_added_time_step: 204.0
+selection_interpretation:
+  best_proven: Minimum J_op/H2 among cases with status='optimal' and a reported relative
+    MIP gap no larger than 1e-8.
+  best_feasible: Minimum feasible J_op/H2 found, including cases stopped by a time
+    or solution limit; it is not necessarily optimal.
+  legacy_fields: best_H2 and best_J_op_average are aliases for the proven selection,
+    retained for compatibility.
+best_proven_H2: null
+best_proven_J_op_average: null
+best_feasible_H2: 44
+best_feasible_J_op_average: 0.5548590938046167
+best_feasible_status: time_limit
+best_H2: null
+best_J_op_average: null
