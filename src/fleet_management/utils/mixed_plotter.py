@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import os
+from collections.abc import Sequence
 from pathlib import Path
 from typing import Any
 
@@ -53,20 +54,30 @@ def plot_mixed_management(input_file_path: str, plot_file_path: str | None = Non
 
 
 def plot_horizon_sweep(
-    sweep_report_path: str,
+    sweep_report_path: (
+        str | os.PathLike[str] | Sequence[str | os.PathLike[str]]
+    ),
     plot_file_path: str | None = None,
 ) -> None:
-    """Visualize an operating-horizon sweep report.
+    """Visualize one or more compatible operating-horizon sweep reports.
 
-    The left panel compares ``J_op / H2`` and distinguishes proven optimal
-    cases from feasible stopped by a solver limit. The right panel
-    separates optimizer time from deterministic formulation growth.
+    The objective panel distinguishes proven-optimal cases from feasible
+    cases stopped by a solver limit. The remaining panels report the MIP
+    gap and deterministic formulation growth.
     """
-    report_path = Path(sweep_report_path)
-    if not report_path.exists():
-        raise FileNotFoundError(f"Sweep report not found: {sweep_report_path}")
-    if report_path.suffix.lower() not in {".yaml", ".yml", ".json"}:
-        raise ValueError("Horizon-sweep reports must be YAML or JSON files.")
+    written_paths = (
+        [sweep_report_path]
+        if isinstance(sweep_report_path, (str, os.PathLike))
+        else list(sweep_report_path)
+    )
+    if not written_paths:
+        raise ValueError("At least one horizon-sweep report is required.")
+    report_paths = [Path(path) for path in written_paths]
+    for report_path in report_paths:
+        if not report_path.exists():
+            raise FileNotFoundError(f"Sweep report not found: {report_path}")
+        if report_path.suffix.lower() not in {".yaml", ".yml", ".json"}:
+            raise ValueError("Horizon-sweep reports must be YAML or JSON files.")
 
     plot_path = _resolve_plot_path(
         "horizon_sweep.png" if plot_file_path is None else plot_file_path
@@ -81,7 +92,64 @@ def plot_horizon_sweep(
     if not os.access(plot_path.parent, os.W_OK):
         raise PermissionError(f"Plot directory is not writable: {plot_path.parent}")
 
-    _draw_horizon_sweep(_normalise_horizon_sweep(_read_input(report_path)), plot_path)
+    reports = [_read_input(report_path) for report_path in report_paths]
+    merged_report = _merge_horizon_sweep_reports(reports)
+    _draw_horizon_sweep(_normalise_horizon_sweep(merged_report), plot_path)
+
+
+def _merge_horizon_sweep_reports(reports: list[dict[str, Any]]) -> dict[str, Any]:
+    """Combine compatible sweep reports and retain one case per H2 value."""
+    if len(reports) == 1:
+        return reports[0]
+
+    fixed = reports[0].get("fixed_dimensions") or {}
+    H1 = fixed.get("H1", reports[0].get("H1"))
+    selected: dict[int, dict[str, Any]] = {}
+    for report_index, report in enumerate(reports):
+        candidate_fixed = report.get("fixed_dimensions") or {}
+        candidate_H1 = candidate_fixed.get("H1", report.get("H1"))
+        for name in ("F", "M", "L"):
+            if candidate_fixed.get(name) != fixed.get(name):
+                raise ValueError(
+                    f"Horizon-sweep report {report_index} changes fixed {name}."
+                )
+        if candidate_H1 != H1:
+            raise ValueError(
+                f"Horizon-sweep report {report_index} changes fixed H1."
+            )
+        cases = report.get("cases")
+        if not isinstance(cases, list):
+            raise ValueError(
+                f"Horizon-sweep report {report_index} has no cases list."
+            )
+        for case in cases:
+            H2 = int(case["H2"])
+            previous = selected.get(H2)
+            if previous is None or _prefer_horizon_case(case, previous):
+                selected[H2] = case
+
+    return {
+        "objective": reports[0].get("objective"),
+        "fixed_dimensions": fixed,
+        "H1": H1,
+        "cases": [selected[H2] for H2 in sorted(selected)],
+    }
+
+
+def _prefer_horizon_case(candidate: dict[str, Any], current: dict[str, Any]) -> bool:
+    """Prefer a feasible solution, then its cost, then the tighter bound."""
+    candidate_cost = _optional_float(candidate.get("J_op_average"))
+    current_cost = _optional_float(current.get("J_op_average"))
+    if (candidate_cost is not None) != (current_cost is not None):
+        return candidate_cost is not None
+    if candidate_cost is not None and current_cost is not None:
+        if not np.isclose(candidate_cost, current_cost):
+            return candidate_cost < current_cost
+    candidate_bound = _optional_float(candidate.get("objective_bound"))
+    current_bound = _optional_float(current.get("objective_bound"))
+    if candidate_bound is None:
+        return False
+    return current_bound is None or candidate_bound > current_bound
 
 
 def _normalise_horizon_sweep(report: dict[str, Any]) -> dict[str, Any]:
@@ -124,9 +192,6 @@ def _normalise_horizon_sweep(report: dict[str, Any]) -> dict[str, Any]:
             ),
             "is_proven": (
                 status == "optimal"
-                and mip_gap is not None
-                and np.isfinite(mip_gap)
-                and mip_gap <= 1e-8
             ),
         })
     rows.sort(key=lambda row: row["H2"])
@@ -166,8 +231,8 @@ def _draw_horizon_sweep(view: dict[str, Any], plot_path: Path) -> None:
     costs = np.asarray([
         np.nan if row["cost"] is None else row["cost"] for row in rows
     ])
-    runtimes = np.asarray([
-        np.nan if row["runtime"] is None else row["runtime"] for row in rows
+    gaps = np.asarray([
+        np.nan if row["mip_gap"] is None else row["mip_gap"] for row in rows
     ])
     continuous = np.asarray([
         np.nan if row["continuous_variables"] is None
@@ -182,58 +247,46 @@ def _draw_horizon_sweep(view: dict[str, Any], plot_path: Path) -> None:
         else row["linear_constraints"] for row in rows
     ])
 
-    figure, (cost_ax, scale_ax) = plt.subplots(1, 2, figsize=(13.2, 6.2))
+    figure = plt.figure(figsize=(14.8, 7.2))
+    grid = figure.add_gridspec(2, 2, width_ratios=(1.12, 1.0))
+    cost_ax = figure.add_subplot(grid[:, 0])
+    gap_ax = figure.add_subplot(grid[0, 1])
+    formulation_ax = figure.add_subplot(grid[1, 1])
     feasible = np.asarray([row["has_feasible"] for row in rows], dtype=bool)
     optimal = np.asarray([row["is_proven"] for row in rows], dtype=bool)
     limited = feasible & ~optimal
 
-    bounds = np.asarray([
-        np.nan if row["objective_bound"] is None
-        else row["objective_bound"] for row in rows
-    ])
-    bound_intervals = feasible & np.isfinite(bounds) & np.isfinite(costs)
-    nonzero_intervals = bound_intervals & ~np.isclose(bounds, costs)
-    if np.any(nonzero_intervals):
-        lower = np.minimum(bounds[nonzero_intervals], costs[nonzero_intervals])
-        upper = np.maximum(bounds[nonzero_intervals], costs[nonzero_intervals])
-        cost_ax.vlines(
-            h2[nonzero_intervals], lower, upper,
-            color="#d97706", linewidth=2.0, alpha=0.75,
-            label="feasible/bound interval", zorder=2,
-        )
-
     if np.count_nonzero(feasible) > 1:
-        cost_ax.plot(h2[feasible], costs[feasible], color="#9ca3af",
-                     linewidth=1.5, zorder=1)
+        # Plot the complete array so NaN entries break the line wherever a
+        # time-limited case produced no feasible solution.
+        cost_ax.plot(h2, costs, color="#9ca3af", linewidth=1.5, zorder=1)
     cost_ax.scatter(h2[optimal], costs[optimal], s=72, marker="o",
                     facecolor="#2563eb", edgecolor="white", linewidth=0.9,
                     label="proven optimal", zorder=3)
     cost_ax.scatter(h2[limited], costs[limited], s=82, marker="D",
                     facecolor="white", edgecolor="#d97706", linewidth=1.8,
                     label="feasible", zorder=3)
+    no_feasible = ~feasible
+    if np.any(no_feasible):
+        cost_ax.scatter(
+            h2[no_feasible], np.full(np.count_nonzero(no_feasible), 0.02),
+            transform=cost_ax.get_xaxis_transform(), clip_on=False,
+            s=58, marker="x", color="#dc2626", linewidth=1.6,
+            label="no feasible solution found", zorder=4,
+        )
 
     for row in rows:
         if row["cost"] is None:
             continue
-        gap_label = ""
-        if row["mip_gap"] is not None and row["mip_gap"] > 1e-8:
-            gap_label = f"\n({100.0 * row['mip_gap']:.1f}% gap)"
-        cost_ax.annotate(
-            f"{row['cost']:.3g}{gap_label}",
-            (row["H2"], row["cost"]),
-            xytext=(0, 9), textcoords="offset points", ha="center",
-            fontsize=8, color="#374151",
-        )
+        if row["is_proven"] or row["H2"] == view["best_feasible_H2"]:
+            cost_ax.annotate(
+                f"{row['cost']:.3g}", (row["H2"], row["cost"]),
+                xytext=(0, 9), textcoords="offset points", ha="center",
+                fontsize=8, color="#374151",
+            )
 
-    proven_h2 = view["best_proven_H2"]
     feasible_h2 = view["best_feasible_H2"]
-    if proven_h2 is not None:
-        row = _row_at_h2(rows, proven_h2)
-        if row is not None and row["cost"] is not None:
-            cost_ax.scatter([proven_h2], [row["cost"]], s=230, marker="*",
-                            facecolor="#16a34a", edgecolor="#14532d",
-                            linewidth=0.8, label="best proven", zorder=5)
-    if feasible_h2 is not None and feasible_h2 != proven_h2:
+    if feasible_h2 is not None:
         row = _row_at_h2(rows, feasible_h2)
         if row is not None and row["cost"] is not None:
             cost_ax.scatter([feasible_h2], [row["cost"]], s=175, marker="P",
@@ -243,49 +296,61 @@ def _draw_horizon_sweep(view: dict[str, Any], plot_path: Path) -> None:
     cost_ax.set_title("Operating objective", loc="left", fontweight="bold")
     cost_ax.set_xlabel("Operating horizon $H_2$")
     cost_ax.set_ylabel("$J_{op} / H_2$  (lower is better)")
-    cost_ax.set_xticks(h2)
+    cost_ax.set_xticks(_readable_horizon_ticks(h2))
     cost_ax.grid(axis="both", color="#e5e7eb", linewidth=0.8)
-    cost_ax.legend(frameon=False, loc="best")
+    cost_ax.legend(frameon=False, loc="best", fontsize=8)
 
-    runtime_mask = np.isfinite(runtimes) & (runtimes > 0.0)
-    if np.any(runtime_mask):
-        scale_ax.plot(h2[runtime_mask], runtimes[runtime_mask], marker="o",
-                      color="#d97706", linewidth=2.0, label="optimizer time")
-        scale_ax.set_yscale("log")
-    scale_ax.set_xlabel("Operating horizon $H_2$")
-    scale_ax.set_ylabel("Optimizer time [s] (log scale)", color="#b45309")
-    scale_ax.tick_params(axis="y", labelcolor="#b45309")
-    scale_ax.set_xticks(h2)
-    scale_ax.grid(axis="both", color="#e5e7eb", linewidth=0.8)
+    finite_gaps = feasible & np.isfinite(gaps)
+    if np.any(finite_gaps):
+        gap_percent = 100.0 * gaps
+        gap_ax.plot(h2, gap_percent, color="#9ca3af", linewidth=1.2, zorder=1)
+        gap_ax.scatter(
+            h2[optimal], gap_percent[optimal], s=45, marker="o",
+            facecolor="#2563eb", edgecolor="white", linewidth=0.7,
+            label="proven optimal", zorder=3,
+        )
+        gap_ax.scatter(
+            h2[limited], gap_percent[limited], s=48, marker="D",
+            facecolor="white", edgecolor="#d97706", linewidth=1.5,
+            label="time-limited feasible", zorder=3,
+        )
+        for row in rows:
+            if row["mip_gap"] is None:
+                continue
+            gap_ax.annotate(
+                f"{100.0 * row['mip_gap']:.1f}%",
+                (row["H2"], 100.0 * row["mip_gap"]),
+                xytext=(0, 5), textcoords="offset points", ha="center",
+                fontsize=6.5, color="#4b5563", rotation=35,
+            )
+    if np.any(no_feasible):
+        gap_ax.scatter(
+            h2[no_feasible], np.full(np.count_nonzero(no_feasible), 0.96),
+            transform=gap_ax.get_xaxis_transform(), clip_on=False,
+            s=38, marker="x", color="#dc2626", linewidth=1.4,
+            label="no feasible solution; gap undefined", zorder=4,
+        )
+    gap_ax.set_title("MIP gap", loc="left", fontweight="bold")
+    gap_ax.set_ylabel("Relative MIP gap [%]")
+    gap_ax.set_xticks(_readable_horizon_ticks(h2))
+    gap_ax.grid(axis="both", color="#e5e7eb", linewidth=0.8)
+    gap_ax.legend(frameon=False, loc="upper left", fontsize=7.5)
 
-    count_ax = scale_ax.twinx()
     if np.any(np.isfinite(continuous)):
-        count_ax.plot(h2, continuous, marker="s", color="#2563eb",
-                      linewidth=1.8, label="continuous variables")
+        formulation_ax.plot(h2, continuous, marker="s", color="#2563eb",
+                            linewidth=1.8, label="continuous variables")
     if np.any(np.isfinite(integers)):
-        count_ax.plot(h2, integers, marker="D", color="#0891b2",
-                      linewidth=1.8, label="integer variables")
+        formulation_ax.plot(h2, integers, marker="D", color="#0891b2",
+                            linewidth=1.8, label="integer variables")
     if np.any(np.isfinite(constraints)):
-        count_ax.plot(h2, constraints, marker="^", color="#7c3aed",
-                      linewidth=1.8, label="linear constraints")
-    count_ax.set_ylabel("Formulation count", color="#4b5563")
-    count_ax.tick_params(axis="y", labelcolor="#4b5563")
-    scale_ax.set_title("Computational growth", loc="left", fontweight="bold")
-
-    handles_left, labels_left = scale_ax.get_legend_handles_labels()
-    handles_right, labels_right = count_ax.get_legend_handles_labels()
-    scale_ax.legend(handles_left + handles_right, labels_left + labels_right,
-                    frameon=False, loc="upper left")
-
-    for row in rows:
-        colour = "#15803d" if row["status"] == "optimal" else "#b45309"
-        status_label = row["status"].replace("_", " ")
-        if row["mip_gap"] is not None:
-            status_label += f"; {100.0 * row['mip_gap']:.1f}% gap"
-        scale_ax.annotate(status_label,
-                          (row["H2"], 0.02), xycoords=("data", "axes fraction"),
-                          rotation=90, ha="center", va="bottom", fontsize=7,
-                          color=colour)
+        formulation_ax.plot(h2, constraints, marker="^", color="#7c3aed",
+                            linewidth=1.8, label="linear constraints")
+    formulation_ax.set_xlabel("Operating horizon $H_2$")
+    formulation_ax.set_ylabel("Formulation count")
+    formulation_ax.set_xticks(_readable_horizon_ticks(h2))
+    formulation_ax.grid(axis="both", color="#e5e7eb", linewidth=0.8)
+    formulation_ax.set_title("Formulation growth", loc="left", fontweight="bold")
+    formulation_ax.legend(frameon=False, loc="upper left", fontsize=7.5)
 
     dimensions = ", ".join(
         f"{name}={view[name]}" for name in ("F", "M", "L", "H1")
@@ -296,15 +361,25 @@ def _draw_horizon_sweep(view: dict[str, Any], plot_path: Path) -> None:
     figure.text(0.02, 0.925, dimensions, fontsize=9, color="#4b5563")
     figure.text(
         0.5, 0.035,
-        "A time-limited feasible solution may have a lower observed cost than the best "
-        "proven case; it is not an optimality certificate.",
+        "Lines connect sampled horizons only; they are not extrapolations. "
+        "The MIP gap quantifies uncertainty relative to the solver's bound.",
         ha="center", fontsize=8.5, color="#4b5563",
     )
     figure.subplots_adjust(
-        left=0.075, right=0.925, top=0.84, bottom=0.18, wspace=0.32
+        left=0.075, right=0.925, top=0.84, bottom=0.15,
+        wspace=0.32, hspace=0.42
     )
     figure.savefig(plot_path, dpi=170, bbox_inches="tight")
     plt.close(figure)
+
+
+def _readable_horizon_ticks(horizons: np.ndarray) -> np.ndarray:
+    if horizons.size <= 10:
+        return horizons
+    ticks = horizons[::2]
+    if ticks[-1] != horizons[-1]:
+        ticks = np.append(ticks, horizons[-1])
+    return ticks
 
 
 def _row_at_h2(rows: list[dict[str, Any]], h2: int) -> dict[str, Any] | None:

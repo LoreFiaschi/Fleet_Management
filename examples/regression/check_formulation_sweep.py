@@ -15,6 +15,7 @@ def main() -> None:
         "F": 2,
         "M": 1,
         "L": 1,
+        "component_names": ["Battery"],
         "H": [2, 2],
         "model": "gamma",
         "repair_model": "ardinf",

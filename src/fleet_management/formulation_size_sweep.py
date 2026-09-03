@@ -43,6 +43,18 @@ def _case_data(source: dict, parameter: str, value: int, H1: int) -> dict:
     case = deepcopy(source)
     if parameter in {"F", "M", "L"}:
         case[parameter] = value
+        if parameter == "L" and "component_names" in case:
+            written_names = case["component_names"]
+            if written_names is None:
+                names = []
+            elif isinstance(written_names, str):
+                names = [written_names]
+            else:
+                names = [str(name) for name in written_names]
+            case["component_names"] = [
+                names[index] if index < len(names) else f"Component {index + 1}"
+                for index in range(value)
+            ]
     elif parameter == "T":
         if value <= H1:
             raise ValueError(f"T={value} must exceed fixed H1={H1}")

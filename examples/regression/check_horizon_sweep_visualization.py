@@ -56,9 +56,40 @@ def main() -> None:
     with TemporaryDirectory(prefix="horizon-sweep-visualisation-") as directory:
         root = Path(directory)
         report_path = root / "horizon_sweep.yaml"
+        extension_path = root / "horizon_sweep_extension.yaml"
         image_path = root / "horizon_sweep.png"
         report_path.write_text(yaml.safe_dump(report, sort_keys=False), encoding="utf-8")
-        plot_horizon_sweep(str(report_path), str(image_path))
+        extension = {
+            "objective": report["objective"],
+            "fixed_dimensions": report["fixed_dimensions"],
+            "cases": [
+                cases[-1],
+                {
+                    "H1": 4,
+                    "H2": 20,
+                    "T": 24,
+                    "status": "time_limit",
+                    "J_op": None,
+                    "J_op_average": None,
+                    "objective_bound": 0.45,
+                    "mip_gap": None,
+                    "optimizer_seconds": 900.0,
+                    "formulation": {
+                        "variables": 696,
+                        "continuous_variables": 312,
+                        "integer_variables": 384,
+                        "linear_constraints": 1712,
+                    },
+                    "timing": {"optimizer_call_seconds": 900.0},
+                },
+            ],
+        }
+        extension_path.write_text(
+            yaml.safe_dump(extension, sort_keys=False), encoding="utf-8"
+        )
+        plot_horizon_sweep(
+            [str(report_path), str(extension_path)], str(image_path)
+        )
 
         if not image_path.is_file() or image_path.stat().st_size < 30_000:
             raise AssertionError("horizon-sweep visualisation was not created")
@@ -71,7 +102,8 @@ def main() -> None:
     print("PASS operating-horizon sweep visualisation")
     print("best proven H2   : 12")
     print("best feasible H2: 16 (time limit)")
-    print("panels            : operating cost, runtime and formulation growth")
+    print("no feasible H2    : 20")
+    print("panels            : operating cost, MIP gap and formulation growth")
 
 
 if __name__ == "__main__":
