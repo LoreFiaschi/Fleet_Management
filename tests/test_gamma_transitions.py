@@ -1,8 +1,8 @@
 import numpy as np
 import pytest
 
-from fleet_management.degradation.gamma import GammaAction, GammaModel
-from fleet_management.degradation_model.gamma.gamma_validator import (
+from fleet_management.degradation_model.gamma import GammaAction, GammaModel
+from fleet_management.degradation_model.gamma_utils.gamma_validator import (
     _exact_repair_diagnostic,
     _reconstruct_shapes,
     _repair_cost_violation,

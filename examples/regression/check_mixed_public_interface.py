@@ -39,7 +39,7 @@ def main() -> None:
         raise AssertionError("mixed degradation identity was not preserved")
     if result["models"] != ["gamma", "rainflow"]:
         raise AssertionError(f"unexpected model list {result['models']!r}")
-    if result["component_names"] != ["Battery", "Tires"]:
+    if result["component_names"] != ["Battery", "Motor Insulation"]:
         raise AssertionError("component names were not preserved")
     if result["model_assignment"] != [
         ["gamma", "rainflow"], ["gamma", "rainflow"]

@@ -7,7 +7,7 @@ from pathlib import Path
 import matplotlib.pyplot as plt
 import streamlit as st
 
-from fleet_management.validator import (
+from fleet_management.validation.validator import (
     build_gamma_diagnostic_dataframe,
     validate_gamma_synthetic_diagnostic,
 )

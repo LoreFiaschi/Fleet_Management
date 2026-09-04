@@ -6,10 +6,6 @@ import h5py
 import numpy as np
 import yaml
 
-# Three routes: a gamma-only fleet uses the existing gamma backend; a uniform
-# rainflow fleet uses the rainflow builder; a genuinely mixed fleet is assembled
-# per cell on the shared model layer in base.py.
-from fleet_management.degradation_model.gamma_utils.gamma_gurobi import solve_fleet_management as solve_gamma
 from fleet_management.degradation_model.rainflow import solve as rainflow_solve
 from fleet_management.degradation_model.base import solve_mixed as base_solve_mixed
 
@@ -18,14 +14,13 @@ from fleet_management.config import load_config, FleetConfig
 SUPPORTED_EXTENSIONS = {".yaml", ".yml", ".json", ".h5", ".hdf5"}
 
 
-def solve(input_path: str, results_path: str = None) -> dict:   # was -> None, now -> dict for performance measurement
+def solve(input_path: str, results_path: str | None = None) -> dict:
     """
-    Mid-layer between the user and the fleet-management solvers.
+    Read, normalize, solve and serialize a self-describing fleet input.
 
     The input file is self-describing: it must carry a top-level ``model:`` key
-    (see ``config.load_config``).  There is no separate ``degradation`` argument
-    and no legacy path -- every case is treated as mixed, where "mixed" spans
-    both a genuinely heterogeneous fleet and one model everywhere.
+    (see ``config.load_config``). There is no separate ``degradation``
+    argument. Uniform and genuinely mixed fleets share this entry point.
 
     Parameters
     ----------
@@ -53,28 +48,23 @@ def solve(input_path: str, results_path: str = None) -> dict:   # was -> None, n
     if results_dir != Path("") and not os.access(results_dir, os.W_OK):
         raise PermissionError(f"Results directory is not writable: {results_dir}")
 
-    # --- Read, normalize, and validate input via config.load_config ---
-    data = _read_input(input_file)
-    cfg = load_config(data)
+    cfg = load_config(_read_input(input_file))
 
-    # --- Solve (uniform single-model is bridged; heterogeneous -> Step 2) ---
     result = _solve_mixed(cfg)
     result.setdefault("model_assignment", cfg.model.astype(str).tolist())
     result.setdefault("component_names", list(cfg.component_names))
 
-    result.setdefault("performance", {})                        # performance measurement
+    result.setdefault("performance", {})
 
-    # --- Save results ---
     _save_results(result, results_path)
-
-    return result                                               # performance measurement
+    return result
 
 
 # ---------------------------------------------------------------------------
 # Solve dispatch (all inputs are "mixed"; uniform fleets bridge to a backend)
 # ---------------------------------------------------------------------------
-def _solve_mixed(cfg: "FleetConfig") -> dict:
-    """Solve a normalized FleetConfig — three routes by fleet composition.
+def _solve_mixed(cfg: FleetConfig) -> dict:
+    """Dispatch a normalized configuration by fleet composition.
 
     1. **gamma-only**  -> the modular tail-bound builder when an explicit
        ``gamma_beta_bound`` is supplied; otherwise the existing constant-rate
@@ -84,30 +74,36 @@ def _solve_mixed(cfg: "FleetConfig") -> dict:
        which builds the shared skeleton once and then fills in each cell's
        constraints through that cell's registered model builder.
     """
-    models = set(cfg.models)
+    models = frozenset(cfg.models)
+    if models == {"gamma"}:
+        return _solve_gamma_fleet(cfg)
+    if models == {"rainflow"}:
+        return _identify_result(rainflow_solve(cfg), cfg, "rainflow")
+    return _identify_result(base_solve_mixed(cfg), cfg, "mixed")
 
-    if models == {"gamma"}:                                   # 1. gamma-only
-        if cfg.gamma_beta_bound is not None:
-            result = base_solve_mixed(cfg)
-            result["backend"] = "modular"
-        else:
-            result = solve_gamma(**_cfg_to_gamma_kwargs(cfg))
-            result["mu_0"] = cfg.mu_0
-            result["backend"] = "legacy_gamma"
-        result["degradation"] = "gamma"
-        result.setdefault("models", cfg.models)
-        return result
 
-    if models == {"rainflow"}:                                # 2. rainflow-only
-        result = rainflow_solve(cfg)
-        result["backend"] = "modular"
-        result["degradation"] = "rainflow"
-        result.setdefault("models", cfg.models)
-        return result
-
-    result = base_solve_mixed(cfg)                            # 3. mixed per cell
+def _identify_result(result: dict, cfg: FleetConfig, degradation: str) -> dict:
+    """Attach the common backend/model identity fields in one place."""
     result["backend"] = "modular"
-    result["degradation"] = "mixed"
+    result["degradation"] = degradation
+    result.setdefault("models", cfg.models)
+    return result
+
+
+def _solve_gamma_fleet(cfg: FleetConfig) -> dict:
+    """Use the modular Gamma builder or the isolated compatibility backend."""
+    if cfg.gamma_beta_bound is not None:
+        return _identify_result(base_solve_mixed(cfg), cfg, "gamma")
+
+    # Import lazily so current modular runs do not load the legacy backend.
+    from fleet_management.degradation_model.legacy.gamma_gurobi import (
+        solve_fleet_management,
+    )
+
+    result = solve_fleet_management(**_cfg_to_gamma_kwargs(cfg))
+    result["mu_0"] = cfg.mu_0
+    result["backend"] = "legacy_gamma"
+    result["degradation"] = "gamma"
     result.setdefault("models", cfg.models)
     return result
 
@@ -167,7 +163,7 @@ def _legacy_gamma_beta(cfg: "FleetConfig") -> np.ndarray:
 
 def _cfg_to_gamma_kwargs(cfg: "FleetConfig") -> dict:
     """Translate a uniform single-model gamma FleetConfig into solve_gamma
-    kwargs for the CURRENT gamma backend.
+    keyword arguments for the legacy constant-rate Gamma backend.
 
     Gamma is single-horizon: if the input gave H = [H1, H2], only H1 is used
     (H = cfg.H1).  Component scalars (tau / gamma_beta / repair_rho) are reduced

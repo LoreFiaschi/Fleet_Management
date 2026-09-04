@@ -2,7 +2,7 @@ from pathlib import Path
 
 import pytest
 
-from fleet_management.validator.validator import validate
+from fleet_management.validation.validator import validate
 
 
 INPUT = "input/data_test_baseline.yaml"

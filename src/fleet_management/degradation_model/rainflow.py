@@ -1,61 +1,15 @@
-"""
-Fleet management with a rainflow / remaining-life (Palmgren-Miner) degradation
-model, solved with Gurobi -- MODULAR, per-cell version (Step 2).
+"""Remaining-life (rainflow/Palmgren--Miner) component formulation.
 
-This module consumes a normalized ``FleetConfig`` (see ``config.py``) and builds
-one Gurobi program for the whole fleet.  The unit of modelling is a **cell**
-``(i, l)`` = (vehicle ``i``, component ``l``); every cell carries its own model
-(``rainflow`` / ``gamma`` / ...), reliability bound, repair model, threshold,
-etc.  The shared skeleton (assignment ``x``, depot capacity, aggregate-damage
-cap, safety ``u`` and the objective cost terms) is built once; each cell then
-adds its own degradation / maintenance / reliability block.
+The shared fleet skeleton, model registry and Gamma component builder live in
+``degradation_model.base``. This module contains only the remaining-life cell
+state, maintenance, reliability and repeatability constraints, then registers
+``RainflowCellBuilder`` under the model name ``"rainflow"``.
 
-Where things live (the "clear locations")
------------------------------------------
-    solve                         entry point: build skeleton, then dispatch cells
-    _build_objective              shared objective
-    _add_base_constraints         shared: assignment, depot cap, aggregate cap, u
-    _dispatch_cell                per-cell model switch  (rainflow / gamma / ...)
-      _add_rainflow_cell            one rainflow cell = gating + state + reliability
-                                    + repeatability
-        _add_maintenance_gating       eq. 3 gating (m, r, nb)
-        _add_rainflow_state           mean / variance / ARD latch / z / R / K recursion
-        _add_reliability              -> RELIABILITY_BOUNDS[bound][impl](ctx, i, l) <== bounds
-        _add_repeatability            descriptor loop condition theta_T <= theta_H1
-      _add_gamma_cell               PLACEHOLDER (work in progress)
-
-Reliability bounds  ***edit / add formulations here***
-------------------------------------------------------
-Each entry of ``RELIABILITY_BOUNDS`` is a function ``f(ctx, i, l)`` that adds the
-per-step  ``P(D > tau) <= eps``  constraints for one rainflow cell, reading the
-cell's state variables and parameters from ``ctx``.  To try a different
-formulation of an existing bound, edit its function; to add a new bound, write a
-``_rel_<name>`` function and register it (and, if it needs a new accumulator such
-as Hoeffding's ``R`` or Chernoff's ``K``, add that accumulator's recursion in
-``_add_rainflow_state`` alongside the existing ones and declare the descriptor in
-``_BOUND_DESCRIPTORS``).
-
-Two horizons
-------------
-Time axis has a transitory phase ``H1`` (steps 0..H1-1, run-up from ``mu_0``) and
-an operating phase ``H2`` (steps H1..H1+H2-1); ``T = H1 + H2``. A single-int
-``H`` gives ``H1 = H2 = H`` and ``T = 2H``. Operating-phase profiles come from
-``cfg`` as ``(F, L, M, H2)``; optional transitory profiles are ``(F, L, M, H1)``
-and reused from the operating profile when absent.
-
-Both halves of the repeatability requirement are imposed:
-
-* *periodic data* -- the operating-phase profiles are indexed cyclically with
-  period ``H2`` (``base.make_accessor``), so the increments of block ``m+1``
-  repeat those of block ``m``;
-* *loop condition* -- the descriptor at the last step is constrained not to
-  exceed its value at the end of the transitory phase, per cell, by
-  ``_add_repeatability`` below.
-
-The objective itself is unchanged (the four cost terms of the formulation);
-repeatability enters only as constraints.
-
-Author: Johann Tschan  (revised; modular Step-2 rewrite)
+To add a reliability bound, implement its builder here, register it in
+``RELIABILITY_BOUNDS`` and declare any additional state descriptor beside the
+existing descriptor definitions. Operating profiles cover ``H2`` and optional
+initialization profiles cover ``H1``; the shared accessor handles their time
+indexing.
 """
 
 from __future__ import annotations
@@ -105,10 +59,10 @@ def solve(cfg, *, allow_replacement=None, depot_capacity=None,
     """Solve a fleet from a normalized ``FleetConfig``.
 
     The shared skeleton (variables, general constraints, objective) comes from
-    ``base``; this entry point simply drives it. Rainflow cells are fully
-    supported; a cell of another model is dispatched to that model's builder
-    (gamma currently hits its placeholder and raises). Run-time options default
-    to the values in ``cfg.options`` when not passed explicitly.
+    ``base``; this entry point simply drives it. Run-time options default to the
+    values in ``cfg.options`` when not passed explicitly. The public solver uses
+    this wrapper only for uniform remaining-life fleets; mixed fleets are driven
+    directly by ``base.solve_mixed``.
     """
     opts = resolve_run_options(
         cfg,

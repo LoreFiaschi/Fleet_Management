@@ -12,8 +12,8 @@ degradation model, so `solve()` no longer takes a `degradation` argument.
 | Model | Status | Notes |
 |---|---|---|
 | `rainflow` | **Implemented** (modular, per-cell) | Palmgren–Miner accumulated damage tracked via mean/variance (+ descriptors); distribution-free reliability bounds with selectable constraint *implementations*. |
-| `gamma` | **Implemented via backend** | Solved through the existing gamma backend for gamma-only fleets. A modular per-cell gamma block is a work-in-progress placeholder. |
-| `gaussian`, `inverse_gaussian` | **Reserved** | Accepted by the schema but not currently wired through the self-describing entry point (they raise `NotImplementedError`).
+| `gamma` | **Implemented** (modular, per-cell) | Inputs with `gamma_beta_bound` use the current repeated-increment tail-bound formulation. The older constant-rate backend remains as a regression fallback when that field is omitted. |
+| `gaussian`, `inverse_gaussian` | **Reserved** | Accepted by the schema but not currently wired through the self-describing entry point (they raise `NotImplementedError`). |
 
 Depending on the reliability-constraint implementation, the program is a **MILP**
 (linear bounds/surrogates) or a **nonconvex MIQCP** (exact quadratic bounds).
@@ -52,9 +52,10 @@ plot_management("results/output.yaml", plot_file_path="results/schedule.png")
 
 ## Input file format
 
-Inputs are normalized by a config layer (`config.py`) that validates every field
-and broadcasts scalars to full per-cell arrays. Full details and the annotated
-template are in `docs/config_and_solver.md` and `spec/input_template.yaml` described.
+Inputs are normalized by `config.py`, which validates fields and broadcasts
+scalars to full per-cell arrays. Small executable scenarios are kept in
+`examples/regression/`; the Euler and Zurich-scale experiment inputs are in
+`input/`.
 
 ### Required keys (all models)
 
@@ -109,7 +110,7 @@ Optional, passed to the solver (top level of the input, or `solve()` kwargs):
 ### YAML example (rainflow, uniform fleet)
 
 ```yaml
-model: rainflow            # change to `gamma` to use the gamma backend
+model: rainflow            # use `gamma` for the modular Gamma formulation
 F: 6
 H: 10                      # int -> H1 = H2 = 10, T = 20; or [H1, H2]
 M: 3
@@ -144,8 +145,8 @@ verbose: 1
 mip_gap: 0.12
 ```
 
-Larger inputs specify `mu`/`v` as `(F, L, M, H)` tensors; see
-`spec/input_template.yaml`.
+Larger inputs may specify `mu`/`v` as `(F, L, M, H)` tensors. See the regression
+scenario files for complete inputs that are kept in sync with the implementation.
 
 Supported input/output formats: **YAML** (`.yaml`, `.yml`), **JSON** (`.json`),
 **HDF5** (`.h5`, `.hdf5`). The output format follows the extension of
@@ -252,8 +253,8 @@ distribution-free **bound**, selected per cell via `bound_method`:
 | `bernstein` | mean, variance, support | quadratic |
 | `chernoff` | cumulant generating function (fixed tilt `s`) | linear |
 
-Bounds are listed in increasing tightness (each uses more information). See
-`reliability_bounds.md` for the exact inequalities.
+The corresponding equations and modelling assumptions are documented in the
+report source under `spec/`.
 
 The three quadratic bounds additionally offer a choice of **implementation** —
 how the (nonconvex) inequality is encoded — via `reliability_impl`:
@@ -267,8 +268,7 @@ how the (nonconvex) inequality is encoded — via `reliability_impl`:
 `tangent` and `pwl` are conservative (their feasible set is a subset of the exact
 one — they never accept an unsafe schedule), trading a little optimality for a
 linear model. `pwl` tightens toward `exact` as `pwl_points` grows. Markov and
-Chernoff are already linear, so they ignore this option. See
-`reliability_implementations.md` and `compare_reliability_impls.py`.
+Chernoff are already linear, so they ignore this option.
 
 
 ## Project structure
@@ -277,35 +277,39 @@ Chernoff are already linear, so they ignore this option. See
 Fleet_Management/
     pyproject.toml
     README.md
-    reliability_bounds.md              # the five bounds (math reference)
-    spec/
-        input_template.yaml            # annotated input template
-    input/
-        test_switch_model.yaml         # flip model: rainflow <-> gamma
     docs/
-        config_and_solver.md           # schema, config, solver, FleetConfig API
-        reliability_implementations.md # bounds x implementations (Step 3)
-    compare_reliability_impls.py       # exact/tangent/pwl comparison harness
+        PROJECT_LAYOUT.md              # active, supporting and legacy paths
+    spec/
+        main.tex                        # article/report source
+    input/
+        gamma_horizon_euler_convergence.yaml
+        zurich_*_mixed.yaml            # build-only scale estimates
+    examples/regression/
+        RegressionREADME.md            # checks and run commands
+        check_*.py                     # deterministic regression checks
+        run_*.py, report_*.py          # experiment/report entry points
+    euler/
+        README.md                      # current and legacy Slurm jobs
     src/
         fleet_management/
             __init__.py                # Public API: solve, plot_management
             config.py                  # self-describing schema -> FleetConfig
             solver.py                  # I/O, dispatch, serialization
             degradation_model/
-                rainflow.py            # modular per-cell rainflow MILP/MIQCP
+                base.py                # shared mixed-model formulation
+                rainflow.py            # remaining-life builder
                 gamma_utils/
-                    gamma_gurobi.py    # gamma backend
+                    gamma_repeated_calibration.py
+                    gamma_replay_validator.py
+                    gamma_gurobi.py    # legacy fallback/regression oracle
             utils/
-                plotter.py             # schedule visualisation
-            # legacy backends (not wired through the new entry point):
-            gaussian.py
-            inverse_gaussian.py
+                mixed_plotter.py       # current result visualisation
 ```
 
 ## Further reading
 
-- `docs/config_and_solver.md` — input schema, broadcasting, horizons, validation,
-  the `FleetConfig` API, and how `solver.py` dispatches.
-- `docs/reliability_implementations.md` — the bound-vs-implementation split and
-  how to add new relaxation families.
-- `reliability_bounds.md` — the exact probability inequalities.
+- `docs/PROJECT_LAYOUT.md` — current, supporting and compatibility paths.
+- `examples/regression/RegressionREADME.md` — regression checks, experiment
+  runners and maintenance rules.
+- `src/fleet_management/degradation_model/gamma_utils/GAMMA_DIAGNOSTICS.md` —
+  Gamma calibration, formulation diagnostics and replay validation.

@@ -1,7 +1,7 @@
 import pytest
 from scipy.stats import gamma
 
-from fleet_management.degradation.gamma import (
+from fleet_management.degradation_model.gamma import (
     maximum_reliable_expected_damage,
     maximum_reliable_shape,
 )

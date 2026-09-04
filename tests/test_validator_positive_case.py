@@ -1,4 +1,4 @@
-from fleet_management.validator.validator import validate
+from fleet_management.validation.validator import validate
 
 
 def test_validator_accepts_valid_baseline():
@@ -11,4 +11,3 @@ def test_validator_accepts_valid_baseline():
 
     assert report["passed"] is True
     assert report["max_violation"] <= report["tolerance"]
-    
