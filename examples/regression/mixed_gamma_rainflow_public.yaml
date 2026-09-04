@@ -2,7 +2,7 @@ F: 2
 M: 1
 L: 2
 H: [2, 3]
-component_names: [Battery, Tires]
+component_names: [Battery, Motor Insulation]
 
 # Component 0 uses the modular Gamma tail bound; component 1 uses rainflow.
 model: [gamma, rainflow]
