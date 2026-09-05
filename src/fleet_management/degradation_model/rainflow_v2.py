@@ -130,11 +130,18 @@ def solve(cfg, *, allow_replacement=None, depot_capacity=None,
           verbose=None, mip_gap=None, time_limit=None, fast=None,
           gurobi_params=None,
           reliability_impl=None, pwl_points=None, tangent_ref=None,
-          formulation=None, bigM=None, z_exact=None) -> dict:
+          formulation=None, bigM=None, z_exact=None,
+          sparse_cuts=None) -> dict:
     """Solve a fleet from a normalized ``FleetConfig``.
 
     Identical to ``rainflow.solve`` plus three knobs:
 
+    sparse_cuts : {'off', 'core', 'full'} or bool
+        Add the locally-supported valid inequalities of ``add_sparse_cuts`` on
+        top of the INDICATOR encoding.  They are implied by the indicator
+        constraints, so the integer optimum is unchanged; what changes is the
+        root relaxation, which is otherwise trivial.  Ignored under 'bigm',
+        whose rows already imply them.  'core' is the big-M-free subset.
     formulation : {'indicator', 'bigm'}
         How the logical constraints are encoded.  ``'indicator'`` (default)
         reproduces ``rainflow.py`` exactly; ``'bigm'`` uses linear big-M rows,
@@ -154,6 +161,7 @@ def solve(cfg, *, allow_replacement=None, depot_capacity=None,
         gurobi_params=gurobi_params, reliability_impl=reliability_impl,
         pwl_points=pwl_points, tangent_ref=tangent_ref,
         formulation=formulation, bigM=bigM, z_exact=z_exact,
+        sparse_cuts=sparse_cuts,
     )
     # ``base._load_builders`` deterministically installs THIS builder for the
     # "rainflow" name, so no registry juggling is needed here.
@@ -161,6 +169,8 @@ def solve(cfg, *, allow_replacement=None, depot_capacity=None,
     ctx.model.optimize()
     out = _extract_solution(ctx, cfg, ctx.model)
     out["formulation"] = str(ctx.formulation)
+    out["sparse_cuts"] = sparse_cut_level(ctx.sparse_cuts)
+    out["build_s"] = float(ctx.extras.get("build_s", float("nan")))
     return out
 
 
@@ -307,6 +317,7 @@ def _add_rainflow_cell(ctx: _RFModel, i: int, l: int) -> None:
     else:
         _add_rainflow_state_ind(ctx, i, l)
     _add_reliability(ctx, i, l)
+    add_sparse_cuts(ctx, i, l)               # no-op unless opts sparse_cuts
 
 
 # ---------------------------------------------------------------------------
@@ -657,6 +668,199 @@ def _add_rainflow_state_ind(ctx: _RFModel, i: int, l: int) -> None:
             if allow_rep:
                 md.addGenConstrIndicator(r_rep[i, l, k], True, K_var[i, l, k] == 0.0,
                                          name=f"K_repl_{i}_{l}_{k}")
+
+
+# ===========================================================================
+# ####  SPARSE STRENGTHENING OF THE INDICATOR ENCODING  (opts sparse_cuts)  ##
+# ===========================================================================
+# The problem
+# -----------
+# A Gurobi indicator constraint contributes NOTHING to the LP relaxation until
+# its binary is fixed.  In the pure indicator model the root relaxation sees
+# states that are free within their bounds, so it can hold every mu at 0, set
+# z = 0 and u = 0, and report a bound of ZERO.  Measured on F=5, M=2, L=1, H=5:
+# root LP 0.0000 against an optimum of 5.9725, i.e. lp_gap = 1.0 by
+# construction, 78 788 nodes and 52 s.  Branching then has to rebuild the whole
+# bound, and each branching decision INSERTS a row, which invalidates the dual
+# basis -- hence the 250-280 simplex iterations per node seen on the F=6 runs,
+# where a warm-started node re-solve should take ten.
+#
+# Switching to formulation='bigm' fixes this, but it replaces the encoding, and
+# the indicator encoding is the one the report describes.  This family is the
+# alternative: keep every indicator constraint exactly as it is, and ADD rows
+# that are valid on all three branches of each disjunction, so they hold
+# unconditionally and can sit in the LP from the start.
+#
+# Why this is a SPARSE approach and not just "more rows"
+# ------------------------------------------------------
+# The sparsity chapter proves every row's support is bounded by M+3 uniformly in
+# F, L and H, with nnz/(m+n) ~ 2.5.  That is the licence for this: each row
+# below touches ONE cell at steps k-1 and k only, so its support is at most M+3
+# too, and the density, the O(1) row support and the banded structure all
+# survive.  The LP grows by O(F*L*T) rows of constant width and stays trivial to
+# solve.  Spending model size -- which sparsity makes cheap -- to buy relaxation
+# strength -- which the tree is short of -- is exactly the trade the sparsity
+# result licences, and it is the reason this is worth doing at all.
+#
+# The rows
+# --------
+# (C1) TELESCOPING MEAN BALANCE -- the centrepiece, an EQUALITY, big-M free
+#
+#          mu_k - mu_{k-1} - sum_j c_jk x_jk + z_k = 0
+#
+#      Valid because of a structural fact the branch-wise recursion hides: an
+#      intervention requires the depot (``m + r <= x[i,0,k]``) and a mission
+#      excludes the depot (``sum_j x[i,j,k] <= 1``), so whenever ANY mission
+#      increment is injected at step k, nb_k = 1 automatically.  Branch by
+#      branch:
+#          nb : mu_k = mu_{k-1} + inc_k  and  z_k = 0                -> holds
+#          m  : x[i,0,k] = 1 so inc_k = 0, and z_k = mu_{k-1} - mu_k -> holds
+#          r  : same as m                                            -> holds
+#      So the three-way disjunction collapses to one linear equality that is
+#      true on every branch.  It is what puts the objective's C_R*z term in
+#      contact with the mission load: to keep z small the LP must let mu grow,
+#      and mu feeds u, which costs C_D.  Root bound 0.0000 -> 0.5000.
+#
+# (C2) DESCRIPTOR UPPER ENVELOPE (v, R, K) -- big-M free
+#
+#          s_k <= s_{k-1} + inc_k + new*r_k
+#
+#      nb: equality.  m: s_k = a*s_{k-1} + (1-a)*g_{k-1} <= s_{k-1} because the
+#      latch holds the state at the last intervention and the state only grows
+#      in between, so a convex combination of the two cannot exceed s_{k-1}.
+#      r: s_k = new, and r_k = 1 there.  Needs inc_k >= 0 and s >= 0, true for
+#      every accumulator this model tracks.  The mean's version of this row is
+#      implied by (C1) and z >= 0, so it is not emitted.
+#
+# (C3) LATCH DOMINANCE (ARD1) -- big-M free        g_k <= s_k
+#      nb: g_k = g_{k-1} <= s_{k-1} <= s_k.  m, r: equality.
+#
+# (C4) LATCH MONOTONICITY (ARD1, no replacement) -- big-M free   g_k >= g_{k-1}
+#      nb: equality.  m: g_k = s_k >= g_{k-1}.  Dropped when replacement is on,
+#      since g_k = s_k = new may be smaller than g_{k-1}.
+#
+# (C5) z GATING -- tight-M, level 'full' only      z_k <= tau_il * (m_k + r_k)
+#      Damage is only removed on an intervention step.  This is the one row with
+#      an M, and it is the state's own upper bound rather than a generic large
+#      number -- the same M the big-M encoding uses.  It brings the depot cost
+#      C_M into the relaxation: the LP can no longer buy z for free.  It is by
+#      far the biggest single contributor to the bound: 0.5000 -> 1.4300.
+#
+# Levels
+# ------
+#     sparse_cuts = 'off'   (default, False)   nothing added
+#                   'core'                     C1-C4, entirely big-M free
+#                   'full'  (True)             C1-C5
+#
+# What was tried and REJECTED, so nobody re-adds it
+# --------------------------------------------------
+#   * a mean lower link ``mu_k >= mu_{k-1} + inc_k - tau*(m_k + r_k)``: adds
+#     nothing to the root bound (C1 already pins the mean exactly) and made the
+#     tree markedly worse -- 41 960 -> 104 185 nodes on the F=5 case.
+#   * the same for the variance: raised the root bound 1.43 -> 1.91 but cost
+#     more nodes and more time (41 960 -> 57 233, 22 s -> 32 s).  Kept out of
+#     the default; re-measure before believing a bound improvement is a win.
+#
+# Every row is IMPLIED by the indicator constraints, so the integer feasible set
+# and the optimal cost cannot change.  Only the relaxation moves.  That is what
+# ``test.py --tests formulation --formulations indicator,indicator_cuts``
+# measures: the objectives must agree exactly, the root bound must rise.
+# ---------------------------------------------------------------------------
+SPARSE_CUT_LEVELS = ("off", "core", "full")
+
+
+def sparse_cut_level(value) -> str:
+    """Normalise the ``sparse_cuts`` option to 'off' / 'core' / 'full'."""
+    if value is None or value is False:
+        return "off"
+    if value is True:
+        return "full"
+    v = str(value).strip().lower()
+    if v in ("", "0", "no", "none", "false"):
+        return "off"
+    if v in ("1", "yes", "true"):
+        return "full"
+    if v not in SPARSE_CUT_LEVELS:
+        raise ValueError(f"sparse_cuts must be one of {SPARSE_CUT_LEVELS} "
+                         f"(or a bool), got {value!r}")
+    return v
+
+
+def cut_states(ctx: _RFModel, i: int, l: int) -> list:
+    """The descriptor states of one cell that get (C2)/(C3)/(C4).
+
+    The mean is excluded on purpose: its envelope is implied by (C1) together
+    with ``z >= 0``, so emitting it would only add a redundant row.  Shared with
+    ``rainflow_sparse`` so the two builds cannot drift apart.
+    """
+    bound = str(ctx.bound_of[i, l])
+    out = []
+    if bool(ctx.track_v_of[i, l]) and ctx.v_var is not None:
+        out.append(("v", ctx.v_var, ctx.v_0[i, l], ctx.v_inc, ctx.v_new[i, l], ctx.gv))
+    if bound == "hoeffding" and ctx.R_var is not None:
+        out.append(("R", ctx.R_var, 0.0, ctx.w2_inc, 0.0, ctx.gR))
+    if bound == "chernoff" and ctx.K_var is not None:
+        out.append(("K", ctx.K_var, 0.0, ctx.cgf_inc, 0.0, None))
+    return out
+
+
+def add_sparse_cuts(ctx: _RFModel, i: int, l: int) -> None:
+    """Locally-supported valid inequalities for one cell (indicator encoding).
+
+    No-op under the big-M encoding, whose rows already imply all of these, and
+    at level 'off'.  ``rainflow_sparse._sparse_cut_rows`` is the vectorised
+    twin; the two must emit the same rows, and
+    ``test_sparse_version.py --tests equivalence`` checks that they do.
+    """
+    level = sparse_cut_level(getattr(ctx, "sparse_cuts", False))
+    if level == "off" or encoding_of(ctx.formulation) != "indicator":
+        return
+
+    md, T, M = ctx.model, ctx.T, ctx.M
+    x, m_rep, r_rep = ctx.x, ctx.m_rep, ctx.r_rep
+    allow_rep = ctx.allow_replacement
+    use_latch = bool(ctx.latch_of[i, l])
+    tau = float(ctx.tau[i, l])
+
+    # ---- (C1) telescoping mean balance, and (C5) the z gate ----------------
+    for k in range(T):
+        mu_prev = ctx.mu_0[i, l] if k == 0 else ctx.mu_var[i, l, k - 1]
+        inc_k = gp.quicksum(x[i, j, k] * ctx.mu_inc(i, j - 1, l, k)
+                            for j in range(1, M + 1))
+        md.addConstr(ctx.mu_var[i, l, k] - mu_prev - inc_k + ctx.z_var[i, l, k] == 0,
+                     name=f"cut_bal_{i}_{l}_{k}")
+        if level == "full":
+            act = m_rep[i, l, k] + (r_rep[i, l, k] if allow_rep else 0.0)
+            md.addConstr(ctx.z_var[i, l, k] <= tau * act,
+                         name=f"cut_zgate_{i}_{l}_{k}")
+
+    # ---- (C2)-(C4) on the descriptor states --------------------------------
+    for _, s_var, s0, inc, new, latch in cut_states(ctx, i, l):
+        new = float(new)
+        for k in range(T):
+            prev = float(s0) if k == 0 else s_var[i, l, k - 1]
+            inc_k = gp.quicksum(x[i, j, k] * inc(i, j - 1, l, k)
+                                for j in range(1, M + 1))
+            rhs = prev + inc_k
+            if allow_rep and new > 0.0:
+                rhs = rhs + new * r_rep[i, l, k]
+            md.addConstr(s_var[i, l, k] <= rhs, name=f"cut_env_{i}_{l}_{k}")
+            if use_latch and latch is not None:
+                md.addConstr(latch[i, l, k] <= s_var[i, l, k],
+                             name=f"cut_glo_{i}_{l}_{k}")
+                if not allow_rep and k > 0:
+                    md.addConstr(latch[i, l, k] >= latch[i, l, k - 1],
+                                 name=f"cut_gmono_{i}_{l}_{k}")
+
+    # the mean's own latch is not covered by cut_states (the mean is excluded
+    # there), so (C3)/(C4) for gmu are emitted here
+    if use_latch and ctx.gmu is not None:
+        for k in range(T):
+            md.addConstr(ctx.gmu[i, l, k] <= ctx.mu_var[i, l, k],
+                         name=f"cut_glo_mu_{i}_{l}_{k}")
+            if not allow_rep and k > 0:
+                md.addConstr(ctx.gmu[i, l, k] >= ctx.gmu[i, l, k - 1],
+                             name=f"cut_gmono_mu_{i}_{l}_{k}")
 
 
 def _repeatability(ctx: _RFModel, i: int, l: int, k_ref: int, k_end: int) -> None:

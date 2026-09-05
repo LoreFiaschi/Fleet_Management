@@ -148,6 +148,7 @@ import argparse
 import collections
 import csv
 import traceback
+import textwrap
 import math
 import sys
 import time
@@ -530,7 +531,10 @@ class Scenario:
             "reliability_impl": str(self.reliability_impl),
             "pwl_points": int(self.pwl_points),
             "tangent_ref": float(self.tangent_ref),
-            "formulation": str(self.formulation),
+            # `formulation` here may be a harness LABEL (e.g. 'indicator_cuts');
+            # split it into the two solver options it stands for.
+            **dict(zip(("formulation", "sparse_cuts"),
+                       split_variant(self.formulation))),
             "bigM": float(self.bigM),
         }
         if self.allow_replacement:
@@ -803,7 +807,16 @@ def run_case(sc: Scenario, bound: str, opts, log_path=None) -> tuple[dict, dict]
         "reliability_impl": sc.reliability_impl,
         "pwl_points": sc.pwl_points, "tangent_ref": sc.tangent_ref,
         "formulation": sc.formulation, "bigM": sc.bigM,
+        "encoding": split_variant(sc.formulation)[0],
+        "sparse_cuts": split_variant(sc.formulation)[1],
         "allow_replacement": sc.allow_replacement,
+        # The REQUESTED limits, as opposed to the mip_gap and runtime_s the
+        # solve achieved. Only the case test recorded these before, which left
+        # every other test's CSV unable to answer "did this stop because it
+        # converged or because it was allowed to?" -- and left the plots with no
+        # reference line to draw.
+        "req_mip_gap": _f(getattr(opts, "mip_gap", None)),
+        "req_time_limit": _f(getattr(opts, "time_limit", None)),
         "C_M": sc.C_M, "C_R": sc.C_R, "C_S": sc.C_S, "C_P": sc.C_P,
         "threads": getattr(opts, "threads", None) or "",
         "gurobi_params": ",".join(f"{k}={v}" for k, v in
@@ -837,7 +850,8 @@ def run_case(sc: Scenario, bound: str, opts, log_path=None) -> tuple[dict, dict]
             reliability_impl=sc.reliability_impl,
             pwl_points=sc.pwl_points,
             tangent_ref=sc.tangent_ref,
-            formulation=sc.formulation,
+            formulation=split_variant(sc.formulation)[0],
+            sparse_cuts=split_variant(sc.formulation)[1],
             bigM=sc.bigM,
             # On a shared cluster node Gurobi would otherwise spawn threads for
             # every core it can see, not for the cores Slurm gave the job.
@@ -1084,7 +1098,8 @@ FIELDS = ["timestamp", "test", "parameter", "value", "bound", "status",
           "max_vio", "is_mip", "is_qcp",
           "F", "M", "L", "H", "T", "tau", "epsilon", "rho", "p", "b_ref",
           "mu_ref", "s_chernoff", "repair_model", "reliability_impl",
-          "pwl_points", "tangent_ref", "formulation", "bigM",
+          "pwl_points", "tangent_ref", "formulation", "encoding", "sparse_cuts",
+          "bigM",
           "allow_replacement", "C_M", "C_R", "C_S", "C_P",
           "model", "req_mip_gap", "req_time_limit", "req_verbose", "traceback",
           "mc_samples", "mc_dist", "mc_p_max", "mc_p_max_cell", "mc_p_mean", "mc_ci95",
@@ -1454,6 +1469,177 @@ def plot_scalability(rows: list[dict], param: str, run) -> Path | None:
     axes[2].set_xticks(sorted({r["value"] for r in sub}))
     fig.tight_layout()
     path = run.dir / f"{run.stem}_scalability_{param}.png"
+    fig.savefig(path, dpi=150)
+    plt.close(fig)
+    return path
+
+
+def plot_formulation_bars(rows: list[dict], run: TestRun) -> Path | None:
+    """Grouped bars comparing the formulations of the 'formulation' test.
+
+    Why bars and not the generic `plot_parameter` line plot: `formulation` is a
+    CATEGORICAL parameter with two or four values, so a line between them
+    interpolates something that does not exist, and on a two-point axis it
+    renders as a flat segment that hides the very differences it is meant to
+    show. One bar per (bound, formulation) is the honest shape.
+
+    Four panels, chosen so that each one answers a different question:
+
+        build time   the ONLY thing an encoding's sparse twin changes; the
+                     per-cell addConstr loop against the matrix API
+        solve time   must be ~equal within an assembly pair (same program); a
+                     hatched bar marks a run that hit the time limit, where the
+                     number is the limit and not a measurement
+        B&B nodes    also ~equal within a pair, and NOT exactly so: the sparse
+                     assembly groups rows by family, and row order alone moves
+                     Gurobi's tie-breaking
+        final gap    what the solve actually achieved, with the requested gap
+                     drawn in; a bar at the requested line is a solve that
+                     stopped because it was allowed to, not because it converged
+
+    Infeasible runs are labelled rather than drawn as a zero-height bar, since a
+    0 s solve of an infeasible model is a real result and an empty slot is not.
+    """
+    plt = _pyplot()
+    if plt is None:
+        return None
+    sub = [r for r in rows if str(r.get("parameter")) == "formulation"]
+    sub = [r for r in sub if str(r.get("bound")) in BOUNDS_ORDER]
+    if not sub:
+        return None
+    forms = [f for f in FORMULATIONS_ORDER
+             if any(str(r.get("value")) == f for r in sub)]
+    groups = [(b, im) for b in BOUNDS_ORDER for im in IMPLS_ORDER
+              if any(r["bound"] == b and impl_of_record(r) == im for r in sub)]
+    if len(forms) < 2 or not groups:
+        return None
+
+    def cell(bound, impl, form, key):
+        for r in sub:
+            if (r["bound"] == bound and impl_of_record(r) == impl
+                    and str(r.get("value")) == form):
+                v = r.get(key, math.nan)
+                return v if isinstance(v, (int, float)) else math.nan
+        return math.nan
+
+    def status(bound, impl, form) -> str:
+        for r in sub:
+            if (r["bound"] == bound and impl_of_record(r) == impl
+                    and str(r.get("value")) == form):
+                return str(r.get("status", ""))
+        return ""
+
+    # log only where the data spans decades. The build panel spans a factor of
+    # ~3, and a log axis there compresses the one difference the figure exists
+    # to show; the solve panel spans 4e-4 s to 3600 s and needs it.
+    panels = (("build_s", "model build [s]", False),
+              ("runtime_s", "solve time [s]", True),
+              ("nodes", "B&B nodes", True),
+              ("mip_gap", "final MIP gap", False))
+    fig, axes = plt.subplots(len(panels), 1, figsize=(1.7 * len(groups) + 4.0,
+                                                     9.0), sharex=True)
+    x = np.arange(len(groups), dtype=float)
+    width = 0.8 / len(forms)
+
+    for ax, (key, label, logy) in zip(axes, panels):
+        vals_all = []
+        for fi, form in enumerate(forms):
+            ys = [cell(b, im, form, key) for b, im in groups]
+            sts = [status(b, im, form) for b, im in groups]
+            vals_all += ys
+            pos = x - 0.4 + width * (fi + 0.5)
+            bars = ax.bar(pos, [0.0 if not math.isfinite(v) else v for v in ys],
+                          width * 0.92, label=form, color=f"C{fi}",
+                          edgecolor="0.25", linewidth=0.6)
+            for bar, v, st in zip(bars, ys, sts):
+                # A run stopped by the clock is not a measurement of anything;
+                # hatch it so it cannot be read as one.
+                if key in ("runtime_s", "mip_gap") and st.startswith("time_limi"):
+                    bar.set_hatch("///")
+                if not math.isfinite(v):
+                    ax.annotate("infeasible" if st.startswith("infeas") else "n/a",
+                                (bar.get_x() + bar.get_width() / 2, 0),
+                                textcoords="offset points", xytext=(0, 4),
+                                ha="center", fontsize=6, rotation=90,
+                                color="0.35")
+        ax.set_ylabel(label)
+        if logy:
+            _safe_log_scale(ax, vals_all)
+        ax.grid(alpha=0.3, axis="y", which="both")
+        if key == "build_s" and len(forms) > 1:
+            # The build cost is the whole point of an assembly comparison, so
+            # put the factor on the figure rather than making the reader
+            # eyeball two bar heights.
+            ref = [cell(b, im, forms[0], key) for b, im in groups]
+            for fi, form in enumerate(forms[1:], start=1):
+                ys = [cell(b, im, form, key) for b, im in groups]
+                for gi, (a, v) in enumerate(zip(ref, ys)):
+                    if not (math.isfinite(a) and math.isfinite(v) and v > 0):
+                        continue
+                    ax.annotate(f"{a / v:.1f}x",
+                                (x[gi] - 0.4 + width * (fi + 0.5), v),
+                                textcoords="offset points", xytext=(0, 3),
+                                ha="center", fontsize=7, color="0.25")
+
+    # The requested gap, so a bar sitting on it reads as "stopped because it was
+    # allowed to" rather than "converged". req_mip_gap is missing from CSVs
+    # written before it was recorded for every test, so fall back to the largest
+    # gap achieved by a run that finished OPTIMAL: the solver stopped there
+    # voluntarily, which puts a lower bound on what was asked for.
+    req = [r.get("req_mip_gap") for r in sub]
+    req = [g for g in req if isinstance(g, (int, float)) and math.isfinite(g)]
+    missing_req = not req
+    if req:
+        axes[3].axhline(max(req), color="0.3", lw=1.0, ls="--", zorder=5)
+        axes[3].annotate(f"requested gap {max(req):g}",
+                         (axes[3].get_xlim()[0], max(req)),
+                         textcoords="offset points", xytext=(4, 2),
+                         fontsize=7, color="0.25", va="bottom", zorder=6)
+
+    axes[-1].set_xticks(x)
+    axes[-1].set_xticklabels([b if len({im for _, im in groups}) == 1
+                              else f"{b}\n{im}" for b, im in groups])
+    axes[-1].set_xlabel("bound")
+    axes[0].legend(fontsize=8, ncol=len(forms), title="formulation",
+                   title_fontsize=8, loc="lower center",
+                   bbox_to_anchor=(0.5, 1.02), frameon=False)
+
+    # State the invariant on the figure: within an assembly pair the model is
+    # identical, so any solve-time or node difference is tie-breaking, not
+    # modelling. Without this the reader has no way to know that from the plot.
+    # Which formulations produce a byte-identical model. Sizes differ BETWEEN
+    # bounds, so group per (bound, impl) first and then take the distinct sets
+    # of formulations that agreed -- otherwise the same pair is listed once per
+    # bound, which is how the first version of this note ended up repeating
+    # itself.
+    agreed = set()
+    for b, im in groups:
+        by_size = {}
+        for form in forms:
+            key = tuple(cell(b, im, form, k) for k in
+                        ("n_vars", "n_constrs", "n_genconstrs", "n_nz"))
+            by_size.setdefault(key, []).append(form)
+        for grp in by_size.values():
+            if len(grp) > 1:
+                agreed.add(tuple(sorted(grp)))
+    note = ("hatched = the solve was stopped by the time limit, so that bar is "
+            "the limit and not a measurement")
+    if missing_req:
+        note += ("; the requested-gap line is absent because this CSV predates "
+                 "req_mip_gap being recorded for every test")
+    if agreed:
+        note = ("identical model size (vars, rows, genconstrs, nonzeros) for " +
+                " and ".join("/".join(g) for g in sorted(agreed)) +
+                ", so differences in solve time and node count are Gurobi "
+                "tie-breaking on row order, not modelling.  " + note)
+    fig.suptitle("Formulation comparison", fontsize=11, y=0.99)
+    # matplotlib's wrap=True measures against the figure edge, so a long note
+    # still runs off a wide figure; wrap it by hand against the panel width.
+    note = "\n".join(textwrap.wrap(note, width=max(90, 13 * len(groups) + 30)))
+    fig.text(0.5, 0.006, note, ha="center", va="bottom", fontsize=7,
+             color="0.3")
+    fig.tight_layout(rect=(0, 0.025 + 0.013 * note.count("\n"), 1, 0.93))
+    path = run.dir / f"{run.stem}_formulation_bars.png"
     fig.savefig(path, dpi=150)
     plt.close(fig)
     return path
@@ -2374,7 +2560,41 @@ def resolve_case_path(name: str, root: Path) -> Path:
 # not merely within the gap -- test_sparse_version.py is what checks that in
 # detail.  (H4) below is about the encoding axis, so read it across
 # indicator/bigm and treat the sparse twins as replicates.
-FORMULATIONS_ORDER = ("indicator", "sparse", "bigm", "bigm_sparse")
+# The harness's `formulation` axis is WIDER than base.FORMULATIONS, which is a
+# 2x2 grid of (encoding, assembly).  There is a third, independent choice --
+# whether to add the sparse strengthening of the indicator relaxation
+# (rainflow_v2.add_sparse_cuts) -- and rather than turn the solver option into
+# a 2x2x3 string, the harness composes a LABEL and splits it before solving.
+# So `--formulations indicator,indicator_cuts` is the (H5) experiment: same
+# encoding, same integer optimum, different relaxation.
+FORMULATIONS_ORDER = ("indicator", "indicator_cuts_core", "indicator_cuts",
+                      "sparse", "sparse_cuts", "bigm", "bigm_sparse")
+
+# label -> (base.formulation, sparse_cuts level)
+_VARIANTS = {
+    "indicator":           ("indicator",   "off"),
+    "indicator_cuts_core": ("indicator",   "core"),
+    "indicator_cuts":      ("indicator",   "full"),
+    "sparse":              ("sparse",      "off"),
+    "sparse_cuts":         ("sparse",      "full"),
+    "bigm":                ("bigm",        "off"),
+    "bigm_sparse":         ("bigm_sparse", "off"),
+}
+
+
+def split_variant(label: str) -> tuple[str, str]:
+    """'indicator_cuts' -> ('indicator', 'full').
+
+    Keeps the solver's `formulation` option meaning exactly what it means in
+    `base.FORMULATIONS` (encoding x assembly) while letting the harness treat
+    the strengthening as a third value on the same axis, which is what makes it
+    comparable in one (H4)/(H5) table.
+    """
+    try:
+        return _VARIANTS[str(label).strip().lower()]
+    except KeyError:
+        raise SystemExit(f"unknown formulation {label!r}; "
+                         f"pick from {FORMULATIONS_ORDER}") from None
 
 
 def test_formulation(sc: Scenario, opts, run: TestRun, impls,
@@ -2647,6 +2867,10 @@ def test_case(sc: Scenario, opts, run: TestRun, cases: list, in_root: Path
                           else (float(obj) if obj is not None else math.nan)),
             "mip_gap": _f(res.get("mip_gap")), "obj_bound": _f(res.get("bound")),
             "wall_s": wall, "degradation": res.get("degradation"),
+            # Empty when the file named no encoding, i.e. when solver.py took
+            # the legacy rainflow.py route (indicator, per-cell loop).
+            "formulation": res.get("formulation") or "",
+            "build_s": _f(res.get("build_s")),
         })
         md = res.get("model")
         if md is not None:
@@ -2682,7 +2906,16 @@ def test_case(sc: Scenario, opts, run: TestRun, cases: list, in_root: Path
                      f"time_limit={rec.get('req_time_limit')} ({src['time_limit']})  "
                      f"verbose={rec.get('req_verbose')} ({src['verbose']})  "
                      f"impl={rec.get('reliability_impl')}  "
-                     f"repair={rec.get('repair_model')}")
+                     f"repair={rec.get('repair_model')}  "
+                     # Which encoding x assembly the FILE selected. A case file
+                     # with no 'formulation' key takes the legacy rainflow.py
+                     # builder (indicator, per-cell loop); any of the four
+                     # values routes to rainflow_v2 / rainflow_sparse instead.
+                     # Worth printing, because the two legacy-vs-v2 indicator
+                     # builds are the same model and would otherwise be
+                     # indistinguishable in this report.
+                     f"formulation={rec.get('formulation') or 'legacy (indicator)'}  "
+                     f"build={_fmt(rec.get('build_s'), 3)}s")
     lines.append("")
     lines.append("full metrics are in results.csv / results.yaml; the schedule and "
                  "state trajectories are in schedule_<case>.csv")
@@ -3110,8 +3343,13 @@ def merge_shards(out_root: Path, name: str, test: str, opts) -> int:
     if _plots_enabled(opts):
         for param in sorted({str(r.get("parameter")) for r in rows}
                             - {"-", "impl", "pwl_points", "case", "None", ""}):
-            for path in (plot_parameter(rows, param, run, None),
-                         plot_scalability(rows, param, run)):
+            # 'formulation' is categorical, so the line plots interpolate
+            # between values that have no midpoint; bars instead.
+            made = ((plot_formulation_bars(rows, run),)
+                    if param == "formulation"
+                    else (plot_parameter(rows, param, run, None),
+                          plot_scalability(rows, param, run)))
+            for path in made:
                 if path:
                     print(f"  [plot] {path.name}")
                     report.append(f"plot: {path.name}")
@@ -3334,6 +3572,14 @@ def parse_args(argv=None):
     p.add_argument("--no-early-stop", action="store_true",
                    help="in the failure test, keep going past the first "
                         "infeasible rung (confirms monotone failure)")
+    p.add_argument("--exclude-bounds", default="", dest="exclude_bounds",
+                   help="comma list of bounds to drop from the PLOTS and the "
+                        "hypothesis checks, e.g. 'chernoff'. The rows stay in "
+                        "the CSV -- this only changes what is shown, so a "
+                        "re-merge with a different value costs nothing and "
+                        "loses nothing. Useful when one bound's scale swamps "
+                        "the others, or when its tilt parameter makes it not "
+                        "comparable with the rest.")
     p.add_argument("--bounds", default=",".join(BOUNDS_ORDER),
                    help="comma list of bounds to test, loosest first")
     # solver options
@@ -3461,15 +3707,20 @@ def parse_args(argv=None):
     p.add_argument("--tangent-ref", type=float, default=None, dest="tangent_ref",
                    help="tangent taken at tangent_ref*tau (default 0.5)")
     p.add_argument("--formulation", default=None, dest="formulation",
-                   choices=["indicator", "bigm", "sparse", "bigm_sparse"],
-                   help="encoding x assembly of the logical constraints. "
+                   choices=list(FORMULATIONS_ORDER),
+                   help="encoding x assembly x strengthening. "
                         "ENCODING: 'indicator' (default, the original model) or "
                         "'bigm' (nb substituted out, linear big-M rows, tighter "
                         "relaxation) -- same integer optimum, so objectives "
                         "that disagree are a bug, not a modelling choice. "
                         "ASSEMBLY: add the '_sparse' twin ('sparse', "
                         "'bigm_sparse') to build the SAME program through the "
-                        "matrix API; it must match its loop twin row for row.")
+                        "matrix API; it must match its loop twin row for row. "
+                        "STRENGTHENING: '_cuts' / '_cuts_core' add the "
+                        "locally-supported valid inequalities of "
+                        "rainflow_v2.add_sparse_cuts on top of the indicator "
+                        "encoding -- same integer optimum, non-trivial root "
+                        "bound. 'core' is the big-M-free subset.")
     p.add_argument("--formulations", default=None,
                    help="encodings to compare in the 'formulation' test, comma "
                         f"separated; pick from {FORMULATIONS_ORDER} "
@@ -3598,6 +3849,20 @@ def main(argv=None) -> int:
     args = parse_args(argv)
     global BOUNDS_ORDER
     BOUNDS_ORDER = tuple(_clean(b) for b in args.bounds.split(",") if _clean(b))
+    # --exclude-bounds narrows the global order, which every plot and every
+    # hypothesis check iterates over, so one filter covers all of them. Applied
+    # AFTER --bounds so the two compose: --bounds a,b,c --exclude-bounds b.
+    _drop = {_clean(b) for b in args.exclude_bounds.split(",") if _clean(b)}
+    if _drop:
+        unknown = _drop - set(BOUNDS_ORDER)
+        if unknown:
+            raise SystemExit(f"--exclude-bounds: unknown bound(s) "
+                             f"{sorted(unknown)}; pick from {BOUNDS_ORDER}")
+        BOUNDS_ORDER = tuple(b for b in BOUNDS_ORDER if b not in _drop)
+        if not BOUNDS_ORDER:
+            raise SystemExit("--exclude-bounds removed every bound")
+        print(f"[plots] excluding bound(s) {sorted(_drop)}; "
+              f"showing {list(BOUNDS_ORDER)}")
 
     sc = scenario_from_args(args)
     out_root = Path(args.out)

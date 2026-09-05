@@ -284,8 +284,8 @@ STUDY_FIELDS = [
     "t_last_improvement", "gap_at_first_incumbent",
     # jitter provenance
     "mu0_jitter", "severity_seeded", "severities",
-    # MILP encoding
-    "formulation", "bigM",
+    # MILP encoding x assembly x strengthening
+    "formulation", "encoding", "sparse_cuts", "bigM",
 ]
 H.FIELDS = list(H.FIELDS) + [c for c in STUDY_FIELDS if c not in H.FIELDS]
 H._NUM_FIELDS = tuple(H._NUM_FIELDS) + (
@@ -463,12 +463,16 @@ class StudyScenario(Scenario):
     @property
     def size_binaries(self) -> int:
         """Binary count BEFORE presolve: x (F x (M+1) x T), m (F x L x T), nb
-        (F x L x T, only in the 'indicator' encoding -- 'bigm' substitutes it
-        out), plus r when replacement is on.  Cheap, deterministic, and the only
+        (F x L x T, only in the 'indicator' ENCODING -- 'bigm' substitutes it
+        out; the '_sparse' twins change only the assembly, not the columns),
+        plus r when replacement is on.  Cheap, deterministic, and the only
         size estimate available without building the model."""
         F, M, L, T = int(self.F), int(self.M), int(self.L), int(self.T)
         n = F * (M + 1) * T + F * L * T
-        if str(self.formulation) != "bigm":
+        from fleet_management.degradation_model.base import encoding_of
+        # `formulation` may be a harness LABEL ('indicator_cuts'); the binary
+        # count depends only on the ENCODING it stands for.
+        if encoding_of(H.split_variant(self.formulation)[0]) != "bigm":
             n += F * L * T                       # nb
         if self.allow_replacement:
             n += F * L * T
@@ -867,7 +871,10 @@ def solve_instrumented(sc: StudyScenario, bound: str, opts,
         reliability_impl=sc.reliability_impl,
         pwl_points=sc.pwl_points,
         tangent_ref=sc.tangent_ref,
-        formulation=sc.formulation,
+        # A harness label ('indicator_cuts') stands for a (formulation,
+        # sparse_cuts) pair; split it. See test.split_variant.
+        formulation=H.split_variant(sc.formulation)[0],
+        sparse_cuts=H.split_variant(sc.formulation)[1],
         bigM=sc.bigM,
     )
 
@@ -976,6 +983,8 @@ def run_case(cfg: Config, bound: str, impl: str, seed: int, opts, run,
         "reliability_impl": impl, "pwl_points": sc.pwl_points,
         "tangent_ref": sc.tangent_ref,
         "formulation": sc.formulation, "bigM": sc.bigM,
+        "encoding": H.split_variant(sc.formulation)[0],
+        "sparse_cuts": H.split_variant(sc.formulation)[1],
         "allow_replacement": sc.allow_replacement,
         "C_M": sc.C_M, "C_R": sc.C_R, "C_S": sc.C_S, "C_P": sc.C_P,
         "size_binaries": sc.size_binaries, "size_cells": sc.size_cells,
@@ -2159,11 +2168,21 @@ def parse_args(argv=None):
     g.add_argument("--tangent-ref", type=float, default=None, dest="tangent_ref")
     g.add_argument("--pwl-points", type=int, default=None, dest="pwl_points")
     g.add_argument("--formulation", default=None, dest="formulation",
-                   choices=["indicator", "bigm"],
-                   help="MILP encoding of the logical constraints: 'indicator' "
-                        "(default) or 'bigm' (nb substituted out, linear big-M "
-                        "rows). Same integer optimum, different relaxation -- "
-                        "which is exactly what the lp_gap column measures.")
+                   choices=list(H.FORMULATIONS_ORDER),
+                   help="encoding x assembly x strengthening of the logical "
+                        "constraints. ENCODING: 'indicator' (default) or "
+                        "'bigm' (nb substituted out, linear big-M rows); these "
+                        "share the integer optimum and differ in the "
+                        "relaxation, which is exactly what the lp_gap column "
+                        "measures. ASSEMBLY: the '_sparse' twins build the same "
+                        "program through the matrix API -- same rows, same "
+                        "relaxation, 2x faster to build under 'indicator' and "
+                        "5-7x under 'bigm'. STRENGTHENING: 'indicator_cuts' / "
+                        "'indicator_cuts_core' add the locally-supported valid "
+                        "inequalities of rainflow_v2.add_sparse_cuts on top of "
+                        "the indicator encoding -- same integer optimum, "
+                        "non-trivial root bound, so this is the option lp_gap "
+                        "exists to measure.")
     g.add_argument("--bigM", type=float, default=None, dest="bigM",
                    help="fallback big-M for a state with no finite bound "
                         "(default 1.1)")

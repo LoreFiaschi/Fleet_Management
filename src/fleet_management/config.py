@@ -283,6 +283,7 @@ def load_config(data: dict) -> FleetConfig:
                                       "gurobi_params",
                                       "reliability_impl", "pwl_points", "tangent_ref",
                                       "formulation", "bigM", "z_exact",
+                                      "sparse_cuts",
                                       "repeatability")
                  if k in data},
         raw=data,

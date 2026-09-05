@@ -159,6 +159,7 @@ def solve(cfg, **overrides) -> dict:
     ctx.model.optimize()
     out = _extract_solution(ctx, cfg, ctx.model)
     out["formulation"] = str(ctx.formulation)
+    out["sparse_cuts"] = str(ctx.sparse_cuts)
     out["build_s"] = float(ctx.extras.get("build_s", float("nan")))
     return out
 
@@ -384,6 +385,9 @@ def build_fleet_sparse(cfg, opts: dict,
         _state_bigm(ctx, cols, rows, prof)
     else:
         _state_indicators(ctx, cols, rows, prof)
+        # The sparse strengthening only exists for the indicator encoding; the
+        # big-M rows already imply every one of these.
+        _sparse_cut_rows(ctx, cols, rows, prof)
     t_ind = time.perf_counter() - t_lin0
 
     _reliability_rows(ctx, cols, rows)
@@ -1275,3 +1279,119 @@ def _rel_pwl_bigm(ctx: _RFModel, cols: ColumnMap, rows: RowSet, cells) -> None:
     for s in range(K):                                        # K families, not K*C rows
         rows.add(GRB.LESS_EQUAL, cap_rhs[:, s] + Ms[:, s],
                  (Q_cols, 1.0), (mu_cols, -cap_c[:, s]), (zc[:, s], Ms[:, s]))
+
+
+# ===========================================================================
+# #####  SPARSE STRENGTHENING OF THE INDICATOR ENCODING, VECTORISED  ########
+# ===========================================================================
+# The vectorised twin of ``rainflow_v2.add_sparse_cuts``.  Same rows, emitted
+# through RowSet instead of one addConstr each.
+#
+# This pairing is the point of the whole exercise, not an implementation
+# detail.  The cuts exist because the sparsity result says a row of constant
+# width is cheap; they are emitted through the matrix API because a family of
+# O(F*L*T) constant-width rows is exactly what COO assembly is good at.  Adding
+# them the slow way would hand back part of what they buy: at F=6, M=3, L=2,
+# H=10 the family is ~1000 extra rows, which is ~1000 extra addConstr calls per
+# solve under a loop assembly and three addMConstr calls here.
+#
+# If you add a row in rainflow_v2.add_sparse_cuts, add it here as well.
+# ``test_sparse_version.py --tests equivalence`` compares the two builds as
+# canonicalised multisets of rows and will fail loudly if they drift.
+# ---------------------------------------------------------------------------
+def _sparse_cut_rows(ctx: _RFModel, cols: ColumnMap, rows: RowSet,
+                     prof: dict) -> None:
+    """(C1)-(C5) for every cell at once.  See rainflow_v2.add_sparse_cuts."""
+    from fleet_management.degradation_model.rainflow_v2 import (
+        cut_states, sparse_cut_level)
+
+    level = sparse_cut_level(getattr(ctx, "sparse_cuts", False))
+    if level == "off" or encoding_of(ctx.formulation) != "indicator":
+        return
+
+    allow_rep = ctx.allow_replacement
+    all_cells = np.asarray(ctx.all_cells(), dtype=int)
+    cs = _CellSteps(ctx, cols, all_cells)
+    LE, EQ = GRB.LESS_EQUAL, GRB.EQUAL
+
+    # ---- (C1) telescoping mean balance -------------------------------------
+    # mu_k - mu_{k-1} - sum_j c_jk x_jk + z_k = 0, with mu_{-1} folded into the
+    # right-hand side at k = 0.
+    for mask in (cs.first, cs.later):
+        if not mask.any():
+            continue
+        terms = [(cs.col("mu", mask), 1.0),
+                 (cs.x[mask], -cs.inc(prof["mu"], mask)),
+                 (cs.col("z", mask), 1.0)]
+        if mask is cs.later:
+            terms.append((cs.col("mu", mask, lag=1), -1.0))
+            rhs = 0.0
+        else:
+            mu0 = np.asarray([float(ctx.mu_0[i, l]) for i, l in all_cells])
+            rhs = cs.per_cell(mu0, mask)
+        rows.add(EQ, rhs, *terms)
+
+    # ---- (C5) z gating (tight-M: the cell's own tau) -----------------------
+    if level == "full":
+        tau = np.asarray([float(ctx.tau[i, l]) for i, l in all_cells])
+        tau_r = cs.per_cell(tau)
+        rows.add(LE, 0.0, (cs.col("z"), 1.0), *_act_terms(cs, -tau_r))
+
+    # ---- (C2)-(C4) on the descriptor states --------------------------------
+    # Cells are grouped by which descriptors they carry and by whether the
+    # latch rows apply, so each group emits families of uniform support.
+    groups: Dict[tuple, list] = {}
+    for i, l in ctx.all_cells():
+        key = (tuple(n for n, *_ in cut_states(ctx, i, l)),
+               bool(ctx.latch_of[i, l]))
+        groups.setdefault(key, []).append((i, l))
+
+    for (names, use_latch), cells in groups.items():
+        cells = np.asarray(cells, dtype=int)
+        g = _CellSteps(ctx, cols, cells)
+        for name in names:
+            new = np.asarray([float(_new_of(ctx, name, i, l)) for i, l in cells])
+            for mask in (g.first, g.later):
+                if not mask.any():
+                    continue
+                terms = [(g.col(name, mask), 1.0),
+                         (g.x[mask], -g.inc(prof[name], mask))]
+                if mask is g.later:
+                    terms.append((g.col(name, mask, lag=1), -1.0))
+                    rhs = 0.0
+                else:
+                    s0 = np.asarray([float(_s0_of(ctx, name, i, l))
+                                     for i, l in cells])
+                    rhs = g.per_cell(s0, mask)
+                if allow_rep and np.any(new > 0.0):
+                    terms.append((g.r[mask], -g.per_cell(new, mask)))
+                rows.add(LE, rhs, *terms)
+            if use_latch:
+                _latch_cut_rows(g, cols, rows, _latch_of(name), name, allow_rep)
+        if use_latch and cols.has("gmu"):
+            _latch_cut_rows(g, cols, rows, "gmu", "mu", allow_rep)
+
+
+def _new_of(ctx: _RFModel, name: str, i: int, l: int) -> float:
+    return {"v": ctx.v_new[i, l], "R": 0.0, "K": 0.0}[name]
+
+
+def _s0_of(ctx: _RFModel, name: str, i: int, l: int) -> float:
+    return {"v": ctx.v_0[i, l], "R": 0.0, "K": 0.0}[name]
+
+
+def _latch_of(name: str) -> str:
+    return {"v": "gv", "R": "gR"}[name]
+
+
+def _latch_cut_rows(cs: _CellSteps, cols: ColumnMap, rows: RowSet,
+                    latch: str, state: str, allow_rep: bool) -> None:
+    """(C3) ``g_k <= s_k`` and (C4) ``g_k >= g_{k-1}`` for one latch."""
+    if not cols.has(latch):
+        return
+    rows.add(GRB.LESS_EQUAL, 0.0,
+             (cs.col(latch), 1.0), (cs.col(state), -1.0))
+    if not allow_rep and cs.later.any():
+        rows.add(GRB.GREATER_EQUAL, 0.0,
+                 (cs.col(latch, cs.later), 1.0),
+                 (cs.col(latch, cs.later, lag=1), -1.0))

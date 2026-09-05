@@ -209,6 +209,10 @@ class Case:
     allow_replacement: bool = False
     pwl_points: int = 3
     tangent_ref: float = 0.5
+    # The sparse strengthening is a THIRD axis: it changes the program, so the
+    # two assemblies must agree with it on as well as off. Off by default so the
+    # baseline grid stays the reference build.
+    sparse_cuts: str = "off"
 
     @property
     def T(self) -> int:
@@ -232,7 +236,7 @@ class Case:
 
     def label(self) -> str:
         return (f"{self.encoding}: {self.bound}/{self.impl}/{self.repair}"
-                f"/repl={int(self.allow_replacement)}  "
+                f"/repl={int(self.allow_replacement)}/cuts={self.sparse_cuts}  "
                 f"F={self.F} M={self.M} L={self.L} H={self.H}")
 
 
@@ -244,7 +248,8 @@ def build_one(case: Case, formulation: str, **opt_overrides):
         cfg, formulation=formulation, verbose=0,
         reliability_impl=case.impl, pwl_points=case.pwl_points,
         tangent_ref=case.tangent_ref,
-        allow_replacement=case.allow_replacement, **opt_overrides)
+        allow_replacement=case.allow_replacement,
+        sparse_cuts=case.sparse_cuts, **opt_overrides)
     t0 = time.perf_counter()
     ctx = build_fleet(cfg, opts, model_name=f"cmp_{formulation}")
     wall = time.perf_counter() - t0
@@ -414,7 +419,7 @@ def diff_report(what: str, a: list, b: list, limit: int = 3) -> list:
 # ===========================================================================
 def compare_models(case: Case, do_solve: bool, opts) -> dict:
     """Build both encodings of one case and compare them object by object."""
-    rec = {"encoding": case.encoding,
+    rec = {"encoding": case.encoding, "sparse_cuts": case.sparse_cuts,
            "bound": case.bound, "impl": case.impl, "repair": case.repair,
            "allow_replacement": int(case.allow_replacement),
            "F": case.F, "M": case.M, "L": case.L, "H": case.H, "T": case.T}
@@ -518,27 +523,25 @@ def _solve_pair(models: dict, opts, problems: list, detail: list,
     """
     out = {}
     for form, m in models.items():
-        m.Params.OutputFlag = 0
-        m.Params.MIPGap = 1e-9
-        m.Params.Seed = 0
-        if opts.threads:
-            m.Params.Threads = int(opts.threads)
-        if opts.time_limit:
-            m.Params.TimeLimit = float(opts.time_limit)
-        t0 = time.perf_counter()
-        m.optimize()
-        out[f"solve_{form}_s"] = time.perf_counter() - t0
-        out[f"status_{form}"] = int(m.Status)
-        out[f"obj_{form}"] = (float(m.ObjVal) if m.SolCount else math.nan)
-        out[f"nodes_{form}"] = float(getattr(m, "NodeCount", math.nan))
         try:
-            rel = m.relax()
-            rel.Params.OutputFlag = 0
-            rel.optimize()
-            out[f"lp_{form}"] = (float(rel.ObjVal) if rel.SolCount else math.nan)
-            rel.dispose()
-        except Exception:
-            out[f"lp_{form}"] = math.nan
+            out.update(_optimize_one(m, form, opts))
+        except Exception as exc:
+            # A solve can fail for reasons that say nothing about the model --
+            # a size-limited licence, no free token, an out-of-memory kill. The
+            # structural comparison (S1) is the check with teeth and it has
+            # already run, so record the reason and keep the row rather than
+            # losing the whole grid to one exception.
+            detail.append(f"    solve skipped for {form}: "
+                          f"{type(exc).__name__}: {exc}")
+            out.update({f"solve_{form}_s": math.nan,
+                        f"status_{form}": -1,
+                        f"obj_{form}": math.nan,
+                        f"nodes_{form}": math.nan,
+                        f"lp_{form}": math.nan,
+                        f"solve_error_{form}": f"{type(exc).__name__}: {exc}"})
+    if -1 in (out[f"status_{loop_form}"], out[f"status_{sparse_form}"]):
+        problems.append("solve_unavailable")
+        return out
 
     if out[f"status_{loop_form}"] != out[f"status_{sparse_form}"]:
         problems.append("status")
@@ -555,6 +558,32 @@ def _solve_pair(models: dict, opts, problems: list, detail: list,
     return out
 
 
+def _optimize_one(m, form: str, opts) -> dict:
+    """Solve one model and its relaxation; return the columns they contribute."""
+    m.Params.OutputFlag = 0
+    m.Params.MIPGap = 1e-9
+    m.Params.Seed = 0
+    if opts.threads:
+        m.Params.Threads = int(opts.threads)
+    if opts.time_limit:
+        m.Params.TimeLimit = float(opts.time_limit)
+    t0 = time.perf_counter()
+    m.optimize()
+    out = {f"solve_{form}_s": time.perf_counter() - t0,
+           f"status_{form}": int(m.Status),
+           f"obj_{form}": (float(m.ObjVal) if m.SolCount else math.nan),
+           f"nodes_{form}": float(getattr(m, "NodeCount", math.nan))}
+    try:
+        rel = m.relax()
+        rel.Params.OutputFlag = 0
+        rel.optimize()
+        out[f"lp_{form}"] = (float(rel.ObjVal) if rel.SolCount else math.nan)
+        rel.dispose()
+    except Exception:
+        out[f"lp_{form}"] = math.nan
+    return out
+
+
 def test_equivalence(opts) -> tuple[list, list]:
     """(S1) over the factorial grid of bound x impl x repair x replacement."""
     cases = []
@@ -567,6 +596,7 @@ def test_equivalence(opts) -> tuple[list, list]:
         cases.append(Case(F=base.F, M=base.M, L=base.L, H=base.H,
                           bound=bound, impl=impl, repair=repair,
                           encoding=encoding, allow_replacement=repl,
+                          sparse_cuts=opts.sparse_cuts,
                           pwl_points=opts.pwl_points))
     rows, lines = [], []
     header = (f"{'encoding':<10} {'bound':<10} {'impl':<8} {'repair':<7} "
@@ -608,6 +638,17 @@ def test_equivalence(opts) -> tuple[list, list]:
                      "one row per extra descriptor the cell's bound reads. "
                      "This is an ABSOLUTE count, so it also catches both "
                      "builds dropping the same row.")
+        distinct = len({(r["encoding"], r["bound"], r["impl"], r["repair"],
+                         r["allow_replacement"], r["n_cols"], r["n_rows"],
+                         r["n_gencon"], r["n_qconstr"]) for r in rows})
+        if distinct < len(rows):
+            lines.append(
+                f"     Of the {len(rows)} cases, {distinct} are structurally "
+                f"distinct. markov and chernoff are already linear, so "
+                f"rainflow_v2._resolve_impl falls back to 'exact' for them and "
+                f"their 'tangent' / 'pwl' rows duplicate the 'exact' one. They "
+                f"are run anyway: that fallback is itself a code path worth "
+                f"exercising, and the whole grid costs under a minute.")
     return rows, lines
 
 
@@ -802,28 +843,33 @@ def _solve_one(encoding: str, opts) -> tuple[list, list]:
     for form in (loop_form, sparse_form):
         ctx, wall = build_one(case, form)
         md = ctx.model
-        md.Params.OutputFlag = 0
-        md.Params.MIPGap = 1e-9
-        md.Params.Seed = 0
-        if opts.threads:
-            md.Params.Threads = int(opts.threads)
-        if opts.time_limit:
-            md.Params.TimeLimit = float(opts.time_limit)
-        t0 = time.perf_counter()
-        md.optimize()
-        solve_s = time.perf_counter() - t0
-        rec = {"formulation": form, "status": int(md.Status),
-               "objective": float(md.ObjVal) if md.SolCount else math.nan,
-               "nodes": float(getattr(md, "NodeCount", math.nan)),
-               "build_s": wall, "solve_s": solve_s}
+        try:
+            got = _optimize_one(md, form, opts)
+            rec = {"formulation": form, "status": got[f"status_{form}"],
+                   "objective": got[f"obj_{form}"], "nodes": got[f"nodes_{form}"],
+                   "build_s": wall, "solve_s": got[f"solve_{form}_s"],
+                   "solve_error": ""}
+        except Exception as exc:
+            # See _solve_pair: a licence or memory failure is not a statement
+            # about the model, and it must not take the rest of the run with it.
+            rec = {"formulation": form, "status": -1, "objective": math.nan,
+                   "nodes": math.nan, "build_s": wall, "solve_s": math.nan,
+                   "solve_error": f"{type(exc).__name__}: {exc}"}
         out[form] = rec
         rows.append(rec)
         lines.append(f"{form:<13} {rec['status']:>7} "
                      f"{_fmt(rec['objective'], 6):>14} {_fmt(rec['nodes'], 0):>9} "
-                     f"{wall:>9.3f} {solve_s:>9.3f}")
+                     f"{wall:>9.3f} {_fmt(rec['solve_s'], 3):>9}"
+                     + (f"   {rec['solve_error'][:60]}" if rec["solve_error"] else ""))
         md.dispose()
     lines.append("")
     a, b = out[loop_form], out[sparse_form]
+    if a["status"] == -1 or b["status"] == -1:
+        lines.append("(S3) SKIPPED neither model could be solved here (see the "
+                     "error above -- a size-limited licence and an unavailable "
+                     "token both look like this). (S1) is the test that "
+                     "matters; run it with --tests equivalence.")
+        return rows, lines
     same_obj = ((math.isnan(a["objective"]) and math.isnan(b["objective"]))
                 or abs(a["objective"] - b["objective"])
                 <= 1e-9 * max(1.0, abs(a["objective"])))
@@ -966,6 +1012,12 @@ def parse_args(argv=None):
     g.add_argument("--L", type=int, default=2)
     g.add_argument("--H", type=int, default=4, help="T = 2H")
     g.add_argument("--pwl-points", type=int, default=3, dest="pwl_points")
+    g.add_argument("--sparse-cuts", default="off", dest="sparse_cuts",
+                   choices=["off", "core", "full"],
+                   help="also apply the sparse strengthening of the indicator "
+                        "relaxation (rainflow_v2.add_sparse_cuts). It changes "
+                        "the program, so the two assemblies have to agree with "
+                        "it on as well as off -- run the grid both ways.")
 
     g = p.add_argument_group("equivalence grid")
     g.add_argument("--encodings", default=",".join(ENCODINGS),

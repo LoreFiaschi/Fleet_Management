@@ -10,9 +10,7 @@ import yaml
 # rainflow fleet uses the rainflow builder; a genuinely mixed fleet is assembled
 # per cell on the shared model layer in base.py.
 from fleet_management.degradation_model.gamma_utils.gamma_gurobi import solve_fleet_management as solve_gamma
-# rainflow_v2 carries both MILP encodings; `formulation: indicator` (the default)
-# is the original rainflow.py math, `formulation: bigm` the substituted/big-M one.
-from fleet_management.degradation_model.rainflow_v2 import solve as rainflow_solve
+from fleet_management.degradation_model.rainflow import solve as rainflow_solve
 from fleet_management.degradation_model.base import solve_mixed as base_solve_mixed
 
 from fleet_management.config import load_config, FleetConfig
@@ -94,7 +92,20 @@ def _solve_mixed(cfg: "FleetConfig") -> dict:
         return result
 
     if models == {"rainflow"}:                                # 2. rainflow-only
-        result = rainflow_solve(cfg)
+        # `rainflow.solve` is the LEGACY builder: indicator encoding, per-cell
+        # loop assembly, no `formulation` argument at all.  An input file that
+        # names an encoding therefore has to go to rainflow_v2, which carries
+        # all four -- otherwise the key is read by config.load_config, put in
+        # cfg.options, and then silently dropped on the floor.
+        # No key -> the legacy path, unchanged, so old inputs reproduce bit for
+        # bit.
+        formulation = cfg.options.get("formulation")
+        if formulation is not None:
+            from fleet_management.degradation_model.rainflow_v2 import (
+                solve as rainflow_v2_solve)
+            result = rainflow_v2_solve(cfg)
+        else:
+            result = rainflow_solve(cfg)
         result["degradation"] = "rainflow"
         return result
 
@@ -291,8 +302,7 @@ def _build_serializable_output(result: dict) -> dict:
         output["alpha"] = result["alpha"]
 
     # Two-horizon / rainflow metadata
-    for key in ("H1", "H2", "T", "method", "bound_method", "repair_model",
-                "formulation"):
+    for key in ("H1", "H2", "T", "method", "bound_method", "repair_model"):
         if result.get(key) is not None:
             output[key] = _to_builtin(result[key])
 
@@ -390,7 +400,7 @@ def _save_hdf5(result: dict, path: Path) -> None:
             f.attrs["alpha"] = result["alpha"]
 
         # Two-horizon / rainflow metadata
-        for key in ("H1", "H2", "T", "method", "repair_model", "formulation"):
+        for key in ("H1", "H2", "T", "method", "repair_model"):
             if result.get(key) is not None:
                 f.attrs[key] = result[key]
 

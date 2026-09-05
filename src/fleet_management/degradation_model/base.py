@@ -110,6 +110,11 @@ class FleetModel:
     formulation: str = "indicator"
     bigM: float = 1.1               # fallback big-M when a state has no finite UB
     z_exact: Optional[bool] = None  # pin z with upper rows; None = auto (see rainflow_v2)
+    # Sparse strengthening of the INDICATOR encoding: add the locally-supported,
+    # big-M-free inequalities that hold on every branch of each disjunction.
+    # See rainflow_v2.add_sparse_cuts.  No effect under 'bigm', whose rows
+    # already imply them.
+    sparse_cuts: str = "off"        # 'off' | 'core' | 'full'; bools accepted
     v_inc: Optional[Callable[[int, int, int, int], float]] = None
     w2_inc: Optional[Callable[[int, int, int, int], float]] = None
     cgf_inc: Optional[Callable[[int, int, int, int], float]] = None
@@ -351,6 +356,13 @@ def resolve_run_options(cfg, **overrides) -> dict:
                                 o.get("formulation"), "indicator")).lower(),
         "bigM": float(pick(overrides.get("bigM"), o.get("bigM"), 1.1)),
         "z_exact": pick(overrides.get("z_exact"), o.get("z_exact"), None),
+        # Sparse strengthening of the indicator encoding (rainflow_v2).
+        # NOT coerced to bool here: the value is a LEVEL ('off' | 'core' |
+        # 'full', with the bools accepted as aliases), and bool("off") is True
+        # -- which silently turned every run into 'full'.
+        # rainflow_v2.sparse_cut_level does the normalising.
+        "sparse_cuts": pick(overrides.get("sparse_cuts"),
+                            o.get("sparse_cuts"), "off"),
         # loop-closure / repeatability of the operating phase (eq. loop_impl)
         "repeatability": bool(pick(overrides.get("repeatability"),
                                    o.get("repeatability"), True)),
@@ -463,6 +475,7 @@ def build_context(cfg, opts: dict, model_name: str = "fleet_management") -> Flee
         formulation=formulation,
         bigM=float(opts.get("bigM", 1.1)),
         z_exact=opts.get("z_exact"),
+        sparse_cuts=opts.get("sparse_cuts", "off"),
     )
 
     # Generically valid bounds; a model's prepare may tighten them further.
@@ -680,6 +693,7 @@ def extract_solution(ctx: FleetModel, cfg, model) -> dict:
         # sparse-assembly twin, so it has to leave the builder or the two are
         # indistinguishable from outside.
         "build_s": ctx.extras.get("build_s"),
+        "sparse_cuts": str(ctx.sparse_cuts),
         "F": F, "H": cfg.H, "H1": ctx.H1, "H2": ctx.H2, "T": T, "M": M, "L": L,
         "tau": cfg.tau, "mu_0": cfg.mu_0, "v_0": cfg.v_0, "model": model,
     }
@@ -753,6 +767,17 @@ def build_fleet(cfg, opts: dict, model_name: str = "fleet_management_mixed",
     if assembly_of(opts.get("formulation", "indicator")) == "sparse":
         # Whole-fleet array assembly instead of the per-cell dispatch loop
         # below.  Same rows, same columns, same optimum -- see rainflow_sparse.
+        if builders:
+            # The sparse assembler does not go through the cell-builder
+            # registry at all, so it cannot honour a pin.  Silently ignoring it
+            # would swap the caller's chosen implementation for another one
+            # that happens to emit the same rows -- true today, but exactly the
+            # kind of thing that stops being true without anyone noticing.
+            raise ValueError(
+                f"formulation={opts.get('formulation')!r} assembles the whole "
+                f"fleet at once and cannot honour builders={sorted(builders)}. "
+                f"Either drop the pin or use a loop assembly "
+                f"('indicator' / 'bigm').")
         from fleet_management.degradation_model import rainflow_sparse
         return rainflow_sparse.build_fleet_sparse(cfg, opts, model_name=model_name)
 
