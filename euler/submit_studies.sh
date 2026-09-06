@@ -25,13 +25,40 @@ NAME=${NAME:-studies}
 #                           indicator, ~5-7x for bigm). Worth using on the large
 #                           end of a scaling ladder, where the per-cell
 #                           addConstr loop starts to show up next to the solve.
+# The list of valid formulations lives in ONE place -- test.FORMULATIONS_ORDER --
+# and is read from there rather than restated here. Three separate hardcoded
+# copies of it have already drifted out of date as variants were added, each
+# time rejecting a formulation the harness accepts perfectly well. The fallback
+# is only for a login shell whose python cannot be reached; it names the
+# encoding x assembly grid, which changes far less often than the strengthening
+# variants do.
+_valid_forms() {
+    local out
+    out=$( (source "$PROJECT/.venv-euler/bin/activate" 2>/dev/null || true
+            cd "$PROJECT" && python -c \
+              'import test; print(" ".join(test.FORMULATIONS_ORDER))') 2>/dev/null )
+    if [ -z "$out" ]; then
+        echo "indicator bigm sparse bigm_sparse"
+    else
+        echo "$out"
+    fi
+}
+_check_form() {                       # _check_form <value> <label-for-errors>
+    local want="$1" label="$2" f ok=0
+    [ -z "$want" ] && return 0
+    for f in $(_valid_forms); do [ "$f" = "$want" ] && ok=1; done
+    if [ "$ok" != "1" ]; then
+        echo "ERROR: unknown $label '$want'; pick from:" >&2
+        echo "         $(_valid_forms | tr ' ' ',')" >&2
+        echo "       ('*_cuts' adds the sparse strengthening of the indicator" >&2
+        echo "        relaxation; '*_sparse' is the matrix-API assembly.)" >&2
+        exit 1
+    fi
+}
+
 FORM=${FORM:-}
 BIGM=${BIGM:-}
-case "${FORM:-indicator}" in
-    indicator|bigm|sparse|bigm_sparse) ;;
-    *) echo "ERROR: unknown FORM '$FORM'; pick from" >&2
-       echo "       indicator,bigm,sparse,bigm_sparse" >&2; exit 1 ;;
-esac
+_check_form "$FORM" "FORM"
 # A run folder is results/<stamp>_<study>/ and a shard writes results_shard<k>.csv
 # into it, so two submissions differing only in the encoding would overwrite each
 # other whenever they share a stamp. Give each encoding its own subtree by
