@@ -97,6 +97,25 @@ for flag in --threads --shard --merge --gurobi-params --run-stamp \
     fi
 done
 
+# An unrecognised flag in EXTRA kills every shard in seconds with argparse exit
+# code 2, leaving nothing but a usage dump in logs/. Catch it here instead.
+if [ -n "${EXTRA:-}" ]; then
+    source "$PROJECT/.venv-euler/bin/activate" 2>/dev/null || true
+    HELP=$(python test.py --help 2>&1 || true)
+    BADFLAGS=""
+    for tok in ${EXTRA}; do
+        case "$tok" in
+          --*) printf '%s' "$HELP" | grep -q -- "$tok" || BADFLAGS="$BADFLAGS $tok" ;;
+        esac
+    done
+    if [ -n "$BADFLAGS" ]; then
+        echo "ERROR: EXTRA contains flag(s) test.py does not accept:$BADFLAGS" >&2
+        echo "       Every shard would die with argparse exit code 2. Check:" >&2
+        echo "         python test.py --help | grep -- '<flag>'" >&2
+        exit 1
+    fi
+fi
+
 # CRLF in a batch script makes Slurm fail in confusing ways ("not found" for a
 # file that exists, because the interpreter becomes /usr/bin/bash\r).
 for f in euler/run_array.sbatch euler/merge.sbatch; do
@@ -121,6 +140,27 @@ if [ "$TEST" = "formulation" ]; then
     esac
 else
     echo "encoding  : ${FORM:-indicator (harness default)}${BIGM:+  bigM=$BIGM}"
+fi
+# (H4) declares AGREE when the objective spread is within 2 x the achieved MIP
+# gap, so a loose gap makes the verdict vacuous: at MIP_GAP=0.2 the tolerance is
+# 40% and two runs could differ by a third of the cost and still "agree".
+if [ "$TEST" = "formulation" ]; then
+    if awk "BEGIN{exit !($MIP_GAP > 0.01)}" 2>/dev/null; then
+        echo "WARNING MIP_GAP=$MIP_GAP is loose for the formulation test. (H4)"
+        echo "        agrees when the cost spread is within 2 x the gap, i.e."
+        echo "        within $(awk "BEGIN{printf \"%.0f\", 200*$MIP_GAP}")% here, so AGREE will be"
+        echo "        near-automatic and the two encodings will often stop at"
+        echo "        DIFFERENT incumbents. Use MIP_GAP=1e-4 when the objective"
+        echo "        comparison is the measurement."
+        case "$FORMS" in
+          indicator,sparse|sparse,indicator|bigm,bigm_sparse|bigm_sparse,bigm)
+            echo "        For FORMS=$FORMS this costs nothing: the pair is the"
+            echo "        same program in two assemblies, so AGREE was already"
+            echo "        true by construction. The informative column is"
+            echo "        build_s, and a loose gap keeps the solves from"
+            echo "        drowning it out." ;;
+        esac
+    fi
 fi
 if git -C "$PROJECT" rev-parse --git-dir >/dev/null 2>&1; then
     BRANCH=$(git -C "$PROJECT" rev-parse --abbrev-ref HEAD)

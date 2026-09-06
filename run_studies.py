@@ -495,7 +495,13 @@ def base_scenario(args) -> StudyScenario:
               C_M=args.C_M, C_R=args.C_R, C_S=args.C_S, C_P=args.C_P,
               repair_model=args.repair_model,
               tangent_ref=args.tangent_ref, pwl_points=args.pwl_points,
-              formulation=args.formulation, bigM=args.bigM,
+              # --sparse-cuts is the second spelling of the '_cuts' variants;
+              # fold it into the label so both options compose.
+              formulation=(H.compose_variant(args.formulation or "indicator",
+                                             args.sparse_cuts)
+                           if getattr(args, "sparse_cuts", None)
+                           else args.formulation),
+              bigM=args.bigM,
               allow_replacement=bool(args.allow_replacement),
               mu0_jitter=args.mu0_jitter,
               jitter_severity=not args.no_severity_jitter)
@@ -2183,6 +2189,14 @@ def parse_args(argv=None):
                         "the indicator encoding -- same integer optimum, "
                         "non-trivial root bound, so this is the option lp_gap "
                         "exists to measure.")
+    g.add_argument("--sparse-cuts", default=None, dest="sparse_cuts",
+                   choices=["off", "core", "full"],
+                   help="add the locally-supported valid inequalities of "
+                        "rainflow_v2.add_sparse_cuts on top of the indicator "
+                        "encoding. Same integer optimum, non-trivial root "
+                        "bound -- so lp_gap is the column to read. Equivalent "
+                        "to '--formulation indicator_cuts'. Ignored under "
+                        "'bigm', whose rows already imply the cuts.")
     g.add_argument("--bigM", type=float, default=None, dest="bigM",
                    help="fallback big-M for a state with no finite bound "
                         "(default 1.1)")

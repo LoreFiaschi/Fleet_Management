@@ -84,6 +84,28 @@ for flag in --studies --shard --merge --run-stamp --threads --gurobi-params \
         exit 1
     fi
 done
+# An unrecognised flag in EXTRA is the cheapest way to lose a whole array:
+# argparse exits 2 in seconds, every shard dies, and the only trace is a usage
+# dump in logs/. Check EXTRA's long options against --help BEFORE submitting.
+if [ -n "${EXTRA:-}" ]; then
+    source "$PROJECT/.venv-euler/bin/activate" 2>/dev/null || true
+    HELP=$(python run_studies.py --help 2>&1 || true)
+    BADFLAGS=""
+    for tok in ${EXTRA}; do
+        case "$tok" in
+          --*) printf '%s' "$HELP" | grep -q -- "$tok" || BADFLAGS="$BADFLAGS $tok" ;;
+        esac
+    done
+    if [ -n "$BADFLAGS" ]; then
+        echo "ERROR: EXTRA contains flag(s) run_studies.py does not accept:$BADFLAGS" >&2
+        echo "       Every shard would die with argparse exit code 2. Check:" >&2
+        echo "         python run_studies.py --help | grep -- '--sparse'" >&2
+        echo "       (The sparse strengthening is spelled --sparse-cuts" >&2
+        echo "        off|core|full, or equivalently --formulation" >&2
+        echo "        indicator_cuts.)" >&2
+        exit 1
+    fi
+fi
 for s in ${STUDIES//,/ }; do
     case "$s" in
         scaling|horizon|heatmap|convergence) ;;

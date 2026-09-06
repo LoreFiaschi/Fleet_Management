@@ -2568,7 +2568,8 @@ def resolve_case_path(name: str, root: Path) -> Path:
 # So `--formulations indicator,indicator_cuts` is the (H5) experiment: same
 # encoding, same integer optimum, different relaxation.
 FORMULATIONS_ORDER = ("indicator", "indicator_cuts_core", "indicator_cuts",
-                      "sparse", "sparse_cuts", "bigm", "bigm_sparse")
+                      "sparse", "sparse_cuts_core", "sparse_cuts",
+                      "bigm", "bigm_sparse")
 
 # label -> (base.formulation, sparse_cuts level)
 _VARIANTS = {
@@ -2576,10 +2577,43 @@ _VARIANTS = {
     "indicator_cuts_core": ("indicator",   "core"),
     "indicator_cuts":      ("indicator",   "full"),
     "sparse":              ("sparse",      "off"),
+    "sparse_cuts_core":    ("sparse",      "core"),
     "sparse_cuts":         ("sparse",      "full"),
     "bigm":                ("bigm",        "off"),
     "bigm_sparse":         ("bigm_sparse", "off"),
 }
+# the inverse, so --sparse-cuts and a variant label are two spellings of one
+# thing rather than two mutually exclusive options
+_COMPOSE = {v: k for k, v in _VARIANTS.items()}
+
+
+def compose_variant(formulation: str, cuts) -> str:
+    """('indicator', 'full') -> 'indicator_cuts'.
+
+    Exists so ``--formulation indicator --sparse-cuts full`` and
+    ``--formulation indicator_cuts`` mean the same thing.  Reaching for a
+    ``--sparse-cuts`` flag is the obvious move, and having it silently not
+    exist cost a 12-shard submission.
+    """
+    from fleet_management.degradation_model.rainflow_v2 import sparse_cut_level
+    level = sparse_cut_level(cuts)
+    base_form, own = split_variant(formulation)
+    if level == "off":
+        return formulation
+    if own not in ("off", level):
+        raise SystemExit(
+            f"--formulation {formulation!r} already implies sparse_cuts="
+            f"{own!r}, which contradicts --sparse-cuts {level!r}. Give one or "
+            f"the other.")
+    key = (base_form, level)
+    if key not in _COMPOSE:
+        # the strengthening only exists for the indicator encoding; the big-M
+        # rows already imply every one of its inequalities
+        print(f"[warn] --sparse-cuts {level} has no effect under "
+              f"formulation={formulation!r} (the big-M rows already imply the "
+              f"cuts); ignoring it.")
+        return formulation
+    return _COMPOSE[key]
 
 
 def split_variant(label: str) -> tuple[str, str]:
@@ -3725,6 +3759,14 @@ def parse_args(argv=None):
                    help="encodings to compare in the 'formulation' test, comma "
                         f"separated; pick from {FORMULATIONS_ORDER} "
                         "(e.g. --formulations indicator,bigm)")
+    p.add_argument("--sparse-cuts", default=None, dest="sparse_cuts",
+                   choices=["off", "core", "full"],
+                   help="add the locally-supported valid inequalities of "
+                        "rainflow_v2.add_sparse_cuts on top of the indicator "
+                        "encoding. Same integer optimum, non-trivial root "
+                        "bound. Equivalent to naming the composed variant: "
+                        "'--formulation indicator --sparse-cuts full' is "
+                        "'--formulation indicator_cuts'. Ignored under 'bigm'.")
     p.add_argument("--bigM", type=float, default=None, dest="bigM",
                    help="fallback big-M for a state with no finite bound "
                         "(default 1.1); bounded states use their own bound")
@@ -3763,6 +3805,10 @@ def parse_args(argv=None):
         if form not in FORMULATIONS_ORDER:
             raise SystemExit(f"unknown formulation {form!r}; "
                              f"pick from {FORMULATIONS_ORDER}")
+    # --sparse-cuts is the second spelling of the '_cuts' variants; fold it in
+    # so the two options compose instead of one silently winning.
+    if args.sparse_cuts:
+        forms = [compose_variant(f, args.sparse_cuts) for f in forms]
     args.formulation_list = [f for f in FORMULATIONS_ORDER if f in forms]
     args.formulation = args.formulation_list[0]
     args.shard_obj = None
