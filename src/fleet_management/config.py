@@ -277,6 +277,12 @@ def load_config(data: dict) -> FleetConfig:
     """
     if not isinstance(data, dict):
         raise TypeError("input data must be a mapping (dict).")
+    if "depot_capacity" in data:
+        raise ValueError(
+            "'depot_capacity' has been removed. Maintenance availability is "
+            "unrestricted at fleet level; repair and replacement are gated "
+            "only by each vehicle's maintenance assignment x[i,0,k]."
+        )
 
     for key in ("F", "H", "M"):
         if key not in data:
@@ -355,7 +361,7 @@ def load_config(data: dict) -> FleetConfig:
         cgf_trans=_flmh_prof(data.get("cgf_trans"), F, L, M, H1, "cgf_trans"),
         costs={k: float(data[k]) for k in ("C_M", "C_R", "C_D", "C_S", "C_P", "C_rep") if k in data},
         options={k: data[k] for k in ("verbose", "mip_gap", "time_limit", "fast",
-                                      "allow_replacement", "depot_capacity",
+                                      "allow_replacement",
                                       "gurobi_params",
                                       "reliability_impl", "pwl_points", "tangent_ref",
                                       "replacement_as_new", "objective_mode")

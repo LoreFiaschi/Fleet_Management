@@ -30,7 +30,6 @@ allow_replacement: false
 tau: 0.6
 epsilon: 0.1
 rho: 0.5
-depot_capacity: 1
 
 # Simple costs retained for the current scope.
 C_M: 1.0

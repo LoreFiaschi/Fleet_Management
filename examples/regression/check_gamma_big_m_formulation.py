@@ -45,7 +45,6 @@ def ard1_config():
             "C_D": 2.0,
             "C_rep": 0.2,
             "allow_replacement": True,
-            "depot_capacity": 1,
             "verbose": 0,
         }
     )

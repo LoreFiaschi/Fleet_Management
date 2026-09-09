@@ -29,7 +29,6 @@ def main() -> None:
         "tau": 0.6,
         "epsilon": 0.1,
         "rho": 0.5,
-        "depot_capacity": 1,
         "C_M": 1.0,
         "C_R": 0.5,
         "C_D": 2.0,
@@ -79,7 +78,7 @@ def main() -> None:
         "integer_variables": 32,
         "binary_variables": 32,
         "continuous_variables": 28,
-        "linear_constraints": 152,
+        "linear_constraints": 148,
         "general_constraints": 0,
         "quadratic_constraints": 0,
     }:

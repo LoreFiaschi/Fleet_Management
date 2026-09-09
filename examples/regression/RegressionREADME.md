@@ -48,6 +48,8 @@ package may still require the dependencies declared in `pyproject.toml`.
 | `check_mixed_gamma_ard1_public.py` | solver | Public mixed solve with Gamma ARD1 repairs | Protects ARD1 integration, latch states and mixed routing. |
 | `check_gamma_cell_integration.py` | solver | Direct modular Gamma-cell construction | Isolates the Gamma block from public file I/O. |
 | `check_gamma_replay_validator.py` | solver | Lightweight schedule/state replay and corruption detection | Protects the validator used by the current public workflow. |
+| `check_gamma_stochastic_validator.py` | numerical | Fixed-schedule exact-Gamma Monte Carlo replay, fixed-seed reproducibility and binomial confidence reporting | Protects the stochastic validation mode without optimizing a model. |
+| `check_matched_ard_inputs.py` | solver | Matched mixed-model ARD-infinity/ARD1 solves and deterministic/stochastic validation | Ensures the numerical comparison changes only the repair model. |
 
 ## Gamma calibration and numerical evidence
 
@@ -81,11 +83,29 @@ are retained as internal numerical evidence for the Gamma probability routines.
 The production workflow uses `gamma_replay_validator.py`, which replays the
 reported schedule and states without performing exact convolution.
 
+Run deterministic replay, Gamma Monte Carlo, or both on an existing result:
+
+```powershell
+python .\examples\regression\run_gamma_schedule_validation.py `
+  .\input\gamma_horizon_euler_convergence.yaml `
+  .\results\gamma_result.yaml `
+  .\results\gamma_validation.yaml `
+  --mode both `
+  --repetitions 100000 `
+  --random-seed 20260908 `
+  --maximum-schedule-failure-rate 1e-5
+```
+
+The stochastic failure rate is empirical. Its one-sided Clopper--Pearson upper
+confidence bound is reported separately; zero failures in 100,000 replays does
+not prove that the true rate is below 1e-5.
+
 ## Horizon, formulation and performance diagnostics
 
 | Script | Type | What it protects or produces |
 |---|---|---|
 | `check_operating_average_objective.py` | solver | Single operating-phase objective \(J_{\mathrm{op}}/H_2\), including its bound and MIP gap. The initialization phase remains constrained but has no cost budget. |
+| `check_unrestricted_maintenance.py` | solver | Confirms that maintenance has no fleet-level depot-capacity limit and rejects obsolete `depot_capacity` inputs. |
 | `check_horizon_sweep.py` | solver | Certified objective bounds/MIP gaps, proven-versus-feasible selection and the gap-qualified gradient stopping rule. |
 | `run_horizon_sweep.py` | runner | Solves an explicit list or inclusive range of operating horizons and writes a compact YAML report. |
 | `check_formulation_sweep.py` | analytical | Deterministic one-factor-at-a-time \(F/M/L/T\) formulation counts. |
@@ -143,6 +163,24 @@ target the modular builder rather than `gamma_gurobi.py`.
 | `gamma_tail_bound_public.yaml` | Uniform modular Gamma public-interface scenario. |
 | `mixed_gamma_rainflow_public.yaml` | Mixed Gamma/rainflow ARD-infinity scenario. |
 | `mixed_gamma_ard1_public.yaml` | Mixed Gamma/rainflow ARD1 scenario. |
+| `matched_mixed_ardinf.yaml` | Controlled mixed numerical case using ARD-infinity for both components. |
+| `matched_mixed_ard1.yaml` | Companion controlled case with identical data and ARD1 repair. |
+
+The two matched files are intended for numerical tables. Run their integration
+check with:
+
+```powershell
+python .\examples\regression\check_matched_ard_inputs.py
+```
+
+Generate their exact unpresolved formulation counts with:
+
+```powershell
+python .\examples\regression\report_mixed_formulation_size.py `
+  .\examples\regression\matched_mixed_ardinf.yaml `
+  .\examples\regression\matched_mixed_ard1.yaml `
+  --output .\results\matched_ard_formulation_counts.yaml
+```
 
 ## Maintenance rules
 

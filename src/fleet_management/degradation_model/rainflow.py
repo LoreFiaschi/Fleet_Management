@@ -52,7 +52,7 @@ _ARD1_UNSUPPORTED = ("chernoff",)
 # ===========================================================================
 # Entry point
 # ===========================================================================
-def solve(cfg, *, allow_replacement=None, depot_capacity=None,
+def solve(cfg, *, allow_replacement=None,
           verbose=None, mip_gap=None, time_limit=None, fast=None,
           gurobi_params=None,
           reliability_impl=None, pwl_points=None, tangent_ref=None) -> dict:
@@ -66,7 +66,7 @@ def solve(cfg, *, allow_replacement=None, depot_capacity=None,
     """
     opts = resolve_run_options(
         cfg,
-        allow_replacement=allow_replacement, depot_capacity=depot_capacity,
+        allow_replacement=allow_replacement,
         verbose=verbose, mip_gap=mip_gap, time_limit=time_limit, fast=fast,
         gurobi_params=gurobi_params, reliability_impl=reliability_impl,
         pwl_points=pwl_points, tangent_ref=tangent_ref,

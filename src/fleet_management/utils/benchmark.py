@@ -120,7 +120,7 @@ def expected_gamma_model_size(case: BenchmarkCase) -> dict[str, int]:
         + 3 * F * L * steps
         + F * L
         + F * steps
-        + (M + 1) * steps
+        + M * steps
     )
     general = 6 * F * L * steps
     return {

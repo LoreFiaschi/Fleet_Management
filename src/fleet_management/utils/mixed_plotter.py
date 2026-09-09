@@ -132,6 +132,7 @@ def _merge_horizon_sweep_reports(reports: list[dict[str, Any]]) -> dict[str, Any
         "objective": reports[0].get("objective"),
         "fixed_dimensions": fixed,
         "H1": H1,
+        "stopping_rule": reports[0].get("stopping_rule") or {},
         "cases": [selected[H2] for H2 in sorted(selected)],
     }
 
@@ -156,6 +157,9 @@ def _normalise_horizon_sweep(report: dict[str, Any]) -> dict[str, Any]:
     cases = report.get("cases")
     if not isinstance(cases, list) or not cases:
         raise ValueError("Horizon-sweep report must contain a nonempty 'cases' list.")
+
+    stopping_rule = report.get("stopping_rule") or {}
+    maximum_stopping_gap = float(stopping_rule.get("maximum_mip_gap_for_stopping", 0.05))
 
     rows: list[dict[str, Any]] = []
     for index, case in enumerate(cases):
@@ -213,6 +217,7 @@ def _normalise_horizon_sweep(report: dict[str, Any]) -> dict[str, Any]:
         "M": fixed.get("M"),
         "L": fixed.get("L"),
         "H1": fixed.get("H1", report.get("H1")),
+        "maximum_mip_gap_for_stopping": maximum_stopping_gap,
         "best_proven_H2": (
             None if best_proven_row is None else best_proven_row["H2"]
         ),
@@ -300,7 +305,27 @@ def _draw_horizon_sweep(view: dict[str, Any], plot_path: Path) -> None:
     cost_ax.grid(axis="both", color="#e5e7eb", linewidth=0.8)
     cost_ax.legend(frameon=False, loc="best", fontsize=8)
 
+    gap_tolerance_percent = (100.0 * view["maximum_mip_gap_for_stopping"])
     finite_gaps = feasible & np.isfinite(gaps)
+    if np.any(finite_gaps):
+        gap_percent = 100.0 * gaps
+        gap_ax.axhline(
+            gap_tolerance_percent,
+            color="#15803d",
+            linestyle="--",
+            linewidth=1.3,
+            label=f"{gap_tolerance_percent:g}% MIP-gap tolerance",
+            zorder=2,
+        )
+
+        gap_ax.plot(
+            h2,
+            gap_percent,
+            color="#9ca3af",
+            linewidth=1.2,
+            zorder=1,
+        )
+
     if np.any(finite_gaps):
         gap_percent = 100.0 * gaps
         gap_ax.plot(h2, gap_percent, color="#9ca3af", linewidth=1.2, zorder=1)

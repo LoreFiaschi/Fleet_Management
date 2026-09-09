@@ -61,7 +61,7 @@ def main() -> None:
         "J_op_average": 1.1733333333,
         "performance": {
             "variables": 175,
-            "linear_constraints": 427,
+            "linear_constraints": 422,
             "general_constraints": 90,
             "optimizer_call_seconds": 2.7,
             "branch_and_bound_nodes": 1234,

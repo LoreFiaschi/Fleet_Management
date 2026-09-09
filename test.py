@@ -102,15 +102,13 @@ Design notes -- READ BEFORE TRUSTING A RESULT
    as "wrong regime" rather than "wrong code".
 
 6. **Confounds in the sweeps.**  `base.add_base_constraints` imposes
-   sum_{i,l} mu[i,l,k] <= F - M  and  depot_capacity defaults to F - M.  So the
-   L sweep adds cells to a cap that does not grow with L, and the F / M sweeps
-   move the cap and the depot capacity as well as the fleet size.  Comparisons
-   ACROSS bounds at a fixed value are clean; the shape of a curve ALONG a
-   parameter mixes these effects in.  In the failure test this matters more:
-   shrinking F or growing M eventually makes the model infeasible for *every*
-   bound through the depot capacity, not through the reliability constraint.
-   Rows carry `feasible_hint` (a capacity-only feasibility estimate) so a
-   capacity failure can be told apart from a reliability failure.
+   sum_{i,l} mu[i,l,k] <= F - M. The L sweep adds cells to a cap that does not
+   grow with L, while the F / M sweeps move both this cap and the number of
+   vehicles left available for maintenance after serving all missions.
+   Comparisons ACROSS bounds at a fixed value are clean; the shape of a curve
+   ALONG a parameter mixes these effects in. Rows carry `feasible_hint` (a
+   necessary aggregate-capacity/maintenance-availability estimate) so this
+   source of failure can be distinguished from reliability-bound tightness.
 
 7. **Repair model.**  chernoff has no closed ARD1 recursion, so all bounds run
    with repair_model='ardinf' by default (--repair to change).  Mixing repair
@@ -720,9 +718,9 @@ def feasible_hint(sc: Scenario, bound: str) -> bool:
     Two independent arguments:
       * survival -- n_max must cover the steady-state floor s_max/rho
         (`survival_floor`); below it even repairing every step is not enough;
-      * capacity -- the fleet must cover T*M mission-days.  Without repair it can
-        cover F*n_max; each repair buys another n_max, and at most (F-M) vehicles
-        can sit at the depot per step, i.e. at most (F-M)*T repairs.
+      * capacity -- the fleet must cover T*M mission-days. Without repair it can
+        cover F*n_max; each repair buys another n_max, and mission demand leaves
+        at most (F-M) vehicles available for maintenance at each step.
     A True here does NOT guarantee feasibility (it ignores the aggregate damage
     cap and the exact contraction bookkeeping); a False is a strong indication
     that a `failure`-test failure is *capacity/repair* driven rather than a

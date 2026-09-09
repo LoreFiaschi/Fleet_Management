@@ -102,7 +102,6 @@ def validate_forced_ardinf_case() -> dict:
             "C_D": 2.0,
             "C_rep": 0.2,
             "allow_replacement": True,
-            "depot_capacity": 1,
             "mip_gap": 0.0,
             "verbose": 0,
         }

@@ -55,6 +55,5 @@ C_rep: 0.2
 C_P: 0.3
 
 allow_replacement: true
-depot_capacity: 1
 mip_gap: 0.0
 verbose: 0

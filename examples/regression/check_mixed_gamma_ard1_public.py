@@ -86,7 +86,7 @@ def main() -> None:
         raise AssertionError("ARD1 formulation estimate has wrong cell counts")
     if formulation["known_subtotal"] != {
         "variables": 155,
-        "linear_constraints": 383,
+        "linear_constraints": 378,
         "general_constraints": 0,
         "quadratic_constraints": 0,
     }:

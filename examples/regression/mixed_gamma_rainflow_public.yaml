@@ -69,6 +69,5 @@ C_P: 0.3
 
 allow_replacement: true
 replacement_as_new: true
-depot_capacity: 1
 mip_gap: 0.0
 verbose: 0

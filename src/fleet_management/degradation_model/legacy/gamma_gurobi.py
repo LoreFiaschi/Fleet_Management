@@ -316,10 +316,9 @@ def solve_fleet_management(
                 name=f"assignment_{i}_{k}",
             )
 
-    # Each mission and one fleet-level maintenance opportunity are assigned
-    # exactly once.  Component-level m/r variables decide how that opportunity
-    # is used.
-    for j in range(M + 1):
+    # Every mission is assigned exactly once. Maintenance activity j=0 is not
+    # fleet-capacity limited; each otherwise unassigned vehicle may use it.
+    for j in range(1, M + 1):
         for k in range(2 * H):
             model.addConstr(
                 gp.quicksum(x[i, j, k] for i in range(F)) == 1,

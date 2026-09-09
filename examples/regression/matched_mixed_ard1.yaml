@@ -1,10 +1,11 @@
+# Matched numerical comparison case: ARD1.
+# The companion matched_mixed_ardinf.yaml differs only in repair_model.
 F: 2
 M: 1
 L: 2
 H: [2, 3]
 
-# Every vehicle has one Gamma component and one rainflow component. Both use
-# ARD1 so the public mixed path exercises both latch implementations together.
+component_names: [Battery, Motor Insulation]
 model: [gamma, rainflow]
 bound_method: [cantelli, markov]
 repair_model: [ard1, ard1]
@@ -22,9 +23,7 @@ replacement_mu:
   - [0.001, 0.000]
 replacement_v: 0.0
 
-# Operating profiles have length H2=3 and transitory profiles length H1=2.
-# The larger transitory damage makes an imperfect repair economically useful;
-# Gamma replacement is still required to close the no-tail-credit shape cycle.
+# Operating profiles have length H2=3; initialization profiles have H1=2.
 mu:
   -
     - [[0.020, 0.020, 0.020]]
@@ -42,7 +41,7 @@ mu_trans:
 v: 0.00010
 v_trans: 0.00015
 
-# Rates belonging to rainflow cells are inert rectangular placeholders.
+# Rainflow entries are inert placeholders in the rectangular Gamma arrays.
 gamma_beta:
   -
     - [[20.0, 15.0, 12.0]]
@@ -64,9 +63,6 @@ gamma_beta_0:
   - [12.0, 10.0]
 gamma_beta_new: 10.0
 
-# Low repair cost and strong expected-damage regularisation make at least one
-# ARD1 repair optimal. Replacement remains expensive but necessary for the
-# Gamma shape repeatability condition.
 C_M: 0.05
 C_R: 0.0
 C_D: 20.0
@@ -77,3 +73,10 @@ allow_replacement: true
 replacement_as_new: true
 mip_gap: 0.0
 verbose: 0
+
+validation:
+  mode: both
+  repetitions: 100000
+  random_seed: 20260908
+  confidence_level: 0.95
+  batch_size: 20000

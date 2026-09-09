@@ -7,8 +7,7 @@ a cell uses:
 * the shared context object ``FleetModel`` (sizes, decision variables, per-cell
   parameters, increment accessors);
 * the shared variables and the general constraints / problem equations
-  (assignment, mission demand, depot capacity, aggregate-damage cap, safety
-  ``u``);
+  (assignment, mission demand, aggregate-damage cap, safety ``u``);
 * the objective  ``J = C_M(x) + C_R(z) + C_rep(r) + C_D(u)``;
 * solution extraction, status decoding, run-option and cost resolution.
 
@@ -163,7 +162,7 @@ def dispatch_cell(ctx: FleetModel, i: int, l: int) -> None:
 # ###################  GAMMA FINITE-HORIZON TAIL BLOCK  #####################
 # ===========================================================================
 # The modular gamma block goes here. A gamma cell shares the fleet skeleton
-# (assignment x, depot capacity, the aggregate-damage cap, the safety variable u
+# (assignment x, the aggregate-damage cap, the safety variable u
 # and the objective), so it MUST drive the shared mean state ``ctx.mu_var[i,l,k]``
 # — that is what the cap / u / C_D term read. Everything gamma-specific (its own
 # state variables, shape/scale bookkeeping) can live in ``ctx.extras["gamma"]``.
@@ -931,12 +930,9 @@ def pick(explicit, from_options, default):
 def resolve_run_options(cfg, **overrides) -> dict:
     """Merge explicit kwargs, ``cfg.options`` and defaults into one dict."""
     o = cfg.options
-    F, M = cfg.F, cfg.M
     return {
         "allow_replacement": pick(overrides.get("allow_replacement"),
                                   o.get("allow_replacement"), True),
-        "depot_capacity": int(pick(overrides.get("depot_capacity"),
-                                   o.get("depot_capacity"), F - M)),
         "verbose": pick(overrides.get("verbose"), o.get("verbose"), 1),
         "mip_gap": pick(overrides.get("mip_gap"), o.get("mip_gap"), 0.12),
         "time_limit": pick(overrides.get("time_limit"), o.get("time_limit"), None),
@@ -1069,8 +1065,8 @@ def build_context(cfg, opts: dict, model_name: str = "fleet_management") -> Flee
 # ===========================================================================
 # General constraints and problem equations (model-agnostic)
 # ===========================================================================
-def add_base_constraints(ctx: FleetModel, depot_capacity: int) -> None:
-    """Assignment, mission demand, depot capacity, aggregate-damage cap, safety u.
+def add_base_constraints(ctx: FleetModel) -> None:
+    """Assignment, mission demand, aggregate-damage cap and safety variable u.
 
     These couple *all* cells, so every (i, l) must have a ``mu_var`` recursion
     defined by its model's cell builder.
@@ -1088,10 +1084,6 @@ def add_base_constraints(ctx: FleetModel, depot_capacity: int) -> None:
         for k in range(T):
             md.addConstr(gp.quicksum(x[i, j, k] for i in range(F)) == 1,
                          name=f"demand_{j}_{k}")
-    # maintenance-slot capacity
-    for k in range(T):
-        md.addConstr(gp.quicksum(x[i, 0, k] for i in range(F)) <= depot_capacity,
-                     name=f"depot_cap_{k}")
     # aggregate damage cap and safety variable u
     for k in range(T):
         md.addConstr(gp.quicksum(mu_var[i, l, k] for i in range(F) for l in range(L))
@@ -1313,7 +1305,7 @@ def build_fleet(cfg, opts: dict, model_name: str = "fleet_management_mixed") -> 
 
     # shared objective and general constraints
     build_objective(ctx, resolve_costs(cfg, cfg.tau), opts)
-    add_base_constraints(ctx, int(opts["depot_capacity"]))
+    add_base_constraints(ctx)
 
     # per-cell blocks
     for i in range(cfg.F):

@@ -103,7 +103,7 @@ array (per cell).
 
 Optional, passed to the solver (top level of the input, or `solve()` kwargs):
 `verbose`, `mip_gap`, `time_limit`, `fast`, `allow_replacement`,
-`depot_capacity`, `gurobi_params`, and the Step-3 knobs `reliability_impl`
+`gurobi_params`, and the Step-3 knobs `reliability_impl`
 (`exact` \| `tangent` \| `pwl`), `pwl_points` (default 8), `tangent_ref`
 (default 0.5).
 

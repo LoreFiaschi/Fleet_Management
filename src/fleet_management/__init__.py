@@ -14,6 +14,11 @@ from fleet_management.degradation_model.gamma_utils.gamma_replay_validator impor
     validate_gamma_replay_files,
     validate_gamma_replay_schedule,
 )
+from fleet_management.degradation_model.gamma_utils.gamma_stochastic_validator import (
+    validate_gamma_schedule,
+    validate_gamma_schedule_files,
+    validate_gamma_stochastic_schedule,
+)
 from fleet_management.degradation_model.gamma_utils.gamma_validator import (
     validate_gamma_result,
 )
@@ -30,5 +35,8 @@ __all__ = [
     "validate_baseline_assignment_feasibility",
     "validate_gamma_replay_files",
     "validate_gamma_replay_schedule",
+    "validate_gamma_schedule",
+    "validate_gamma_schedule_files",
+    "validate_gamma_stochastic_schedule",
     "validate_gamma_result",
 ]

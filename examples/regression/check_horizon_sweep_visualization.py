@@ -46,6 +46,9 @@ def main() -> None:
         "objective": "minimize J_op / H2 over the operating phase",
         "fixed_dimensions": {"F": 4, "M": 1, "L": 1, "H1": 4},
         "cases": cases,
+        "stopping_rule": {
+            "maximum_mip_gap_for_stopping": 0.05,
+        },
         "best_proven_H2": 12,
         "best_proven_J_op_average": 0.661948,
         "best_feasible_H2": 16,
@@ -62,6 +65,7 @@ def main() -> None:
         extension = {
             "objective": report["objective"],
             "fixed_dimensions": report["fixed_dimensions"],
+            "stopping_rule": report["stopping_rule"],
             "cases": [
                 cases[-1],
                 {
