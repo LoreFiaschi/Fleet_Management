@@ -8,6 +8,7 @@ CLAUDE*
 build/*
 test/*
 tests/*
+euler/*
 bkp/*
 */*.pdf
 PlottingScripts/*
