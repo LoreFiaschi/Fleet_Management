@@ -43,16 +43,51 @@ def main() -> None:
     )
 
     print(f"Wrote {arguments.output}")
-    print("mode              :", report["mode"])
-    print("valid             :", report["valid"])
+    print("mode                 :", report["mode"])
+
+    if report["mode"] in {"deterministic", "both"}:
+        deterministic = (
+            report
+            if report["mode"] == "deterministic"
+            else report["deterministic"]
+        )
+        print(
+            "deterministic replay :",
+            "PASS" if deterministic["valid"] else "FAIL",
+        )
+
     if report["mode"] in {"stochastic", "both"}:
-        stochastic = report if report["mode"] == "stochastic" else report["stochastic"]
+        stochastic = (
+            report
+            if report["mode"] == "stochastic"
+            else report["stochastic"]
+        )
         schedule = stochastic["schedule"]
-        print("repetitions       :", stochastic["repetitions"])
-        print("failed replays    :", schedule["failed_replays"])
-        print("failure rate      :", schedule["failure_rate"])
-        print("upper confidence  :", schedule["failure_rate_upper_confidence_bound"])
-        print("complete fleet    :", stochastic["complete_fleet_validation"])
+        target = schedule["maximum_failure_rate"]
+
+        print("repetitions          :", stochastic["repetitions"])
+        print("failed replays       :", schedule["failed_replays"])
+        print("failure rate         :", schedule["failure_rate"])
+        print(
+            "upper confidence     :",
+            schedule["failure_rate_upper_confidence_bound"],
+        )
+        print("complete fleet       :", stochastic["complete_fleet_validation"])
+
+        if target is None:
+            print("stochastic assessment: REPORTED — no threshold configured")
+        else:
+            print("maximum failure rate :", target)
+            print(
+                "observed assessment  :",
+                "PASS" if schedule["observed_target_met"] else "FAIL",
+            )
+            print(
+                "confidence assessment:",
+                "PASS"
+                if schedule["confidence_qualified_target_met"]
+                else "FAIL",
+            )
 
 
 if __name__ == "__main__":
