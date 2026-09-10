@@ -46,7 +46,6 @@ def estimate_gamma_formulation(cfg, *, allow_replacement: bool) -> dict[str, Any
     shared_linear = {
         "vehicle_assignment": F * T,
         "mission_demand": M * T,
-        "aggregate_damage_capacity": T,
         "safety_regularisation": F * T,
     }
 

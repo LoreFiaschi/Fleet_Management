@@ -7,7 +7,7 @@ a cell uses:
 * the shared context object ``FleetModel`` (sizes, decision variables, per-cell
   parameters, increment accessors);
 * the shared variables and the general constraints / problem equations
-  (assignment, mission demand, aggregate-damage cap, safety ``u``);
+  (assignment, mission demand, safety ``u``);
 * the objective  ``J = C_M(x) + C_R(z) + C_rep(r) + C_D(u)``;
 * solution extraction, status decoding, run-option and cost resolution.
 
@@ -314,13 +314,9 @@ def _gamma_reachable_upper_bounds(
         # so rho * previous_mean is the safe reachable upper bound for both
         # repair models.
         repair_removed = max(0.0, repaired_fraction * previous_mean)
-        replacement_removed = (
-            max(0.0, previous_mean - float(replacement_mean))
-            if allow_replacement else 0.0
-        )
-        removed_upper[k] = min(
-            float(mean_limit), max(repair_removed, replacement_removed)
-        )
+        # z is the damage removed by imperfect repair. Replacement has its own
+        # binary cost and therefore must not also contribute to the repair cost.
+        removed_upper[k] = min(float(mean_limit), repair_removed)
 
         if use_latch:
             mean_latch_candidates = [previous_mean_latch, repaired_mean]
@@ -743,11 +739,11 @@ class GammaCellBuilder:
                     name=f"mu_gamma_repl_{i}_{l}_{k}",
                 )
                 _add_big_m_equality(
-                    md, ctx.z_var[i, l, k], mu_prev - replacement_mean,
+                    md, ctx.z_var[i, l, k], 0.0,
                     ctx.r_rep[i, l, k],
-                    residual_lb=-mu_prev_ub + replacement_mean,
-                    residual_ub=removed_ub - mu_prev_lb + replacement_mean,
-                    name=f"z_gamma_repl_{i}_{l}_{k}",
+                    residual_lb=0.0,
+                    residual_ub=removed_ub,
+                    name=f"z_gamma_repl_zero_{i}_{l}_{k}",
                 )
                 if use_latch:
                     _add_big_m_equality(
@@ -1066,7 +1062,7 @@ def build_context(cfg, opts: dict, model_name: str = "fleet_management") -> Flee
 # General constraints and problem equations (model-agnostic)
 # ===========================================================================
 def add_base_constraints(ctx: FleetModel) -> None:
-    """Assignment, mission demand, aggregate-damage cap and safety variable u.
+    """Assignment, mission demand and safety regularisation variable ``u``.
 
     These couple *all* cells, so every (i, l) must have a ``mu_var`` recursion
     defined by its model's cell builder.
@@ -1084,10 +1080,11 @@ def add_base_constraints(ctx: FleetModel) -> None:
         for k in range(T):
             md.addConstr(gp.quicksum(x[i, j, k] for i in range(F)) == 1,
                          name=f"demand_{j}_{k}")
-    # aggregate damage cap and safety variable u
+    # Damage regularisation epigraph. There is intentionally no separate
+    # fleet-wide cap sum(mu) <= F-M: it is absent from the abstract formulation,
+    # dimensionally tied damage to fleet size, and duplicated the role of the
+    # component reliability constraints and the objective penalty on u.
     for k in range(T):
-        md.addConstr(gp.quicksum(mu_var[i, l, k] for i in range(F) for l in range(L))
-                     <= F - M, name=f"capacity_{k}")
         for i in range(F):
             md.addConstr(u_var[k] >= gp.quicksum(mu_var[i, l, k] for l in range(L)),
                          name=f"u_{i}_{k}")

@@ -78,7 +78,7 @@ def main() -> None:
         "integer_variables": 32,
         "binary_variables": 32,
         "continuous_variables": 28,
-        "linear_constraints": 148,
+        "linear_constraints": 144,
         "general_constraints": 0,
         "quadratic_constraints": 0,
     }:

@@ -229,8 +229,6 @@ def structural_checks(res: dict, tol: float) -> list[dict]:
     add("assignment_sum_j_x_le_1", max(0.0, float(np.max(np.sum(x, axis=1) - 1.0))))
     add("demand_sum_i_x_eq_1", float(np.max(np.abs(np.sum(x, axis=0) - 1.0))))
     add("u_ge_mu", max(0.0, float(np.max(np.max(mu, axis=(0, 1)) - u))))
-    add("capacity_sum_mu_le_F_minus_M",
-        max(0.0, float(np.max(np.sum(mu, axis=(0, 1)) - (F - M)))))
     # operating-horizon loop: state(T-1) <= state(H1-1)
     add("mu_periodic_operating_loop",
         max(0.0, float(np.max(mu[:, :, T - 1] - mu[:, :, H1 - 1]))))
@@ -797,9 +795,6 @@ def _render_tabs(state: dict):
             st.success("All structural checks passed.")
         else:
             st.error("Some structural checks failed (see 'violation' column).")
-        st.caption("Note: 'capacity_sum_mu_le_F_minus_M' is the inherited "
-                   "aggregate cap sum(mu) <= F-M; if you rescaled or removed it in "
-                   "the solver, ignore this row.")
 
     # ---- Raw data ----
     with tab_raw:

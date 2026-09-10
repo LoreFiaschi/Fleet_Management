@@ -141,7 +141,9 @@ def validate_gamma_replay_schedule(
             if do_replace:
                 event, replacements = "replacement", replacements + 1
                 expected_mu, expected_shape = replacement_mu, replacement_shape
-                expected_z = previous_mu - expected_mu
+                # Replacement is charged through x^r and C_rep, not through the
+                # imperfect-repair variable z and C_R.
+                expected_z = 0.0
                 expected_gmu, expected_gshape = expected_mu, expected_shape
             elif do_repair:
                 event, repairs = "repair", repairs + 1

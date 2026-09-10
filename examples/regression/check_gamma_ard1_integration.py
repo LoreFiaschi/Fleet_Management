@@ -134,7 +134,7 @@ def repeated_repair_and_replacement():
         0.025,
         0.000,
         0.010,
-        0.044,
+        0.000,
     ]
 
     # All exact and bounding rates are 10 in this test. Consequently the

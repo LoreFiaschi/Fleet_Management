@@ -204,10 +204,6 @@ def validate_gamma_result(
         f"violating vehicle-components: {repeatability_failures}",
     )
 
-    capacity = np.sum(reconstructed_mu, axis=(0, 1))
-    capacity_violation = float(np.max(np.maximum(capacity - (F - M), 0.0)))
-    add_check("aggregate capacity constraint", capacity_violation)
-
     required_u = np.max(reconstructed_mu, axis=(0, 1))
     u_violation = max(
         float(np.max(np.maximum(required_u - saved_u, 0.0))),
