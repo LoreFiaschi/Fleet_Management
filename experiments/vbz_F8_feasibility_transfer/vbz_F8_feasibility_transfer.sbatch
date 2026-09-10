@@ -9,8 +9,9 @@
 
 set -euo pipefail
 
-SCRIPT_DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
-PROJECT=$(git -C "$SCRIPT_DIR" rev-parse --show-toplevel)
+SUBMIT_DIR=${SLURM_SUBMIT_DIR:-$PWD}
+PROJECT=$(git -C "$SUBMIT_DIR" rev-parse --show-toplevel)
+SCRIPT_DIR="$PROJECT/experiments/vbz_F8_feasibility_transfer"
 JOB_ID=${SLURM_JOB_ID:-manual}
 RUN_DIR="$SCRIPT_DIR/runs/f8_transfer_${JOB_ID}"
 
