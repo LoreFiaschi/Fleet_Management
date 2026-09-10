@@ -124,9 +124,19 @@ def _count_case(data: dict, parameter: str, value: int) -> dict:
             "gamma_ardinf_removed_shape_variables": (
                 gamma_variables["ardinf_removed_shape"]
             ),
+            "gamma_ardinf_replacement_product_variables": (
+                gamma_variables["ardinf_replaced_previous_mean"]
+                + gamma_variables["ardinf_replaced_previous_shape"]
+            ),
             "gamma_ard1_repairable_variables": (
                 gamma_variables["ard1_repairable_mean"]
                 + gamma_variables["ard1_repairable_shape"]
+            ),
+            "gamma_ard1_replacement_product_variables": (
+                gamma_variables["ard1_replaced_previous_mean"]
+                + gamma_variables["ard1_replaced_previous_shape"]
+                + gamma_variables["ard1_replaced_previous_mean_latch"]
+                + gamma_variables["ard1_replaced_previous_shape_latch"]
             ),
             "gamma_ard1_latch_variables": (
                 gamma_variables["ard1_physical_mean_latch"]
@@ -258,9 +268,9 @@ def sweep_formulation_dimensions(
             "assignment_variables": "F * (M + 1) * T",
             "gamma_cells": "F * L for a uniform Gamma fleet",
             "gamma_shape_variables": "F * L * T for a uniform Gamma fleet",
-            "gamma_big_m_state_rows": (
-                "12 * F * L * T without replacement; "
-                "18 * F * L * T with replacement"
+            "gamma_product_hull_rows": (
+                "repair-model-specific direct balances plus three rows per "
+                "bounded binary-continuous product"
             ),
             "gamma_reliability_rows": "F * L * T for a uniform Gamma fleet",
         },

@@ -65,10 +65,12 @@ package may still require the dependencies declared in `pyproject.toml`.
 
 | Script | Type | What it protects | Why it is kept |
 |---|---|---|---|
-| `check_gamma_big_m_formulation.py` | solver | Specialized ARD-infinity product hull and remaining tight Big-M Gamma dynamics | Confirms the no-replacement branch removes `nb`, verifies both repair products, and keeps bounded conditional rows only for the other branches. |
+| `check_gamma_big_m_formulation.py` | solver | Gamma product-hull dynamics | Confirms both repair models remove `nb`, indicators and conditional Big-M rows, with and without replacement. |
 | `check_gamma_repair_integration.py` | solver | Fixed-rate ARD-infinity shape scaling | Verifies physical mean, bounding shape and removed damage. |
 | `check_gamma_ard1_integration.py` | solver | ARD1 latch dynamics, repeated repairs and complete repair | Protects the more complex repair state transition. |
 | `check_gamma_ard1_truth_table.py` | solver | No-replacement project-ARD1 mission, idle and repair truth table plus product-hull inventory | Verifies every reachable local mode, partial and complete repair, removal of `nb`, and exact three-row products. |
+| `check_gamma_ardinf_replacement_truth_table.py` | solver | Replacement-enabled ARD-infinity truth table and product-hull inventory | Verifies reset, post-reset mission/idle/repair behavior, consecutive replacement, exclusivity and removal of conditional Big-M rows. |
+| `check_gamma_ard1_replacement_truth_table.py` | solver | Replacement-enabled project-ARD1 truth table and product-hull inventory | Locks down reset and latch behavior, exact counts, exclusivity and removal of conditional Big-M rows. |
 | `check_gamma_repair_legacy.py` | numerical | Earlier signed repair-tail calculation | Retained only as mathematical comparison evidence. |
 
 ## Exact/internal certification checks

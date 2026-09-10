@@ -88,8 +88,8 @@ def main() -> None:
     if formulation["gamma_cells"] != 2 or formulation["gamma_ard1_cells"] != 2:
         raise AssertionError("ARD1 formulation estimate has wrong cell counts")
     if formulation["known_subtotal"] != {
-        "variables": 155,
-        "linear_constraints": 369,
+        "variables": 201,
+        "linear_constraints": 271,
         "general_constraints": 0,
         "quadratic_constraints": 0,
     }:

@@ -92,10 +92,10 @@ def main() -> None:
         raise AssertionError(
             f"wrong reliability implementation {result['reliability_impl']!r}"
         )
-    if result["gamma_dynamics_formulation"] != "tight_big_m":
-        raise AssertionError("public Gamma route did not use tight Big-M dynamics")
+    if result["gamma_dynamics_formulation"] != "ardinf_replacement_product_hull":
+        raise AssertionError("public Gamma route did not use the replacement hull")
     if result["gamma_big_m_bound_strategy"] != "time_dependent_reachable":
-        raise AssertionError("public Gamma route did not use reachable Big-M bounds")
+        raise AssertionError("public Gamma route did not use reachable state bounds")
     if result["gamma_calibration_method"] != "repeated_increment":
         raise AssertionError("public Gamma route selected the wrong calibration")
     if (result["H1"], result["H2"], result["T"]) != (2, 3, 5):
@@ -144,7 +144,7 @@ def main() -> None:
     print("objective    :", result["objective"])
     print("backend      :", result["backend"])
     print("dynamics     :", result["gamma_dynamics_formulation"])
-    print("M bounds     :", result["gamma_big_m_bound_strategy"])
+    print("state bounds :", result["gamma_big_m_bound_strategy"])
     print("horizon      :", [result["H1"], result["H2"], result["T"]])
     print("common rates :", np.asarray(result["gamma_beta_bound"]).ravel())
     print("max tail     :", float(np.max(tail)))

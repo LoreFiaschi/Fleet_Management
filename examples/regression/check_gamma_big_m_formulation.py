@@ -1,4 +1,4 @@
-"""Regression for the two modular Gamma dynamic formulations."""
+"""Regression for the modular Gamma product-hull formulations."""
 
 from __future__ import annotations
 
@@ -85,9 +85,10 @@ def ardinf_no_replacement_config():
     )
 
 
-def check_case(cfg, name: str) -> dict:
+def check_ard1_replacement_product_hull() -> dict:
+    cfg = ard1_config()
     options = resolve_run_options(cfg)
-    context = build_fleet(cfg, options, model_name=name)
+    context = build_fleet(cfg, options, model_name="gamma_ard1_replacement_product_hull")
     actual = collect_gurobi_model_statistics(context.model)
     estimate = estimate_gamma_formulation(
         cfg, allow_replacement=options["allow_replacement"]
@@ -95,35 +96,32 @@ def check_case(cfg, name: str) -> dict:
     comparison = compare_estimate_with_actual(estimate, actual)
 
     if actual["indicator_constraints"] != 0:
-        raise AssertionError(f"{name} still contains Gamma indicator constraints")
+        raise AssertionError("ARD1 still contains Gamma indicator constraints")
     if actual["general_constraints"] != 0:
-        raise AssertionError(f"{name} unexpectedly contains general constraints")
+        raise AssertionError("ARD1 unexpectedly contains general constraints")
     if not comparison["known_subtotal_matches_actual"]:
         raise AssertionError(
-            f"{name} estimate differs from Gurobi: "
+            "ARD1 estimate differs from Gurobi: "
             f"{comparison['non_gamma_remainder']}"
         )
     if estimate["gamma_attributable"]["general_constraint_total"] != 0:
-        raise AssertionError(f"{name} estimator still counts Gamma indicators")
+        raise AssertionError("ARD1 estimator still counts Gamma indicators")
 
-    big_m = getattr(context.model, "_tight_big_m_summary", None)
-    if not big_m or big_m["conditional_equalities"] <= 0:
-        raise AssertionError(f"{name} did not record its Big-M implementation")
-    expected_big_m_rows = sum(
-        estimate["gamma_attributable"]["linear_constraints"][key]
-        for key in (
-            "big_m_state_dynamics",
-            "ard1_mean_latch_big_m_dynamics",
-            "ard1_shape_latch_big_m_dynamics",
-        )
-    )
-    if big_m["linear_rows"] != expected_big_m_rows:
-        raise AssertionError(
-            f"{name} recorded {big_m['linear_rows']} Big-M rows; "
-            f"expected {expected_big_m_rows}"
-        )
-    if big_m["maximum_coefficient"] <= 0.0:
-        raise AssertionError(f"{name} recorded no positive Big-M coefficient")
+    if context.nb:
+        raise AssertionError("replacement-enabled ARD1 still creates nb binaries")
+    if getattr(context.model, "_tight_big_m_summary", None) is not None:
+        raise AssertionError("replacement-enabled ARD1 still creates Big-M rows")
+    if context.extras["gamma"]["dynamics_formulation"] != (
+        "ard1_replacement_product_hull"
+    ):
+        raise AssertionError("replacement-enabled ARD1 selected wrong dynamics")
+
+    product = getattr(context.model, "_binary_product_summary", None)
+    expected_products = 6 * cfg.F * cfg.L * (cfg.T - 1)
+    if product is None or product["products"] != expected_products:
+        raise AssertionError("replacement-enabled ARD1 product count is wrong")
+    if product["linear_rows"] != 3 * expected_products:
+        raise AssertionError("each ARD1 binary product must have three hull rows")
 
     gamma = context.extras["gamma"]
     strict_state_bounds = 0
@@ -135,40 +133,40 @@ def check_case(cfg, name: str) -> dict:
         for key in ("mean", "shape", "removed_mean"):
             values = np.asarray(bounds[key], dtype=float)
             if values.shape != (context.T,) or np.any(~np.isfinite(values)):
-                raise AssertionError(f"{name} has invalid reachable {key} bounds")
+                raise AssertionError(f"ARD1 has invalid reachable {key} bounds")
             if np.any(values < 0.0):
-                raise AssertionError(f"{name} has negative reachable {key} bounds")
+                raise AssertionError(f"ARD1 has negative reachable {key} bounds")
         if np.any(bounds["mean"] > mean_limit + 1e-12):
-            raise AssertionError(f"{name} mean bounds exceed tau")
+            raise AssertionError("ARD1 mean bounds exceed tau")
         if np.any(bounds["shape"] > shape_limit + 1e-12):
-            raise AssertionError(f"{name} shape bounds exceed A_max")
+            raise AssertionError("ARD1 shape bounds exceed A_max")
 
         for k in range(context.T):
             if abs(context.mu_var[i, l, k].UB - bounds["mean"][k]) > 1e-12:
-                raise AssertionError(f"{name} did not apply its mean bound")
+                raise AssertionError("ARD1 did not apply its mean bound")
             if abs(gamma["A_var"][i, l, k].UB - bounds["shape"][k]) > 1e-12:
-                raise AssertionError(f"{name} did not apply its shape bound")
+                raise AssertionError("ARD1 did not apply its shape bound")
             if abs(context.z_var[i, l, k].UB - bounds["removed_mean"][k]) > 1e-12:
-                raise AssertionError(f"{name} did not apply its removed-mean bound")
+                raise AssertionError("ARD1 did not apply its removed-mean bound")
         strict_state_bounds += int(np.count_nonzero(bounds["mean"] < mean_limit - 1e-12))
         strict_state_bounds += int(np.count_nonzero(bounds["shape"] < shape_limit - 1e-12))
 
         if (i, l) in gamma["ard1_cells"]:
             if np.any(bounds["mean_latch"] > bounds["mean"] + 1e-12):
-                raise AssertionError(f"{name} mean-latch bounds exceed state bounds")
+                raise AssertionError("ARD1 mean-latch bounds exceed state bounds")
             if np.any(bounds["shape_latch"] > bounds["shape"] + 1e-12):
-                raise AssertionError(f"{name} shape-latch bounds exceed state bounds")
+                raise AssertionError("ARD1 shape-latch bounds exceed state bounds")
             for k in range(context.T):
                 if abs(
                     gamma["mean_latch"][i, l, k].UB
                     - bounds["mean_latch"][k]
                 ) > 1e-12:
-                    raise AssertionError(f"{name} did not apply its mean-latch bound")
+                    raise AssertionError("ARD1 did not apply its mean-latch bound")
                 if abs(
                     gamma["shape_latch"][i, l, k].UB
                     - bounds["shape_latch"][k]
                 ) > 1e-12:
-                    raise AssertionError(f"{name} did not apply its shape-latch bound")
+                    raise AssertionError("ARD1 did not apply its shape-latch bound")
             strict_latch_bounds += int(
                 np.count_nonzero(bounds["mean_latch"] < mean_limit - 1e-12)
             )
@@ -177,16 +175,14 @@ def check_case(cfg, name: str) -> dict:
             )
 
     if strict_state_bounds == 0:
-        raise AssertionError(f"{name} produced no tighter time-dependent bounds")
+        raise AssertionError("ARD1 produced no tighter time-dependent bounds")
 
     return {
         "variables": actual["variables"],
         "linear_constraints": actual["linear_constraints"],
         "indicator_constraints": actual["indicator_constraints"],
-        "big_m_conditional_equalities": big_m["conditional_equalities"],
-        "big_m_linear_rows": big_m["linear_rows"],
-        "minimum_big_m": big_m["minimum_coefficient"],
-        "maximum_big_m": big_m["maximum_coefficient"],
+        "binary_products": product["products"],
+        "product_hull_rows": product["linear_rows"],
         "strict_state_bounds": strict_state_bounds,
         "strict_latch_bounds": strict_latch_bounds,
     }
@@ -286,19 +282,69 @@ def check_ardinf_product_hull() -> dict:
     }
 
 
+def check_ardinf_replacement_product_hull() -> dict:
+    cfg = load_config(
+        yaml.safe_load(
+            (HERE / "gamma_tail_bound_public.yaml").read_text(encoding="utf-8")
+        )
+    )
+    options = resolve_run_options(cfg)
+    context = build_fleet(
+        cfg,
+        options,
+        model_name="gamma_ardinf_replacement_product_hull",
+    )
+    actual = collect_gurobi_model_statistics(context.model)
+    estimate = estimate_gamma_formulation(cfg, allow_replacement=True)
+    comparison = compare_estimate_with_actual(estimate, actual)
+
+    if not comparison["known_subtotal_matches_actual"]:
+        raise AssertionError(
+            "ARD-inf replacement product-hull estimate differs from Gurobi: "
+            f"{comparison['non_gamma_remainder']}"
+        )
+    if context.extras["gamma"]["dynamics_formulation"] != (
+        "ardinf_replacement_product_hull"
+    ):
+        raise AssertionError("replacement-enabled ARD-inf selected wrong dynamics")
+    if context.nb:
+        raise AssertionError("replacement-enabled ARD-inf still creates nb binaries")
+    if getattr(context.model, "_tight_big_m_summary", None) is not None:
+        raise AssertionError("replacement-enabled ARD-inf still creates Big-M rows")
+
+    product = getattr(context.model, "_binary_product_summary", None)
+    expected_products = 4 * cfg.F * cfg.L * (cfg.T - 1)
+    if product is None or product["products"] != expected_products:
+        raise AssertionError(
+            f"recorded {None if product is None else product['products']} "
+            f"replacement products; expected {expected_products}"
+        )
+    if product["linear_rows"] != 3 * expected_products:
+        raise AssertionError("each replacement product must have three hull rows")
+
+    names = {row.ConstrName for row in context.model.getConstrs()}
+    forbidden = (
+        "nb_def_", "A_gamma_carry_", "mu_gamma_carry_",
+        "z_gamma_zero_", "A_gamma_repl_", "mu_gamma_repl_",
+        "z_gamma_repl_zero_",
+    )
+    if any(name.startswith(forbidden) for name in names):
+        raise AssertionError("legacy ARD-inf replacement conditional rows remain")
+
+    return {
+        "variables": actual["variables"],
+        "continuous_variables": actual["continuous_variables"],
+        "binary_variables": actual["binary_variables"],
+        "linear_constraints": actual["linear_constraints"],
+        "binary_products": product["products"],
+        "product_hull_rows": product["linear_rows"],
+    }
+
+
 def main() -> None:
     product_hull = check_ardinf_product_hull()
-    ardinf = check_case(
-        load_config(
-            yaml.safe_load(
-                (HERE / "gamma_tail_bound_public.yaml").read_text(
-                    encoding="utf-8"
-                )
-            )
-        ),
-        "gamma_big_m_ardinf",
-    )
-    ard1 = check_case(ard1_config(), "gamma_big_m_ard1")
+    ardinf = check_ardinf_replacement_product_hull()
+    ard1 = check_ard1_replacement_product_hull()
 
     print("PASS modular Gamma dynamic formulations")
     print("ARD-inf, no replacement:", product_hull)

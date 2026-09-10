@@ -23,8 +23,7 @@ replacement_mu:
 replacement_v: 0.0
 
 # Operating profiles have length H2=3 and transitory profiles length H1=2.
-# The larger transitory damage makes an imperfect repair economically useful;
-# Gamma replacement is still required to close the no-tail-credit shape cycle.
+# The larger transitory damage makes an imperfect repair economically useful.
 mu:
   -
     - [[0.020, 0.020, 0.020]]
