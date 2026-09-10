@@ -1,6 +1,6 @@
 # Rung 4: only M changes from 1 to an intermediate load of 3 missions.
 F: 16
-M: 3
+M: 5
 L: 4
 H: [4, 48]
 component_names: [Tires, Traction battery, Converters, Motor insulation]

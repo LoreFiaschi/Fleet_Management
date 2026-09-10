@@ -1,6 +1,6 @@
 # Rung 3: only F changes from 4 to the regional fleet estimate of 16 vehicles.
 F: 16
-M: 1
+M: 3
 L: 4
 H: [4, 48]
 component_names: [Tires, Traction battery, Converters, Motor insulation]

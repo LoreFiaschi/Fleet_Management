@@ -2,7 +2,7 @@
 F: 4
 M: 1
 L: 2
-H: [4, 12]
+H: [4, 48]
 component_names: [Tires, Motor insulation]
 model: [gamma, rainflow]
 bound_method: [cantelli, cantelli]
