@@ -1,4 +1,4 @@
-# Progressive VBZ feasibility ladder, rung 0: small reference case.
+# Rung 1: only H2 changes from 12 to the full 48-period operating horizon.
 F: 4
 M: 1
 L: 2
@@ -32,6 +32,6 @@ allow_replacement: false
 objective_mode: operating_average
 reliability_impl: tangent
 mip_gap: 0.05
-time_limit: 900
+time_limit: 1800
 verbose: 1
 gurobi_params: {Threads: 4, Seed: 1, MIPFocus: 1, SolutionLimit: 1, NonConvex: 2}

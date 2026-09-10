@@ -1,9 +1,9 @@
-# Rung 1: only H2 changes from 12 to the full 48-period operating horizon.
+# Rung 2: only L changes from 2 to four mixed-model components.
 F: 4
 M: 1
 L: 4
 H: [4, 48]
-component_names: [Tires, Traction battery, Motor insulation, Capacitors]
+component_names: [Tires, Traction battery, Capacitors, Motor insulation]
 model: [gamma, gamma, rainflow, rainflow]
 bound_method: [cantelli, cantelli, cantelli, cantelli]
 repair_model: [ardinf, ardinf, ardinf, ardinf]

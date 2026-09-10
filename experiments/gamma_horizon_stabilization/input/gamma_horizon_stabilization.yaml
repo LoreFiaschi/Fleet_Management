@@ -1,0 +1,42 @@
+# Final Euler operating-horizon sweep after the Gamma formulation redesign.
+# Only H2 is varied by run_horizon_sweep.py; all other values remain fixed.
+F: 4
+M: 1
+L: 1
+H: [4, 4]
+
+component_names: [Battery]
+model: gamma
+repair_model: ardinf
+gamma_calibration_method: repeated_increment
+
+# Homogeneous mission increment: Delta D ~ Gamma(mu*beta=0.4, beta=20).
+mu: 0.02
+gamma_beta: 20.0
+gamma_beta_bound: 10.0
+
+# Zero seed isolates the repeated operating-horizon increments.
+mu_0: 0.0
+replacement_mu: 0.0
+allow_replacement: false
+
+tau: 0.6
+epsilon: 0.1
+rho: 0.5
+
+C_M: 1.0
+C_R: 0.5
+C_D: 2.0
+C_rep: 0.2
+
+# H1 remains constrained, but only J_op/H2 is minimized.
+objective_mode: operating_average
+
+# Request an exact proof where possible. The separate 5% line is used only to
+# qualify convergence gradients; it is not the solver's termination target.
+mip_gap: 0.0
+time_limit: 3300
+verbose: 1
+gurobi_params:
+  Threads: 4
+  Seed: 1

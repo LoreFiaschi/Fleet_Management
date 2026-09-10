@@ -1,9 +1,9 @@
-# Rung 3: only F changes from 4 to the regional fleet estimate of 16 vehicles.
+# Rung 4: only M changes from 1 to an intermediate load of 3 missions.
 F: 16
 M: 3
 L: 4
 H: [4, 48]
-component_names: [Tires, Traction battery, Converters, Motor insulation]
+component_names: [Tires, Traction battery, Capacitors, Motor insulation]
 model: [gamma, gamma, rainflow, rainflow]
 bound_method: [cantelli, cantelli, cantelli, cantelli]
 repair_model: [ardinf, ardinf, ardinf, ardinf]
@@ -32,6 +32,6 @@ allow_replacement: false
 objective_mode: operating_average
 reliability_impl: tangent
 mip_gap: 0.05
-time_limit: 3600
+time_limit: 5400
 verbose: 1
 gurobi_params: {Threads: 4, Seed: 1, MIPFocus: 1, SolutionLimit: 1, NonConvex: 2}

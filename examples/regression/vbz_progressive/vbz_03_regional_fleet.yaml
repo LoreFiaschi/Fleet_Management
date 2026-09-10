@@ -1,9 +1,9 @@
-# Rung 2: only L changes from 2 to the intended two-Gamma/two-remaining-life mix.
+# Rung 3: only F changes from 4 to the regional fleet estimate of 16 vehicles.
 F: 16
 M: 1
 L: 4
 H: [4, 48]
-component_names: [Tires, Traction battery, Converters, Motor insulation]
+component_names: [Tires, Traction battery, Capacitors, Motor insulation]
 model: [gamma, gamma, rainflow, rainflow]
 bound_method: [cantelli, cantelli, cantelli, cantelli]
 repair_model: [ardinf, ardinf, ardinf, ardinf]
@@ -32,6 +32,6 @@ allow_replacement: false
 objective_mode: operating_average
 reliability_impl: tangent
 mip_gap: 0.05
-time_limit: 1800
+time_limit: 3600
 verbose: 1
 gurobi_params: {Threads: 4, Seed: 1, MIPFocus: 1, SolutionLimit: 1, NonConvex: 2}
