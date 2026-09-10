@@ -1,0 +1,37 @@
+# Rung 2: only L changes from 2 to the intended two-Gamma/two-remaining-life mix.
+F: 6
+M: 1
+L: 4
+H: [4, 48]
+component_names: [Tires, Traction battery, Converters, Motor insulation]
+model: [gamma, gamma, rainflow, rainflow]
+bound_method: [cantelli, cantelli, cantelli, cantelli]
+repair_model: [ardinf, ardinf, ardinf, ardinf]
+tau: 0.6
+epsilon: 0.1
+rho: 0.5
+mu_0: 0.0
+v_0: 0.0
+replacement_mu: 0.0
+replacement_v: 0.0
+mu: 0.02
+mu_trans: 0.02
+v: 0.0002
+v_trans: 0.0002
+gamma_beta: 20.0
+gamma_beta_trans: 20.0
+gamma_beta_bound: 10.0
+gamma_beta_0: 20.0
+gamma_beta_new: 20.0
+gamma_calibration_method: repeated_increment
+C_M: 1.0
+C_R: 0.5
+C_D: 2.0
+C_rep: 0.2
+allow_replacement: false
+objective_mode: operating_average
+reliability_impl: tangent
+mip_gap: 0.05
+time_limit: 3600
+verbose: 1
+gurobi_params: {Threads: 4, Seed: 1, MIPFocus: 1, SolutionLimit: 1, NonConvex: 2}
