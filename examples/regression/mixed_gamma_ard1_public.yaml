@@ -65,8 +65,8 @@ gamma_beta_0:
 gamma_beta_new: 10.0
 
 # Low repair cost and strong expected-damage regularisation make at least one
-# ARD1 repair optimal. Replacement remains expensive but necessary for the
-# Gamma shape repeatability condition.
+# ARD1 repair optimal. Replacement remains enabled so its public result and
+# validator fields are exercised, but the optimum is not required to use it.
 C_M: 0.05
 C_R: 0.0
 C_D: 20.0

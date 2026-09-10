@@ -65,7 +65,7 @@ class FleetModel:
     x: gp.tupledict                        # assignment  (F, M+1, T)
     m_rep: gp.tupledict                    # imperfect repair (F, L, T)
     r_rep: Optional[gp.tupledict]          # replacement (F, L, T) or None
-    nb: gp.tupledict                       # no-intervention indicator (F, L, T)
+    nb: gp.tupledict                       # no-intervention indicator where required
     mu_var: gp.tupledict                   # mean damage state (F, L, T)
     z_var: gp.tupledict                    # removed expected damage (F, L, T)
     u_var: gp.tupledict                    # aggregate damage per step (T,)
@@ -162,9 +162,9 @@ def dispatch_cell(ctx: FleetModel, i: int, l: int) -> None:
 # ###################  GAMMA FINITE-HORIZON TAIL BLOCK  #####################
 # ===========================================================================
 # The modular gamma block goes here. A gamma cell shares the fleet skeleton
-# (assignment x, the aggregate-damage cap, the safety variable u
-# and the objective), so it MUST drive the shared mean state ``ctx.mu_var[i,l,k]``
-# — that is what the cap / u / C_D term read. Everything gamma-specific (its own
+# (assignment x, the safety variable u and the objective), so it MUST drive the
+# shared mean state ``ctx.mu_var[i,l,k]`` — that is what the u / C_D term reads.
+# Everything gamma-specific (its own
 # state variables, shape/scale bookkeeping) can live in ``ctx.extras["gamma"]``.
 #
 # The numerical calibration is independent of Gurobi. This block consumes its
@@ -176,7 +176,8 @@ def dispatch_cell(ctx: FleetModel, i: int, l: int) -> None:
 # reduced consistently with the selected repair model. ARD-inf contracts the
 # complete mean and shape states. ARD1 contracts only the damage accumulated
 # since the previous intervention and therefore requires separate mean and shape
-# latches.
+# latches. Without replacement, both repair models use direct state balances
+# and exact binary-product hulls; the no-intervention selector is unnecessary.
 # ---------------------------------------------------------------------------
 def _add_big_m_equality(
     model,
@@ -234,6 +235,54 @@ def _add_big_m_equality(
     model.addConstr(
         residual >= -lower_m * (1 - active),
         name=f"{name}_lb",
+    )
+
+
+def _add_binary_scaled_product(
+    model,
+    product,
+    state,
+    active,
+    *,
+    scale: float,
+    state_upper: float,
+    name: str,
+) -> None:
+    """Convex-hull linearization of ``product = scale * state * active``.
+
+    The formulation is exact for a non-negative bounded ``state`` and binary
+    ``active``.  Unlike a pair of conditional state equalities, it introduces
+    only the one bound-derived coefficient that the continuous-by-binary
+    product mathematically requires.  ``product`` has a non-negative lower
+    bound at variable creation.
+    """
+    factor = float(scale)
+    upper = float(state_upper)
+    if not np.isfinite(factor) or factor < 0.0:
+        raise ValueError(f"invalid product scale for {name}: {factor}")
+    if not np.isfinite(upper) or upper < 0.0:
+        raise ValueError(f"invalid state upper bound for {name}: {upper}")
+
+    coefficient = factor * upper
+    model.addConstr(product <= factor * state, name=f"{name}_state_ub")
+    model.addConstr(product <= coefficient * active, name=f"{name}_binary_ub")
+    model.addConstr(
+        product >= factor * state - coefficient * (1 - active),
+        name=f"{name}_lower",
+    )
+
+    summary = getattr(model, "_binary_product_summary", None)
+    if summary is None:
+        summary = {
+            "products": 0,
+            "linear_rows": 0,
+            "maximum_bound_coefficient": 0.0,
+        }
+        model._binary_product_summary = summary
+    summary["products"] += 1
+    summary["linear_rows"] += 3
+    summary["maximum_bound_coefficient"] = max(
+        summary["maximum_bound_coefficient"], coefficient,
     )
 
 
@@ -396,6 +445,38 @@ class GammaCellBuilder:
             (i, l) for i, l in cells if str(cfg.repair_model[i, l]) == "ard1"
         ]
         ard1_keys = [(i, l, k) for i, l in ard1_cells for k in range(ctx.T)]
+        ardinf_no_replacement_cells = [
+            (i, l) for i, l in cells
+            if not ctx.allow_replacement
+            and str(cfg.repair_model[i, l]) == "ardinf"
+        ]
+        ard1_no_replacement_cells = [
+            (i, l) for i, l in cells
+            if not ctx.allow_replacement
+            and str(cfg.repair_model[i, l]) == "ard1"
+        ]
+        removed_shape_keys = [
+            (i, l, k)
+            for i, l in ardinf_no_replacement_cells
+            for k in range(ctx.T)
+        ]
+        removed_shape = (
+            ctx.model.addVars(removed_shape_keys, lb=0.0, name="zA_gamma")
+            if removed_shape_keys else None
+        )
+        repairable_keys = [
+            (i, l, k)
+            for i, l in ard1_no_replacement_cells
+            for k in range(ctx.T)
+        ]
+        repairable_mean = (
+            ctx.model.addVars(repairable_keys, lb=0.0, name="qmu_gamma_ard1")
+            if repairable_keys else None
+        )
+        repairable_shape = (
+            ctx.model.addVars(repairable_keys, lb=0.0, name="qA_gamma_ard1")
+            if repairable_keys else None
+        )
         mean_latch = (
             ctx.model.addVars(ard1_keys, lb=0.0, name="gmu_gamma")
             if ard1_keys else None
@@ -535,14 +616,52 @@ class GammaCellBuilder:
                 if mean_latch is not None and (i, l) in ard1_cells:
                     mean_latch[i, l, k].UB = float(bounds["mean_latch"][k])
                     shape_latch[i, l, k].UB = float(bounds["shape_latch"][k])
+                if removed_shape is not None and (i, l) in ardinf_no_replacement_cells:
+                    previous_shape_upper = (
+                        float(initial_shape[i, l])
+                        if k == 0 else float(bounds["shape"][k - 1])
+                    )
+                    removed_shape[i, l, k].UB = (
+                        float(ctx.rho[i, l]) * previous_shape_upper
+                    )
+                if repairable_mean is not None and (i, l) in ard1_no_replacement_cells:
+                    previous_mean_upper = (
+                        float(ctx.mu_0[i, l])
+                        if k == 0 else float(bounds["mean"][k - 1])
+                    )
+                    previous_shape_upper = (
+                        float(initial_shape[i, l])
+                        if k == 0 else float(bounds["shape"][k - 1])
+                    )
+                    repairable_mean[i, l, k].UB = previous_mean_upper
+                    repairable_shape[i, l, k].UB = previous_shape_upper
+
+        product_hull_cells = (
+            ardinf_no_replacement_cells + ard1_no_replacement_cells
+        )
+        if len(ardinf_no_replacement_cells) == len(cells):
+            dynamics_formulation = "ardinf_product_hull"
+        elif len(ard1_no_replacement_cells) == len(cells):
+            dynamics_formulation = "ard1_product_hull"
+        elif len(product_hull_cells) == len(cells):
+            dynamics_formulation = "no_replacement_product_hull"
+        elif product_hull_cells:
+            dynamics_formulation = "mixed_product_hull_and_tight_big_m"
+        else:
+            dynamics_formulation = "tight_big_m"
 
         ctx.extras["gamma"] = {
             "cells": cells,
             "ard1_cells": ard1_cells,
+            "ardinf_no_replacement_cells": ardinf_no_replacement_cells,
+            "ard1_no_replacement_cells": ard1_no_replacement_cells,
             "repair_model": {
                 (i, l): str(cfg.repair_model[i, l]) for i, l in cells
             },
             "A_var": A_var,
+            "removed_shape": removed_shape,
+            "repairable_mean": repairable_mean,
+            "repairable_shape": repairable_shape,
             "mean_latch": mean_latch,
             "shape_latch": shape_latch,
             "common_rate": common_rate,
@@ -555,7 +674,7 @@ class GammaCellBuilder:
             "calibration_seconds": calibration_seconds,
             "calibration_method": calibration_method,
             "reachable_upper_bounds": reachable_upper_bounds,
-            "dynamics_formulation": "tight_big_m",
+            "dynamics_formulation": dynamics_formulation,
             "big_m_bound_strategy": "time_dependent_reachable",
         }
 
@@ -572,6 +691,15 @@ class GammaCellBuilder:
         reachable = data["reachable_upper_bounds"][i, l]
         repair_model = data["repair_model"][i, l]
         use_latch = repair_model == "ard1"
+        use_product_hull = (
+            (i, l) in data["ardinf_no_replacement_cells"]
+        )
+        use_ard1_product_hull = (
+            (i, l) in data["ard1_no_replacement_cells"]
+        )
+        removed_shape = data["removed_shape"]
+        repairable_mean = data["repairable_mean"]
+        repairable_shape = data["repairable_shape"]
         mean_latch = data["mean_latch"]
         shape_latch = data["shape_latch"]
         md = ctx.model
@@ -626,6 +754,125 @@ class GammaCellBuilder:
                 [0.0]
                 + [float(ctx.mu_inc(i, j, l, k)) for j in range(ctx.M)]
             )
+
+            if use_product_hull:
+                # With no replacement, m=1 implies x[i,0,k]=1 and therefore
+                # every mission assignment is zero.  The abstract nonlinear
+                # ARD-inf transition can consequently be written as two linear
+                # balances plus two exact binary-product hulls:
+                #   mu_k = mu_prev + mean_inc - z_k,
+                #   z_k  = rho * mu_prev * m_k,
+                # and the analogous equations for the bounding shape A.
+                zA = removed_shape[i, l, k]
+                if k == 0:
+                    md.addConstr(
+                        ctx.z_var[i, l, k] == rho * float(ctx.mu_0[i, l])
+                        * ctx.m_rep[i, l, k],
+                        name=f"z_gamma_ardinf_seed_{i}_{l}_{k}",
+                    )
+                    md.addConstr(
+                        zA == rho * initial_shape * ctx.m_rep[i, l, k],
+                        name=f"zA_gamma_ardinf_seed_{i}_{l}_{k}",
+                    )
+                else:
+                    _add_binary_scaled_product(
+                        md,
+                        ctx.z_var[i, l, k],
+                        mu_prev,
+                        ctx.m_rep[i, l, k],
+                        scale=rho,
+                        state_upper=mu_prev_ub,
+                        name=f"z_gamma_ardinf_product_{i}_{l}_{k}",
+                    )
+                    _add_binary_scaled_product(
+                        md,
+                        zA,
+                        A_prev,
+                        ctx.m_rep[i, l, k],
+                        scale=rho,
+                        state_upper=A_prev_ub,
+                        name=f"zA_gamma_ardinf_product_{i}_{l}_{k}",
+                    )
+                md.addConstr(
+                    ctx.mu_var[i, l, k] == mu_prev + mean_inc
+                    - ctx.z_var[i, l, k],
+                    name=f"mu_gamma_ardinf_balance_{i}_{l}_{k}",
+                )
+                md.addConstr(
+                    A_var[i, l, k] == A_prev + shape_inc - zA,
+                    name=f"A_gamma_ardinf_balance_{i}_{l}_{k}",
+                )
+                md.addConstr(
+                    A_var[i, l, k] <= maximum,
+                    name=f"rel_gamma_{i}_{l}_{k}",
+                )
+                continue
+
+            if use_ard1_product_hull:
+                # Project ARD1 repairs only the damage accumulated since the
+                # previous intervention. qmu and qA select that non-negative
+                # continuous difference when m=1. One exact product hull per
+                # state replaces the carry/repair/latch conditional branches
+                # and the separate no-intervention binary.
+                qmu = repairable_mean[i, l, k]
+                qA = repairable_shape[i, l, k]
+                active_mean = mu_prev - mean_latch_prev
+                active_shape = A_prev - shape_latch_prev
+                if k == 0:
+                    md.addConstr(
+                        qmu == float(ctx.mu_0[i, l]) * ctx.m_rep[i, l, k],
+                        name=f"qmu_gamma_ard1_seed_{i}_{l}_{k}",
+                    )
+                    md.addConstr(
+                        qA == initial_shape * ctx.m_rep[i, l, k],
+                        name=f"qA_gamma_ard1_seed_{i}_{l}_{k}",
+                    )
+                else:
+                    _add_binary_scaled_product(
+                        md,
+                        qmu,
+                        active_mean,
+                        ctx.m_rep[i, l, k],
+                        scale=1.0,
+                        state_upper=mu_prev_ub,
+                        name=f"qmu_gamma_ard1_product_{i}_{l}_{k}",
+                    )
+                    _add_binary_scaled_product(
+                        md,
+                        qA,
+                        active_shape,
+                        ctx.m_rep[i, l, k],
+                        scale=1.0,
+                        state_upper=A_prev_ub,
+                        name=f"qA_gamma_ard1_product_{i}_{l}_{k}",
+                    )
+                md.addConstr(
+                    ctx.z_var[i, l, k] == rho * qmu,
+                    name=f"z_gamma_ard1_balance_{i}_{l}_{k}",
+                )
+                md.addConstr(
+                    ctx.mu_var[i, l, k] == mu_prev + mean_inc - rho * qmu,
+                    name=f"mu_gamma_ard1_balance_{i}_{l}_{k}",
+                )
+                md.addConstr(
+                    A_var[i, l, k] == A_prev + shape_inc - rho * qA,
+                    name=f"A_gamma_ard1_balance_{i}_{l}_{k}",
+                )
+                md.addConstr(
+                    mean_latch[i, l, k]
+                    == mean_latch_prev + remaining * qmu,
+                    name=f"gmu_gamma_ard1_balance_{i}_{l}_{k}",
+                )
+                md.addConstr(
+                    shape_latch[i, l, k]
+                    == shape_latch_prev + remaining * qA,
+                    name=f"gA_gamma_ard1_balance_{i}_{l}_{k}",
+                )
+                md.addConstr(
+                    A_var[i, l, k] <= maximum,
+                    name=f"rel_gamma_{i}_{l}_{k}",
+                )
+                continue
 
             _add_big_m_equality(
                 md, A_var[i, l, k], A_prev + shape_inc, ctx.nb[i, l, k],
@@ -776,15 +1023,6 @@ class GammaCellBuilder:
             ctx.mu_var[i, l, k_end] <= ctx.mu_var[i, l, k_start],
             name=f"loop_mu_gamma_{i}_{l}",
         )
-        if use_latch:
-            md.addConstr(
-                mean_latch[i, l, k_end] <= mean_latch[i, l, k_start],
-                name=f"loop_gmu_gamma_{i}_{l}",
-            )
-            md.addConstr(
-                shape_latch[i, l, k_end] <= shape_latch[i, l, k_start],
-                name=f"loop_gA_gamma_{i}_{l}",
-            )
 
     def extract(self, ctx: FleetModel, cfg, out: dict) -> None:
         """Add bounding shapes, rates, tails, and concise calibration metadata."""
@@ -1030,7 +1268,20 @@ def build_context(cfg, opts: dict, model_name: str = "fleet_management") -> Flee
     x = md.addVars(F, M + 1, T, vtype=GRB.BINARY, name="x")
     m_rep = md.addVars(F, L, T, vtype=GRB.BINARY, name="m")
     r_rep = md.addVars(F, L, T, vtype=GRB.BINARY, name="r") if allow_replacement else None
-    nb = md.addVars(F, L, T, vtype=GRB.BINARY, name="nb")
+    # Gamma without replacement uses direct state balances and exact
+    # binary-product hulls, so it needs no separate no-intervention selector.
+    # Rainflow and replacement-enabled Gamma retain ``nb``.
+    nb_keys = [
+        (i, l, k)
+        for i in range(F)
+        for l in range(L)
+        if not (
+            not allow_replacement
+            and str(cfg.model[i, l]) == "gamma"
+        )
+        for k in range(T)
+    ]
+    nb = md.addVars(nb_keys, vtype=GRB.BINARY, name="nb")
     mu_var = md.addVars(F, L, T, lb=0.0, name="mu")
     z_var = md.addVars(F, L, T, lb=0.0, name="z")
     u_var = md.addVars(T, lb=0.0, name="u")
@@ -1098,6 +1349,8 @@ def add_maintenance_gating(ctx: FleetModel, i: int, l: int) -> None:
     x, m_rep, r_rep, nb = ctx.x, ctx.m_rep, ctx.r_rep, ctx.nb
     for k in range(T):
         md.addConstr(m_rep[i, l, k] <= x[i, 0, k], name=f"m_gate_{i}_{l}_{k}")
+        if (i, l, k) not in nb:
+            continue
         if ctx.allow_replacement:
             md.addConstr(r_rep[i, l, k] <= x[i, 0, k], name=f"r_gate_{i}_{l}_{k}")
             md.addConstr(nb[i, l, k] == 1 - m_rep[i, l, k] - r_rep[i, l, k],
@@ -1383,7 +1636,13 @@ def solve_mixed(cfg, **overrides) -> dict:
         formulation["comparison"] = compare_estimate_with_actual(
             formulation, formulation["actual_gurobi_model"]
         )
-        big_m_summary = dict(getattr(ctx.model, "_tight_big_m_summary", {}))
+        big_m_summary = {
+            "conditional_equalities": 0,
+            "linear_rows": 0,
+            "minimum_coefficient": None,
+            "maximum_coefficient": 0.0,
+            **dict(getattr(ctx.model, "_tight_big_m_summary", {})),
+        }
         big_m_summary.update({
             "encoding": "residual = lhs - rhs; active binary b",
             "upper_row": "residual <= M_upper * (1 - b)",
@@ -1393,6 +1652,34 @@ def solve_mixed(cfg, **overrides) -> dict:
             "bound_strategy": "time_dependent_reachable",
         })
         formulation["big_m_implementation"] = big_m_summary
+        product_summary = {
+            "products": 0,
+            "linear_rows": 0,
+            "maximum_bound_coefficient": 0.0,
+            **dict(getattr(ctx.model, "_binary_product_summary", {})),
+        }
+        product_summary.update({
+            "scope": "Gamma without replacement",
+            "product_identities": [
+                "ARD-infinity: w = rho * previous_state * repair_binary",
+                "ARD1: q = (previous_state - previous_latch) * repair_binary",
+            ],
+            "assumptions": (
+                "0 <= selected continuous state <= reachable upper bound"
+            ),
+            "rows": [
+                "product <= scale * selected_state",
+                "product <= scale * upper_bound * repair_binary",
+                "product >= scale * selected_state - scale * upper_bound * "
+                "(1 - repair_binary)",
+            ],
+            "seed_step": (
+                "previous state and latch are constant, so product = "
+                "scale * seed * "
+                "repair_binary is already linear"
+            ),
+        })
+        formulation["binary_product_implementation"] = product_summary
         out["gamma_formulation"] = formulation
     performance["backend_wall_seconds"] = time.perf_counter() - backend_start
     out["performance"] = performance

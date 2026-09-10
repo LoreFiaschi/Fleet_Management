@@ -44,7 +44,7 @@ def main() -> None:
         raise AssertionError("mixed ARD1 report has wrong ARD1 cell count")
     if ard1_formulation["known_subtotal"] != {
         "variables": 155,
-        "linear_constraints": 373,
+        "linear_constraints": 369,
         "general_constraints": 0,
         "quadratic_constraints": 0,
     }:
@@ -54,7 +54,7 @@ def main() -> None:
         "continuous_variables": 95,
         "integer_variables": 80,
         "binary_variables": 80,
-        "linear_constraints": 417,
+        "linear_constraints": 413,
         "general_constraints": 90,
         "indicator_constraints": 90,
         "quadratic_constraints": 0,

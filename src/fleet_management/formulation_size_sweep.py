@@ -105,6 +105,8 @@ def _count_case(data: dict, parameter: str, value: int) -> dict:
         },
         "gamma_cells": estimate["gamma_cells"],
         "gamma_ard1_cells": estimate["gamma_ard1_cells"],
+        "gamma_ardinf_product_cells": estimate["gamma_ardinf_product_cells"],
+        "gamma_ard1_product_cells": estimate["gamma_ard1_product_cells"],
         "allow_replacement": allow_replacement,
         "counts": {
             "variables": known["variables"],
@@ -119,11 +121,24 @@ def _count_case(data: dict, parameter: str, value: int) -> dict:
             "assignment_variables": shared_binary["assignment_x"],
             "physical_mean_variables": shared_continuous["physical_mean_mu"],
             "gamma_shape_variables": gamma_variables["bounding_shape_A"],
+            "gamma_ardinf_removed_shape_variables": (
+                gamma_variables["ardinf_removed_shape"]
+            ),
+            "gamma_ard1_repairable_variables": (
+                gamma_variables["ard1_repairable_mean"]
+                + gamma_variables["ard1_repairable_shape"]
+            ),
             "gamma_ard1_latch_variables": (
                 gamma_variables["ard1_physical_mean_latch"]
                 + gamma_variables["ard1_bounding_shape_latch"]
             ),
             "gamma_big_m_state_rows": gamma_rows["big_m_state_dynamics"],
+            "gamma_ardinf_product_hull_rows": (
+                gamma_rows["ardinf_product_hull_dynamics"]
+            ),
+            "gamma_ard1_product_hull_rows": (
+                gamma_rows["ard1_product_hull_dynamics"]
+            ),
             "gamma_ard1_latch_big_m_rows": (
                 gamma_rows["ard1_mean_latch_big_m_dynamics"]
                 + gamma_rows["ard1_shape_latch_big_m_dynamics"]

@@ -75,17 +75,17 @@ def main() -> None:
     baseline = report["sweeps"]["F"]["cases"][0]
     if baseline["counts"] != {
         "variables": 60,
-        "integer_variables": 32,
-        "binary_variables": 32,
-        "continuous_variables": 28,
-        "linear_constraints": 144,
+        "integer_variables": 24,
+        "binary_variables": 24,
+        "continuous_variables": 36,
+        "linear_constraints": 96,
         "general_constraints": 0,
         "quadratic_constraints": 0,
     }:
         raise AssertionError(
             f"analytical baseline changed: {baseline['counts']}"
         )
-    if baseline["counts"]["integer_variables"] != 32:
+    if baseline["counts"]["integer_variables"] != 24:
         raise AssertionError("integer-variable count was not retained")
 
     print("PASS deterministic formulation-size sweep")

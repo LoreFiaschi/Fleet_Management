@@ -31,12 +31,33 @@ def estimate_gamma_formulation(cfg, *, allow_replacement: bool) -> dict[str, Any
         for l in range(L)
     )
     replacement = int(bool(allow_replacement))
+    gamma_ardinf_product_cells = sum(
+        str(cfg.model[i, l]) == "gamma"
+        and str(cfg.repair_model[i, l]) == "ardinf"
+        and not allow_replacement
+        for i in range(F)
+        for l in range(L)
+    )
+    gamma_ard1_product_cells = sum(
+        str(cfg.model[i, l]) == "gamma"
+        and str(cfg.repair_model[i, l]) == "ard1"
+        and not allow_replacement
+        for i in range(F)
+        for l in range(L)
+    )
+    gamma_product_cells = (
+        gamma_ardinf_product_cells + gamma_ard1_product_cells
+    )
+    gamma_big_m_cells = gamma_cells - gamma_product_cells
+    gamma_ard1_big_m_cells = gamma_ard1_cells - gamma_ard1_product_cells
 
     shared_binary = {
         "assignment_x": F * (M + 1) * T,
         "repair_m": F * L * T,
         "replacement_r": replacement * F * L * T,
-        "no_intervention_nb": F * L * T,
+        "no_intervention_nb": (
+            (F * L - gamma_product_cells) * T
+        ),
     }
     shared_continuous = {
         "physical_mean_mu": F * L * T,
@@ -51,26 +72,45 @@ def estimate_gamma_formulation(cfg, *, allow_replacement: bool) -> dict[str, Any
 
     gamma_variables = {
         "bounding_shape_A": gamma_cells * T,
+        "ardinf_removed_shape": gamma_ardinf_product_cells * T,
+        "ard1_repairable_mean": gamma_ard1_product_cells * T,
+        "ard1_repairable_shape": gamma_ard1_product_cells * T,
         "ard1_physical_mean_latch": gamma_ard1_cells * T,
         "ard1_bounding_shape_latch": gamma_ard1_cells * T,
     }
     gamma_linear = {
-        # m<=x, nb definition, and additionally r<=x when replacement is enabled
-        "maintenance_gating": gamma_cells * T * (2 + replacement),
+        # No-replacement product-hull cells need only m<=x0. Other branches additionally
+        # define nb and, when enabled, gate replacement.
+        "maintenance_gating": (
+            gamma_product_cells * T
+            + gamma_big_m_cells * T * (2 + replacement)
+        ),
         "tail_reliability": gamma_cells * T,
         "shape_repeatability": gamma_cells,
         "physical_mean_repeatability": gamma_cells,
-        "ard1_mean_latch_repeatability": gamma_ard1_cells,
-        "ard1_shape_latch_repeatability": gamma_ard1_cells,
-        # Every previously indicated equality becomes an upper and lower Big-M row.
+        "ard1_mean_latch_repeatability": 0,
+        "ard1_shape_latch_repeatability": 0,
+        # No-replacement ARD-inf: two state balances at every step, two
+        # binary-times-constant seed equalities, and two three-row product
+        # hulls at every later step.
+        "ardinf_product_hull_dynamics": (
+            gamma_ardinf_product_cells * (8 * T - 4)
+        ),
+        # No-replacement ARD1: two selected active-damage products, five
+        # balance equations per step, and no latch terminal rows.
+        "ard1_product_hull_dynamics": (
+            gamma_ard1_product_cells * (11 * T - 4)
+        ),
+        # Every conditional equality in the remaining branches becomes an
+        # upper and lower Big-M row.
         "big_m_state_dynamics": (
-            2 * gamma_cells * T * (6 + 3 * replacement)
+            2 * gamma_big_m_cells * T * (6 + 3 * replacement)
         ),
         "ard1_mean_latch_big_m_dynamics": (
-            2 * gamma_ard1_cells * T * (2 + replacement)
+            2 * gamma_ard1_big_m_cells * T * (2 + replacement)
         ),
         "ard1_shape_latch_big_m_dynamics": (
-            2 * gamma_ard1_cells * T * (2 + replacement)
+            2 * gamma_ard1_big_m_cells * T * (2 + replacement)
         ),
     }
     gamma_general = {}
@@ -86,6 +126,9 @@ def estimate_gamma_formulation(cfg, *, allow_replacement: bool) -> dict[str, Any
         "dimensions": {"F": F, "M": M, "L": L, "T": T},
         "gamma_cells": gamma_cells,
         "gamma_ard1_cells": gamma_ard1_cells,
+        "gamma_ardinf_product_cells": gamma_ardinf_product_cells,
+        "gamma_ard1_product_cells": gamma_ard1_product_cells,
+        "gamma_big_m_cells": gamma_big_m_cells,
         "uniform_gamma": uniform_gamma,
         "allow_replacement": bool(allow_replacement),
         "definitions": {
@@ -93,8 +136,8 @@ def estimate_gamma_formulation(cfg, *, allow_replacement: bool) -> dict[str, Any
                 "Ordinary Gurobi rows reported by Model.NumConstrs."
             ),
             "general_constraints": (
-                "Gamma introduces no general constraints after the tight Big-M "
-                "conversion. Nonzero mixed-fleet totals belong to other blocks."
+                "Gamma introduces no general constraints. Nonzero mixed-fleet "
+                "totals belong to other blocks."
             ),
             "shared": (
                 "Variables and rows created once for the complete fleet."
@@ -106,18 +149,33 @@ def estimate_gamma_formulation(cfg, *, allow_replacement: bool) -> dict[str, Any
         "formulas": {
             "gamma_shape_variables": "Gamma component cells * T",
             "gamma_ard1_latch_variables": "2 * Gamma ARD1 component cells * T",
+            "gamma_ardinf_removed_shape_variables": (
+                "Gamma ARD-inf/no-replacement component cells * T"
+            ),
+            "gamma_ard1_repairable_variables": (
+                "2 * Gamma ARD1/no-replacement component cells * T"
+            ),
+            "gamma_ardinf_product_hull_rows": (
+                "Gamma ARD-inf/no-replacement component cells * (8*T - 4)"
+            ),
+            "gamma_ard1_product_hull_rows": (
+                "Gamma ARD1/no-replacement component cells * (11*T - 4)"
+            ),
             "gamma_big_m_state_rows": (
-                "2 * Gamma component cells * T * (6 + 3*I_replacement)"
+                "2 * remaining Gamma component cells * T * "
+                "(6 + 3*I_replacement)"
             ),
             "gamma_ard1_latch_big_m_rows": (
-                "4 * Gamma ARD1 component cells * T * (2 + I_replacement)"
+                "4 * replacement-enabled Gamma ARD1 component cells * T * "
+                "(2 + I_replacement)"
             ),
             "gamma_reliability_rows": "Gamma component cells * T",
             "gamma_repeatability_rows": (
-                "2 * Gamma component cells + 2 * Gamma ARD1 component cells"
+                "2 * Gamma component cells"
             ),
             "gamma_maintenance_gating_rows": (
-                "Gamma component cells * T * (2 + I_replacement)"
+                "no-replacement product-hull cells*T + remaining Gamma cells*T*"
+                "(2 + I_replacement)"
             ),
         },
         "shared": {
@@ -145,8 +203,10 @@ def estimate_gamma_formulation(cfg, *, allow_replacement: bool) -> dict[str, Any
             "For a uniform Gamma fleet the known subtotal should equal the "
             "actual Gurobi totals. For a mixed fleet, remaining variables and "
             "constraints are contributed by non-Gamma degradation blocks. "
-            "Gamma dynamics use two bounded linear Big-M rows per conditional "
-            "equality and therefore contribute no indicator constraints."
+            "Gamma without replacement uses exact binary-product hulls and no "
+            "no-intervention binary. Replacement-enabled Gamma dynamics use "
+            "two bounded Big-M rows per conditional equality. Gamma contributes "
+            "no indicator constraints."
         ),
     }
 

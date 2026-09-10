@@ -184,9 +184,6 @@ def validate_gamma_replay_schedule(
         start, end = cfg.H1 - 1, T - 1
         excess = max(0.0, mu[i,l,end] - mu[i,l,start],
                      shape[i,l,end] - shape[i,l,start])
-        if use_latch:
-            excess = max(excess, gmu[i,l,end] - gmu[i,l,start],
-                         gshape[i,l,end] - gshape[i,l,start])
         maxima["repeatability"] = max(maxima["repeatability"], float(excess))
         if excess > tolerance:
             failures.append({"i": i, "l": l, "k": end,

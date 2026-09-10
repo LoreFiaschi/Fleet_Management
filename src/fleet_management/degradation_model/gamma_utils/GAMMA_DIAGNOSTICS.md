@@ -80,36 +80,64 @@ reported separately where the selected fixture uses them.
 
 Let `N_gamma` be the number of Gamma vehicle/component cells,
 `N_gamma_ard1` the subset using ARD1, `T = H1 + H2`, and
-`I_replacement` equal one when replacement is enabled.
+`I_replacement` equal one when replacement is enabled. Let `N_inf_product` and
+`N_ard1_product` be the respective no-replacement Gamma cells,
+`N_product = N_inf_product + N_ard1_product`, and
+`N_bigM = N_gamma - N_product`.
 
 ```text
 Gamma shape variables       = N_gamma * T
+ARD-inf removed-shape vars  = N_inf_product * T
 Gamma ARD1 latch variables  = 2 * N_gamma_ard1 * T
-Gamma Big-M dynamics rows   = 2*N_gamma*T*(6 + 3*I_replacement)
-                            + 4*N_gamma_ard1*T*(2 + I_replacement)
+ARD1 repairable-state vars  = 2 * N_ard1_product * T
+ARD-inf product-hull rows   = N_inf_product * (8*T - 4)
+ARD1 product-hull rows      = N_ard1_product * (11*T - 4)
+Gamma Big-M dynamics rows   = 2*N_bigM*T*(6 + 3*I_replacement)
+                            + 4*(N_gamma_ard1-N_ard1_product)*T
+                              *(2 + I_replacement)
 Gamma reliability rows      = N_gamma * T
-Gamma repeatability rows    = 2*N_gamma + 2*N_gamma_ard1
-Gamma maintenance rows      = N_gamma * T * (2 + I_replacement)
+Gamma repeatability rows    = 2*N_gamma
+Gamma maintenance rows      = N_product*T
+                            + N_bigM*T*(2 + I_replacement)
 ```
 
-The Gamma block uses ordinary linear Big-M rows and introduces no indicator,
-general, or quadratic constraints. Conditional state equalities are represented
-by two asymmetric Big-M inequalities. The affected states are the bounding
-shape, physical expected damage, removed expected damage and, for ARD1, the
-post-intervention latch states.
+The Gamma block introduces no indicator, general, or quadratic constraints.
+ARD-infinity without replacement is written as a direct state balance. Its
+removed physical damage and removed bounding shape are exact convex-hull
+linearizations of a bounded continuous state multiplied by the repair binary.
+This branch creates no no-intervention binary and no conditional state
+equalities. At the seed step the previous state is constant, so even the repair
+product is an ordinary linear equality.
 
-The Big-M constants are time-dependent reachable bounds. Before constraints
-are added, each Gamma cell receives safe upper bounds for physical expected
-damage, bounding shape, removed damage, and the ARD1 latches. The bounds are an
+ARD1 without replacement similarly uses direct balances, but its two products
+select `state - latch` rather than the complete previous state. The selected
+mean and shape are stored in bounded continuous auxiliaries. This branch also
+creates no no-intervention binary. Mean and bounding-shape repeatability remain;
+terminal repeatability is not imposed on the internal latch states.
+
+Replacement-enabled Gamma branches retain ordinary linear Big-M rows.
+Their conditional state equalities are represented by two asymmetric Big-M
+inequalities. The affected states are the bounding shape, physical expected
+damage, removed expected damage and, for ARD1, the post-intervention latch
+states.
+
+The Big-M and product-hull coefficients use time-dependent reachable bounds.
+Before either type of row is added, each Gamma cell receives safe upper bounds
+for physical expected damage, bounding shape, removed damage, and the ARD1
+latches. The bounds are an
 over-approximation of every possible schedule: normal operation adds the largest
 available increment at each step, repair cannot increase a state, and
 replacement applies the replacement seed. Physical expected damage is clipped
 by `tau`, while bounding shape is clipped by `A_max`. This changes variable
 bounds and Big-M coefficients without introducing additional variables or
-constraints. Solver output records:
+constraints. Solver output records one of:
 
 ```text
+gamma_dynamics_formulation: ardinf_product_hull
+gamma_dynamics_formulation: ard1_product_hull
+gamma_dynamics_formulation: no_replacement_product_hull
 gamma_dynamics_formulation: tight_big_m
+gamma_dynamics_formulation: mixed_product_hull_and_tight_big_m
 gamma_big_m_bound_strategy: time_dependent_reachable
 ```
 
