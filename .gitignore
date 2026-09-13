@@ -9,6 +9,7 @@ build/*
 test/*
 tests/*
 euler/*
+experiments/*
 bkp/*
 */*.pdf
 PlottingScripts/*
