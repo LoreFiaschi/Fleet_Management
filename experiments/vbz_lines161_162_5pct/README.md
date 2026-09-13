@@ -14,7 +14,8 @@ increments and costs remain synthetic and must not be described as VBZ data.
 
 | Case | F | M | L | H1 | H2 | T | MIP-gap target |
 |---|---:|---:|---:|---:|---:|---:|---:|
-| Lines 161 and 162 | 3 | 2 | 4 | 4 | 12 | 16 | 5% |
+| Lines 161 and 162, failed feasibility probe | 3 | 2 | 4 | 4 | 12 | 16 | 5% |
+| Lines 161 and 162, primary retry | 4 | 2 | 4 | 4 | 12 | 16 | 5% |
 
 Fallback, if needed: line 162 only with `F=2`, `M=1`, and otherwise identical
 dimensions and solver settings.
@@ -24,7 +25,8 @@ followed by four repetitions of the 12-week operating cycle gives the annual
 interpretation `4 + 4 * 12 = 52` weeks. The optimization model contains only
 `T = H1 + H2 = 16` periods.
 
-The primary job runs one Gurobi process with four threads. It may use up to 15
+The `F=3` configuration was proven infeasible. The primary job therefore runs
+the `F=4` retry as one Gurobi process with four threads. It may use up to 15
 hours 30 minutes inside one 16-hour Slurm allocation. If the 5% target is not
 reached, any feasible incumbent and its final bound remain reportable.
 
@@ -50,6 +52,6 @@ sbatch experiments/vbz_lines161_162_5pct/vbz_line162_5pct_fallback.sbatch
 After job `JOBID` finishes:
 
 ```powershell
-scp clangenauer@euler.ethz.ch:~/Fleet_Management/experiments/vbz_lines161_162_5pct/runs/vbz_lines161_162_5pct_JOBID.tar.gz .
-scp clangenauer@euler.ethz.ch:~/Fleet_Management/experiments/vbz_lines161_162_5pct/runs/vbz_lines161_162_5pct_JOBID.tar.gz.sha256 .
+scp clangenauer@euler.ethz.ch:~/Fleet_Management/experiments/vbz_lines161_162_5pct/runs/vbz_lines161_162_F4_5pct_JOBID.tar.gz .
+scp clangenauer@euler.ethz.ch:~/Fleet_Management/experiments/vbz_lines161_162_5pct/runs/vbz_lines161_162_F4_5pct_JOBID.tar.gz.sha256 .
 ```

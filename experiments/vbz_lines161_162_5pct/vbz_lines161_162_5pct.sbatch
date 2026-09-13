@@ -1,11 +1,11 @@
 #!/usr/bin/bash
-#SBATCH --job-name=vbz-161-162-5pct
+#SBATCH --job-name=vbz-161-162-F4
 #SBATCH --time=16:00:00
 #SBATCH --ntasks=1
 #SBATCH --cpus-per-task=4
 #SBATCH --mem-per-cpu=4G
-#SBATCH --output=runs/vbz-161-162-5pct-%j.out
-#SBATCH --error=runs/vbz-161-162-5pct-%j.err
+#SBATCH --output=runs/vbz-161-162-F4-%j.out
+#SBATCH --error=runs/vbz-161-162-F4-%j.err
 
 set -Eeuo pipefail
 
@@ -14,9 +14,9 @@ EXPERIMENT_REL=experiments/vbz_lines161_162_5pct
 EXPERIMENT_DIR="$REPO_ROOT/$EXPERIMENT_REL"
 RUNS_DIR="$EXPERIMENT_DIR/runs"
 JOB_ID=${SLURM_JOB_ID:-manual}
-RUN_NAME="lines161_162_$JOB_ID"
+RUN_NAME="lines161_162_F4_$JOB_ID"
 RUN_DIR="$RUNS_DIR/$RUN_NAME"
-ARCHIVE="$RUNS_DIR/vbz_lines161_162_5pct_${JOB_ID}.tar.gz"
+ARCHIVE="$RUNS_DIR/vbz_lines161_162_F4_5pct_${JOB_ID}.tar.gz"
 
 mkdir -p "$RUN_DIR/source_snapshot" "$REPO_ROOT/runs"
 
@@ -68,7 +68,7 @@ cp src/fleet_management/degradation_model/gamma.py "$RUN_DIR/source_snapshot/gam
 cp src/fleet_management/degradation_model/rainflow.py "$RUN_DIR/source_snapshot/rainflow.py"
 
 {
-    echo "experiment=vbz_lines161_162_5pct"
+    echo "experiment=vbz_lines161_162_F4_5pct"
     echo "job_id=$JOB_ID"
     echo "host=$(hostname)"
     echo "started_at=$(date --iso-8601=seconds)"
@@ -95,7 +95,7 @@ import fleet_management
 from fleet_management.config import load_config
 
 run_dir = Path(sys.argv[1])
-expected = {"vbz_lines161_162_H2_12_5pct.yaml": (3, 2, 4)}
+expected = {"vbz_lines161_162_F4_H2_12_5pct.yaml": (4, 2, 4)}
 for name, dimensions in expected.items():
     path = run_dir / name
     raw = yaml.safe_load(path.read_text(encoding="utf-8"))
@@ -113,7 +113,7 @@ PY
 
 "$PYTHON" "$RUN_DIR/run_case.py" \
     lines161_162 \
-    "$RUN_DIR/vbz_lines161_162_H2_12_5pct.yaml" \
+    "$RUN_DIR/vbz_lines161_162_F4_H2_12_5pct.yaml" \
     "$RUN_DIR/result_lines161_162.yaml" \
     "$RUN_DIR/case_lines161_162_summary.json" \
     > "$RUN_DIR/runner_lines161_162.out" \
