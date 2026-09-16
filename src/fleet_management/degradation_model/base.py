@@ -8,7 +8,8 @@ a cell uses:
   parameters, increment accessors);
 * the shared variables and the general constraints / problem equations
   (assignment, mission demand, safety ``u``);
-* the objective  ``J = C_M(x) + C_R(z) + C_rep(r) + C_D(u)``;
+* the objective  ``J = sum_l C_M[l] m[l] + C_R[l] z[l] +``
+  ``C_rep[l] r[l] + C_D u``;
 * solution extraction, status decoding, run-option and cost resolution.
 
 Degradation models plug in through the **cell-builder registry**: each model
@@ -38,6 +39,7 @@ Layering
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+import math
 import time
 from typing import Callable, Dict, Optional, Protocol
 
@@ -65,7 +67,7 @@ class FleetModel:
     x: gp.tupledict                        # assignment  (F, M+1, T)
     m_rep: gp.tupledict                    # imperfect repair (F, L, T)
     r_rep: Optional[gp.tupledict]          # replacement (F, L, T) or None
-    nb: gp.tupledict                       # no-intervention indicator where required
+    nb: gp.tupledict                       # explicit idle/no-intervention action
     mu_var: gp.tupledict                   # mean damage state (F, L, T)
     z_var: gp.tupledict                    # removed expected damage (F, L, T)
     u_var: gp.tupledict                    # aggregate damage per step (T,)
@@ -1221,14 +1223,36 @@ def resolve_run_options(cfg, **overrides) -> dict:
             o.get("objective_mode"),
             "total",
         )).strip().lower(),
+        "evaluation_horizon": pick(
+            overrides.get("evaluation_horizon"),
+            o.get("evaluation_horizon"),
+            None,
+        ),
+        "progress_interval_seconds": float(pick(
+            overrides.get("progress_interval_seconds"),
+            o.get("progress_interval_seconds"),
+            5.0,
+        )),
+        "relaxation_warm_start": bool(pick(
+            overrides.get("relaxation_warm_start"),
+            o.get("relaxation_warm_start"),
+            False,
+        )),
+        "relaxation_time_limit": float(pick(
+            overrides.get("relaxation_time_limit"),
+            o.get("relaxation_time_limit"),
+            60.0,
+        )),
     }
 
 
 def resolve_costs(cfg, tau) -> dict:
-    """Objective coefficients: J = C_M(x) + C_R(z) + C_rep(r) + C_D(u).
+    """Resolve component costs for repair, removed damage and replacement.
 
     ``C_D`` is the damage-regularisation coefficient (legacy alias ``C_S``).
-    ``C_rep`` defaults to ``C_R * max(tau)`` when not supplied.
+    ``C_M``, ``C_R`` and ``C_rep`` are component vectors. Scalar YAML values
+    have already been broadcast by ``load_config``. ``C_rep`` defaults
+    component-wise to ``C_R[l] * max_i(tau[i,l])`` when not supplied.
     """
     c = dict(cfg.costs)
     if "C_D" not in c or c["C_D"] is None:
@@ -1239,8 +1263,18 @@ def resolve_costs(cfg, tau) -> dict:
     for key in ("C_M", "C_R"):
         if key not in c:
             raise KeyError(f"missing required cost coefficient '{key}'.")
+    for key in ("C_M", "C_R"):
+        values = np.asarray(c[key], dtype=float)
+        if values.shape != (cfg.L,):
+            raise ValueError(f"normalized {key} must have shape ({cfg.L},)")
+        c[key] = values
     if "C_rep" not in c or c["C_rep"] is None:
-        c["C_rep"] = float(c["C_R"]) * float(np.max(tau))
+        c["C_rep"] = c["C_R"] * np.max(np.asarray(tau), axis=0)
+    else:
+        values = np.asarray(c["C_rep"], dtype=float)
+        if values.shape != (cfg.L,):
+            raise ValueError(f"normalized C_rep must have shape ({cfg.L},)")
+        c["C_rep"] = values
     return c
 
 
@@ -1286,6 +1320,190 @@ def apply_performance_params(model, time_limit, mip_gap, fast, extra) -> None:
             model.setParam(key, val)
 
 
+def _make_progress_callback(interval_seconds: float):
+    """Return a lightweight Gurobi callback recording primal/dual progress."""
+    interval = max(0.1, float(interval_seconds))
+
+    def callback(model, where):
+        if where != GRB.Callback.MIP:
+            return
+        try:
+            runtime = float(model.cbGet(GRB.Callback.RUNTIME))
+            incumbent_raw = float(model.cbGet(GRB.Callback.MIP_OBJBST))
+            bound_raw = float(model.cbGet(GRB.Callback.MIP_OBJBND))
+            nodes = float(model.cbGet(GRB.Callback.MIP_NODCNT))
+            solutions = int(model.cbGet(GRB.Callback.MIP_SOLCNT))
+        except gp.GurobiError:
+            return
+
+        incumbent = (
+            None if abs(incumbent_raw) >= 0.5 * GRB.INFINITY else incumbent_raw
+        )
+        bound = None if abs(bound_raw) >= 0.5 * GRB.INFINITY else bound_raw
+        gap = None
+        if incumbent is not None and bound is not None:
+            gap = abs(incumbent - bound) / max(abs(incumbent), 1e-10)
+
+        records = model._optimization_progress
+        last_time = model._optimization_progress_last_time
+        last_solutions = model._optimization_progress_last_solutions
+        if (
+            not records
+            or runtime - last_time >= interval
+            or solutions != last_solutions
+        ):
+            records.append({
+                "runtime_seconds": runtime,
+                "incumbent": incumbent,
+                "best_bound": bound,
+                "relative_gap": gap,
+                "nodes": nodes,
+                "solutions": solutions,
+            })
+            model._optimization_progress_last_time = runtime
+            model._optimization_progress_last_solutions = solutions
+
+    return callback
+
+
+def _initialize_progress(model, interval_seconds: float):
+    model._optimization_progress = []
+    model._optimization_progress_last_time = -math.inf
+    model._optimization_progress_last_solutions = -1
+    return _make_progress_callback(interval_seconds)
+
+
+def _append_final_progress(model) -> None:
+    """Ensure the saved trajectory contains the final solver state."""
+    incumbent = float(model.ObjVal) if int(model.SolCount) > 0 else None
+    try:
+        bound = float(model.ObjBound)
+    except (AttributeError, gp.GurobiError):
+        bound = None
+    try:
+        gap = float(model.MIPGap) if int(model.SolCount) > 0 else None
+    except (AttributeError, gp.GurobiError):
+        gap = None
+    record = {
+        "runtime_seconds": float(model.Runtime),
+        "incumbent": incumbent,
+        "best_bound": bound,
+        "relative_gap": gap,
+        "nodes": float(model.NodeCount),
+        "solutions": int(model.SolCount),
+    }
+    records = model._optimization_progress
+    if not records or abs(records[-1]["runtime_seconds"] - record["runtime_seconds"]) > 1e-9:
+        records.append(record)
+    else:
+        records[-1] = record
+
+
+def apply_binary_warm_start(ctx: FleetModel, result: dict | None) -> dict:
+    """Map a previous schedule onto the current horizon as a Gurobi MIP start.
+
+    Initialization steps retain their index. Operating steps repeat the old H2
+    schedule cyclically, allowing a solved shorter horizon to seed a longer
+    candidate. Only discrete schedule/action variables are started; Gurobi
+    reconstructs all continuous degradation states from the constraints.
+    """
+    diagnostics = {"applied": False, "values": 0, "source_horizon": None}
+    if not result or result.get("x") is None:
+        return diagnostics
+
+    old_h1 = int(result.get("H1", ctx.H1))
+    old_h2 = int(result.get("H2", max(1, np.asarray(result["x"]).shape[-1] - old_h1)))
+    x_old = np.asarray(result["x"], dtype=float)
+    m_old = None if result.get("m") is None else np.asarray(result["m"], dtype=float)
+    r_old = None if result.get("r") is None else np.asarray(result["r"], dtype=float)
+
+    def old_step(k: int) -> int:
+        if k < ctx.H1 and k < old_h1:
+            return k
+        return old_h1 + ((max(0, k - ctx.H1)) % old_h2)
+
+    values = 0
+    for k in range(ctx.T):
+        source_k = old_step(k)
+        if source_k >= x_old.shape[-1]:
+            continue
+        for i in range(min(ctx.F, x_old.shape[0])):
+            for j in range(min(ctx.M + 1, x_old.shape[1])):
+                ctx.x[i, j, k].Start = float(round(x_old[i, j, source_k]))
+                values += 1
+            for l in range(ctx.L):
+                if m_old is not None and i < m_old.shape[0] and l < m_old.shape[1]:
+                    m_value = float(round(m_old[i, l, source_k]))
+                    ctx.m_rep[i, l, k].Start = m_value
+                    values += 1
+                else:
+                    m_value = 0.0
+                r_value = 0.0
+                if ctx.allow_replacement and r_old is not None:
+                    if i < r_old.shape[0] and l < r_old.shape[1]:
+                        r_value = float(round(r_old[i, l, source_k]))
+                        ctx.r_rep[i, l, k].Start = r_value
+                        values += 1
+                ctx.nb[i, l, k].Start = max(0.0, 1.0 - m_value - r_value)
+                values += 1
+
+    diagnostics.update({
+        "applied": values > 0,
+        "values": values,
+        "source_horizon": {"H1": old_h1, "H2": old_h2},
+    })
+    return diagnostics
+
+
+def apply_relaxation_warm_start(
+    model: gp.Model,
+    *,
+    time_limit: float,
+) -> dict:
+    """Solve an optional phase-I feasibility relaxation and copy a MIP start.
+
+    Gurobi relaxes linear rows with an L1 violation objective while retaining
+    integrality and the model's general constraints. The relaxed solution is
+    *not* reported as feasible for the original problem: only its discrete
+    values are copied as hints, and the original model must still establish a
+    valid incumbent.
+    """
+    diagnostics = {
+        "enabled": True,
+        "status": "not_run",
+        "relaxation_objective": None,
+        "values_copied": 0,
+        "runtime_seconds": None,
+    }
+    model.update()
+    relaxed = model.copy()
+    relaxed.ModelName = f"{model.ModelName}_phase1_relaxation"
+    relaxed.Params.TimeLimit = max(1.0, float(time_limit))
+    relaxed.Params.MIPGap = 0.05
+    # type=0: sum of absolute violations; minrelax=False; variable bounds stay
+    # hard; linear constraints are relaxable.
+    relaxed.feasRelaxS(0, False, False, True)
+    relaxed.optimize()
+    diagnostics["runtime_seconds"] = float(relaxed.Runtime)
+    diagnostics["status"] = status_string(relaxed.Status)
+    if int(relaxed.SolCount) <= 0:
+        return diagnostics
+
+    diagnostics["relaxation_objective"] = float(relaxed.ObjVal)
+    relaxed_by_name = {var.VarName: var for var in relaxed.getVars()}
+    copied = 0
+    for variable in model.getVars():
+        if variable.VType not in {GRB.BINARY, GRB.INTEGER}:
+            continue
+        source = relaxed_by_name.get(variable.VarName)
+        if source is None:
+            continue
+        variable.Start = float(round(source.X))
+        copied += 1
+    diagnostics["values_copied"] = copied
+    return diagnostics
+
+
 # ===========================================================================
 # Model + shared variables
 # ===========================================================================
@@ -1303,16 +1521,10 @@ def build_context(cfg, opts: dict, model_name: str = "fleet_management") -> Flee
     x = md.addVars(F, M + 1, T, vtype=GRB.BINARY, name="x")
     m_rep = md.addVars(F, L, T, vtype=GRB.BINARY, name="m")
     r_rep = md.addVars(F, L, T, vtype=GRB.BINARY, name="r") if allow_replacement else None
-    # Every Gamma repair model uses direct balances and exact binary-product
-    # hulls, so Gamma needs no no-intervention selector. Rainflow retains nb.
-    nb_keys = [
-        (i, l, k)
-        for i in range(F)
-        for l in range(L)
-        if str(cfg.model[i, l]) != "gamma"
-        for k in range(T)
-    ]
-    nb = md.addVars(nb_keys, vtype=GRB.BINARY, name="nb")
+    # Explicit component action requested by the mathematical formulation:
+    # idle/no intervention, imperfect repair, or replacement. It is defined
+    # for every cell; rainflow also uses it to select the carry recursion.
+    nb = md.addVars(F, L, T, vtype=GRB.BINARY, name="idle")
     mu_var = md.addVars(F, L, T, lb=0.0, name="mu")
     z_var = md.addVars(F, L, T, lb=0.0, name="z")
     u_var = md.addVars(T, lb=0.0, name="u")
@@ -1375,9 +1587,11 @@ def add_base_constraints(ctx: FleetModel) -> None:
 def add_maintenance_gating(ctx: FleetModel, i: int, l: int) -> None:
     """Gate repair/replacement through the explicit idle assignment.
 
-    Branches that still use ``nb`` obtain exclusivity from its binary
-    definition. Product-hull branches express exclusivity directly and need no
-    no-intervention variable.
+    ``nb`` is the implementation alias for the explicit idle/no-intervention
+    action. The equality below gives exactly one component action, while the
+    gate ensures repair and replacement are possible only when the vehicle is
+    assigned to the depot. Multiple components of the same vehicle may still
+    be repaired simultaneously.
     """
     md, T = ctx.model, ctx.T
     x, m_rep, r_rep, nb = ctx.x, ctx.m_rep, ctx.r_rep, ctx.nb
@@ -1385,28 +1599,25 @@ def add_maintenance_gating(ctx: FleetModel, i: int, l: int) -> None:
         md.addConstr(m_rep[i, l, k] <= x[i, 0, k], name=f"m_gate_{i}_{l}_{k}")
         if ctx.allow_replacement:
             md.addConstr(r_rep[i, l, k] <= x[i, 0, k], name=f"r_gate_{i}_{l}_{k}")
-            if (i, l, k) in nb:
-                md.addConstr(
-                    nb[i, l, k] == 1 - m_rep[i, l, k] - r_rep[i, l, k],
-                    name=f"nb_def_{i}_{l}_{k}",
-                )
-            else:
-                md.addConstr(
-                    m_rep[i, l, k] + r_rep[i, l, k] <= 1,
-                    name=f"maintenance_exclusive_{i}_{l}_{k}",
-                )
-        elif (i, l, k) in nb:
-            md.addConstr(nb[i, l, k] == 1 - m_rep[i, l, k], name=f"nb_def_{i}_{l}_{k}")
+            md.addConstr(
+                nb[i, l, k] + m_rep[i, l, k] + r_rep[i, l, k] == 1,
+                name=f"component_action_{i}_{l}_{k}",
+            )
+        else:
+            md.addConstr(
+                nb[i, l, k] + m_rep[i, l, k] == 1,
+                name=f"component_action_{i}_{l}_{k}",
+            )
 
 
 def build_objective(ctx: FleetModel, costs: dict, opts: dict) -> None:
     """Build the total-cost or operating-average objective.
 
     ``operating_average`` treats the first ``H1`` steps as initialization:
-    they remain fully constrained, but their costs are not optimized and no
-    initialization-cost budget is imposed.  The single objective ``J_op / H2``
-    gives Gurobi bounds and MIP gaps for exactly the quantity compared by the
-    horizon sweep.
+    they remain fully constrained and their realized cost is reported as
+    ``J_initialization``, but the optimizer minimizes only ``J_op / H2``. The
+    single objective gives Gurobi bounds and MIP gaps for exactly the quantity
+    compared by the horizon sweep.
     """
     md, F, L, T = ctx.model, ctx.F, ctx.L, ctx.T
     C_M, C_R, C_D, C_rep = costs["C_M"], costs["C_R"], costs["C_D"], costs["C_rep"]
@@ -1415,11 +1626,11 @@ def build_objective(ctx: FleetModel, costs: dict, opts: dict) -> None:
     for k in range(T):
         step_cost = gp.LinExpr(C_D * ctx.u_var[k])
         for i in range(F):
-            step_cost += C_M * ctx.x[i, 0, k]
             for l in range(L):
-                step_cost += C_R * ctx.z_var[i, l, k]
+                step_cost += C_M[l] * ctx.m_rep[i, l, k]
+                step_cost += C_R[l] * ctx.z_var[i, l, k]
                 if ctx.allow_replacement:
-                    step_cost += C_rep * ctx.r_rep[i, l, k]
+                    step_cost += C_rep[l] * ctx.r_rep[i, l, k]
         J_total += step_cost
         if k >= ctx.H1:
             J_op += step_cost
@@ -1434,20 +1645,35 @@ def build_objective(ctx: FleetModel, costs: dict, opts: dict) -> None:
         # for a hierarchical multi-objective solve.  A single objective makes
         # every saved bound and gap directly comparable across H2 cases.
         md.setObjective(objective, GRB.MINIMIZE)
+    elif mode == "evaluation_total":
+        evaluation_horizon = opts.get("evaluation_horizon")
+        if evaluation_horizon is None:
+            raise ValueError(
+                "objective_mode='evaluation_total' requires evaluation_horizon"
+            )
+        evaluation_horizon = int(evaluation_horizon)
+        if evaluation_horizon <= ctx.H1:
+            raise ValueError("evaluation_horizon must exceed H1")
+        J_initialization = J_total - J_op
+        operating_periods = evaluation_horizon - ctx.H1
+        objective = J_initialization + (operating_periods / ctx.H2) * J_op
+        md.setObjective(objective, GRB.MINIMIZE)
     else:
         raise ValueError(
-            "objective_mode must be 'total' or 'operating_average'; "
+            "objective_mode must be 'total', 'operating_average' or "
+            "'evaluation_total'; "
             f"got {mode!r}."
         )
 
     ctx.extras["phase_costs"] = {
         "mode": mode,
+        "evaluation_horizon": opts.get("evaluation_horizon"),
         "J_op": J_op,
         "costs": {
-            "C_M": float(C_M),
-            "C_R": float(C_R),
+            "C_M": C_M.tolist(),
+            "C_R": C_R.tolist(),
             "C_D": float(C_D),
-            "C_rep": float(C_rep),
+            "C_rep": C_rep.tolist(),
         },
     }
 
@@ -1529,6 +1755,7 @@ def extract_solution(ctx: FleetModel, cfg, model) -> dict:
     x_sol = np.zeros((F, M + 1, T)); mu_sol = np.zeros((F, L, T))
     v_sol = np.zeros((F, L, T)); z_sol = np.zeros((F, L, T))
     m_sol = np.zeros((F, L, T)); r_sol = np.zeros((F, L, T)); u_sol = np.zeros(T)
+    idle_sol = np.zeros((F, L, T))
     track_v = ctx.track_v_of
     for k in range(T):
         for i in range(F):
@@ -1540,6 +1767,7 @@ def extract_solution(ctx: FleetModel, cfg, model) -> dict:
                     v_sol[i, l, k] = ctx.v_var[i, l, k].X
                 z_sol[i, l, k] = ctx.z_var[i, l, k].X
                 m_sol[i, l, k] = ctx.m_rep[i, l, k].X
+                idle_sol[i, l, k] = ctx.nb[i, l, k].X
                 if ctx.allow_replacement:
                     r_sol[i, l, k] = ctx.r_rep[i, l, k].X
     # ``u`` is an epigraph of the largest vehicle-level aggregate damage.  It
@@ -1551,7 +1779,7 @@ def extract_solution(ctx: FleetModel, cfg, model) -> dict:
         u_sol[k] = max(float(np.sum(mu_sol[i, :, k])) for i in range(F))
     meta.update({"objective": model.ObjVal, "mip_gap": gap, "bound": objbnd,
                  "x": x_sol, "mu": mu_sol, "v": v_sol, "z": z_sol,
-                 "m": m_sol, "r": r_sol, "u": u_sol})
+                 "m": m_sol, "r": r_sol, "idle": idle_sol, "u": u_sol})
     phase = ctx.extras.get("phase_costs")
     if phase is not None:
         coefficients = phase["costs"]
@@ -1559,15 +1787,34 @@ def extract_solution(ctx: FleetModel, cfg, model) -> dict:
         for k in range(T):
             step_costs[k] = (
                 coefficients["C_D"] * u_sol[k]
-                + coefficients["C_M"] * float(np.sum(x_sol[:, 0, k]))
-                + coefficients["C_R"] * float(np.sum(z_sol[:, :, k]))
-                + coefficients["C_rep"] * float(np.sum(r_sol[:, :, k]))
+                + float(np.sum(
+                    np.asarray(coefficients["C_M"])[None, :] * m_sol[:, :, k]
+                ))
+                + float(np.sum(
+                    np.asarray(coefficients["C_R"])[None, :] * z_sol[:, :, k]
+                ))
+                + float(np.sum(
+                    np.asarray(coefficients["C_rep"])[None, :] * r_sol[:, :, k]
+                ))
             )
+        J_init = float(np.sum(step_costs[:ctx.H1]))
         J_op = float(np.sum(step_costs[ctx.H1:]))
         meta.update({
             "objective_mode": phase["mode"],
+            "evaluation_horizon": phase.get("evaluation_horizon"),
+            "J_initialization": J_init,
             "J_op": J_op,
             "J_op_average": J_op / ctx.H2,
+            "J_total": J_init + J_op,
+            "projected_evaluation_cost": (
+                J_init
+                + (int(phase["evaluation_horizon"]) - ctx.H1)
+                * (J_op / ctx.H2)
+                if phase.get("evaluation_horizon") is not None
+                else None
+            ),
+            "step_costs": step_costs,
+            "component_costs": coefficients,
         })
     return meta
 
@@ -1613,18 +1860,39 @@ def solve_mixed(cfg, **overrides) -> dict:
     """
     backend_start = time.perf_counter()
     _load_builders()
+    warm_start = overrides.pop("warm_start", None)
     opts = resolve_run_options(cfg, **overrides)
     construction_start = time.perf_counter()
     ctx = build_fleet(cfg, opts)
     ctx.model.update()
+    warm_start_diagnostics = apply_binary_warm_start(ctx, warm_start)
+    relaxation_diagnostics = {
+        "enabled": False,
+        "status": "disabled",
+        "relaxation_objective": None,
+        "values_copied": 0,
+        "runtime_seconds": None,
+    }
+    if opts["relaxation_warm_start"] and not warm_start_diagnostics["applied"]:
+        relaxation_diagnostics = apply_relaxation_warm_start(
+            ctx.model,
+            time_limit=opts["relaxation_time_limit"],
+        )
     construction_seconds = time.perf_counter() - construction_start
 
     optimizer_start = time.perf_counter()
-    ctx.model.optimize()
+    callback = _initialize_progress(
+        ctx.model, opts["progress_interval_seconds"]
+    )
+    ctx.model.optimize(callback)
+    _append_final_progress(ctx.model)
     optimizer_seconds = time.perf_counter() - optimizer_start
 
     extraction_start = time.perf_counter()
     out = extract_solution(ctx, cfg, ctx.model)
+    out["optimization_progress"] = list(ctx.model._optimization_progress)
+    out["warm_start"] = warm_start_diagnostics
+    out["relaxation_warm_start"] = relaxation_diagnostics
     for name in sorted({str(m) for m in np.asarray(cfg.model).ravel()}):
         hook = getattr(get_cell_builder(name), "extract", None)
         if hook is not None:

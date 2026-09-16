@@ -26,15 +26,15 @@ def assert_redesigned_constraints(context) -> None:
     )
     if any(name.startswith(forbidden) for name in names):
         raise AssertionError("legacy ARD-infinity replacement Big-M rows remain")
-    if context.nb:
-        raise AssertionError("ARD-infinity replacement still creates nb binaries")
+    if len(context.nb) != context.F * context.L * context.T:
+        raise AssertionError("ARD-infinity replacement lacks explicit idle actions")
 
     for i in range(context.F):
         for k in range(context.T):
             required = {
                 f"m_gate_{i}_0_{k}",
                 f"r_gate_{i}_0_{k}",
-                f"maintenance_exclusive_{i}_0_{k}",
+                f"component_action_{i}_0_{k}",
                 f"mu_gamma_ardinf_balance_{i}_0_{k}",
                 f"A_gamma_ardinf_balance_{i}_0_{k}",
                 f"rel_gamma_{i}_0_{k}",
@@ -94,7 +94,7 @@ def main() -> None:
     print("events              :", ", ".join(EVENTS))
     print("physical mean       :", expected_mean)
     print("removed mean        :", expected_removed)
-    print("no-intervention nb  : 0")
+    print("explicit idle       :", cfg.F * cfg.L * cfg.T)
     print("conditional Big-M   : 0")
 
 

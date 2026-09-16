@@ -87,7 +87,9 @@ class FleetConfig:
     support_trans: Optional[np.ndarray] = None
     cgf_trans: Optional[np.ndarray] = None
     # fleet-wide
-    costs: dict = field(default_factory=dict)     # C_M, C_R, C_S, C_P, C_rep
+    # C_M, C_R and C_rep are normalized to (L,) component vectors. C_D and
+    # legacy aliases remain scalar fleet-level coefficients.
+    costs: dict = field(default_factory=dict)
     options: dict = field(default_factory=dict)   # verbose, mip_gap, ...
     # mode
     raw: dict = field(default_factory=dict)
@@ -213,6 +215,27 @@ def _component_names(value, L: int) -> list[str]:
     if any(not name for name in names):
         raise ValueError("'component_names' entries must be nonempty")
     return names
+
+
+def _component_cost(value, L: int, name: str) -> np.ndarray:
+    """Normalize a scalar or length-L cost vector to ``(L,)``.
+
+    Component costs are intentionally independent of the vehicle index: the
+    same type of component should carry the same intervention cost throughout
+    the fleet. Existing scalar inputs remain valid and broadcast over L.
+    """
+    arr = np.asarray(value, dtype=float)
+    if arr.ndim == 0:
+        out = np.full(L, float(arr))
+    elif arr.shape == (L,):
+        out = arr.copy()
+    else:
+        raise ValueError(
+            f"'{name}' shape {arr.shape} must be scalar or ({L},)."
+        )
+    if not np.all(np.isfinite(out)) or np.any(out < 0.0):
+        raise ValueError(f"'{name}' must contain finite non-negative costs.")
+    return out
 
 
 def _flmh_prof(value, F, L, M, H, name):
@@ -359,12 +382,27 @@ def load_config(data: dict) -> FleetConfig:
         v_trans=_flmh_prof(data.get("v_trans"), F, L, M, H1, "v_trans"),
         support_trans=_flmh_prof(data.get("support_trans"), F, L, M, H1, "support_trans"),
         cgf_trans=_flmh_prof(data.get("cgf_trans"), F, L, M, H1, "cgf_trans"),
-        costs={k: float(data[k]) for k in ("C_M", "C_R", "C_D", "C_S", "C_P", "C_rep") if k in data},
+        costs={
+            **{
+                k: _component_cost(data[k], L, k)
+                for k in ("C_M", "C_R", "C_rep")
+                if k in data
+            },
+            **{
+                k: float(data[k])
+                for k in ("C_D", "C_S", "C_P")
+                if k in data
+            },
+        },
         options={k: data[k] for k in ("verbose", "mip_gap", "time_limit", "fast",
                                       "allow_replacement",
                                       "gurobi_params",
                                       "reliability_impl", "pwl_points", "tangent_ref",
-                                      "replacement_as_new", "objective_mode")
+                                      "replacement_as_new", "objective_mode",
+                                      "evaluation_horizon",
+                                      "progress_interval_seconds",
+                                      "relaxation_warm_start",
+                                      "relaxation_time_limit")
                  if k in data},
         raw=data,
     )

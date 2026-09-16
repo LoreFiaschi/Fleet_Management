@@ -4,13 +4,17 @@ from __future__ import annotations
 
 import argparse
 
-from fleet_management import sweep_operating_horizons
+from fleet_management import sweep_horizon_grid, sweep_operating_horizons
 
 
 def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("input", help="Base YAML scenario")
     parser.add_argument("output", help="Compact YAML sweep report")
+    parser.add_argument(
+        "--h1", type=int, nargs="+",
+        help="Optional transitory-horizon candidates; enables an H1/H2 grid",
+    )
     horizons = parser.add_mutually_exclusive_group(required=True)
     horizons.add_argument(
         "--h2", type=int, nargs="+",
@@ -47,6 +51,17 @@ def main() -> None:
         "--maximum-stopping-gap", type=float, default=0.05,
         help="Largest relative MIP gap allowed to trigger gradient stopping",
     )
+    parser.add_argument(
+        "--warm-start", action="store_true",
+        help="Seed each H2 case from the preceding solved binary schedule",
+    )
+    parser.add_argument(
+        "--evaluation-horizon", type=int,
+        help=(
+            "For an H1/H2 grid, rank pairs by initialization cost plus the "
+            "operating average extrapolated to this total horizon (e.g. 52)"
+        ),
+    )
     arguments = parser.parse_args()
     if arguments.h2_range is not None:
         start, stop = arguments.h2_range
@@ -58,15 +73,34 @@ def main() -> None:
     else:
         operating_horizons = arguments.h2
 
-    report = sweep_operating_horizons(
-        arguments.input,
-        operating_horizons,
-        output_path=arguments.output,
+    options = dict(
         stop_on_gradient=arguments.stop_on_gradient,
         gradient_tolerance=arguments.gradient_tolerance,
         flat_gradients_required=arguments.flat_gradients,
         minimum_cases=arguments.minimum_cases,
         maximum_mip_gap_for_stopping=arguments.maximum_stopping_gap,
+    )
+    if arguments.h1:
+        report = sweep_horizon_grid(
+            arguments.input,
+            arguments.h1,
+            operating_horizons,
+            output_path=arguments.output,
+            warm_start=arguments.warm_start,
+            evaluation_horizon=arguments.evaluation_horizon,
+            **options,
+        )
+        print("best proven pair  :", report["best_proven"])
+        print("best feasible pair:", report["best_feasible"])
+        print("report            :", arguments.output)
+        return
+
+    report = sweep_operating_horizons(
+        arguments.input,
+        operating_horizons,
+        output_path=arguments.output,
+        warm_start=arguments.warm_start,
+        **options,
     )
     print("best proven H2   :", report["best_proven_H2"])
     print("best feasible H2 :", report["best_feasible_H2"])

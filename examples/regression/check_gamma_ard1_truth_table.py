@@ -142,8 +142,8 @@ def solve_truth_table(rho, expected_mu, expected_latch, expected_removed):
         raise AssertionError("count estimator missed project-ARD1 product cells")
     if context.r_rep is not None:
         raise AssertionError("no-replacement audit unexpectedly created replacement binaries")
-    if context.nb:
-        raise AssertionError("no-replacement project-ARD1 still creates nb binaries")
+    if len(context.nb) != cfg.F * cfg.L * cfg.T:
+        raise AssertionError("project-ARD1 lacks explicit idle actions")
     if context.extras["gamma"]["removed_shape"] is not None:
         raise AssertionError("current project-ARD1 branch unexpectedly exposes removed shape")
     if context.extras["gamma"]["repairable_mean"] is None:
@@ -259,7 +259,7 @@ def main() -> None:
     print("physical mean       :", mean.tolist())
     print("mean latch          :", latch.tolist())
     print("removed mean        :", removed.tolist())
-    print("no-intervention nb  : 0")
+    print("explicit idle       :", context.F * context.L * context.T)
     print("product-hull rows   :", 6 * context.F * context.L * (context.T - 1))
     print("Gamma rows audited  :", context.F * context.L * (13 * context.T - 2))
 

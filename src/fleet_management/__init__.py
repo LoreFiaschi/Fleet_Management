@@ -1,5 +1,5 @@
 from fleet_management.formulation_size_sweep import sweep_formulation_dimensions
-from fleet_management.horizon_sweep import sweep_operating_horizons
+from fleet_management.horizon_sweep import sweep_horizon_grid, sweep_operating_horizons
 from fleet_management.solver import solve
 from fleet_management.utils.mixed_plotter import (
     plot_horizon_sweep,
@@ -31,6 +31,7 @@ __all__ = [
     "solve",
     "sweep_formulation_dimensions",
     "sweep_operating_horizons",
+    "sweep_horizon_grid",
     "validate",
     "validate_baseline_assignment_feasibility",
     "validate_gamma_replay_files",

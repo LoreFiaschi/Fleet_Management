@@ -539,8 +539,7 @@ def _draw_solution(view: dict[str, Any], plot_path: Path) -> None:
                for label, colour in (("M$_j$ mission", ACTION_COLOURS["mission"]),
                                      ("I idle", ACTION_COLOURS["idle"]),
                                      ("R repair", ACTION_COLOURS["repair"]),
-                                     ("P replacement", ACTION_COLOURS["replacement"]),
-                                     ("D depot", ACTION_COLOURS["depot"]))]
+                                     ("P replacement", ACTION_COLOURS["replacement"]))]
     ax.legend(handles=handles, loc="upper center", bbox_to_anchor=(0.5, -0.17),
               ncol=5, frameon=False, fontsize=8)
     _draw_statistics(stats_ax, view)
@@ -561,8 +560,6 @@ def _component_action_label(
     assigned = np.flatnonzero(view["x"][i, 1:M + 1, k] > 0.5)
     if assigned.size:
         return f"M{int(assigned[0]) + 1}", "mission"
-    if view["x"][i, 0, k] > 0.5:
-        return "D", "depot"
     return "I", "idle"
 
 

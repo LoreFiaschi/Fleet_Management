@@ -245,6 +245,7 @@ def _assemble_sweep_report(
     maximum_mip_gap_for_stopping: float,
     stopping_reason: str | None,
     complete: bool,
+    warm_start_enabled: bool = False,
 ) -> dict:
     """Create the self-describing final report or an incremental checkpoint."""
     best_proven, best_feasible = _select_horizon_cases(rows)
@@ -266,6 +267,14 @@ def _assemble_sweep_report(
         "H1": H1,
         "planned_operating_horizons": candidates,
         "evaluated_operating_horizons": [row["H2"] for row in rows],
+        "warm_start": {
+            "enabled": bool(warm_start_enabled),
+            "method": (
+                "Repeat the previous case's operating binary schedule over "
+                "the new H2; let Gurobi reconstruct continuous states."
+                if warm_start_enabled else None
+            ),
+        },
         "stopping_rule": {
             "enabled": bool(stop_on_gradient),
             "interpretation": (
@@ -333,6 +342,9 @@ def sweep_operating_horizons(
     flat_gradients_required: int = 2,
     minimum_cases: int = 3,
     maximum_mip_gap_for_stopping: float = 0.05,
+    warm_start: bool = False,
+    objective_mode: str = "operating_average",
+    evaluation_horizon: int | None = None,
 ) -> dict:
     """Solve one scenario for each requested ``H2`` and select the best.
 
@@ -388,19 +400,28 @@ def sweep_operating_horizons(
         target.parent.mkdir(parents=True, exist_ok=True)
 
     rows: list[dict] = []
+    previous_result: dict | None = None
     stopping_reason: str | None = None
     with TemporaryDirectory(prefix="fleet-horizon-sweep-") as directory:
         temporary = Path(directory)
         for H2 in candidates:
             case = deepcopy(data)
             case["H"] = [H1, H2]
-            case["objective_mode"] = "operating_average"
+            case["objective_mode"] = objective_mode
+            if evaluation_horizon is not None:
+                case["evaluation_horizon"] = int(evaluation_horizon)
             case_input = temporary / f"H2_{H2}_input.yaml"
             case_output = temporary / f"H2_{H2}_result.yaml"
             case_input.write_text(
                 yaml.safe_dump(case, sort_keys=False), encoding="utf-8"
             )
-            result = solve(str(case_input), str(case_output))
+            result = solve(
+                str(case_input),
+                str(case_output),
+                warm_start=previous_result if warm_start else None,
+            )
+            if result.get("x") is not None:
+                previous_result = result
             performance = result.get("performance", {})
             gamma_formulation = result.get("gamma_formulation", {})
             formulation = {
@@ -440,6 +461,11 @@ def sweep_operating_horizons(
                 "objective": result.get("objective"),
                 "J_op": result.get("J_op"),
                 "J_op_average": result.get("J_op_average"),
+                "J_initialization": result.get("J_initialization"),
+                "J_total": result.get("J_total"),
+                "projected_evaluation_cost": result.get(
+                    "projected_evaluation_cost"
+                ),
                 "objective_bound": objective_bound,
                 "absolute_mip_gap": absolute_gap,
                 "mip_gap": mip_gap,
@@ -449,6 +475,7 @@ def sweep_operating_horizons(
                 ),
                 "optimizer_seconds": performance.get("optimizer_call_seconds"),
                 "solutions_found": performance.get("solutions_found"),
+                "warm_start": result.get("warm_start"),
                 "formulation": formulation,
                 "calibration": _gamma_calibration_summary(result),
                 "timing": {
@@ -499,6 +526,7 @@ def sweep_operating_horizons(
                     ),
                     stopping_reason=stopping_reason,
                     complete=stopping_reason is not None,
+                    warm_start_enabled=warm_start,
                 )
                 _write_sweep_report(checkpoint, target)
             if stopping_reason is not None:
@@ -514,7 +542,157 @@ def sweep_operating_horizons(
         maximum_mip_gap_for_stopping=maximum_mip_gap_for_stopping,
         stopping_reason=stopping_reason,
         complete=True,
+        warm_start_enabled=warm_start,
     )
     if target is not None:
         _write_sweep_report(report, target)
     return report
+
+
+def sweep_horizon_grid(
+    input_path: str | Path,
+    transitory_horizons: Iterable[int],
+    operating_horizons: Iterable[int],
+    *,
+    output_path: str | Path | None = None,
+    warm_start: bool = True,
+    evaluation_horizon: int | None = None,
+    **sweep_options,
+) -> dict:
+    """Evaluate a Cartesian ``H1``/``H2`` grid.
+
+    Each H1 row uses the ordinary operating-horizon sweep and can therefore
+    warm-start progressively larger H2 candidates. The initialization cost is
+    retained for judging the cost of preparing an initially damaged fleet.
+    With ``evaluation_horizon`` supplied, pairs are ranked by initialization
+    cost plus the operating average extrapolated over the remaining periods;
+    otherwise selection uses the certified operating average ``J_op/H2``.
+    """
+    source = Path(input_path)
+    data = yaml.safe_load(source.read_text(encoding="utf-8"))
+    if not isinstance(data, dict):
+        raise TypeError("horizon-grid input must contain a YAML mapping")
+
+    h1_values = sorted({int(value) for value in transitory_horizons})
+    h2_values = sorted({int(value) for value in operating_horizons})
+    if not h1_values or any(value <= 0 for value in h1_values):
+        raise ValueError("transitory_horizons must contain positive integers")
+    if not h2_values or any(value <= 0 for value in h2_values):
+        raise ValueError("operating_horizons must contain positive integers")
+    if evaluation_horizon is not None and int(evaluation_horizon) <= max(h1_values):
+        raise ValueError("evaluation_horizon must exceed every H1 candidate")
+
+    target = None if output_path is None else Path(output_path)
+    if target is not None:
+        target.parent.mkdir(parents=True, exist_ok=True)
+
+    subreports = []
+    all_cases = []
+    with TemporaryDirectory(prefix="fleet-horizon-grid-") as directory:
+        root = Path(directory)
+        for h1 in h1_values:
+            case = deepcopy(data)
+            case["H"] = [h1, h2_values[0]]
+            case_path = root / f"H1_{h1}.yaml"
+            case_path.write_text(
+                yaml.safe_dump(case, sort_keys=False), encoding="utf-8"
+            )
+            report = sweep_operating_horizons(
+                case_path,
+                h2_values,
+                warm_start=warm_start,
+                objective_mode=(
+                    "evaluation_total"
+                    if evaluation_horizon is not None
+                    else "operating_average"
+                ),
+                evaluation_horizon=evaluation_horizon,
+                **sweep_options,
+            )
+            subreports.append(report)
+            all_cases.extend(report["cases"])
+
+            if target is not None:
+                checkpoint = _assemble_grid_report(
+                    source, data, h1_values, h2_values,
+                    subreports, all_cases, warm_start, evaluation_horizon,
+                    complete=False,
+                )
+                _write_sweep_report(checkpoint, target)
+
+    final = _assemble_grid_report(
+        source, data, h1_values, h2_values,
+        subreports, all_cases, warm_start, evaluation_horizon, complete=True,
+    )
+    if target is not None:
+        _write_sweep_report(final, target)
+    return final
+
+
+def _assemble_grid_report(
+    source: Path,
+    data: dict,
+    h1_values: list[int],
+    h2_values: list[int],
+    subreports: list[dict],
+    cases: list[dict],
+    warm_start: bool,
+    evaluation_horizon: int | None,
+    *,
+    complete: bool,
+) -> dict:
+    metric = (
+        "projected_evaluation_cost"
+        if evaluation_horizon is not None
+        else "J_op_average"
+    )
+    feasible = [
+        row for row in cases
+        if row.get(metric) is not None and _is_feasible_case(row)
+    ]
+    proven = [
+        row for row in feasible
+        if row.get("status") == "optimal"
+        and row.get("mip_gap") is not None
+        and float(row["mip_gap"]) <= 1e-8
+    ]
+    best_feasible = min(feasible, key=lambda row: row[metric]) if feasible else None
+    best_proven = min(proven, key=lambda row: row[metric]) if proven else None
+
+    def selected(row):
+        if row is None:
+            return None
+        return {
+            "H1": row["H1"],
+            "H2": row["H2"],
+            "T": row["T"],
+            "J_initialization": row.get("J_initialization"),
+            "J_op_average": row.get("J_op_average"),
+            "projected_evaluation_cost": row.get("projected_evaluation_cost"),
+            "status": row.get("status"),
+            "mip_gap": row.get("mip_gap"),
+        }
+
+    return {
+        "input": str(source),
+        "complete": bool(complete),
+        "objective": (
+            "minimize J_initialization + (evaluation_horizon-H1)*J_op/H2"
+            if evaluation_horizon is not None
+            else "compare J_op/H2 and report initialization cost"
+        ),
+        "evaluation_horizon": evaluation_horizon,
+        "varied_parameters": ["H1", "H2"],
+        "fixed_dimensions": {
+            "F": int(data["F"]),
+            "M": int(data["M"]),
+            "L": int(data["L"]),
+        },
+        "planned_transitory_horizons": h1_values,
+        "planned_operating_horizons": h2_values,
+        "warm_start_enabled": bool(warm_start),
+        "H1_sweeps": subreports,
+        "cases": cases,
+        "best_proven": selected(best_proven),
+        "best_feasible": selected(best_feasible),
+    }

@@ -49,17 +49,11 @@ def estimate_gamma_formulation(cfg, *, allow_replacement: bool) -> dict[str, Any
     gamma_ard1_replacement_product_cells = (
         replacement * gamma_ard1_product_cells
     )
-    gamma_product_cells = (
-        gamma_ardinf_product_cells + gamma_ard1_product_cells
-    )
-
     shared_binary = {
         "assignment_x": F * (M + 1) * T,
         "repair_m": F * L * T,
         "replacement_r": replacement * F * L * T,
-        "no_intervention_nb": (
-            (F * L - gamma_product_cells) * T
-        ),
+        "idle_action": F * L * T,
     }
     shared_continuous = {
         "physical_mean_mu": F * L * T,
@@ -99,9 +93,9 @@ def estimate_gamma_formulation(cfg, *, allow_replacement: bool) -> dict[str, Any
         "ard1_bounding_shape_latch": gamma_ard1_cells * T,
     }
     gamma_linear = {
-        # Without replacement: m<=x0. With replacement: m<=x0, r<=x0,
-        # and either an explicit exclusivity row or the equivalent nb definition.
-        "maintenance_gating": gamma_cells * T * (1 + 2 * replacement),
+        # Without replacement: m<=x0 and idle+m=1. With replacement: m<=x0,
+        # r<=x0 and idle+m+r=1.
+        "maintenance_gating": gamma_cells * T * (2 + replacement),
         "tail_reliability": gamma_cells * T,
         "shape_repeatability": gamma_cells,
         "physical_mean_repeatability": gamma_cells,
@@ -194,7 +188,7 @@ def estimate_gamma_formulation(cfg, *, allow_replacement: bool) -> dict[str, Any
                 "2 * Gamma component cells"
             ),
             "gamma_maintenance_gating_rows": (
-                "Gamma component cells*T*(1 + 2*I_replacement)"
+                "Gamma component cells*T*(2 + I_replacement)"
             ),
         },
         "shared": {

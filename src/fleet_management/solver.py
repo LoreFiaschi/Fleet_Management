@@ -6,7 +6,6 @@ import h5py
 import numpy as np
 import yaml
 
-from fleet_management.degradation_model.rainflow import solve as rainflow_solve
 from fleet_management.degradation_model.base import solve_mixed as base_solve_mixed
 
 from fleet_management.config import load_config, FleetConfig
@@ -14,7 +13,12 @@ from fleet_management.config import load_config, FleetConfig
 SUPPORTED_EXTENSIONS = {".yaml", ".yml", ".json", ".h5", ".hdf5"}
 
 
-def solve(input_path: str, results_path: str | None = None) -> dict:
+def solve(
+    input_path: str,
+    results_path: str | None = None,
+    *,
+    warm_start: dict | None = None,
+) -> dict:
     """
     Read, normalize, solve and serialize a self-describing fleet input.
 
@@ -50,7 +54,7 @@ def solve(input_path: str, results_path: str | None = None) -> dict:
 
     cfg = load_config(_read_input(input_file))
 
-    result = _solve_mixed(cfg)
+    result = _solve_mixed(cfg, warm_start=warm_start)
     result.setdefault("model_assignment", cfg.model.astype(str).tolist())
     result.setdefault("component_names", list(cfg.component_names))
 
@@ -63,7 +67,7 @@ def solve(input_path: str, results_path: str | None = None) -> dict:
 # ---------------------------------------------------------------------------
 # Solve dispatch (all inputs are "mixed"; uniform fleets bridge to a backend)
 # ---------------------------------------------------------------------------
-def _solve_mixed(cfg: FleetConfig) -> dict:
+def _solve_mixed(cfg: FleetConfig, *, warm_start: dict | None = None) -> dict:
     """Dispatch a normalized configuration by fleet composition.
 
     1. **gamma-only**  -> the modular tail-bound builder when an explicit
@@ -76,10 +80,14 @@ def _solve_mixed(cfg: FleetConfig) -> dict:
     """
     models = frozenset(cfg.models)
     if models == {"gamma"}:
-        return _solve_gamma_fleet(cfg)
+        return _solve_gamma_fleet(cfg, warm_start=warm_start)
     if models == {"rainflow"}:
-        return _identify_result(rainflow_solve(cfg), cfg, "rainflow")
-    return _identify_result(base_solve_mixed(cfg), cfg, "mixed")
+        return _identify_result(
+            base_solve_mixed(cfg, warm_start=warm_start), cfg, "rainflow"
+        )
+    return _identify_result(
+        base_solve_mixed(cfg, warm_start=warm_start), cfg, "mixed"
+    )
 
 
 def _identify_result(result: dict, cfg: FleetConfig, degradation: str) -> dict:
@@ -90,10 +98,22 @@ def _identify_result(result: dict, cfg: FleetConfig, degradation: str) -> dict:
     return result
 
 
-def _solve_gamma_fleet(cfg: FleetConfig) -> dict:
+def _solve_gamma_fleet(
+    cfg: FleetConfig,
+    *,
+    warm_start: dict | None = None,
+) -> dict:
     """Use the modular Gamma builder or the isolated compatibility backend."""
     if cfg.gamma_beta_bound is not None:
-        return _identify_result(base_solve_mixed(cfg), cfg, "gamma")
+        return _identify_result(
+            base_solve_mixed(cfg, warm_start=warm_start), cfg, "gamma"
+        )
+
+    if warm_start is not None:
+        raise NotImplementedError(
+            "warm starts require the modular backend; supply gamma_beta_bound "
+            "for a Gamma-only case"
+        )
 
     # Import lazily so current modular runs do not load the legacy backend.
     from fleet_management.degradation_model.legacy.gamma_gurobi import (
@@ -180,7 +200,9 @@ def _cfg_to_gamma_kwargs(cfg: "FleetConfig") -> dict:
         "epsilon": float(_require_uniform(cfg.epsilon, "epsilon")),
         "gamma_beta": _legacy_gamma_beta(cfg),
         "repair_rho": _uniform_over_vehicles(cfg.rho, "rho"),
-        "C_M": cfg.costs["C_M"], "C_R": cfg.costs["C_R"], "C_rep": cfg.costs["C_rep"],
+        "C_M": float(_require_uniform(cfg.costs["C_M"], "C_M")),
+        "C_R": float(_require_uniform(cfg.costs["C_R"], "C_R")),
+        "C_rep": float(_require_uniform(cfg.costs["C_rep"], "C_rep")),
         "C_S": cfg.costs.get("C_S", cfg.costs.get("C_D")), "C_P": cfg.costs["C_P"],
         "mu_0": cfg.mu_0, "replacement_mu": cfg.replacement_mu,
     }
@@ -330,7 +352,13 @@ def _build_serializable_output(result: dict) -> dict:
     for key in ("bound", "mip_gap"):
         if result.get(key) is not None:
             output[key] = float(result[key])
-    for key in ("J_op", "J_op_average"):
+    for key in (
+        "J_initialization",
+        "J_op",
+        "J_op_average",
+        "J_total",
+        "projected_evaluation_cost",
+    ):
         if result.get(key) is not None:
             output[key] = float(result[key])
 
@@ -346,7 +374,8 @@ def _build_serializable_output(result: dict) -> dict:
         "gamma_dynamics_formulation",
         "gamma_big_m_bound_strategy",
         "gamma_calibration_method",
-        "objective_mode",
+            "objective_mode",
+            "evaluation_horizon",
     ):
         if result.get(key) is not None:
             output[key] = _to_builtin(result[key])
@@ -386,6 +415,8 @@ def _build_serializable_output(result: dict) -> dict:
             "gamma_maximum_shape",
             "m",
             "r",
+            "idle",
+            "step_costs",
         ):
             if result.get(key) is not None:
                 output[key] = _to_builtin(result[key])
@@ -398,6 +429,14 @@ def _build_serializable_output(result: dict) -> dict:
         output["gamma_formulation"] = _to_builtin(result["gamma_formulation"])
     if result.get("performance") is not None:
         output["performance"] = _to_builtin(result["performance"])
+    for key in (
+        "optimization_progress",
+        "warm_start",
+        "relaxation_warm_start",
+        "component_costs",
+    ):
+        if result.get(key) is not None:
+            output[key] = _to_builtin(result[key])
 
     return output
 
@@ -470,7 +509,13 @@ def _save_hdf5(result: dict, path: Path) -> None:
         for key in ("component_names", "model_assignment"):
             if result.get(key) is not None:
                 f.attrs[key] = json.dumps(_to_builtin(result[key]))
-        for key in ("J_op", "J_op_average"):
+        for key in (
+            "J_initialization",
+            "J_op",
+            "J_op_average",
+            "J_total",
+            "projected_evaluation_cost",
+        ):
             if result.get(key) is not None:
                 f.attrs[key] = float(result[key])
 
@@ -506,6 +551,8 @@ def _save_hdf5(result: dict, path: Path) -> None:
                 "gamma_tail_bound",
                 "m",
                 "r",
+                "idle",
+                "step_costs",
             ):
                 if result.get(key) is not None:
                     f.create_dataset(key, data=result[key])

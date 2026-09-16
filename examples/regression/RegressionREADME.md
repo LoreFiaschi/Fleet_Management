@@ -65,10 +65,10 @@ package may still require the dependencies declared in `pyproject.toml`.
 
 | Script | Type | What it protects | Why it is kept |
 |---|---|---|---|
-| `check_gamma_big_m_formulation.py` | solver | Gamma product-hull dynamics | Confirms both repair models remove `nb`, indicators and conditional Big-M rows, with and without replacement. |
+| `check_gamma_big_m_formulation.py` | solver | Gamma product-hull dynamics | Confirms both repair models use explicit idle actions and remove indicators and conditional Big-M rows, with and without replacement. |
 | `check_gamma_repair_integration.py` | solver | Fixed-rate ARD-infinity shape scaling | Verifies physical mean, bounding shape and removed damage. |
 | `check_gamma_ard1_integration.py` | solver | ARD1 latch dynamics, repeated repairs and complete repair | Protects the more complex repair state transition. |
-| `check_gamma_ard1_truth_table.py` | solver | No-replacement project-ARD1 mission, idle and repair truth table plus product-hull inventory | Verifies every reachable local mode, partial and complete repair, removal of `nb`, and exact three-row products. |
+| `check_gamma_ard1_truth_table.py` | solver | No-replacement project-ARD1 mission, idle and repair truth table plus product-hull inventory | Verifies every reachable local mode, partial and complete repair, explicit idle actions, and exact three-row products. |
 | `check_gamma_ardinf_replacement_truth_table.py` | solver | Replacement-enabled ARD-infinity truth table and product-hull inventory | Verifies reset, post-reset mission/idle/repair behavior, consecutive replacement, exclusivity and removal of conditional Big-M rows. |
 | `check_gamma_ard1_replacement_truth_table.py` | solver | Replacement-enabled project-ARD1 truth table and product-hull inventory | Locks down reset and latch behavior, exact counts, exclusivity and removal of conditional Big-M rows. |
 | `check_gamma_repair_legacy.py` | numerical | Earlier signed repair-tail calculation | Retained only as mathematical comparison evidence. |
@@ -111,6 +111,7 @@ not prove that the true rate is below 1e-5.
 | `check_unrestricted_maintenance.py` | solver | Confirms that maintenance has no fleet-level depot-capacity limit and rejects obsolete `depot_capacity` inputs. |
 | `check_horizon_sweep.py` | solver | Certified objective bounds/MIP gaps, proven-versus-feasible selection and the gap-qualified gradient stopping rule. |
 | `run_horizon_sweep.py` | runner | Solves an explicit list or inclusive range of operating horizons and writes a compact YAML report. |
+| `plot_optimization_progress.py` | reporting | Plots incumbent, best bound and relative MIP gap from an updated result YAML or retained Gurobi text log. |
 | `check_formulation_sweep.py` | analytical | Deterministic one-factor-at-a-time \(F/M/L/T\) formulation counts. |
 | `run_formulation_size_sweep.py` | runner | Writes the full analytical formulation-size sweep report. |
 | `check_gamma_complexity_diagnostics.py` | solver | Predicted counts against actual Gurobi model statistics. |
@@ -138,6 +139,51 @@ job before the complete candidate range is evaluated, the file remains a valid
 checkpoint with `complete: false` and identifies `last_completed_H2`.
 Every case records total, continuous, integer and binary variable counts, as
 well as linear constraints and solver diagnostics.
+
+To vary both phases, warm-start larger operating horizons, and compare the
+complete projected cost over a 52-period cycle:
+
+```powershell
+python .\examples\regression\run_horizon_sweep.py `
+  .\input\horizon_grid.yaml `
+  .\results\horizon_grid.yaml `
+  --h1 2 4 6 8 `
+  --h2 8 12 16 24 32 `
+  --warm-start `
+  --evaluation-horizon 52
+```
+
+The grid minimizes
+`J_initialization + (52-H1) * J_op/H2`. Its bound and MIP gap therefore certify
+the same projected cost used to rank H1/H2 pairs.
+
+For difficult cases, an optional phase-I relaxation can seed the original,
+unrelaxed model:
+
+```yaml
+relaxation_warm_start: true
+relaxation_time_limit: 300
+```
+
+The relaxed schedule is never reported as feasible. Only its discrete values
+are copied as a MIP start; the original model must still find and verify an
+incumbent.
+
+Component-specific intervention costs accept a scalar (broadcast for backward
+compatibility) or one value per component:
+
+```yaml
+C_M: [1.0, 2.0]
+C_R: [0.5, 0.8]
+C_rep: [4.0, 7.0]
+```
+
+Create a convergence plot from a new result or an existing Euler log with:
+
+```powershell
+python .\examples\regression\plot_optimization_progress.py `
+  .\result.yaml .\convergence.png
+```
 
 ```powershell
 python .\examples\regression\run_formulation_size_sweep.py `
