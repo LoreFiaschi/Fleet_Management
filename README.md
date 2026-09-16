@@ -71,7 +71,8 @@ scalars to full per-cell arrays. Small executable scenarios are kept in
 | `rho` | scalar / `(L,)` / `(F,L)` | Repair efficiency in (0, 1]. |
 | `mu_0` | scalar / `(L,)` / `(F,L)` | Initial mean damage. |
 | `mu` | scalar / `(M,)` / `(L,M)` / `(L,M,H)` / `(F,L,M)` / `(F,L,M,H)` | Mean damage increment per mission (> 0), broadcast to `(F,L,M,H)`. |
-| `C_M`, `C_R`, `C_S`, `C_P` | float | Cost coefficients (maintenance / repair / safety / periodicity). |
+| `C_M`, `C_R`, `C_rep` | scalar or `(L,)` | Component intervention, removed-damage, and replacement costs. Scalars broadcast over components. |
+| `C_D` (legacy alias `C_S`) | float | Aggregate-damage regularisation cost. |
 
 ### Per-cell selectors
 
@@ -134,9 +135,10 @@ mu: 0.06                   # scalar broadcast to (F, L, M, H); or give a tensor
 v: 1.5e-3
 v_0: 4.0e-4
 
-C_M: 1.0
-C_R: 2.0
-C_S: 1.5
+C_M: [1.0, 2.0]
+C_R: [2.0, 3.0]
+C_rep: [5.0, 8.0]
+C_D: 1.5
 C_P: 3.0
 
 # optional

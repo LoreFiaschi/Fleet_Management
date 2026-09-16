@@ -21,8 +21,8 @@ def main() -> None:
     if not uniform_formulation["comparison"]["known_subtotal_matches_actual"]:
         raise AssertionError("uniform Gamma count estimate does not match Gurobi")
     if uniform_formulation["known_subtotal"] != {
-        "variables": 105,
-        "linear_constraints": 193,
+        "variables": 115,
+        "linear_constraints": 173,
         "general_constraints": 0,
         "quadratic_constraints": 0,
     }:
@@ -43,18 +43,18 @@ def main() -> None:
     if ard1_formulation["gamma_ard1_cells"] != 2:
         raise AssertionError("mixed ARD1 report has wrong ARD1 cell count")
     if ard1_formulation["known_subtotal"] != {
-        "variables": 201,
-        "linear_constraints": 271,
+        "variables": 211,
+        "linear_constraints": 251,
         "general_constraints": 0,
         "quadratic_constraints": 0,
     }:
         raise AssertionError("mixed ARD1 known formulation baseline changed")
     expected_ard1_actual = {
-        "variables": 221,
+        "variables": 241,
         "continuous_variables": 151,
-        "integer_variables": 70,
-        "binary_variables": 70,
-        "linear_constraints": 315,
+        "integer_variables": 90,
+        "binary_variables": 90,
+        "linear_constraints": 285,
         "general_constraints": 90,
         "indicator_constraints": 90,
         "quadratic_constraints": 0,

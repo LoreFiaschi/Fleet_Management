@@ -374,8 +374,8 @@ def _build_serializable_output(result: dict) -> dict:
         "gamma_dynamics_formulation",
         "gamma_big_m_bound_strategy",
         "gamma_calibration_method",
-            "objective_mode",
-            "evaluation_horizon",
+        "objective_mode",
+        "evaluation_horizon",
     ):
         if result.get(key) is not None:
             output[key] = _to_builtin(result[key])

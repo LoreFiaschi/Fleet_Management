@@ -107,8 +107,10 @@ def check_ard1_replacement_product_hull() -> dict:
     if estimate["gamma_attributable"]["general_constraint_total"] != 0:
         raise AssertionError("ARD1 estimator still counts Gamma indicators")
 
-    if len(context.nb) != cfg.F * cfg.L * cfg.T:
+    if len(context.idle) != cfg.F * cfg.L * cfg.T:
         raise AssertionError("replacement-enabled ARD1 lacks explicit idle actions")
+    if len(context.nb) != 0:
+        raise AssertionError("Gamma unexpectedly created Rainflow carry selectors")
     if getattr(context.model, "_tight_big_m_summary", None) is not None:
         raise AssertionError("replacement-enabled ARD1 still creates Big-M rows")
     if context.extras["gamma"]["dynamics_formulation"] != (
@@ -203,8 +205,10 @@ def check_ardinf_product_hull() -> dict:
         )
     if context.extras["gamma"]["dynamics_formulation"] != "ardinf_product_hull":
         raise AssertionError("no-replacement ARD-inf selected the wrong dynamics")
-    if len(context.nb) != cfg.F * cfg.L * cfg.T:
+    if len(context.idle) != cfg.F * cfg.L * cfg.T:
         raise AssertionError("no-replacement ARD-inf lacks explicit idle actions")
+    if len(context.nb) != 0:
+        raise AssertionError("Gamma unexpectedly created Rainflow carry selectors")
     if getattr(context.model, "_tight_big_m_summary", None) is not None:
         raise AssertionError("no-replacement ARD-inf still creates conditional Big-M rows")
 
@@ -307,8 +311,10 @@ def check_ardinf_replacement_product_hull() -> dict:
         "ardinf_replacement_product_hull"
     ):
         raise AssertionError("replacement-enabled ARD-inf selected wrong dynamics")
-    if len(context.nb) != cfg.F * cfg.L * cfg.T:
+    if len(context.idle) != cfg.F * cfg.L * cfg.T:
         raise AssertionError("replacement-enabled ARD-inf lacks explicit idle actions")
+    if len(context.nb) != 0:
+        raise AssertionError("Gamma unexpectedly created Rainflow carry selectors")
     if getattr(context.model, "_tight_big_m_summary", None) is not None:
         raise AssertionError("replacement-enabled ARD-inf still creates Big-M rows")
 

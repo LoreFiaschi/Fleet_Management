@@ -67,7 +67,8 @@ class FleetModel:
     x: gp.tupledict                        # assignment  (F, M+1, T)
     m_rep: gp.tupledict                    # imperfect repair (F, L, T)
     r_rep: Optional[gp.tupledict]          # replacement (F, L, T) or None
-    nb: gp.tupledict                       # explicit idle/no-intervention action
+    idle: gp.tupledict                     # depot-idle action (F, L, T)
+    nb: gp.tupledict                       # no-intervention selector for rainflow
     mu_var: gp.tupledict                   # mean damage state (F, L, T)
     z_var: gp.tupledict                    # removed expected damage (F, L, T)
     u_var: gp.tupledict                    # aggregate damage per step (T,)
@@ -1444,8 +1445,16 @@ def apply_binary_warm_start(ctx: FleetModel, result: dict | None) -> dict:
                         r_value = float(round(r_old[i, l, source_k]))
                         ctx.r_rep[i, l, k].Start = r_value
                         values += 1
-                ctx.nb[i, l, k].Start = max(0.0, 1.0 - m_value - r_value)
+                depot_value = float(round(x_old[i, 0, source_k]))
+                ctx.idle[i, l, k].Start = max(
+                    0.0, depot_value - m_value - r_value
+                )
                 values += 1
+                if (i, l, k) in ctx.nb:
+                    ctx.nb[i, l, k].Start = max(
+                        0.0, 1.0 - m_value - r_value
+                    )
+                    values += 1
 
     diagnostics.update({
         "applied": values > 0,
@@ -1521,17 +1530,26 @@ def build_context(cfg, opts: dict, model_name: str = "fleet_management") -> Flee
     x = md.addVars(F, M + 1, T, vtype=GRB.BINARY, name="x")
     m_rep = md.addVars(F, L, T, vtype=GRB.BINARY, name="m")
     r_rep = md.addVars(F, L, T, vtype=GRB.BINARY, name="r") if allow_replacement else None
-    # Explicit component action requested by the mathematical formulation:
-    # idle/no intervention, imperfect repair, or replacement. It is defined
-    # for every cell; rainflow also uses it to select the carry recursion.
-    nb = md.addVars(F, L, T, vtype=GRB.BINARY, name="idle")
+    # Explicit depot action requested by the mathematical formulation:
+    # idle at the depot, imperfect repair, or replacement. Rainflow also needs
+    # a distinct no-intervention selector: during a mission the component is
+    # not depot-idle, but its state still follows the carry recursion.
+    idle = md.addVars(F, L, T, vtype=GRB.BINARY, name="idle")
+    nb_keys = [
+        (i, l, k)
+        for i in range(F)
+        for l in range(L)
+        if str(cfg.model[i, l]) != "gamma"
+        for k in range(T)
+    ]
+    nb = md.addVars(nb_keys, vtype=GRB.BINARY, name="nb")
     mu_var = md.addVars(F, L, T, lb=0.0, name="mu")
     z_var = md.addVars(F, L, T, lb=0.0, name="z")
     u_var = md.addVars(T, lb=0.0, name="u")
 
     ctx = FleetModel(
         model=md, F=F, H1=H1, H2=H2, M=M, L=L, T=T,
-        x=x, m_rep=m_rep, r_rep=r_rep, nb=nb,
+        x=x, m_rep=m_rep, r_rep=r_rep, idle=idle, nb=nb,
         mu_var=mu_var, z_var=z_var, u_var=u_var,
         model_of=cfg.model, tau=cfg.tau, eps=cfg.epsilon, rho=cfg.rho,
         mu_0=cfg.mu_0,
@@ -1585,29 +1603,41 @@ def add_base_constraints(ctx: FleetModel) -> None:
 
 
 def add_maintenance_gating(ctx: FleetModel, i: int, l: int) -> None:
-    """Gate repair/replacement through the explicit idle assignment.
+    """Define the component action while the vehicle is assigned to the depot.
 
-    ``nb`` is the implementation alias for the explicit idle/no-intervention
-    action. The equality below gives exactly one component action, while the
-    gate ensures repair and replacement are possible only when the vehicle is
-    assigned to the depot. Multiple components of the same vehicle may still
-    be repaired simultaneously.
+    ``idle + repair + replacement = x[i,0,k]`` simultaneously enforces depot
+    availability and mutual exclusivity. Multiple components of one vehicle
+    may still be maintained during the same depot visit. Rainflow additionally
+    keeps ``nb`` as its no-intervention/carry selector; unlike depot-idle, that
+    selector is also one while the vehicle performs a mission.
     """
     md, T = ctx.model, ctx.T
-    x, m_rep, r_rep, nb = ctx.x, ctx.m_rep, ctx.r_rep, ctx.nb
+    x, idle, m_rep, r_rep, nb = (
+        ctx.x, ctx.idle, ctx.m_rep, ctx.r_rep, ctx.nb
+    )
     for k in range(T):
-        md.addConstr(m_rep[i, l, k] <= x[i, 0, k], name=f"m_gate_{i}_{l}_{k}")
         if ctx.allow_replacement:
-            md.addConstr(r_rep[i, l, k] <= x[i, 0, k], name=f"r_gate_{i}_{l}_{k}")
             md.addConstr(
-                nb[i, l, k] + m_rep[i, l, k] + r_rep[i, l, k] == 1,
-                name=f"component_action_{i}_{l}_{k}",
+                idle[i, l, k] + m_rep[i, l, k] + r_rep[i, l, k]
+                == x[i, 0, k],
+                name=f"depot_action_{i}_{l}_{k}",
             )
         else:
             md.addConstr(
-                nb[i, l, k] + m_rep[i, l, k] == 1,
-                name=f"component_action_{i}_{l}_{k}",
+                idle[i, l, k] + m_rep[i, l, k] == x[i, 0, k],
+                name=f"depot_action_{i}_{l}_{k}",
             )
+        if (i, l, k) in nb:
+            if ctx.allow_replacement:
+                md.addConstr(
+                    nb[i, l, k] + m_rep[i, l, k] + r_rep[i, l, k] == 1,
+                    name=f"nb_def_{i}_{l}_{k}",
+                )
+            else:
+                md.addConstr(
+                    nb[i, l, k] + m_rep[i, l, k] == 1,
+                    name=f"nb_def_{i}_{l}_{k}",
+                )
 
 
 def build_objective(ctx: FleetModel, costs: dict, opts: dict) -> None:
@@ -1745,7 +1775,7 @@ def extract_solution(ctx: FleetModel, cfg, model) -> dict:
         # bound may still be informative and is retained when Gurobi exposes it.
         meta.update({"objective": None, "mip_gap": None, "bound": objbnd,
                      "x": None, "mu": None, "v": None, "z": None,
-                     "m": None, "r": None, "u": None})
+                     "m": None, "r": None, "idle": None, "u": None})
         return meta
 
     try:
@@ -1767,7 +1797,7 @@ def extract_solution(ctx: FleetModel, cfg, model) -> dict:
                     v_sol[i, l, k] = ctx.v_var[i, l, k].X
                 z_sol[i, l, k] = ctx.z_var[i, l, k].X
                 m_sol[i, l, k] = ctx.m_rep[i, l, k].X
-                idle_sol[i, l, k] = ctx.nb[i, l, k].X
+                idle_sol[i, l, k] = ctx.idle[i, l, k].X
                 if ctx.allow_replacement:
                     r_sol[i, l, k] = ctx.r_rep[i, l, k].X
     # ``u`` is an epigraph of the largest vehicle-level aggregate damage.  It

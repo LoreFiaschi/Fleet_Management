@@ -26,15 +26,15 @@ def assert_redesigned_constraints(context) -> None:
     )
     if any(name.startswith(forbidden) for name in names):
         raise AssertionError("legacy ARD-infinity replacement Big-M rows remain")
-    if len(context.nb) != context.F * context.L * context.T:
+    if len(context.idle) != context.F * context.L * context.T:
         raise AssertionError("ARD-infinity replacement lacks explicit idle actions")
+    if len(context.nb) != 0:
+        raise AssertionError("Gamma unexpectedly created Rainflow carry selectors")
 
     for i in range(context.F):
         for k in range(context.T):
             required = {
-                f"m_gate_{i}_0_{k}",
-                f"r_gate_{i}_0_{k}",
-                f"component_action_{i}_0_{k}",
+                f"depot_action_{i}_0_{k}",
                 f"mu_gamma_ardinf_balance_{i}_0_{k}",
                 f"A_gamma_ardinf_balance_{i}_0_{k}",
                 f"rel_gamma_{i}_0_{k}",

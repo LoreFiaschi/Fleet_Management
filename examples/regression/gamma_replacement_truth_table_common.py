@@ -19,12 +19,12 @@ from fleet_management.degradation_model.gamma_utils.gamma_diagnostics import (
 EVENTS = (
     "mission",
     "replacement",
-    "explicit idle",
+    "explicit depot idle",
     "mission",
     "repair",
     "replacement",
     "consecutive replacement",
-    "unassigned idle",
+    "unassigned/no action",
 )
 
 
@@ -93,7 +93,7 @@ def solve_truth_table(repair_model: str):
     context.model.update()
 
     mission_steps = {0, 3}
-    explicit_idle_steps = {1, 2, 4, 5, 6}
+    depot_steps = {1, 2, 4, 5, 6}
     repair_steps = {4}
     replacement_steps = {1, 5, 6}
 
@@ -104,7 +104,7 @@ def solve_truth_table(repair_model: str):
                 if i == 0:
                     selected = int(
                         (j == 1 and k in mission_steps)
-                        or (j == 0 and k in explicit_idle_steps)
+                        or (j == 0 and k in depot_steps)
                     )
                 else:
                     selected = int(j == 1 and k not in mission_steps)
@@ -157,9 +157,11 @@ def assert_simultaneous_actions_infeasible(repair_model: str) -> None:
 def check_common_trajectory(result, expected_mean, expected_removed) -> None:
     expected_mean = np.asarray(expected_mean, dtype=float)
     expected_removed = np.asarray(expected_removed, dtype=float)
+    expected_idle = np.asarray([0, 0, 1, 0, 0, 0, 0, 0], dtype=float)
     for k in range(expected_mean.size):
         assert_close(result["mu"][0, 0, k], expected_mean[k], f"mu[{k}]")
         assert_close(result["z"][0, 0, k], expected_removed[k], f"z[{k}]")
+        assert_close(result["idle"][0, 0, k], expected_idle[k], f"idle[{k}]")
         assert_close(
             result["gamma_shape_bound"][0, 0, k],
             10.0 * expected_mean[k],

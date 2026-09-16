@@ -178,6 +178,12 @@ C_R: [0.5, 0.8]
 C_rep: [4.0, 7.0]
 ```
 
+The explicit depot-idle action is component indexed and satisfies
+`idle[i,l,k] + m[i,l,k] + r[i,l,k] = x[i,0,k]` (omit `r` when replacement is
+disabled). It must not be confused with Rainflow's internal no-intervention
+selector: while a vehicle performs a mission it is not depot-idle, but its
+Rainflow state still follows the no-intervention recurrence.
+
 Create a convergence plot from a new result or an existing Euler log with:
 
 ```powershell

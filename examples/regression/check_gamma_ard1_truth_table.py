@@ -109,7 +109,7 @@ def assert_redesigned_constraints(context) -> None:
         for name in names
         if name.startswith(
             (
-                "m_gate_", "qmu_gamma_", "qA_gamma_", "A_gamma_",
+                "depot_action_", "qmu_gamma_", "qA_gamma_", "A_gamma_",
                 "mu_gamma_", "z_gamma_", "gmu_gamma_", "gA_gamma_",
                 "rel_gamma_", "loop_A_gamma_", "loop_mu_gamma_",
             )
@@ -142,8 +142,10 @@ def solve_truth_table(rho, expected_mu, expected_latch, expected_removed):
         raise AssertionError("count estimator missed project-ARD1 product cells")
     if context.r_rep is not None:
         raise AssertionError("no-replacement audit unexpectedly created replacement binaries")
-    if len(context.nb) != cfg.F * cfg.L * cfg.T:
+    if len(context.idle) != cfg.F * cfg.L * cfg.T:
         raise AssertionError("project-ARD1 lacks explicit idle actions")
+    if len(context.nb) != 0:
+        raise AssertionError("Gamma unexpectedly created Rainflow carry selectors")
     if context.extras["gamma"]["removed_shape"] is not None:
         raise AssertionError("current project-ARD1 branch unexpectedly exposes removed shape")
     if context.extras["gamma"]["repairable_mean"] is None:
@@ -163,7 +165,7 @@ def solve_truth_table(rho, expected_mu, expected_latch, expected_removed):
     context.model.update()
 
     # Vehicle 0 traverses every no-replacement truth-table event:
-    # mission, explicit idle, first repair, unassigned idle, mission,
+    # mission, explicit depot idle, first repair, unassigned/no action, mission,
     # later repair, consecutive repair.
     vehicle_zero_x = {
         0: 1,       # mission j=1
@@ -209,10 +211,12 @@ def solve_truth_table(rho, expected_mu, expected_latch, expected_removed):
     expected_removed = np.asarray(expected_removed, dtype=float)
     expected_shape = 10.0 * expected_mu
     expected_shape_latch = 10.0 * expected_latch
+    expected_idle = np.asarray([0, 1, 0, 0, 0, 0, 0], dtype=float)
 
     for k in range(cfg.T):
         assert_close(result["mu"][0, 0, k], expected_mu[k], f"mu[{k}]")
         assert_close(result["z"][0, 0, k], expected_removed[k], f"z[{k}]")
+        assert_close(result["idle"][0, 0, k], expected_idle[k], f"idle[{k}]")
         assert_close(
             result["gamma_mean_latch"][0, 0, k],
             expected_latch[k],
@@ -251,8 +255,8 @@ def main() -> None:
     }
     context, mean, latch, removed = solved[0.5]
     print("PASS no-replacement Gamma project-ARD1 truth table")
-    print("events              : mission, explicit idle, first repair,")
-    print("                      unassigned idle, mission, later repair,")
+    print("events              : mission, explicit depot idle, first repair,")
+    print("                      unassigned/no action, mission, later repair,")
     print("                      consecutive repair")
     print("initial latch       : 0 (current solver and validator convention)")
     print("repair rates tested :", sorted(solved))

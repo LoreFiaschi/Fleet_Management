@@ -18,8 +18,10 @@ from fleet_management.degradation_model.gamma_utils.gamma_diagnostics import (
 def assert_redesigned_constraints(cfg, context, baseline_statistics) -> dict:
     """Audit the replacement-enabled ARD1 product-hull formulation."""
     names = {row.ConstrName for row in context.model.getConstrs()}
-    if len(context.nb) != cfg.F * cfg.L * cfg.T:
+    if len(context.idle) != cfg.F * cfg.L * cfg.T:
         raise AssertionError("replacement-enabled ARD1 lacks explicit idle actions")
+    if len(context.nb) != 0:
+        raise AssertionError("Gamma unexpectedly created Rainflow carry selectors")
     if getattr(context.model, "_tight_big_m_summary", None) is not None:
         raise AssertionError("replacement-enabled ARD1 still creates Big-M rows")
     forbidden_prefixes = (

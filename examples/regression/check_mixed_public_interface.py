@@ -51,6 +51,7 @@ def main() -> None:
     expected_shapes = {
         "x": (2, 2, 5),
         "mu": (2, 2, 5),
+        "idle": (2, 2, 5),
         "gamma_shape_bound": (2, 2, 5),
         "gamma_tail_bound": (2, 2, 5),
     }
@@ -58,6 +59,15 @@ def main() -> None:
         actual = np.asarray(result[key]).shape
         if actual != expected:
             raise AssertionError(f"{key} shape {actual} != {expected}")
+
+    idle = np.asarray(result["idle"], dtype=float)
+    repair = np.asarray(result["m"], dtype=float)
+    replacement = np.asarray(result["r"], dtype=float)
+    depot = np.asarray(result["x"], dtype=float)[:, 0, :][:, np.newaxis, :]
+    if not np.allclose(idle + repair + replacement, depot, atol=1e-8, rtol=0.0):
+        raise AssertionError("depot idle/repair/replacement identity was violated")
+    if not np.allclose(saved["idle"], idle, atol=1e-12, rtol=0.0):
+        raise AssertionError("explicit idle decisions changed during serialization")
 
     # Gamma is component 0. Component 1 is rainflow and must not acquire Gamma
     # states merely because the exported arrays are fleet-shaped.

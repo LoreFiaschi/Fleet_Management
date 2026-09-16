@@ -7,7 +7,7 @@ from tempfile import TemporaryDirectory
 
 import yaml
 
-from fleet_management import sweep_operating_horizons
+from fleet_management import sweep_horizon_grid, sweep_operating_horizons
 from fleet_management.horizon_sweep import (
     _annotate_latest_gradient,
     _gradient_stop_reason,
@@ -125,6 +125,13 @@ def main() -> None:
             minimum_cases=3,
             maximum_mip_gap_for_stopping=0.05,
         )
+        grid = sweep_horizon_grid(
+            input_path,
+            [1, 2],
+            [2, 3],
+            warm_start=True,
+            evaluation_horizon=8,
+        )
         saved = yaml.safe_load(output_path.read_text(encoding="utf-8"))
 
     if len(report["cases"]) != 2:
@@ -193,6 +200,23 @@ def main() -> None:
         raise AssertionError("adaptive sweep saved the wrong stopping reason")
     if not adaptive["stopping_rule"]["stopped_early"]:
         raise AssertionError("adaptive sweep did not report its early stop")
+
+    if len(grid["cases"]) != 4:
+        raise AssertionError("H1/H2 grid did not evaluate the Cartesian product")
+    if grid["evaluation_horizon"] != 8 or not grid["warm_start_enabled"]:
+        raise AssertionError("grid metadata lost its evaluation or warm-start mode")
+    for row in grid["cases"]:
+        expected_projected = (
+            row["J_initialization"]
+            + (8 - row["H1"]) * row["J_op_average"]
+        )
+        if abs(row["projected_evaluation_cost"] - expected_projected) > 1e-8:
+            raise AssertionError("grid projected cost is inconsistent")
+        if abs(row["objective"] - expected_projected) > 1e-8:
+            raise AssertionError("grid did not optimize the ranked objective")
+    second_cases = [row for row in grid["cases"] if row["H2"] == 3]
+    if not all(row["warm_start"]["applied"] for row in second_cases):
+        raise AssertionError("larger H2 cases did not receive a MIP start")
 
     print("PASS operating-horizon sweep")
     for row in report["cases"]:

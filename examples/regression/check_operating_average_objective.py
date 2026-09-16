@@ -5,6 +5,7 @@ from __future__ import annotations
 from pathlib import Path
 from tempfile import TemporaryDirectory
 
+import numpy as np
 import yaml
 
 from fleet_management import solve
@@ -42,6 +43,26 @@ def main() -> None:
             raise AssertionError(f"saved result is missing {key}")
     if abs(saved["J_op_average"] - expected) > 1e-8:
         raise AssertionError("saved operating average is incorrect")
+
+    costs = result["component_costs"]
+    m = np.asarray(result["m"], dtype=float)
+    z = np.asarray(result["z"], dtype=float)
+    r = np.asarray(result["r"], dtype=float)
+    u = np.asarray(result["u"], dtype=float)
+    c_m = np.asarray(costs["C_M"], dtype=float)
+    c_r = np.asarray(costs["C_R"], dtype=float)
+    c_rep = np.asarray(costs["C_rep"], dtype=float)
+    manual_steps = np.asarray([
+        costs["C_D"] * u[k]
+        + np.sum(c_m[np.newaxis, :] * m[:, :, k])
+        + np.sum(c_r[np.newaxis, :] * z[:, :, k])
+        + np.sum(c_rep[np.newaxis, :] * r[:, :, k])
+        for k in range(result["T"])
+    ])
+    if not np.allclose(manual_steps, result["step_costs"], atol=1e-8, rtol=0.0):
+        raise AssertionError("component-cost step accounting is inconsistent")
+    if abs(result["J_initialization"] - np.sum(manual_steps[:result["H1"]])) > 1e-8:
+        raise AssertionError("initialization cost was not recorded correctly")
 
     print("PASS operating-phase average objective")
     print("objective mode   :", result["objective_mode"])

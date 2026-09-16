@@ -93,9 +93,9 @@ def estimate_gamma_formulation(cfg, *, allow_replacement: bool) -> dict[str, Any
         "ard1_bounding_shape_latch": gamma_ard1_cells * T,
     }
     gamma_linear = {
-        # Without replacement: m<=x0 and idle+m=1. With replacement: m<=x0,
-        # r<=x0 and idle+m+r=1.
-        "maintenance_gating": gamma_cells * T * (2 + replacement),
+        # One equality per cell and period:
+        # idle + repair (+ replacement) = depot assignment x[i,0,k].
+        "maintenance_gating": gamma_cells * T,
         "tail_reliability": gamma_cells * T,
         "shape_repeatability": gamma_cells,
         "physical_mean_repeatability": gamma_cells,
@@ -188,7 +188,7 @@ def estimate_gamma_formulation(cfg, *, allow_replacement: bool) -> dict[str, Any
                 "2 * Gamma component cells"
             ),
             "gamma_maintenance_gating_rows": (
-                "Gamma component cells*T*(2 + I_replacement)"
+                "Gamma component cells*T"
             ),
         },
         "shared": {

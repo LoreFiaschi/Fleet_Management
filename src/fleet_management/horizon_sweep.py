@@ -458,6 +458,8 @@ def sweep_operating_horizons(
                     "T": H1 + H2,
                 },
                 "status": result.get("status"),
+                "objective_mode": result.get("objective_mode"),
+                "evaluation_horizon": result.get("evaluation_horizon"),
                 "objective": result.get("objective"),
                 "J_op": result.get("J_op"),
                 "J_op_average": result.get("J_op_average"),
