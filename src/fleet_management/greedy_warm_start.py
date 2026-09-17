@@ -292,6 +292,39 @@ def _repeatability_score(
             variance_excess / max(mean_scale * mean_scale, 1e-12)
         )
         raw.append(variance_excess)
+        # The strict application uses the safe single-tangent Cantelli
+        # approximation. Repeatability alone is insufficient: a trajectory can
+        # close at the end while violating the reliability row in the middle.
+        # Score the exact implemented cap so the repair pass also removes all
+        # intermediate reliability violations.
+        if str(cfg.model[i, l]) == "rainflow":
+            bound = str(cfg.bound_method[i, l])
+            implementation = str(
+                cfg.options.get("reliability_impl", "exact")
+            )
+            tau = float(cfg.tau[i, l])
+            epsilon = float(cfg.epsilon[i, l])
+            if bound == "cantelli":
+                coefficient = epsilon / (1.0 - epsilon)
+                if implementation == "tangent":
+                    reference = float(np.clip(
+                        cfg.options.get("tangent_ref", 0.5), 0.0, 1.0
+                    )) * tau
+                    distance = tau - reference
+                    intercept = coefficient * distance * distance
+                    slope = -2.0 * coefficient * distance
+                    cap = intercept + slope * (mean - reference)
+                else:
+                    cap = coefficient * np.square(tau - mean)
+                reliability_excess = max(
+                    0.0,
+                    float(np.max(mean - tau)),
+                    float(np.max(variance - cap)),
+                )
+                normalized.append(
+                    reliability_excess / max(tau * tau, 1e-12)
+                )
+                raw.append(reliability_excess)
     if shape is not None and gamma_data is not None:
         shape_limit = max(float(gamma_data["maximum"]), 1e-12)
         shape_loop_excess = max(0.0, float(shape[end] - shape[start]))
