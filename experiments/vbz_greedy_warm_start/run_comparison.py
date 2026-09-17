@@ -73,6 +73,15 @@ def main() -> None:
     start, greedy_report = build_greedy_warm_start(
         cfg, repair_trigger=args.repair_trigger
     )
+    if not greedy_report.feasible_assignment:
+        raise RuntimeError(
+            "Greedy start does not cover every mission with a real vehicle."
+        )
+    if not greedy_report.repeatability_feasible:
+        raise RuntimeError(
+            "Greedy start cannot satisfy terminal repeatability with the "
+            "available operating-phase depot slots."
+        )
     greedy_log = args.output_directory / "gurobi_greedy.log"
     greedy_raw = dict(raw)
     greedy_raw["gurobi_params"] = dict(raw.get("gurobi_params", {}))

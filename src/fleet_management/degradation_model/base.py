@@ -1464,6 +1464,96 @@ def apply_binary_warm_start(ctx: FleetModel, result: dict | None) -> dict:
     return diagnostics
 
 
+def complete_binary_warm_start(
+    model: gp.Model,
+    result: dict | None,
+    diagnostics: dict,
+) -> dict:
+    """Complete a greedy discrete start by solving its fixed-binary model.
+
+    Gurobi can attempt to complete a partial MIP start itself, but that effort
+    is deliberately limited and may reject a feasible discrete schedule before
+    reconstructing the many continuous degradation and product variables.  A
+    greedy start may therefore request this explicit phase: copy the complete
+    model, fix every initialized integer variable, solve the remaining model,
+    and copy the resulting full solution back through ``Start`` attributes.
+
+    The original model is never relaxed.  A completed start is therefore a
+    feasible point of exactly the model that will subsequently be optimized.
+    """
+    requested = bool(result and result.get("complete_binary_start", False))
+    completion = {
+        "requested": requested,
+        "status": "not_requested",
+        "fixed_integer_variables": 0,
+        "values_copied": 0,
+        "runtime_seconds": None,
+        "iis_constraints": [],
+    }
+    diagnostics["completion"] = completion
+    if not requested or not diagnostics.get("applied", False):
+        return diagnostics
+
+    model.update()
+    fixed = model.copy()
+    original_variables = model.getVars()
+    fixed_variables = fixed.getVars()
+    fixed_count = 0
+    for original, candidate in zip(original_variables, fixed_variables):
+        if original.VType not in {GRB.BINARY, GRB.INTEGER}:
+            continue
+        value = float(original.Start)
+        # GRB.UNDEFINED is greater than GRB.INFINITY.  Only variables actually
+        # initialized by apply_binary_warm_start are fixed here.
+        if not np.isfinite(value) or abs(value) >= GRB.INFINITY:
+            continue
+        value = float(round(value))
+        candidate.LB = value
+        candidate.UB = value
+        fixed_count += 1
+
+    completion["fixed_integer_variables"] = fixed_count
+    fixed.Params.OutputFlag = 0
+    fixed.Params.LogToConsole = 0
+    fixed.Params.LogFile = ""
+    fixed.Params.TimeLimit = float(
+        result.get("completion_time_limit", 60.0)
+    )
+    fixed.optimize()
+    completion["runtime_seconds"] = float(fixed.Runtime)
+
+    if int(fixed.SolCount) > 0:
+        for original, candidate in zip(original_variables, fixed_variables):
+            original.Start = float(candidate.X)
+        completion["status"] = "completed"
+        completion["values_copied"] = len(original_variables)
+    else:
+        status_names = {
+            GRB.INFEASIBLE: "infeasible",
+            GRB.INF_OR_UNBD: "infeasible_or_unbounded",
+            GRB.TIME_LIMIT: "time_limit",
+        }
+        completion["status"] = status_names.get(
+            int(fixed.Status), f"status_{int(fixed.Status)}"
+        )
+        if int(fixed.Status) == GRB.INFEASIBLE:
+            fixed.computeIIS()
+            rows = [
+                constraint.ConstrName
+                for constraint in fixed.getConstrs()
+                if constraint.IISConstr
+            ]
+            general = [
+                constraint.GenConstrName
+                for constraint in fixed.getGenConstrs()
+                if constraint.IISGenConstr
+            ]
+            completion["iis_constraints"] = (rows + general)[:50]
+
+    fixed.dispose()
+    return diagnostics
+
+
 def apply_relaxation_warm_start(
     model: gp.Model,
     *,
@@ -1896,6 +1986,9 @@ def solve_mixed(cfg, **overrides) -> dict:
     ctx = build_fleet(cfg, opts)
     ctx.model.update()
     warm_start_diagnostics = apply_binary_warm_start(ctx, warm_start)
+    warm_start_diagnostics = complete_binary_warm_start(
+        ctx.model, warm_start, warm_start_diagnostics
+    )
     relaxation_diagnostics = {
         "enabled": False,
         "status": "disabled",
@@ -2026,6 +2119,9 @@ def solve_mixed(cfg, **overrides) -> dict:
         out["gamma_formulation"] = formulation
     performance["backend_wall_seconds"] = time.perf_counter() - backend_start
     out["performance"] = performance
+    # Release native resources, including an active LogFile handle on Windows,
+    # after all solution and diagnostic information has been extracted.
+    ctx.model.dispose()
     return out
 
 

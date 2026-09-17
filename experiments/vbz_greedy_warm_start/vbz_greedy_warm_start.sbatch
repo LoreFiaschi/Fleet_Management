@@ -68,6 +68,8 @@ allocated = int(os.environ["SLURM_CPUS_PER_TASK"])
 assert (cfg.F, cfg.M, cfg.L, cfg.H1, cfg.H2) == (4, 2, 2, 4, 12)
 assert allocated == int(raw["gurobi_params"]["Threads"]) == 32
 assert report.feasible_assignment and report.artificial_assignments == 0
+assert report.repeatability_feasible and report.repeatability_failures == 0
+assert report.repairs > 0
 print("PASS dimensions and allocation")
 print(report.as_dict())
 PY
@@ -75,4 +77,3 @@ PY
 PYTHONPATH="$REPO_ROOT/src" python "$EXPERIMENT_DIR/run_comparison.py" \
     "$EXPERIMENT_DIR/input.yaml" "$RUN_DIR" \
     > "$RUN_DIR/runner.out" 2> "$RUN_DIR/runner.err"
-
