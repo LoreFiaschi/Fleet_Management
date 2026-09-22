@@ -212,8 +212,19 @@ def main() -> None:
         )
         if abs(row["projected_evaluation_cost"] - expected_projected) > 1e-8:
             raise AssertionError("grid projected cost is inconsistent")
-        if abs(row["objective"] - expected_projected) > 1e-8:
-            raise AssertionError("grid did not optimize the ranked objective")
+
+        if row["damage_penalty"] is None:
+            raise AssertionError("grid omitted the one-time damage penalty")
+
+        expected_objective = expected_projected + row["damage_penalty"]
+        if abs(row["objective"] - expected_objective) > 1e-8:
+            raise AssertionError(
+                "grid objective is not projected cost + C_D*u"
+            )
+        if abs(row["evaluation_objective"] - expected_objective) > 1e-8:
+            raise AssertionError(
+                "reported evaluation objective is inconsistent"
+            )
     second_cases = [row for row in grid["cases"] if row["H2"] == 3]
     if not all(row["warm_start"]["applied"] for row in second_cases):
         raise AssertionError("larger H2 cases did not receive a MIP start")

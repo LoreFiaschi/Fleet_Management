@@ -58,7 +58,7 @@ def estimate_gamma_formulation(cfg, *, allow_replacement: bool) -> dict[str, Any
     shared_continuous = {
         "physical_mean_mu": F * L * T,
         "removed_mean_z": F * L * T,
-        "safety_u": T,
+        "safety_u": 1,
     }
     shared_linear = {
         "vehicle_assignment": F * T,
@@ -159,6 +159,12 @@ def estimate_gamma_formulation(cfg, *, allow_replacement: bool) -> dict[str, Any
             ),
         },
         "formulas": {
+            "shared_safety_variables": (
+                "1 horizon-wide peak-damage epigraph variable"
+            ),
+            "shared_safety_rows": (
+                "F*T peak-damage epigraph constraints"
+            ),
             "gamma_shape_variables": "Gamma component cells * T",
             "gamma_ard1_latch_variables": "2 * Gamma ARD1 component cells * T",
             "gamma_ardinf_removed_shape_variables": (

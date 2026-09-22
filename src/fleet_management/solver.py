@@ -356,6 +356,10 @@ def _build_serializable_output(result: dict) -> dict:
         "J_initialization",
         "J_op",
         "J_op_average",
+        "peak_damage",
+        "damage_penalty",
+        "operating_objective",
+        "evaluation_objective",
         "J_total",
         "projected_evaluation_cost",
     ):
@@ -398,7 +402,11 @@ def _build_serializable_output(result: dict) -> dict:
     if result.get("x") is not None:
         output["x"] = result["x"].tolist()
         output["mu"] = result["mu"].tolist()
-        output["u"] = result["u"].tolist()
+        output["u"] = (
+            result["u"].tolist()
+            if hasattr(result["u"], "tolist")
+            else float(result["u"])
+        )
         output["z"] = result["z"].tolist()
 
         # Optional solution arrays
@@ -513,6 +521,10 @@ def _save_hdf5(result: dict, path: Path) -> None:
             "J_initialization",
             "J_op",
             "J_op_average",
+            "peak_damage",
+            "damage_penalty",
+            "operating_objective",
+            "evaluation_objective",
             "J_total",
             "projected_evaluation_cost",
         ):

@@ -71,7 +71,7 @@ class FleetModel:
     nb: gp.tupledict                       # no-intervention selector for rainflow
     mu_var: gp.tupledict                   # mean damage state (F, L, T)
     z_var: gp.tupledict                    # removed expected damage (F, L, T)
-    u_var: gp.tupledict                    # aggregate damage per step (T,)
+    u_var: gp.Var                         # maximum aggregate damage over i,k
     # --- shared per-cell (F, L) parameters ---
     model_of: np.ndarray
     tau: np.ndarray
@@ -1635,7 +1635,7 @@ def build_context(cfg, opts: dict, model_name: str = "fleet_management") -> Flee
     nb = md.addVars(nb_keys, vtype=GRB.BINARY, name="nb")
     mu_var = md.addVars(F, L, T, lb=0.0, name="mu")
     z_var = md.addVars(F, L, T, lb=0.0, name="z")
-    u_var = md.addVars(T, lb=0.0, name="u")
+    u_var = md.addVar(lb=0.0, name="u")
 
     ctx = FleetModel(
         model=md, F=F, H1=H1, H2=H2, M=M, L=L, T=T,
@@ -1688,8 +1688,10 @@ def add_base_constraints(ctx: FleetModel) -> None:
     # component reliability constraints and the objective penalty on u.
     for k in range(T):
         for i in range(F):
-            md.addConstr(u_var[k] >= gp.quicksum(mu_var[i, l, k] for l in range(L)),
-                         name=f"u_{i}_{k}")
+            md.addConstr(
+                u_var >= gp.quicksum(mu_var[i, l, k] for l in range(L)),
+                name=f"u_{i}_{k}",
+            )
 
 
 def add_maintenance_gating(ctx: FleetModel, i: int, l: int) -> None:
@@ -1731,40 +1733,42 @@ def add_maintenance_gating(ctx: FleetModel, i: int, l: int) -> None:
 
 
 def build_objective(ctx: FleetModel, costs: dict, opts: dict) -> None:
-    """Build the total-cost or operating-average objective.
+    """Build the objective with one undivided horizon-maximum penalty.
 
-    ``operating_average`` treats the first ``H1`` steps as initialization:
-    they remain fully constrained and their realized cost is reported as
-    ``J_initialization``, but the optimizer minimizes only ``J_op / H2``. The
-    single objective gives Gurobi bounds and MIP gaps for exactly the quantity
-    compared by the horizon sweep.
+    Time-additive maintenance, repair and replacement costs may be averaged or
+    projected. The regularization term ``C_D * u`` is added exactly once,
+    because ``u`` is the maximum aggregate vehicle damage over the complete
+    modeled horizon.
     """
     md, F, L, T = ctx.model, ctx.F, ctx.L, ctx.T
-    C_M, C_R, C_D, C_rep = costs["C_M"], costs["C_R"], costs["C_D"], costs["C_rep"]
-    J_total = gp.LinExpr()
-    J_op = gp.LinExpr()
+    C_M = costs["C_M"]
+    C_R = costs["C_R"]
+    C_D = costs["C_D"]
+    C_rep = costs["C_rep"]
+
+    J_additive = gp.LinExpr()
+    J_op_additive = gp.LinExpr()
+
     for k in range(T):
-        step_cost = gp.LinExpr(C_D * ctx.u_var[k])
+        step_cost = gp.LinExpr()
         for i in range(F):
             for l in range(L):
                 step_cost += C_M[l] * ctx.m_rep[i, l, k]
                 step_cost += C_R[l] * ctx.z_var[i, l, k]
                 if ctx.allow_replacement:
                     step_cost += C_rep[l] * ctx.r_rep[i, l, k]
-        J_total += step_cost
-        if k >= ctx.H1:
-            J_op += step_cost
 
+        J_additive += step_cost
+        if k >= ctx.H1:
+            J_op_additive += step_cost
+
+    damage_penalty = C_D * ctx.u_var
     mode = str(opts.get("objective_mode", "total")).strip().lower()
+
     if mode == "total":
-        md.setObjective(J_total, GRB.MINIMIZE)
+        objective = J_additive + damage_penalty
     elif mode == "operating_average":
-        objective = (1.0 / ctx.H2) * J_op
-        # Do not add a secondary objective here.  Gurobi's ordinary ObjBound
-        # and MIPGap attributes do not provide a primary-objective certificate
-        # for a hierarchical multi-objective solve.  A single objective makes
-        # every saved bound and gap directly comparable across H2 cases.
-        md.setObjective(objective, GRB.MINIMIZE)
+        objective = (1.0 / ctx.H2) * J_op_additive + damage_penalty
     elif mode == "evaluation_total":
         evaluation_horizon = opts.get("evaluation_horizon")
         if evaluation_horizon is None:
@@ -1774,10 +1778,14 @@ def build_objective(ctx: FleetModel, costs: dict, opts: dict) -> None:
         evaluation_horizon = int(evaluation_horizon)
         if evaluation_horizon <= ctx.H1:
             raise ValueError("evaluation_horizon must exceed H1")
-        J_initialization = J_total - J_op
+
+        J_initialization_additive = J_additive - J_op_additive
         operating_periods = evaluation_horizon - ctx.H1
-        objective = J_initialization + (operating_periods / ctx.H2) * J_op
-        md.setObjective(objective, GRB.MINIMIZE)
+        objective = (
+            J_initialization_additive
+            + (operating_periods / ctx.H2) * J_op_additive
+            + damage_penalty
+        )
     else:
         raise ValueError(
             "objective_mode must be 'total', 'operating_average' or "
@@ -1785,10 +1793,14 @@ def build_objective(ctx: FleetModel, costs: dict, opts: dict) -> None:
             f"got {mode!r}."
         )
 
+    md.setObjective(objective, GRB.MINIMIZE)
+
     ctx.extras["phase_costs"] = {
         "mode": mode,
         "evaluation_horizon": opts.get("evaluation_horizon"),
-        "J_op": J_op,
+        "J_additive": J_additive,
+        "J_op_additive": J_op_additive,
+        "damage_penalty": damage_penalty,
         "costs": {
             "C_M": C_M.tolist(),
             "C_R": C_R.tolist(),
@@ -1874,7 +1886,8 @@ def extract_solution(ctx: FleetModel, cfg, model) -> dict:
         gap = None
     x_sol = np.zeros((F, M + 1, T)); mu_sol = np.zeros((F, L, T))
     v_sol = np.zeros((F, L, T)); z_sol = np.zeros((F, L, T))
-    m_sol = np.zeros((F, L, T)); r_sol = np.zeros((F, L, T)); u_sol = np.zeros(T)
+    m_sol = np.zeros((F, L, T)); r_sol = np.zeros((F, L, T))
+    u_sol = 0.0
     idle_sol = np.zeros((F, L, T))
     track_v = ctx.track_v_of
     for k in range(T):
@@ -1890,13 +1903,13 @@ def extract_solution(ctx: FleetModel, cfg, model) -> dict:
                 idle_sol[i, l, k] = ctx.idle[i, l, k].X
                 if ctx.allow_replacement:
                     r_sol[i, l, k] = ctx.r_rep[i, l, k].X
-    # ``u`` is an epigraph of the largest vehicle-level aggregate damage.  It
-    # is automatically tight in objective-active periods, but may otherwise
-    # contain arbitrary slack (for example in the initialization phase). Save the
-    # canonical tight value so reported phase costs describe the schedule and
-    # states rather than an arbitrary auxiliary-variable value.
-    for k in range(T):
-        u_sol[k] = max(float(np.sum(mu_sol[i, :, k])) for i in range(F))
+    # Canonical horizon-wide maximum, independent of possible numerical slack
+    # in the epigraph variable.
+    u_sol = max(
+        float(np.sum(mu_sol[i, :, k]))
+        for i in range(F)
+        for k in range(T)
+    )
     meta.update({"objective": model.ObjVal, "mip_gap": gap, "bound": objbnd,
                  "x": x_sol, "mu": mu_sol, "v": v_sol, "z": z_sol,
                  "m": m_sol, "r": r_sol, "idle": idle_sol, "u": u_sol})
@@ -1904,10 +1917,12 @@ def extract_solution(ctx: FleetModel, cfg, model) -> dict:
     if phase is not None:
         coefficients = phase["costs"]
         step_costs = np.zeros(T, dtype=float)
+
+        # These are genuinely time-additive monetary/intervention costs.
+        # The horizon-maximum damage penalty is reported separately.
         for k in range(T):
             step_costs[k] = (
-                coefficients["C_D"] * u_sol[k]
-                + float(np.sum(
+                float(np.sum(
                     np.asarray(coefficients["C_M"])[None, :] * m_sol[:, :, k]
                 ))
                 + float(np.sum(
@@ -1917,22 +1932,40 @@ def extract_solution(ctx: FleetModel, cfg, model) -> dict:
                     np.asarray(coefficients["C_rep"])[None, :] * r_sol[:, :, k]
                 ))
             )
-        J_init = float(np.sum(step_costs[:ctx.H1]))
-        J_op = float(np.sum(step_costs[ctx.H1:]))
+
+        J_init_additive = float(np.sum(step_costs[:ctx.H1]))
+        J_op_additive = float(np.sum(step_costs[ctx.H1:]))
+        J_op_average = J_op_additive / ctx.H2
+        damage_penalty = float(coefficients["C_D"]) * u_sol
+        operating_objective = J_op_average + damage_penalty
+
+        evaluation_horizon = phase.get("evaluation_horizon")
+        projected_evaluation_cost = (
+            J_init_additive
+            + (int(evaluation_horizon) - ctx.H1) * J_op_average
+            if evaluation_horizon is not None
+            else None
+        )
+        evaluation_objective = (
+            projected_evaluation_cost + damage_penalty
+            if projected_evaluation_cost is not None
+            else None
+        )
+
         meta.update({
             "objective_mode": phase["mode"],
-            "evaluation_horizon": phase.get("evaluation_horizon"),
-            "J_initialization": J_init,
-            "J_op": J_op,
-            "J_op_average": J_op / ctx.H2,
-            "J_total": J_init + J_op,
-            "projected_evaluation_cost": (
-                J_init
-                + (int(phase["evaluation_horizon"]) - ctx.H1)
-                * (J_op / ctx.H2)
-                if phase.get("evaluation_horizon") is not None
-                else None
+            "evaluation_horizon": evaluation_horizon,
+            "J_initialization": J_init_additive,
+            "J_op": J_op_additive,
+            "J_op_average": J_op_average,
+            "peak_damage": u_sol,
+            "damage_penalty": damage_penalty,
+            "operating_objective": operating_objective,
+            "J_total": (
+                J_init_additive + J_op_additive + damage_penalty
             ),
+            "projected_evaluation_cost": projected_evaluation_cost,
+            "evaluation_objective": evaluation_objective,
             "step_costs": step_costs,
             "component_costs": coefficients,
         })

@@ -464,6 +464,10 @@ def sweep_operating_horizons(
                 "J_op": result.get("J_op"),
                 "J_op_average": result.get("J_op_average"),
                 "J_initialization": result.get("J_initialization"),
+                "peak_damage": result.get("peak_damage"),
+                "damage_penalty": result.get("damage_penalty"),
+                "operating_objective": result.get("operating_objective"),
+                "evaluation_objective": result.get("evaluation_objective"),
                 "J_total": result.get("J_total"),
                 "projected_evaluation_cost": result.get(
                     "projected_evaluation_cost"
@@ -670,6 +674,11 @@ def _assemble_grid_report(
             "T": row["T"],
             "J_initialization": row.get("J_initialization"),
             "J_op_average": row.get("J_op_average"),
+            "peak_damage": row.get("peak_damage"),
+            "damage_penalty": row.get("damage_penalty"),
+            "objective": row.get("objective"),
+            "operating_objective": row.get("operating_objective"),
+            "evaluation_objective": row.get("evaluation_objective"),
             "projected_evaluation_cost": row.get("projected_evaluation_cost"),
             "status": row.get("status"),
             "mip_gap": row.get("mip_gap"),
@@ -679,10 +688,17 @@ def _assemble_grid_report(
         "input": str(source),
         "complete": bool(complete),
         "objective": (
-            "minimize J_initialization + (evaluation_horizon-H1)*J_op/H2"
+            "minimize J_initialization "
+            "+ (evaluation_horizon-H1)*J_op/H2 + C_D*u"
             if evaluation_horizon is not None
-            else "compare J_op/H2 and report initialization cost"
+            else "minimize J_op/H2 + C_D*u; compare J_op/H2"
         ),
+        "comparison_metric": (
+            "projected_evaluation_cost"
+            if evaluation_horizon is not None
+            else "J_op_average"
+        ),
+        "mip_certificate_metric": "objective",
         "evaluation_horizon": evaluation_horizon,
         "varied_parameters": ["H1", "H2"],
         "fixed_dimensions": {
