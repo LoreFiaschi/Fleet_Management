@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 from collections.abc import Sequence
 from pathlib import Path
 from typing import Any
@@ -50,7 +51,7 @@ def plot_mixed_management(input_file_path: str, plot_file_path: str | None = Non
     if not os.access(plot_path.parent, os.W_OK):
         raise PermissionError(f"Plot directory is not writable: {plot_path.parent}")
 
-    _draw_solution(_normalise_solution(_read_input(input_file)), plot_path)
+    _draw_solution(_normalise_solution(_read_solution_input(input_file)), plot_path)
 
 
 def plot_horizon_sweep(
@@ -450,25 +451,74 @@ def _normalise_solution(data: dict[str, Any]) -> dict[str, Any]:
     if H1 + H2 != T:
         raise ValueError(f"H1 + H2 must equal T; got {H1} + {H2} != {T}")
 
+    m = _optional_array(data, "m", (F, L, T))
+    r = _optional_array(data, "r", (F, L, T))
+
+    # Prefer the counts recorded from Gurobi's presolved model when they are
+    # available.  Older result files fall back to the original model counts.
+    performance = data.get("performance") or {}
+    actual = (data.get("gamma_formulation") or {}).get(
+        "actual_gurobi_model"
+    ) or {}
+    presolved = (
+        data.get("presolved_performance")
+        or performance.get("presolved_performance")
+        or performance.get("presolved_model")
+        or {}
+    )
+    variable_counts = presolved if presolved else performance
+
+    variables = variable_counts.get(
+        "variables", performance.get("variables", actual.get("variables"))
+    )
+    continuous_variables = variable_counts.get(
+        "continuous_variables",
+        performance.get(
+            "continuous_variables", actual.get("continuous_variables")
+        ),
+    )
+    integer_variables = variable_counts.get(
+        "integer_variables",
+        performance.get("integer_variables", actual.get("integer_variables")),
+    )
+    linear_rows = variable_counts.get(
+        "linear_rows",
+        variable_counts.get(
+            "linear_constraints",
+            performance.get(
+                "linear_constraints", actual.get("linear_constraints")
+            ),
+        ),
+    )
+
     grid = np.empty((F, L, T + 1), dtype=float)
     grid[:, :, 0], grid[:, :, 1:] = mu_0, mu
     return {
         "raw": data, "F": F, "M": M, "L": L, "T": T, "H1": H1, "H2": H2,
-        "x": x, "m": _optional_array(data, "m", (F, L, T)),
-        "r": _optional_array(data, "r", (F, L, T)), "grid": grid, "tau": tau,
+        "x": x, "m": m, "r": r, "grid": grid, "tau": tau,
         "models": _model_grid(data, F, L),
         "component_names": _component_names(data, L),
+        "variables": variables,
+        "continuous_variables": continuous_variables,
+        "integer_variables": integer_variables,
+        "linear_rows": linear_rows,
+        "formulation_scope": "presolved" if presolved else "original",
+        # Count component actions, not distinct vehicle visits.  If two
+        # components are repaired during the same depot visit, this is two
+        # repaired components.
+        "repaired_components": int(np.count_nonzero(m > 0.5)),
+        "replaced_components": int(np.count_nonzero(r > 0.5)),
     }
 
 
 def _draw_solution(view: dict[str, Any], plot_path: Path) -> None:
     F, M, L, T = (view[key] for key in ("F", "M", "L", "T"))
     H1, H2, n_cols = view["H1"], view["H2"], T + 1
-    width = max(10.5, min(22.0, 0.64 * n_cols + 4.8))
+    width = max(11.5, min(24.0, 0.64 * n_cols + 6.2))
     row_count = F * L
     height = max(4.8, 0.58 * row_count + 2.1)
     fig = plt.figure(figsize=(width, height), constrained_layout=True)
-    gs = fig.add_gridspec(1, 2, width_ratios=(max(n_cols, 7), 4.2))
+    gs = fig.add_gridspec(1, 2, width_ratios=(max(n_cols, 7), 5.6))
     ax, stats_ax = fig.add_subplot(gs[0, 0]), fig.add_subplot(gs[0, 1])
 
     cmap = mcolors.LinearSegmentedColormap.from_list(
@@ -565,7 +615,6 @@ def _component_action_label(
 
 def _draw_statistics(ax, view: dict[str, Any]) -> None:
     data, performance = view["raw"], view["raw"].get("performance") or {}
-    actual = (data.get("gamma_formulation") or {}).get("actual_gurobi_model") or {}
     status = str(data.get("status", "unknown"))
     status_colour = {"optimal": "#15803d", "time_limit": "#b45309",
                      "infeasible": "#b91c1c"}.get(status, "#374151")
@@ -582,9 +631,22 @@ def _draw_statistics(ax, view: dict[str, Any]) -> None:
                   ("J_op / H2", _number(data.get("J_op_average")), "#111827")]
     if data.get("mip_gap") is not None:
         lines.append(("MIP gap", f"{100.0 * float(data['mip_gap']):.2f}%", "#111827"))
-    for label, key in (("Variables", "variables"), ("Linear rows", "linear_constraints"),
-                       ("General rows", "general_constraints")):
-        value = performance.get(key, actual.get(key))
+    scope = view.get("formulation_scope", "original")
+    variable_label = (
+        "Presolved variables" if scope == "presolved" else "Original variables"
+    )
+    row_label = (
+        "Presolved linear rows"
+        if scope == "presolved"
+        else "Original linear rows"
+    )
+    for label, key in (
+        (variable_label, "variables"),
+        ("Continuous variables", "continuous_variables"),
+        ("Integer variables", "integer_variables"),
+        (row_label, "linear_rows"),
+    ):
+        value = view.get(key)
         if value is not None:
             lines.append((label, f"{int(value):,}", "#111827"))
     if performance.get("optimizer_call_seconds") is not None:
@@ -592,16 +654,9 @@ def _draw_statistics(ax, view: dict[str, Any]) -> None:
     if performance.get("branch_and_bound_nodes") is not None:
         lines.append(("B&B nodes", f"{float(performance['branch_and_bound_nodes']):,.0f}", "#111827"))
 
-    repair_visits = int(
-        np.count_nonzero(np.any(view["m"] > 0.5, axis=1))
-    )
-    replacement_visits = int(
-        np.count_nonzero(np.any(view["r"] > 0.5, axis=1))
-    )
-
     lines += [
-        ("Repair visits", str(repair_visits), "#111827"),
-        ("Replacement visits", str(replacement_visits), "#111827"),
+        ("Repaired components", str(view["repaired_components"]), "#111827"),
+        ("Replaced components", str(view["replaced_components"]), "#111827"),
     ]
 
     ax.set_axis_off()
@@ -610,10 +665,10 @@ def _draw_statistics(ax, view: dict[str, Any]) -> None:
     for label, value, colour in lines:
         ax.text(0.0, y, label, transform=ax.transAxes, fontsize=8.5,
                 color="#6b7280", va="top")
-        ax.text(0.52, y, value, transform=ax.transAxes, fontsize=8.5,
+        ax.text(0.70, y, value, transform=ax.transAxes, fontsize=8.5,
                 color=colour, va="top", wrap=True,
                 fontweight="bold" if label == "Status" else "normal")
-        y -= 0.055
+        y -= 0.058
     ax.text(0.0, max(0.02, y - 0.02),
             "Cell colour shows the physical expected-damage state.\n"
             "Gamma reliability uses a separate bounding-shape state.",
@@ -719,6 +774,69 @@ def _read_input(input_file: Path) -> dict[str, Any]:
     if extension in {".h5", ".hdf5"}:
         return _read_hdf5(input_file)
     raise ValueError(f"Unsupported input file type: {extension}")
+
+
+def _read_solution_input(input_file: Path) -> dict[str, Any]:
+    """Read a solution and supplement it with Gurobi presolve statistics.
+
+    New result files may save these counts as ``presolved_performance``.  For
+    older archived runs, Gurobi's ``runner.out`` is the only source of the
+    presolved rows and columns, so parse that sibling file when necessary.
+    """
+    data = _read_input(input_file)
+    performance = data.get("performance") or {}
+    if (
+        data.get("presolved_performance")
+        or performance.get("presolved_performance")
+        or performance.get("presolved_model")
+    ):
+        return data
+
+    log_path = input_file.parent / "runner.out"
+    if not log_path.is_file():
+        return data
+
+    presolved = _parse_gurobi_presolve(
+        log_path.read_text(encoding="utf-8", errors="replace")
+    )
+    if presolved:
+        data["presolved_performance"] = presolved
+    return data
+
+
+def _parse_gurobi_presolve(log_text: str) -> dict[str, int]:
+    """Extract the main presolved model size from a Gurobi text log."""
+    model_match = re.search(
+        r"^Presolved:\s*([\d,]+)\s+rows,\s*([\d,]+)\s+columns(?:,.*)?$",
+        log_text,
+        flags=re.MULTILINE,
+    )
+    if model_match is None:
+        return {}
+
+    following_text = log_text[model_match.end() :]
+    types_match = re.search(
+        r"^Variable types:\s*([\d,]+)\s+continuous,\s*"
+        r"([\d,]+)\s+integer(?:\s*\(([\d,]+)\s+binary\))?",
+        following_text,
+        flags=re.MULTILINE,
+    )
+    if types_match is None:
+        return {}
+
+    def count(value: str) -> int:
+        return int(value.replace(",", ""))
+
+    result = {
+        "linear_rows": count(model_match.group(1)),
+        "linear_constraints": count(model_match.group(1)),
+        "variables": count(model_match.group(2)),
+        "continuous_variables": count(types_match.group(1)),
+        "integer_variables": count(types_match.group(2)),
+    }
+    if types_match.group(3) is not None:
+        result["binary_variables"] = count(types_match.group(3))
+    return result
 
 
 def _read_hdf5(path: Path) -> dict[str, Any]:
