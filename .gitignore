@@ -29,3 +29,9 @@ results-euler/*
 run_audit.py
 fleet_matrix_audit.py
 ds.py
+results.tar.gz
+mixed_plotter.py
+csv_to_plotter.py
+fix_root_gap.py
+run_year.py
+csv_to_plotter.py
