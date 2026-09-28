@@ -2,12 +2,15 @@ Metadata-Version: 2.4
 Name: fleet-management
 Version: 0.1.0
 Summary: Fleet management optimization with Gaussian degradation via MILP
-Requires-Python: >=3.9
+Requires-Python: >=3.10
 Requires-Dist: numpy
 Requires-Dist: scipy
 Requires-Dist: gurobipy
 Requires-Dist: pyyaml
 Requires-Dist: h5py
 Requires-Dist: matplotlib
+Requires-Dist: pandas
 Provides-Extra: dev
 Requires-Dist: pytest; extra == "dev"
+Provides-Extra: dashboard
+Requires-Dist: streamlit; extra == "dashboard"

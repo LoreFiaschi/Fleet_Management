@@ -1,0 +1,35 @@
+#!/usr/bin/bash
+#SBATCH --job-name=bound_merge
+#SBATCH --ntasks=1
+#SBATCH --cpus-per-task=1
+#SBATCH --mem-per-cpu=4g
+#SBATCH --time=00:30:00
+#SBATCH --output=logs/%x_%j.out
+#SBATCH --error=logs/%x_%j.err
+#
+# Reduce step: combines every shard folder, evaluates H1/H2/H3 once, draws the
+# plots. Solves nothing, so it is cheap. Submitted with a dependency on the array.
+set -euo pipefail
+
+PROJECT=${PROJECT:-${SLURM_SUBMIT_DIR:-$PWD}}
+TEST=${TEST:-sweep}
+RUN_STAMP=${RUN_STAMP:?RUN_STAMP must be exported by euler/submit.sh}
+NAME=${NAME:-bound_tightness}
+OUT=${OUT:-$PROJECT/results}
+
+if ! command -v module >/dev/null 2>&1; then
+    for init in /etc/profile.d/modules.sh \
+                /cluster/apps/modules/init/bash \
+                /usr/share/lmod/lmod/init/bash; do
+        [ -f "$init" ] && . "$init" && break
+    done
+fi
+set +e
+module purge
+module load stack/2024-06 python/3.12.8
+set -e
+source "$PROJECT/.venv-euler/bin/activate"
+cd "$PROJECT"
+
+python test.py --merge --tests "$TEST" --name "$NAME" --out "$OUT" \
+               --run-stamp "$RUN_STAMP"

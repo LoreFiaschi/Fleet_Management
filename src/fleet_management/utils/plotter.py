@@ -21,6 +21,11 @@ def plot_management(input_file_path: str, plot_file_path: str = None) -> None:
     one per component, coloured on a green-to-red heatmap (0 to alpha)
     based on the component's degradation mean.
 
+    Supports both a single horizon (T = 2H) and a two-horizon rainflow
+    schedule (transitory H1 + operating H2, T = H1 + H2); the number of time
+    columns is taken from the solution itself, and a divider marks the
+    transitory/operating boundary.
+
     Parameters
     ----------
     input_file_path : str
@@ -55,30 +60,62 @@ def plot_management(input_file_path: str, plot_file_path: str = None) -> None:
     data = _read_input(input_file)
     F = int(data["F"])
     M = int(data["M"])
-    H = int(data["H"])
     L = int(data.get("L", 1))
-    alpha = float(data["alpha"])
+    # rainflow output stores the threshold as `tau`; Gaussian/IG as `alpha`.
+    threshold_value = data.get("alpha")
+    if threshold_value is None:
+        threshold_value = data.get("tau", 1.0)
+
+    thresholds = np.asarray(threshold_value, dtype=float)
+
+    # Normalise the threshold into a per-cell (F, L) grid so each component
+    # strip is scaled by its own tau/alpha. Accepts a scalar, a per-component
+    # (L,) vector, a per-vehicle (F,) vector, or a full per-cell (F, L) array
+    # (the modular solver writes tau per cell as (F, L)).
+    if thresholds.ndim == 0 or thresholds.size == 1:
+        tau_grid = np.full((F, L), float(thresholds.reshape(-1)[0]))
+    elif thresholds.ndim == 1 and thresholds.size == L:
+        tau_grid = np.tile(thresholds.reshape(1, L), (F, 1))
+    elif thresholds.ndim == 1 and thresholds.size == F:
+        tau_grid = np.tile(thresholds.reshape(F, 1), (1, L))
+    elif thresholds.ndim == 2 and thresholds.shape == (F, L):
+        tau_grid = thresholds.astype(float)
+    else:
+        raise ValueError(
+            f"Expected alpha/tau to be a scalar, a length-{L} (per-component) "
+            f"or length-{F} (per-vehicle) vector, or an (F, L)=({F}, {L}) array; "
+            f"got shape {thresholds.shape}: {thresholds.tolist()}"
+        )
+
+    if np.any(tau_grid <= 0):
+        raise ValueError(
+            f"All alpha/tau thresholds must be positive: {tau_grid.tolist()}"
+        )
     mu_0 = np.array(data["mu_0"], dtype=float)
     mu = np.array(data["mu"], dtype=float)
     x = np.array(data["x"], dtype=float)
 
     # Handle legacy shapes (L=1 with no L dimension)
     if mu_0.ndim == 1:
-        mu_0 = mu_0[:, np.newaxis]  # (F,) -> (F, 1)
+        mu_0 = mu_0[:, np.newaxis]       # (F,) -> (F, 1)
     if mu.ndim == 2:
-        mu = mu[:, np.newaxis, :]  # (F, 2H) -> (F, 1, 2H)
+        mu = mu[:, np.newaxis, :]        # (F, T) -> (F, 1, T)
+
+    T = mu.shape[-1]
+    H1 = int(data.get("H1", data.get("H", (T + 1) // 2)))
+    H2 = int(data.get("H2", T - H1))
 
     # --- Build grid values ---
-    # grid has shape (F, L, n_cols) where n_cols = 2H + 1
-    # Column 0 = mu_0, columns 1..2H = mu
-    n_cols = 2 * H + 1
+    # grid has shape (F, L, n_cols) where n_cols = T + 1
+    # Column 0 = mu_0, columns 1..T = mu
+    n_cols = T + 1
     grid = np.zeros((F, L, n_cols))
-    grid[:, :, 0] = mu_0  # (F, L)
-    grid[:, :, 1:] = mu   # (F, L, 2H)
+    grid[:, :, 0] = mu_0             # (F, L)
+    grid[:, :, 1:] = mu             # (F, L, T)
 
     # --- Create plot ---
     cmap = mcolors.LinearSegmentedColormap.from_list("gr", ["green", "red"])
-    cnorm = mcolors.Normalize(vmin=0, vmax=alpha)
+    cnorm = mcolors.Normalize(vmin=0, vmax=1)
     fig, ax = plt.subplots(figsize=(max(n_cols * 0.8, 6), max(F * 0.8, 4)))
 
     # Draw coloured strips for each cell
@@ -87,7 +124,8 @@ def plot_management(input_file_path: str, plot_file_path: str = None) -> None:
         for k in range(n_cols):
             for l in range(L):
                 val = grid[i, l, k]
-                color = cmap(cnorm(val))
+                normalized_value = val / tau_grid[i, l]
+                color = cmap(cnorm(normalized_value))
                 rect = mpatches.Rectangle(
                     (k - 0.5, i - 0.5 + l * strip_h),
                     1.0, strip_h,
@@ -110,7 +148,7 @@ def plot_management(input_file_path: str, plot_file_path: str = None) -> None:
     # Cell annotations
     for i in range(F):
         for k in range(1, n_cols):
-            k_x = k - 1  # index into x array (0-based, range 0..2H-1)
+            k_x = k - 1  # index into x array (0-based, range 0..T-1)
 
             if x[i, 0, k_x] == 1:
                 # Maintenance: draw gear
@@ -146,10 +184,24 @@ def plot_management(input_file_path: str, plot_file_path: str = None) -> None:
     for k in range(n_cols + 1):
         ax.axvline(k - 0.5, color="black", linewidth=0.5)
 
+    # Transitory | operating phase divider (between mu-column H1 and H1+1).
+    # Transitory steps k=0..H1-1 map to columns 1..H1; operating to H1+1..T.
+    if 0 < H1 < T:
+        ax.axvline(H1 + 0.5, color="tab:blue", linewidth=2.2, linestyle="--")
+        ax.text(H1 * 0.5 + 0.5, -0.62, "transitory",
+                ha="center", va="bottom", fontsize=8, color="tab:blue")
+        ax.text(H1 + 0.5 + H2 * 0.5, -0.62, "operating",
+                ha="center", va="bottom", fontsize=8, color="tab:blue")
+
     # Colorbar
     sm = plt.cm.ScalarMappable(cmap=cmap, norm=cnorm)
     sm.set_array([])
-    plt.colorbar(sm, ax=ax, label="\u03bc value", shrink=0.8)
+    plt.colorbar(
+        sm,
+        ax=ax,
+        label="\u03bc / threshold",
+        shrink=0.8,
+    )
 
     fig.tight_layout()
     fig.savefig(plot_path, dpi=150)
@@ -181,7 +233,8 @@ def _read_input(input_file: Path) -> dict:
 
 def _read_hdf5(path: Path) -> dict:
     data = {}
-    scalar_keys = {"F", "H", "M", "L", "alpha"}
+
+    scalar_keys = {"F", "H", "H1", "H2", "T", "M", "L"}
     array_keys = {"mu", "mu_0", "x"}
 
     with h5py.File(path, "r") as f:
@@ -190,6 +243,23 @@ def _read_hdf5(path: Path) -> dict:
                 data[key] = float(f.attrs[key])
             elif key in f:
                 data[key] = float(f[key][()])
+
+        for key in ("alpha", "tau"):
+            if key in f.attrs:
+                value = f.attrs[key]
+                data[key] = (
+                    value.tolist()
+                    if np.ndim(value) > 0
+                    else float(value)
+                )
+            elif key in f:
+                value = f[key][()]
+                data[key] = (
+                    value.tolist()
+                    if np.ndim(value) > 0
+                    else float(value)
+                )
+
         for key in array_keys:
             if key in f:
                 data[key] = f[key][()].tolist()

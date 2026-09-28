@@ -4,6 +4,10 @@ gurobipy
 pyyaml
 h5py
 matplotlib
+pandas
+
+[dashboard]
+streamlit
 
 [dev]
 pytest
