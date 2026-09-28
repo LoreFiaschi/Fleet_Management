@@ -1,0 +1,71 @@
+# Showcase retry: aggregate weekly duties inspired by VBZ lines 161 and 162.
+# This F=4 case follows the proven-infeasible F=3 case. All degradation and
+# cost values are synthetic, not VBZ measurements.
+F: 4
+M: 2
+L: 4
+H: [4, 12]
+
+component_names:
+  - Tires
+  - Traction battery
+  - Converters
+  - Motor insulation
+
+model:
+  - gamma
+  - gamma
+  - rainflow
+  - rainflow
+
+bound_method:
+  - cantelli
+  - cantelli
+  - cantelli
+  - cantelli
+
+repair_model:
+  - ardinf
+  - ardinf
+  - ardinf
+  - ardinf
+
+tau: 0.6
+epsilon: 0.1
+rho: 0.5
+mu_0: 0.0
+v_0: 0.0
+replacement_mu: 0.0
+replacement_v: 0.0
+
+# Mission order: [line 161 weekly duty, line 162 weekly duty].
+# The line 161 duty receives a synthetic 1.5x exposure factor. This is a
+# modeling assumption and is not inferred from VBZ vehicle measurements.
+mu: [0.03, 0.02]
+mu_trans: [0.03, 0.02]
+v: [0.0003, 0.0002]
+v_trans: [0.0003, 0.0002]
+
+gamma_beta: 20.0
+gamma_beta_trans: 20.0
+gamma_beta_bound: 10.0
+gamma_beta_0: 20.0
+gamma_beta_new: 20.0
+gamma_calibration_method: repeated_increment
+
+C_M: 1.0
+C_R: 0.5
+C_D: 2.0
+C_rep: 0.2
+
+allow_replacement: false
+objective_mode: operating_average
+reliability_impl: exact
+
+mip_gap: 0.05
+time_limit: 55800
+verbose: 1
+gurobi_params:
+  Threads: 4
+  Seed: 1
+  MIPFocus: 3

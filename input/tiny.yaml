@@ -1,0 +1,31 @@
+F: 2                    # Number Fleet Members
+H: 2                    # Half-horizon
+M: 1                    # Missions
+L: 1                    # Components
+alpha: 1.0              # shape rate
+epsilon: 0.1
+C_M: 1.0                # Maintenance cost
+C_R: 2.0                # Repair cost
+C_S: 1.5                # Safety cost
+C_P: 3.0                # Penalty cost
+verbose: 1              # Gurobi verbosity default 1
+mip_gap: 0.12           # Optimality gap tolerance
+xi:                     # Fraction of repairability in one maintenance day per train and component
+- - 0.82
+- - 0.7
+mu_0:                   # Initial mean degradation value per train and component
+- - 0.1341
+- - 0.1113
+v_0:                    # Gaussian initial variance values per train and component
+- - 0.000799
+- - 0.000551
+mu:                     # Mean degradation parameters (< alpha)
+- - - - 0.1375
+      - 0.1951
+- - - - 0.1370
+      - 0.1951
+v:                      # Gaussian variance degradation parameters
+- - - - 0.00084
+      - 0.001692
+- - - - 0.00084
+      - 0.001692

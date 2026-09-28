@@ -6,38 +6,36 @@ import h5py
 import numpy as np
 import yaml
 
-from fleet_management.gaussian import solve_fleet_management as solve_gaussian
-from fleet_management.inverse_gaussian import (
-    solve_fleet_management as solve_inverse_gaussian,
-)
+from fleet_management.degradation_model.base import solve_mixed as base_solve_mixed
 
-SUPPORTED_DEGRADATIONS = {"gaussian", "inverse_gaussian"}
+from fleet_management.config import load_config, FleetConfig
+
 SUPPORTED_EXTENSIONS = {".yaml", ".yml", ".json", ".h5", ".hdf5"}
 
 
-def solve(input_path: str, degradation: str, results_path: str = None) -> None:
+def solve(
+    input_path: str,
+    results_path: str | None = None,
+    *,
+    warm_start: dict | None = None,
+) -> dict:
     """
-    Mid-layer between the user and the fleet-management solvers.
+    Read, normalize, solve and serialize a self-describing fleet input.
+
+    The input file is self-describing: it must carry a top-level ``model:`` key
+    (see ``config.load_config``). There is no separate ``degradation``
+    argument. Uniform and genuinely mixed fleets share this entry point.
 
     Parameters
     ----------
     input_path : str
         Path to an input file containing the problem data.
         Supported formats: YAML (.yaml/.yml), JSON (.json), HDF5 (.h5/.hdf5).
-    degradation : str
-        Type of degradation model. Currently supported: "gaussian", "inverse_gaussian".
     results_path : str, optional
         Path where results will be saved. Defaults to "output.yaml".
         If provided without an extension, ".yaml" is appended.
     """
-    # --- Consistency checks ---
-    degradation_lower = degradation.lower()
-    if degradation_lower not in SUPPORTED_DEGRADATIONS:
-        raise ValueError(
-            f"Unsupported degradation type '{degradation}'. "
-            f"Supported types: {sorted(SUPPORTED_DEGRADATIONS)}"
-        )
-
+    # --- File checks ---
     input_file = Path(input_path)
     if not input_file.exists():
         raise FileNotFoundError(f"Input file not found: {input_path}")
@@ -54,23 +52,164 @@ def solve(input_path: str, degradation: str, results_path: str = None) -> None:
     if results_dir != Path("") and not os.access(results_dir, os.W_OK):
         raise PermissionError(f"Results directory is not writable: {results_dir}")
 
-    # --- Read and parse input ---
-    data = _read_input(input_file)
-    params = _extract_parameters(data, degradation_lower)
+    cfg = load_config(_read_input(input_file))
 
-    # --- Solve ---
-    if degradation_lower == "gaussian":
-        result = solve_gaussian(**params)
-    elif degradation_lower == "inverse_gaussian":
-        result = solve_inverse_gaussian(**params)
+    result = _solve_mixed(cfg, warm_start=warm_start)
+    result.setdefault("model_assignment", cfg.model.astype(str).tolist())
+    result.setdefault("component_names", list(cfg.component_names))
 
-    result["degradation"] = degradation_lower
-    result["mu_0"] = params["mu_0"]
-    if "v_0" in params:
-        result["v_0"] = params["v_0"]
+    result.setdefault("performance", {})
 
-    # --- Save results ---
     _save_results(result, results_path)
+    return result
+
+
+# ---------------------------------------------------------------------------
+# Solve dispatch (all inputs are "mixed"; uniform fleets bridge to a backend)
+# ---------------------------------------------------------------------------
+def _solve_mixed(cfg: FleetConfig, *, warm_start: dict | None = None) -> dict:
+    """Dispatch a normalized configuration by fleet composition.
+
+    1. **gamma-only**  -> the modular tail-bound builder when an explicit
+       ``gamma_beta_bound`` is supplied; otherwise the existing constant-rate
+       backend is retained as a regression oracle;
+    2. **rainflow-only** -> the rainflow builder (``rainflow.solve``);
+    3. **mixed** (cells use different degradation models) -> ``base.solve_mixed``,
+       which builds the shared skeleton once and then fills in each cell's
+       constraints through that cell's registered model builder.
+    """
+    models = frozenset(cfg.models)
+    if models == {"gamma"}:
+        return _solve_gamma_fleet(cfg, warm_start=warm_start)
+    if models == {"rainflow"}:
+        return _identify_result(
+            base_solve_mixed(cfg, warm_start=warm_start), cfg, "rainflow"
+        )
+    return _identify_result(
+        base_solve_mixed(cfg, warm_start=warm_start), cfg, "mixed"
+    )
+
+
+def _identify_result(result: dict, cfg: FleetConfig, degradation: str) -> dict:
+    """Attach the common backend/model identity fields in one place."""
+    result["backend"] = "modular"
+    result["degradation"] = degradation
+    result.setdefault("models", cfg.models)
+    return result
+
+
+def _solve_gamma_fleet(
+    cfg: FleetConfig,
+    *,
+    warm_start: dict | None = None,
+) -> dict:
+    """Use the modular Gamma builder or the isolated compatibility backend."""
+    if cfg.gamma_beta_bound is not None:
+        return _identify_result(
+            base_solve_mixed(cfg, warm_start=warm_start), cfg, "gamma"
+        )
+
+    if warm_start is not None:
+        raise NotImplementedError(
+            "warm starts require the modular backend; supply gamma_beta_bound "
+            "for a Gamma-only case"
+        )
+
+    # Import lazily so current modular runs do not load the legacy backend.
+    from fleet_management.degradation_model.legacy.gamma_gurobi import (
+        solve_fleet_management,
+    )
+
+    result = solve_fleet_management(**_cfg_to_gamma_kwargs(cfg))
+    result["mu_0"] = cfg.mu_0
+    result["backend"] = "legacy_gamma"
+    result["degradation"] = "gamma"
+    result.setdefault("models", cfg.models)
+    return result
+
+
+def _require_uniform(arr, name):
+    """Collapse a per-cell (F, L) array to the single value the gamma backend
+    expects, or explain that per-cell variation needs the modular builder."""
+    vals = np.unique(np.asarray(arr))
+    if vals.size != 1:
+        raise NotImplementedError(
+            f"the gamma backend takes a single '{name}', but it varies per "
+            f"cell ({vals.tolist()}); per-cell '{name}' needs the modular builder."
+        )
+    return vals.reshape(-1)[0]
+
+
+def _uniform_over_vehicles(arr, name):
+    """Reduce an (F, L) array to (L,), requiring equal rows (the gamma backend
+    treats these quantities as per-component, not per-vehicle)."""
+    a = np.asarray(arr, dtype=float)
+    if not np.allclose(a, a[0:1, :]):
+        raise NotImplementedError(
+            f"the gamma backend treats '{name}' as per-component, but it varies "
+            "per vehicle here; per-vehicle variation needs the Step-2 builder."
+        )
+    return a[0, :]
+
+
+def _legacy_gamma_beta(cfg: "FleetConfig") -> np.ndarray:
+    """Collapse normalized exact rates for the constant-rate Gamma backend.
+
+    The modular Gamma block accepts mission/time-varying rates. The legacy
+    uniform backend remains a regression oracle and therefore receives only a
+    single rate per component.
+    """
+    beta = np.asarray(cfg.gamma_beta, dtype=float)
+    if beta.ndim == 2:                         # defensive: older FleetConfig
+        return _uniform_over_vehicles(beta, "gamma_beta")
+    if beta.ndim != 4 or beta.shape[:3] != (cfg.F, cfg.L, cfg.M):
+        raise ValueError(
+            "normalized gamma_beta must have shape (F,L,M,H_profile); "
+            f"got {beta.shape}."
+        )
+    collapsed = np.empty(cfg.L)
+    for l in range(cfg.L):
+        values = beta[:, l, :, :]
+        reference = float(values.flat[0])
+        if not np.allclose(values, reference, rtol=1e-12, atol=0.0):
+            raise NotImplementedError(
+                "a uniform Gamma fleet with mission/time-varying gamma_beta "
+                "must use the modular tail-bound backend; the legacy Gamma "
+                f"backend requires one rate per component (variation at l={l})."
+            )
+        collapsed[l] = reference
+    return collapsed
+
+
+def _cfg_to_gamma_kwargs(cfg: "FleetConfig") -> dict:
+    """Translate a uniform single-model gamma FleetConfig into solve_gamma
+    keyword arguments for the legacy constant-rate Gamma backend.
+
+    Gamma is single-horizon: if the input gave H = [H1, H2], only H1 is used
+    (H = cfg.H1).  Component scalars (tau / gamma_beta / repair_rho) are reduced
+    to (L,) and the mean profile is transposed to the backend's (F, M, L, H).
+    This builds the full kwarg set the backend expects (F, H, M, L, mu_param,
+    tau, epsilon, gamma_beta, repair_rho, C_M, C_R, C_rep, C_S, C_P, mu_0,
+    replacement_mu, plus verbose / mip_gap)."""
+    if "C_rep" not in cfg.costs:
+        raise KeyError("gamma requires a fleet-wide 'C_rep' (replacement cost).")
+    kw = {
+        "F": cfg.F, "H": cfg.H1, "M": cfg.M, "L": cfg.L,
+        "mu_param": np.transpose(cfg.mu, (0, 2, 1, 3)),
+        "tau": _uniform_over_vehicles(cfg.tau, "tau"),
+        "epsilon": float(_require_uniform(cfg.epsilon, "epsilon")),
+        "gamma_beta": _legacy_gamma_beta(cfg),
+        "repair_rho": _uniform_over_vehicles(cfg.rho, "rho"),
+        "C_M": float(_require_uniform(cfg.costs["C_M"], "C_M")),
+        "C_R": float(_require_uniform(cfg.costs["C_R"], "C_R")),
+        "C_rep": float(_require_uniform(cfg.costs["C_rep"], "C_rep")),
+        "C_S": cfg.costs.get("C_S", cfg.costs.get("C_D")), "C_P": cfg.costs["C_P"],
+        "mu_0": cfg.mu_0, "replacement_mu": cfg.replacement_mu,
+    }
+    for opt in ("verbose", "mip_gap", "time_limit", "gurobi_params"):
+        if opt in cfg.options:
+            kw[opt] = cfg.options[opt]
+    return kw
 
 
 def _read_input(input_file: Path) -> dict:
@@ -97,10 +236,54 @@ def _read_hdf5(path: Path) -> dict:
     - Array parameters (mu, v, mu_0, v_0, c, xi) stored as datasets.
     """
     data = {}
-    scalar_keys = {"F", "H", "M", "L", "alpha", "epsilon", "C_M", "C_R", "C_S", "C_P", "verbose", "mip_gap"}
-    array_keys = {"mu", "v", "mu_0", "v_0", "c", "xi"}
+    scalar_keys = {
+    "F",
+    "H",
+    "M",
+    "L",
+    "alpha",
+    "epsilon",
+    "C_M",
+    "C_R",
+    "C_rep",
+    "C_S",
+    "C_P",
+    "verbose",
+    "mip_gap",
+    }
+
+    array_keys = {
+        # Shared parameters
+        "mu",
+        "v",
+        "mu_0",
+        "v_0",
+        "c",
+        "xi",
+
+        # Parameters used by the gamma method
+        "replacement_mu",
+        "tau",
+        "gamma_beta",
+        "repair_rho",
+
+        # Parameters used by the rainflow method
+        "support",
+        "cgf",
+        "mu_trans",
+        "v_trans",
+        "support_trans",
+        "cgf_trans",
+    }
 
     with h5py.File(path, "r") as f:
+        # H may be a scalar (single horizon) or a 2-element [H1, H2].
+        if "H" in f:
+            hval = f["H"][()]
+            data["H"] = hval.tolist() if np.ndim(hval) > 0 else float(hval)
+        elif "H" in f.attrs:
+            hval = f.attrs["H"]
+            data["H"] = hval.tolist() if np.ndim(hval) > 0 else float(hval)
         for key in scalar_keys:
             if key in f.attrs:
                 data[key] = float(f.attrs[key])
@@ -108,7 +291,11 @@ def _read_hdf5(path: Path) -> dict:
                 data[key] = float(f[key][()])
         for key in array_keys:
             if key in f:
-                data[key] = f[key][()].tolist()
+                value = f[key][()]
+                data[key] = value.tolist() if np.ndim(value) else float(value)
+            elif key in f.attrs:
+                value = f.attrs[key]
+                data[key] = value.tolist() if np.ndim(value) else float(value)
 
     return data
 
@@ -122,128 +309,6 @@ def _resolve_results_path(results_path) -> Path:
         p = p.with_suffix(".yaml")
     return p
 
-
-_COMMON_KEYS = {"F", "H", "M", "mu", "alpha", "epsilon", "xi", "C_M", "C_R", "C_S", "C_P", "mu_0"}
-_GAUSSIAN_KEYS = _COMMON_KEYS | {"v", "v_0"}
-_INVERSE_GAUSSIAN_KEYS = _COMMON_KEYS | {"c"}
-
-REQUIRED_KEYS_BY_DEGRADATION = {
-    "gaussian": _GAUSSIAN_KEYS,
-    "inverse_gaussian": _INVERSE_GAUSSIAN_KEYS,
-}
-
-
-def _extract_parameters(data: dict, degradation: str) -> dict:
-    """Extract and validate all solver parameters from the parsed input data."""
-    required = REQUIRED_KEYS_BY_DEGRADATION[degradation]
-    missing = required - set(data.keys())
-    if missing:
-        raise KeyError(f"Missing required keys in input file: {sorted(missing)}")
-
-    F = int(data["F"])
-    H = int(data["H"])
-    M = int(data["M"])
-    L = int(data.get("L", 1))
-    alpha = float(data["alpha"])
-    epsilon = float(data["epsilon"])
-    C_M = float(data["C_M"])
-    C_R = float(data["C_R"])
-    C_S = float(data["C_S"])
-    C_P = float(data["C_P"])
-
-    verbose = int(data.get("verbose", 1))
-    mip_gap_raw = data.get("mip_gap", None)
-    mip_gap = float(mip_gap_raw) if mip_gap_raw is not None else None
-
-    # --- Broadcast xi: accept (F,) when L=1, or (F, L) ---
-    xi = np.array(data["xi"], dtype=float)
-    if L == 1 and xi.shape == (F,):
-        xi = xi[:, np.newaxis]
-    elif xi.shape != (F, L):
-        raise ValueError(
-            f"'xi' shape {xi.shape} does not match (F={F}, L={L})."
-        )
-
-    # --- Broadcast mu_0: accept (F,) when L=1, or (F, L) ---
-    mu_0 = np.array(data["mu_0"], dtype=float)
-    if L == 1 and mu_0.shape == (F,):
-        mu_0 = mu_0[:, np.newaxis]
-    elif mu_0.shape != (F, L):
-        raise ValueError(
-            f"'mu_0' shape {mu_0.shape} does not match (F={F}, L={L})."
-        )
-
-    # --- Broadcast mu_param: accept multiple shapes ---
-    mu_param = np.array(data["mu"], dtype=float)
-    mu_param = _broadcast_4d_param(mu_param, F, M, L, H, "mu")
-
-    if degradation == "gaussian":
-        # --- Broadcast v_0: accept (F,) when L=1, or (F, L) ---
-        v_0 = np.array(data["v_0"], dtype=float)
-        if L == 1 and v_0.shape == (F,):
-            v_0 = v_0[:, np.newaxis]
-        elif v_0.shape != (F, L):
-            raise ValueError(
-                f"'v_0' shape {v_0.shape} does not match (F={F}, L={L})."
-            )
-
-        # --- Broadcast v_param: accept multiple shapes ---
-        v_param = np.array(data["v"], dtype=float)
-        v_param = _broadcast_4d_param(v_param, F, M, L, H, "v")
-
-        return {
-            "F": F, "H": H, "M": M, "L": L,
-            "mu_param": mu_param, "v_param": v_param,
-            "alpha": alpha, "epsilon": epsilon, "xi": xi,
-            "C_M": C_M, "C_R": C_R, "C_S": C_S, "C_P": C_P,
-            "mu_0": mu_0, "v_0": v_0,
-            "verbose": verbose,
-            "mip_gap": mip_gap,
-        }
-    else:  # inverse_gaussian
-        # --- Broadcast c: accept (F,) when L=1, or (F, L) ---
-        c = np.array(data["c"], dtype=float)
-        if L == 1 and c.shape == (F,):
-            c = c[:, np.newaxis]
-        elif c.shape != (F, L):
-            raise ValueError(
-                f"'c' shape {c.shape} does not match (F={F}, L={L})."
-            )
-
-        return {
-            "F": F, "H": H, "M": M, "L": L,
-            "mu_param": mu_param, "c": c,
-            "alpha": alpha, "epsilon": epsilon, "xi": xi,
-            "C_M": C_M, "C_R": C_R, "C_S": C_S, "C_P": C_P,
-            "mu_0": mu_0,
-            "verbose": verbose,
-            "mip_gap": mip_gap,
-        }
-
-
-def _broadcast_4d_param(arr: np.ndarray, F: int, M: int, L: int, H: int,
-                        name: str) -> np.ndarray:
-    """Broadcast an array to shape (F, M, L, H), handling legacy shapes.
-
-    Accepted shapes:
-    - (F, M, L, H) — use directly
-    - (F, M, L)    — repeat along H
-    - (F, M, H) with L=1 — insert L dimension, giving (F, M, 1, H)
-    - (F, M) with L=1 — insert L dimension and repeat along H
-    """
-    if arr.shape == (F, M, L, H):
-        return arr
-    if arr.ndim == 3 and arr.shape == (F, M, L):
-        return np.repeat(arr[:, :, :, np.newaxis], H, axis=3)
-    if L == 1 and arr.ndim == 3 and arr.shape == (F, M, H):
-        return arr[:, :, np.newaxis, :]
-    if L == 1 and arr.ndim == 2 and arr.shape == (F, M):
-        arr = arr[:, :, np.newaxis, np.newaxis]
-        return np.repeat(arr, H, axis=3)
-    raise ValueError(
-        f"'{name}' shape {arr.shape} cannot be broadcast to "
-        f"(F={F}, M={M}, L={L}, H={H})."
-    )
 
 
 def _save_results(result: dict, path: Path) -> None:
@@ -264,31 +329,152 @@ def _build_serializable_output(result: dict) -> dict:
     """Build a plain dict from solver results for text-based formats."""
     output = {
         "status": result["status"],
-        "objective": float(result["objective"]) if result["objective"] is not None else None,
+        "objective": (
+            float(result["objective"])
+            if result["objective"] is not None
+            else None
+        ),
         "degradation": result["degradation"],
+        "backend": result.get("backend"),
+        "models": _to_builtin(result.get("models", [])),
+        "model_assignment": _to_builtin(result.get("model_assignment")),
+        "component_names": _to_builtin(result.get("component_names", [])),
         "F": result["F"],
         "M": result["M"],
         "H": result["H"],
         "L": result["L"],
-        "alpha": result["alpha"],
         "mu_0": result["mu_0"].tolist(),
     }
-    if "v_0" in result:
+
+    # Optional scalar parameters
+    if result.get("alpha") is not None:
+        output["alpha"] = result["alpha"]
+    for key in ("bound", "mip_gap"):
+        if result.get(key) is not None:
+            output[key] = float(result[key])
+    for key in (
+        "J_initialization",
+        "J_op",
+        "J_op_average",
+        "peak_damage",
+        "damage_penalty",
+        "operating_objective",
+        "evaluation_objective",
+        "J_total",
+        "projected_evaluation_cost",
+    ):
+        if result.get(key) is not None:
+            output[key] = float(result[key])
+
+    # Two-horizon / rainflow metadata
+    for key in (
+        "H1",
+        "H2",
+        "T",
+        "method",
+        "bound_method",
+        "repair_model",
+        "reliability_impl",
+        "gamma_dynamics_formulation",
+        "gamma_big_m_bound_strategy",
+        "gamma_calibration_method",
+        "objective_mode",
+        "evaluation_horizon",
+    ):
+        if result.get(key) is not None:
+            output[key] = _to_builtin(result[key])
+
+    # Optional method-specific arrays
+    for key in (
+        "tau",
+        "gamma_beta",
+        "gamma_beta_bound",
+        "replacement_mu",
+        "repair_rho",
+        "maximum_shape",
+    ):
+        if result.get(key) is not None:
+            output[key] = _to_builtin(result[key])
+
+    if result.get("v_0") is not None:
         output["v_0"] = result["v_0"].tolist()
-    if result["x"] is not None:
+
+    if result.get("x") is not None:
         output["x"] = result["x"].tolist()
         output["mu"] = result["mu"].tolist()
-        if "v" in result:
-            output["v"] = result["v"].tolist()
-        output["u"] = result["u"].tolist()
+        output["u"] = (
+            result["u"].tolist()
+            if hasattr(result["u"], "tolist")
+            else float(result["u"])
+        )
         output["z"] = result["z"].tolist()
+
+        # Optional solution arrays
+        for key in (
+            "v",
+            "A",
+            "tail_probability",
+            "gamma_shape_bound",
+            "gamma_tail_bound",
+            "gamma_mean_latch",
+            "gamma_shape_latch",
+            "gamma_shape_increment",
+            "gamma_shape_increment_trans",
+            "gamma_maximum_shape",
+            "m",
+            "r",
+            "idle",
+            "step_costs",
+        ):
+            if result.get(key) is not None:
+                output[key] = _to_builtin(result[key])
+
+        if result.get("gamma_calibration") is not None:
+            output["gamma_calibration"] = _to_builtin(result["gamma_calibration"])
+
+    # Performance measurements may exist even without a solution.
+    if result.get("gamma_formulation") is not None:
+        output["gamma_formulation"] = _to_builtin(result["gamma_formulation"])
+    if result.get("performance") is not None:
+        output["performance"] = _to_builtin(result["performance"])
+    for key in (
+        "optimization_progress",
+        "warm_start",
+        "relaxation_warm_start",
+        "component_costs",
+    ):
+        if result.get(key) is not None:
+            output[key] = _to_builtin(result[key])
+
     return output
 
+def _to_builtin(value):                                                 # performance measurement
+    """Convert NumPy values and nested containers to serializable Python types."""
+
+    if isinstance(value, dict):
+        return {
+            str(key): _to_builtin(item)
+            for key, item in value.items()
+        }
+
+    if isinstance(value, (list, tuple)):
+        return [_to_builtin(item) for item in value]
+
+    if isinstance(value, np.ndarray):
+        return [_to_builtin(item) for item in value.tolist()]
+
+    if isinstance(value, np.generic):
+        return value.item()
+
+    return value
 
 def _save_yaml(result: dict, path: Path) -> None:
     output = _build_serializable_output(result)
     with open(path, "w") as f:
-        yaml.dump(output, f, default_flow_style=False, sort_keys=False)
+        # safe_dump emits only plain YAML (no !!python/object tags), so the file
+        # round-trips through yaml.safe_load; it also fails loudly if any NumPy
+        # object slipped through _build_serializable_output.
+        yaml.safe_dump(output, f, default_flow_style=False, sort_keys=False)
 
 
 def _save_json(result: dict, path: Path) -> None:
@@ -299,22 +485,95 @@ def _save_json(result: dict, path: Path) -> None:
 
 def _save_hdf5(result: dict, path: Path) -> None:
     with h5py.File(path, "w") as f:
-        f.attrs["status"] = result["status"] if isinstance(result["status"], str) else str(result["status"])
-        if result["objective"] is not None:
+        f.attrs["status"] = (
+            result["status"]
+            if isinstance(result["status"], str)
+            else str(result["status"])
+        )
+
+        if result.get("objective") is not None:
             f.attrs["objective"] = float(result["objective"])
+
         f.attrs["degradation"] = result["degradation"]
         f.attrs["F"] = result["F"]
         f.attrs["M"] = result["M"]
         f.attrs["H"] = result["H"]
         f.attrs["L"] = result["L"]
-        f.attrs["alpha"] = result["alpha"]
+
+        # Optional scalar parameter
+        if result.get("alpha") is not None:
+            f.attrs["alpha"] = result["alpha"]
+        for key in ("bound", "mip_gap"):
+            if result.get(key) is not None:
+                f.attrs[key] = float(result[key])
+
+        # Two-horizon / rainflow metadata
+        for key in (
+            "H1", "H2", "T", "method", "repair_model",
+            "gamma_calibration_method", "objective_mode",
+        ):
+            if result.get(key) is not None:
+                f.attrs[key] = result[key]
+        for key in ("component_names", "model_assignment"):
+            if result.get(key) is not None:
+                f.attrs[key] = json.dumps(_to_builtin(result[key]))
+        for key in (
+            "J_initialization",
+            "J_op",
+            "J_op_average",
+            "peak_damage",
+            "damage_penalty",
+            "operating_objective",
+            "evaluation_objective",
+            "J_total",
+            "projected_evaluation_cost",
+        ):
+            if result.get(key) is not None:
+                f.attrs[key] = float(result[key])
+
+        # Method-specific arrays
+        for key in (
+            "tau",
+            "gamma_beta",
+            "gamma_beta_bound",
+            "replacement_mu",
+            "repair_rho",
+            "maximum_shape",
+        ):
+            if result.get(key) is not None:
+                f.create_dataset(key, data=result[key])
+
         f.create_dataset("mu_0", data=result["mu_0"])
-        if "v_0" in result:
+
+        if result.get("v_0") is not None:
             f.create_dataset("v_0", data=result["v_0"])
-        if result["x"] is not None:
+
+        if result.get("x") is not None:
             f.create_dataset("x", data=result["x"])
             f.create_dataset("mu", data=result["mu"])
-            if "v" in result:
-                f.create_dataset("v", data=result["v"])
             f.create_dataset("u", data=result["u"])
             f.create_dataset("z", data=result["z"])
+
+            # Optional solution arrays
+            for key in (
+                "v",
+                "A",
+                "tail_probability",
+                "gamma_shape_bound",
+                "gamma_tail_bound",
+                "m",
+                "r",
+                "idle",
+                "step_costs",
+            ):
+                if result.get(key) is not None:
+                    f.create_dataset(key, data=result[key])
+
+            if result.get("gamma_calibration") is not None:
+                f.attrs["gamma_calibration"] = json.dumps(
+                    _to_builtin(result["gamma_calibration"])
+                )
+
+        for key in ("gamma_formulation", "performance"):
+            if result.get(key) is not None:
+                f.attrs[key] = json.dumps(_to_builtin(result[key]))

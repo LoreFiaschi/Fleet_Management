@@ -1,0 +1,83 @@
+# Final H1/H2 horizon-grid experiment for the two-line mixed-model case.
+# H is only a loadable placeholder: the runner replaces both H1 and H2.
+F: 4
+M: 2
+L: 2
+H: [2, 8]
+
+component_names:
+  - Traction battery
+  - Motor insulation
+
+model:
+  - gamma
+  - rainflow
+
+bound_method:
+  - cantelli
+  - cantelli
+
+repair_model:
+  - ardinf
+  - ardinf
+
+# Stricter safety configuration requested for the final experiments.
+tau: [1.0, 1.0]
+epsilon: [0.0001, 0.0001]
+rho: [0.5, 0.5]
+
+# Non-pristine initial fleet. The Gamma initial state uses beta_0 below;
+# the rainflow component uses the second variance entry.
+mu_0: [0.10, 0.10]
+v_0: [0.0, 0.00001]
+
+replacement_mu: [0.0, 0.0]
+replacement_v: [0.0, 0.0]
+
+# Mission order: [line 161 weekly duty, line 162 weekly duty].
+# Scalars over time permit both H1 and H2 to vary without interpolation.
+mu: [0.03, 0.02]
+mu_trans: [0.03, 0.02]
+v: [0.00002, 0.000015]
+v_trans: [0.00002, 0.000015]
+
+gamma_beta: 20.0
+gamma_beta_trans: 20.0
+gamma_beta_bound: 10.0
+gamma_beta_0: 20.0
+gamma_beta_new: 20.0
+gamma_calibration_method: repeated_increment
+
+# Component-specific maintenance, removed-damage and replacement costs.
+C_M: [1.0, 1.2]
+C_R: [0.5, 0.8]
+C_D: 2.0
+C_rep: [4.0, 7.0]
+
+# Keep the same no-replacement policy as the preceding two-line comparison.
+# Replacement can be studied later as a separate controlled experiment.
+allow_replacement: false
+
+# sweep_horizon_grid replaces this with evaluation_total and ranks pairs by
+# J_initialization + (52-H1) * J_op/H2.
+objective_mode: operating_average
+evaluation_horizon: 52
+
+reliability_impl: tangent
+tangent_ref: 0.32
+
+mip_gap: 0.05
+time_limit: 3300
+verbose: 1
+
+# Phase-I may only seed the original model; it is never reported as a solution.
+relaxation_warm_start: true
+relaxation_time_limit: 300
+
+gurobi_params:
+  Threads: 32
+  Seed: 1
+  MIPFocus: 3
+  Heuristics: 0.02
+  Symmetry: 2
+  Cuts: 2

@@ -6,7 +6,7 @@ build-backend = "setuptools.build_meta"
 name = "fleet-management"
 version = "0.1.0"
 description = "Fleet management optimization with Gaussian degradation via MILP"
-requires-python = ">=3.9"
+requires-python = ">=3.10"
 dependencies = [
     "numpy",
     "scipy",
@@ -14,10 +14,12 @@ dependencies = [
     "pyyaml",
     "h5py",
     "matplotlib",
+    "pandas",
 ]
 
 [project.optional-dependencies]
 dev = ["pytest"]
+dashboard = ["streamlit"]
 
 [tool.setuptools.packages.find]
 where = ["src"]
