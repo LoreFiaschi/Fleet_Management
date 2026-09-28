@@ -1,55 +1,15 @@
-"""
-Fleet management with a rainflow / remaining-life (Palmgren-Miner) degradation
-model, solved with Gurobi -- MODULAR, per-cell version (Step 2).
+"""Remaining-life (rainflow/Palmgren--Miner) component formulation.
 
-This module consumes a normalized ``FleetConfig`` (see ``config.py``) and builds
-one Gurobi program for the whole fleet.  The unit of modelling is a **cell**
-``(i, l)`` = (vehicle ``i``, component ``l``); every cell carries its own model
-(``rainflow`` / ``gamma`` / ...), reliability bound, repair model, threshold,
-etc.  The shared skeleton (assignment ``x``, depot capacity, aggregate-damage
-cap, safety ``u`` and the objective cost terms) is built once; each cell then
-adds its own degradation / maintenance / reliability block.
+The shared fleet skeleton, model registry and Gamma component builder live in
+``degradation_model.base``. This module contains only the remaining-life cell
+state, maintenance, reliability and repeatability constraints, then registers
+``RainflowCellBuilder`` under the model name ``"rainflow"``.
 
-Where things live (the "clear locations")
------------------------------------------
-    solve                         entry point: build skeleton, then dispatch cells
-    _build_objective              shared objective
-    _add_base_constraints         shared: assignment, depot cap, aggregate cap, u
-    _dispatch_cell                per-cell model switch  (rainflow / gamma / ...)
-      _add_rainflow_cell            one rainflow cell = gating + state + reliability
-        _add_maintenance_gating       eq. 3 gating (m, r, nb)
-        _add_rainflow_state           mean / variance / ARD latch / z / R / K recursion
-        _add_reliability              -> RELIABILITY_BOUNDS[bound][impl](ctx, i, l) <== bounds
-      _repeatability                per-cell loop closure on v / R / K; the mean
-                                    row is shared (base.add_repeatability_constraints)
-      _add_gamma_cell               PLACEHOLDER (work in progress)
-
-Reliability bounds  ***edit / add formulations here***
-------------------------------------------------------
-Each entry of ``RELIABILITY_BOUNDS`` is a function ``f(ctx, i, l)`` that adds the
-per-step  ``P(D > tau) <= eps``  constraints for one rainflow cell, reading the
-cell's state variables and parameters from ``ctx``.  To try a different
-formulation of an existing bound, edit its function; to add a new bound, write a
-``_rel_<name>`` function and register it (and, if it needs a new accumulator such
-as Hoeffding's ``R`` or Chernoff's ``K``, add that accumulator's recursion in
-``_add_rainflow_state`` alongside the existing ones and declare the descriptor in
-``_BOUND_DESCRIPTORS``).
-
-Two horizons
-------------
-Time axis has a transitory phase ``H1`` (steps 0..H1-1, run-up from ``mu_0``) and
-an operating phase ``H2`` (steps H1..H1+H2-1); ``T = H1 + H2``. A single-int
-``H`` gives ``H1 = H2 = H`` and ``T = 2H``. Operating-phase profiles come from
-``cfg`` as ``(F, L, M, H2)``; optional transitory profiles are ``(F, L, M, H1)``
-and reused from the operating profile when absent.
-
-The operating phase is a *repeatable* cycle: the repeatability constraints
-require every descriptor of a cell to be no worse at step ``T-1`` than at step
-``H1-1`` (mean in ``base``, v / R / K here).  They are on by default; pass
-``repeatability=False`` for the open-horizon problem, whose end-of-horizon state
-is unconstrained and therefore drifts upward once maintenance stops paying off.
-
-Author: Johann Tschan  (revised; modular Step-2 rewrite)
+To add a reliability bound, implement its builder here, register it in
+``RELIABILITY_BOUNDS`` and declare any additional state descriptor beside the
+existing descriptor definitions. Operating profiles cover ``H2`` and optional
+initialization profiles cover ``H1``; the shared accessor handles their time
+indexing.
 """
 
 from __future__ import annotations
@@ -92,32 +52,26 @@ _ARD1_UNSUPPORTED = ("chernoff",)
 # ===========================================================================
 # Entry point
 # ===========================================================================
-def solve(cfg, *, allow_replacement=None, depot_capacity=None,
+def solve(cfg, *, allow_replacement=None,
           verbose=None, mip_gap=None, time_limit=None, fast=None,
           gurobi_params=None,
-          reliability_impl=None, pwl_points=None, tangent_ref=None,
-          repeatability=None) -> dict:
+          reliability_impl=None, pwl_points=None, tangent_ref=None) -> dict:
     """Solve a fleet from a normalized ``FleetConfig``.
 
     The shared skeleton (variables, general constraints, objective) comes from
-    ``base``; this entry point simply drives it. Rainflow cells are fully
-    supported; a cell of another model is dispatched to that model's builder
-    (gamma currently hits its placeholder and raises). Run-time options default
-    to the values in ``cfg.options`` when not passed explicitly.
+    ``base``; this entry point simply drives it. Run-time options default to the
+    values in ``cfg.options`` when not passed explicitly. The public solver uses
+    this wrapper only for uniform remaining-life fleets; mixed fleets are driven
+    directly by ``base.solve_mixed``.
     """
     opts = resolve_run_options(
         cfg,
-        allow_replacement=allow_replacement, depot_capacity=depot_capacity,
+        allow_replacement=allow_replacement,
         verbose=verbose, mip_gap=mip_gap, time_limit=time_limit, fast=fast,
         gurobi_params=gurobi_params, reliability_impl=reliability_impl,
         pwl_points=pwl_points, tangent_ref=tangent_ref,
-        repeatability=repeatability,
     )
-    # ``rainflow_v2`` owns the registered "rainflow" name (it carries both
-    # encodings). Pin OUR builder for this solve only, so this legacy entry
-    # point always builds the legacy (indicator) block.
-    ctx = build_fleet(cfg, opts, model_name="fleet_management_rainflow_modular",
-                      builders={"rainflow": RainflowCellBuilder()})
+    ctx = build_fleet(cfg, opts, model_name="fleet_management_rainflow_modular")
     ctx.model.optimize()
     return _extract_solution(ctx, cfg, ctx.model)
 
@@ -231,6 +185,7 @@ def _add_rainflow_cell(ctx: _RFModel, i: int, l: int) -> None:
     add_maintenance_gating(ctx, i, l)        # shared (base)
     _add_rainflow_state(ctx, i, l)
     _add_reliability(ctx, i, l)
+    _add_repeatability(ctx, i, l)
 
 
 def _add_rainflow_state(ctx: _RFModel, i: int, l: int) -> None:
@@ -381,46 +336,6 @@ def _add_rainflow_state(ctx: _RFModel, i: int, l: int) -> None:
             if allow_rep:
                 md.addGenConstrIndicator(r_rep[i, l, k], True, K_var[i, l, k] == 0.0,
                                          name=f"K_repl_{i}_{l}_{k}")
-
-
-def _repeatability(ctx: _RFModel, i: int, l: int, k_ref: int, k_end: int) -> None:
-    """Rainflow's share of eq. (loop_impl) for one cell.
-
-    ``base.add_repeatability_constraints`` has already imposed the mean row
-    ``mu[k_end] <= mu[k_ref]`` (the "all bounds" line).  What is left is one row
-    per EXTRA descriptor this cell's bound carries, because a loop is only
-    closed when every state the reliability constraint reads is no worse at the
-    end of the horizon than at the end of the transitory phase:
-
-        v[k_end] <= v[k_ref]    Cantelli, Bernstein   (``_TRACK_V``)
-        R[k_end] <= R[k_ref]    Hoeffding
-        K[k_end] <= K[k_ref]    Chernoff
-
-    Markov reads only the mean, so it contributes nothing here and is fully
-    covered by the shared row.
-
-    The K row extends the three lines of the reference: Chernoff's cumulant
-    accumulator is the whole state of such a cell, so leaving it out would close
-    the loop on a quantity (mu) that the Chernoff reliability row never reads,
-    and the cycle would not in fact be repeatable.  It is imposed for the same
-    reason as R, and drops out for every other bound.
-
-    The ARD1 latch registers (gmu / gv / gR) are deliberately NOT constrained.
-    They are memory of the last intervention rather than degradation state: they
-    only ever enter as the floor a further repair cannot go below, so a row on
-    them would restrict the schedule without being required by the loop.
-    """
-    md = ctx.model
-    bound = str(ctx.bound_of[i, l])
-    if bool(ctx.track_v_of[i, l]) and ctx.v_var is not None:
-        md.addConstr(ctx.v_var[i, l, k_end] <= ctx.v_var[i, l, k_ref],
-                     name=f"rep_v_{i}_{l}")
-    if bound == "hoeffding" and ctx.R_var is not None:
-        md.addConstr(ctx.R_var[i, l, k_end] <= ctx.R_var[i, l, k_ref],
-                     name=f"rep_R_{i}_{l}")
-    if bound == "chernoff" and ctx.K_var is not None:
-        md.addConstr(ctx.K_var[i, l, k_end] <= ctx.K_var[i, l, k_ref],
-                     name=f"rep_K_{i}_{l}")
 
 
 # ===========================================================================
@@ -665,6 +580,67 @@ def _add_reliability(ctx: _RFModel, i: int, l: int) -> None:
 
 
 # ===========================================================================
+# ############  REPEATABILITY CONSTRAINT  -- the loop condition  #############
+# ===========================================================================
+# Reliability keeps P(D > tau) <= eps *inside* the window; it does not stop the
+# schedule from leaving the fleet more damaged than it found it. Repeatability
+# closes that gap: the operating block must be executable indefinitely.
+#
+# The condition is imposed on the DESCRIPTOR, not on the certificate U. U is
+# many-to-one in the descriptor, so U_T <= U_H1 can hold at two different
+# descriptor values that one further block maps to different certificates --
+# the certified risk could then creep up over repetitions. The descriptor
+# version is both sufficient for U and closed under the dynamics, so it chains:
+# every branch (no-intervention, ARD1, ARDinf, replacement) is componentwise
+# non-decreasing, hence theta_{H1 + m*H2} is non-increasing in m.
+#
+# Which components are compared depends on what the cell actually tracks; see
+# _BOUND_DESCRIPTORS / _TRACK_V. Since _TRACK_V and _BOUND_DESCRIPTORS are
+# disjoint, v and R never co-occur, and chernoff+ard1 is rejected upstream
+# (_ARD1_UNSUPPORTED), so the worst case is {mu, v, gmu, gv} or
+# {mu, R, gmu, gR} -- four rows, matching the 2*n_theta*F*L of the write-up.
+
+
+def _add_repeatability(ctx: _RFModel, i: int, l: int) -> None:
+    """Loop condition: the descriptor at the end of the operating phase must not
+    exceed its value at the end of the transitory phase, componentwise.
+
+    Adds one to four linear rows for cell ``(i, l)``. No new variables and no
+    new binaries -- every quantity compared is an existing continuous state
+    variable -- so the model class is unchanged.
+
+    Index mapping: the write-up is 1-based over ``k = 1..H`` with the transitory
+    phase ``k = 1..H1``; this module is 0-based, so ``theta_H1`` is stored at
+    index ``H1 - 1`` and ``theta_H`` at index ``T - 1``. Getting this off by one
+    yields a feasible but wrong model, so it is spelled out here.
+    """
+    md, kS, kE = ctx.model, ctx.H1 - 1, ctx.T - 1   # end transitory / end operating
+    # Defensive only: config.py already enforces H1 > 0 and H2 > 0, so
+    # kE - kS == H2 >= 1 and this never fires.
+    if kE <= kS:
+        return
+    # Moment / accumulator part of the descriptor. Each guard mirrors exactly
+    # the creation guard in prepare(), so the variable is always present.
+    b, pairs = str(ctx.bound_of[i, l]), [("mu", ctx.mu_var)]
+    if ctx.track_v_of[i, l]:                         # cantelli, bernstein
+        pairs.append(("v", ctx.v_var))
+    if b == "hoeffding":
+        pairs.append(("R", ctx.R_var))
+    if b == "chernoff":
+        pairs.append(("K", ctx.K_var))
+    # ARD1 epoch state: under ARD1 the moments alone do not determine the next
+    # block's trajectory, so the latched state must be carried too. Absent
+    # under ARDinf, where latch_of is False and gmu/gv/gR are never created.
+    if ctx.latch_of[i, l]:
+        pairs.append(("gmu", ctx.gmu))
+        if ctx.track_v_of[i, l]:
+            pairs.append(("gv", ctx.gv))
+        if b == "hoeffding":
+            pairs.append(("gR", ctx.gR))
+    for nm, var in pairs:
+        md.addConstr(var[i, l, kE] <= var[i, l, kS], name=f"loop_{nm}_{i}_{l}")
+
+# ===========================================================================
 # Bound tightening
 # ===========================================================================
 def _tighten_bounds(ctx: _RFModel, cfg, cells) -> None:
@@ -714,7 +690,6 @@ class RainflowCellBuilder:
     prepare = staticmethod(prepare)
     add_cell = staticmethod(_add_rainflow_cell)
     extract = staticmethod(extract)
-    repeatability = staticmethod(_repeatability)
 
 
 register_cell_builder("rainflow", RainflowCellBuilder())

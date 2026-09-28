@@ -1,5 +1,11 @@
 """
-Rainflow cells, version 2:  TWO interchangeable MILP encodings of the same model.
+Historical rainflow formulation study with two interchangeable MILP encodings.
+
+This module is retained to reproduce the ``main-chjo`` indicator/big-M study.
+It intentionally uses the archived context in
+``legacy.rainflow_formulation_base`` and is not called by the package's public
+``solve`` function.  The authoritative production formulation lives in
+``base.py`` and ``rainflow.py``.
 
 ``rainflow.py`` encodes every logical ("if this action is taken, the state
 follows that recursion") constraint with Gurobi *indicator* constraints.  That is
@@ -88,7 +94,7 @@ import numpy as np
 import gurobipy as gp
 from gurobipy import GRB
 
-from fleet_management.degradation_model.base import (
+from fleet_management.degradation_model.legacy.rainflow_formulation_base import (
     FleetModel as _RFModel,          # shared context (alias keeps the local name)
     add_base_constraints,
     assembly_of,
@@ -1322,7 +1328,7 @@ register_cell_builder("rainflow", RainflowCellBuilder())
 # Runnable demo: the same instance under both encodings
 # ===========================================================================
 if __name__ == "__main__":
-    from fleet_management.config import load_config
+    from fleet_management.degradation_model.legacy.rainflow_formulation_config import load_config
 
     print("Fleet management (rainflow v2: indicator vs big-M) demo")
     base_input = {

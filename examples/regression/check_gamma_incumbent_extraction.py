@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import numpy as np
 
-from fleet_management.degradation_model.gamma_utils.gamma_gurobi import (
+from fleet_management.degradation_model.legacy.gamma_gurobi import (
     solve_fleet_management,
 )
 

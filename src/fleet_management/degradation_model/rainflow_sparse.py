@@ -1,4 +1,12 @@
 """
+Historical sparse-assembly study for the rainflow formulation.
+
+This module is retained to reproduce the ``main-chjo`` sparse-assembly study.
+It intentionally uses the archived context in
+``legacy.rainflow_formulation_base`` and is not called by the package's public
+``solve`` function.  The authoritative production formulation lives in
+``base.py`` and ``rainflow.py``.
+
 Rainflow cells, sparse assembly:  the SAME program as ``formulation='indicator'``,
 built through the matrix API instead of one ``addConstr`` per row.
 
@@ -123,7 +131,7 @@ try:                                    # scipy is the natural home for COO->CSR
 except ImportError:                     # pragma: no cover - checked at build time
     _sp = None
 
-from fleet_management.degradation_model.base import (
+from fleet_management.degradation_model.legacy.rainflow_formulation_base import (
     FleetModel as _RFModel,
     assembly_of,
     build_context,

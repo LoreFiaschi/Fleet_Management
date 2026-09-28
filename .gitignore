@@ -9,6 +9,11 @@ CLAUDE*
 build/*
 test/*
 tests/*
+# Keep reusable Euler and experiment definitions under version control while
+# excluding generated run directories.
+experiments/**/runs/*
+!experiments/**/runs/.gitignore
+!experiments/**/runs/.gitkeep
 bkp/*
 */*.pdf
 PlottingScripts/*
@@ -34,4 +39,7 @@ mixed_plotter.py
 csv_to_plotter.py
 fix_root_gap.py
 run_year.py
-csv_to_plotter.py
+vbz_lines161_162_F4_5pct_14012732.tar.gz
+vbz_lines161_162_L2_5pct_14083281.tar.gz
+vbz_lines161_162_L2_tangent_5pct_14293314.tar.gz
+vbz_tangent_optimality_1h_32c_14321611.tar.gz

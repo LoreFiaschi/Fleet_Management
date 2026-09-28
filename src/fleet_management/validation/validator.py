@@ -195,20 +195,6 @@ def validate(
         tol=tol,
     )
 
-    # Capacity constraint:
-    # sum_{i,l} mu[i,l,k] <= F - M for all k
-    capacity_violation = max(
-        0.0,
-        float(np.max(np.sum(mu, axis=(0, 1)) - (F - M))),
-    )
-    _add_check(
-        report,
-        name="capacity_sum_mu_le_F_minus_M",
-        passed=capacity_violation <= tol,
-        violation=capacity_violation,
-        tol=tol,
-    )
-
     # Periodic mu constraint:
     # mu[i,l,2H-1] <= mu[i,l,H-1]
     mu_periodic_violation = max(

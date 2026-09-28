@@ -120,7 +120,7 @@ def expected_gamma_model_size(case: BenchmarkCase) -> dict[str, int]:
         + 3 * F * L * steps
         + F * L
         + F * steps
-        + (M + 1) * steps
+        + M * steps
     )
     general = 6 * F * L * steps
     return {
@@ -148,7 +148,9 @@ def run_gamma_benchmarks(
     profile_names = tuple(profiles)
 
     # Lazy imports keep instance generation usable without a Gurobi install.
-    from fleet_management.degradation_model.gamma.gamma_validator import validate_gamma_result
+    from fleet_management.degradation_model.gamma_utils.gamma_validator import (
+        validate_gamma_result,
+    )
     from fleet_management.solver import solve
 
     destination = Path(output_dir)

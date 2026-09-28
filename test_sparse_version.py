@@ -169,8 +169,8 @@ import numpy as np
 # Lazy imports (so --help and --dry-run work without a Gurobi licence)
 # ===========================================================================
 def _import_build():
-    from fleet_management.config import load_config
-    from fleet_management.degradation_model.base import (
+    from fleet_management.degradation_model.legacy.rainflow_formulation_config import load_config
+    from fleet_management.degradation_model.legacy.rainflow_formulation_base import (
         build_fleet, resolve_run_options)
     return load_config, build_fleet, resolve_run_options
 

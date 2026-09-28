@@ -469,7 +469,7 @@ class StudyScenario(Scenario):
         size estimate available without building the model."""
         F, M, L, T = int(self.F), int(self.M), int(self.L), int(self.T)
         n = F * (M + 1) * T + F * L * T
-        from fleet_management.degradation_model.base import encoding_of
+        from fleet_management.degradation_model.legacy.rainflow_formulation_base import encoding_of
         # `formulation` may be a harness LABEL ('indicator_cuts'); the binary
         # count depends only on the ENCODING it stands for.
         if encoding_of(H.split_variant(self.formulation)[0]) != "bigm":
@@ -836,7 +836,7 @@ def _relaxation(md, opts, quadratic: bool) -> dict:
 
 
 def _status_string(code: int) -> str:
-    from fleet_management.degradation_model.base import status_string
+    from fleet_management.degradation_model.legacy.rainflow_formulation_base import status_string
     return status_string(code)
 
 
@@ -857,8 +857,8 @@ def solve_instrumented(sc: StudyScenario, bound: str, opts,
     It uses the project's own builders, so the MODEL is identical to the one
     `test.py` solves -- only the driving is different.
     """
-    from fleet_management.config import load_config
-    from fleet_management.degradation_model.base import (
+    from fleet_management.degradation_model.legacy.rainflow_formulation_config import load_config
+    from fleet_management.degradation_model.legacy.rainflow_formulation_base import (
         build_fleet, extract_solution, resolve_run_options)
 
     data = sc.to_input(bound)
@@ -1013,7 +1013,7 @@ def run_case(cfg: Config, bound: str, impl: str, seed: int, opts, run,
     data = sc.to_input(bound)
 
     if opts.dry_run:
-        from fleet_management.config import load_config
+        from fleet_management.degradation_model.legacy.rainflow_formulation_config import load_config
         load_config(data)                        # validate without a licence
         rec.update({"status": "dry_run", "objective": math.nan,
                     "mip_gap": math.nan, "obj_bound": math.nan,

@@ -1,4 +1,9 @@
-"""Offline construction of conservative common-rate Gamma tail bounds.
+"""Legacy finite-count Gamma tail calibration and exact convolution tools.
+
+This module is retained for research comparisons and legacy regression checks.
+The public Gamma workflow uses ``gamma_repeated_calibration`` instead.
+
+Offline construction of common-rate Gamma tail surrogates.
 
 Suppose independent damage increments satisfy
 
@@ -75,6 +80,7 @@ class TailConstraint:
     exact_tail_estimate: float
     exact_tail_upper_bound: float
     convolution_remaining_mass: float
+    convolution_series_terms: int
     required_common_shape: float
     bounded_common_shape: float
     bounded_tail_probability: float
@@ -128,6 +134,7 @@ class GammaTailBoundResult:
                     "exact_tail_estimate": item.exact_tail_estimate,
                     "exact_tail_upper_bound": item.exact_tail_upper_bound,
                     "convolution_remaining_mass": item.convolution_remaining_mass,
+                    "convolution_series_terms": item.convolution_series_terms,
                     "required_common_shape": item.required_common_shape,
                     "bounded_common_shape": item.bounded_common_shape,
                     "bounded_tail_probability": item.bounded_tail_probability,
@@ -796,8 +803,7 @@ def calculate_tail_bound_parameters(
     Notes
     -----
     If an increment already has ``beta_q == common_rate``, its singleton
-    constraint normally forces ``A'_q = A_q``.  This is the mentor's "no room
-    for further improvement" case.  Other shapes can be lowered only as far as
+    constraint normally forces ``A'_q = A_q``. Other shapes can be lowered only as far as
     the complete set of individual and accumulated tail constraints permits.
     """
 
@@ -873,9 +879,19 @@ def calculate_tail_bound_parameters(
         combinations, required_shapes, exact_tails, strict=True
     ):
         summed_shape = float(counts @ bounded_shapes)
-        bounded_tail = float(
-            gamma.sf(threshold, a=summed_shape, scale=1.0 / beta_bar)
-        )
+        # A zero bounding shape represents the degenerate distribution at zero.
+        # scipy.stats.gamma is undefined at a=0 and returns NaN, whereas the
+        # correct tail at every positive threshold is exactly zero.
+        if summed_shape <= 0.0:
+            bounded_tail = 0.0
+        else:
+            bounded_tail = float(
+                gamma.sf(
+                    threshold,
+                    a=summed_shape,
+                    scale=1.0 / beta_bar,
+                )
+            )
         margin = bounded_tail - convolution.upper_bound
         if margin < -feasibility_tolerance:
             raise RuntimeError(
@@ -888,6 +904,7 @@ def calculate_tail_bound_parameters(
                 exact_tail_estimate=convolution.estimate,
                 exact_tail_upper_bound=convolution.upper_bound,
                 convolution_remaining_mass=convolution.remaining_mass,
+                convolution_series_terms=convolution.series_terms,
                 required_common_shape=float(required),
                 bounded_common_shape=summed_shape,
                 bounded_tail_probability=bounded_tail,

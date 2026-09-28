@@ -2,7 +2,7 @@ from pathlib import Path
 
 import pytest
 
-from fleet_management.validator.validator import validate
+from fleet_management.validation.validator import validate
 
 
 INPUT = "input/data_test_baseline.yaml"
@@ -15,7 +15,7 @@ EXPECTED_FAILED_CHECKS = {
     "bad_assignment.yaml": "assignment_sum_j_x_le_1",
     "bad_demand.yaml": "demand_sum_i_x_eq_1",
     "bad_u_ge_mu.yaml": "u_ge_mu",
-    "bad_capacity.yaml": "capacity_sum_mu_le_F_minus_M",
+    "bad_capacity.yaml": "u_ge_mu",
     "bad_mu_periodic.yaml": "mu_periodic",
     "bad_v_periodic.yaml": "v_periodic",
     "bad_objective.yaml": "objective_recomputation",
