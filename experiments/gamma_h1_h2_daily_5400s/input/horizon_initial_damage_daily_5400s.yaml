@@ -1,0 +1,96 @@
+F: 4
+M: 2
+L: 2
+H:
+- 2
+- 8
+component_names:
+- Traction battery
+- Motor insulation
+model:
+- gamma
+- rainflow
+bound_method:
+- cantelli
+- cantelli
+repair_model:
+- ardinf
+- ardinf
+tau:
+- 1.0
+- 1.0
+epsilon:
+- 0.0001
+- 0.0001
+rho:
+- 0.5
+- 0.5
+mu_0:
+- - 0.05
+  - 0.05
+- - 0.05
+  - 0.05
+- - 0.3
+  - 0.5
+- - 0.4
+  - 0.6
+v_0:
+- - 0.0
+  - 1.0e-05
+- - 0.0
+  - 1.0e-05
+- - 0.0
+  - 1.0e-05
+- - 0.0
+  - 1.0e-05
+replacement_mu:
+- 0.0
+- 0.0
+replacement_v:
+- 0.0
+- 0.0
+mu:
+- 0.03
+- 0.02
+mu_trans:
+- 0.03
+- 0.02
+v:
+- 2.0e-05
+- 1.5e-05
+v_trans:
+- 2.0e-05
+- 1.5e-05
+gamma_beta: 20.0
+gamma_beta_trans: 20.0
+gamma_beta_bound: 10.0
+gamma_beta_0: 20.0
+gamma_beta_new: 20.0
+gamma_calibration_method: repeated_increment
+C_M:
+- 1.0
+- 1.2
+C_R:
+- 0.5
+- 0.8
+C_D: 2.0
+C_rep:
+- 4.0
+- 7.0
+allow_replacement: true
+objective_mode: operating_average
+reliability_impl: tangent
+tangent_ref: 0.32
+mip_gap: 0.05
+time_limit: 5400
+verbose: 1
+progress_interval_seconds: 5
+relaxation_warm_start: true
+relaxation_time_limit: 60
+gurobi_params:
+  Threads: 32
+  Seed: 1
+  MIPFocus: 3
+  Heuristics: 0.02
+  Symmetry: 2
+  Cuts: 2
