@@ -1,9 +1,0 @@
-Verify that in IG assuming \lambda / \mu constant is reasonable because it is a component-dependent property
-
-Verify that in Wiener assuming \sigma constant is reasonable because it is a component-dependent property
-
-Verificarlo anche per gamma
-
-Capire come il lavoro di castillo si pone rispetto al nostro
-
-Capire come inserire i cicli di vita

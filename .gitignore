@@ -1,45 +1,36 @@
-literature/*
-agentic/*
-.claude/*
-input/*
-!input/vbz_man12e_year.yaml
+# Build artefacts
+*.egg-info/
+__pycache__/
+*.py[cod]
+build/
+dist/
+.pytest_cache/
+
+# Virtual environments
+.venv/
+.venv-*/
+venv/
+
+# Generated outputs
+# results/ holds solver output. The corrupted results that tests read stay tracked.
 results/*
-CLAUDE*
-*.zip
-build/*
-test/*
-tests/*
-# Keep reusable Euler and experiment definitions under version control while
-# excluding generated run directories.
+!results/validator_tests/
+results/validator_tests/validation_*
+logs/
+results-euler/
+test_results/
+smoke_test_output/
+# Run folders of the experiments; only the placeholder files stay tracked.
 experiments/**/runs/*
 !experiments/**/runs/.gitignore
 !experiments/**/runs/.gitkeep
-bkp/*
+# Archives and PDF builds one folder below the root (for example spec/spec.pdf)
+*.zip
+*.tar.gz
 */*.pdf
-PlottingScripts/*
-.venv/
-src/fleet_management/test.py*
-src/fleet_management/helper_inspector.py*
-src/fleet_management/tempCodeRunnerFile.py*
-src/fleet_management/opt_analysis.py*
-src/fleet_management/analysis.py*
-__pycache__/
-*.py[cod]
-docs/*
-test_results/*
-.venv-euler/*
-results/*
-logs/*
-results-euler/*
-run_audit.py
-fleet_matrix_audit.py
-ds.py
-results.tar.gz
-mixed_plotter.py
-csv_to_plotter.py
-fix_root_gap.py
-run_year.py
-vbz_lines161_162_F4_5pct_14012732.tar.gz
-vbz_lines161_162_L2_5pct_14083281.tar.gz
-vbz_lines161_162_L2_tangent_5pct_14293314.tar.gz
-vbz_tangent_optimality_1h_32c_14321611.tar.gz
+
+# Local folders
+literature/
+agentic/
+.claude/
+bkp/

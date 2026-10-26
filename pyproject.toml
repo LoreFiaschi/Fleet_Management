@@ -5,7 +5,7 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "fleet-management"
 version = "0.1.0"
-description = "Fleet management optimization with Gaussian degradation via MILP"
+description = "Maintenance scheduling of a train fleet over a time horizon under five stochastic degradation models (Gaussian, inverse Gaussian, Wiener, Gamma and rainflow), solved as a mixed-integer program with Gurobi"
 requires-python = ">=3.10"
 dependencies = [
     "numpy",
