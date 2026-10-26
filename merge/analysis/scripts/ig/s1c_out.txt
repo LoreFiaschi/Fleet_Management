@@ -1,0 +1,3 @@
+eps=0.001: lore's cap fails for eta above about 757.88 (CV above 27.53)
+eps=0.01: lore's cap fails for eta above about 73.00 (CV above 8.54)
+eps=0.1: lore's cap fails for eta above about 4.86 (CV above 2.21)

@@ -1,0 +1,24 @@
+== A. tail increasing in mu on a grid ==
+fixed eta=0.05: increasing = True
+fixed eta=1.0: increasing = True
+fixed eta=10.0: increasing = True
+fixed xi=0.2: increasing = True
+fixed xi=20.0: increasing = True
+fixed xi=2000.0: increasing = True
+
+== B. spec density (lore:spec/spec.tex:906-907) vs the IG density with lam = mu/eta ==
+mu=0.25: integral of spec density 2.000000 (mu^-1/2 = 2.000000); of IG(mu, mu/eta) 1.000000
+mu=1.0: integral of spec density 1.000000 (mu^-1/2 = 1.000000); of IG(mu, mu/eta) 1.000000
+mu=4.0: integral of spec density 0.500000 (mu^-1/2 = 0.500000); of IG(mu, mu/eta) 1.000000
+x=0.3: d/dx log f(x;mu2)/f(x;mu1): numeric 12.444444, spec formula 12.444444
+x=1.0: d/dx log f(x;mu2)/f(x;mu1): numeric 2.333333, spec formula 2.333333
+x=3.0: d/dx log f(x;mu2)/f(x;mu1): numeric 1.444444, spec formula 1.444444
+
+== C. FSD between the true laws at day H and day 2H (eta = 0.25) ==
+means: D_H 0.800, D_2H 0.750
+t=0.6: P(D_H > t) = 0.96676   P(D_2H > t) = 0.79942
+t=0.8: P(D_H > t) = 0.46945   P(D_2H > t) = 0.31994
+t=1.0: P(D_H > t) = 0.06034   P(D_2H > t) = 0.09424
+t=1.2: P(D_H > t) = 0.00286   P(D_2H > t) = 0.02594
+t=1.5: P(D_H > t) = 0.00001   P(D_2H > t) = 0.00370
+MC check P(D_2H > 1.2) = 0.02574 +- 0.00016

@@ -1,0 +1,16 @@
+== counterexamples: n equal independent increments, total mean = mu_bar ==
+eta=10.0 eps=0.1: mu_bar=0.4730, 3 x IG(0.1577, 0.01577): true tail 0.11800 (MC 0.11793 +- 0.00032), model tail 0.10000
+eta=10.0 eps=0.1: mu_bar=0.4730, 2 x IG(0.2365, 0.02365): true tail 0.11369 (MC 0.11334 +- 0.00032), model tail 0.10000
+eta=100.0 eps=0.01: mu_bar=0.0519, 2 x IG(0.0260, 0.00026): true tail 0.01072 (MC 0.01064 +- 0.00010), model tail 0.01000
+eta=4.0 eps=0.2: mu_bar=0.8164, 10 x IG(0.0816, 0.02041): true tail 0.26414 (MC 0.26418 +- 0.00044), model tail 0.20000
+
+== threshold eps*(eta): smallest eps with a failing n-equal structure (n in NS) ==
+eta=0.01   CV=0.10: fails for eps above about 0.4661
+eta=0.1    CV=0.32: fails for eps above about 0.3958
+eta=0.25   CV=0.50: fails for eps above about 0.3421
+eta=1.0    CV=1.00: fails for eps above about 0.2302
+eta=2.0    CV=1.41: fails for eps above about 0.1690
+eta=4.0    CV=2.00: fails for eps above about 0.1136
+eta=10.0   CV=3.16: fails for eps above about 0.0590
+eta=30.0   CV=5.48: fails for eps above about 0.0230
+eta=100.0  CV=10.00: fails for eps above about 0.0074

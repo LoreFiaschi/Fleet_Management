@@ -1,0 +1,43 @@
+== A. semigroup check: Q(0.3)+Q(0.5) vs Q(0.8), xi=200 (tails at several t) ==
+t=0.9: convolution 0.0628443505  closed form 0.0628443505
+t=1.0: convolution 0.0020522670  closed form 0.0020522670
+t=1.1: convolution 0.0000217906  closed form 0.0000217906
+
+== B. repaired law: pathwise c*Q(mu) = IG(c mu, c xi mu^2) vs parameter-space Q(c mu) ==
+xi=200.0 mu=0.8 c=0.5: mean 0.400; S_path - S_param changes sign at t = [0.16, 0.4]; S_param there = [1.0, 0.4778]
+   stop-loss at d=0.200: path 0.200000 <= param 0.200000
+   stop-loss at d=0.400: path 0.012596 <= param 0.017786
+   stop-loss at d=0.600: path 0.000000 <= param 0.000002
+xi=200.0 mu=0.8 c=0.2: mean 0.160; S_path - S_param changes sign at t = [0.04, 0.16]; S_param there = [1.0, 0.465]
+   stop-loss at d=0.080: path 0.080000 <= param 0.080000
+   stop-loss at d=0.160: path 0.005038 <= param 0.011198
+   stop-loss at d=0.240: path 0.000000 <= param 0.000116
+xi=20.0 mu=0.8 c=0.5: mean 0.400; S_path - S_param changes sign at t = [0.035, 0.415]; S_param there = [1.0, 0.3904]
+   stop-loss at d=0.200: path 0.200042 <= param 0.200710
+   stop-loss at d=0.400: path 0.039298 <= param 0.054800
+   stop-loss at d=0.600: path 0.002447 <= param 0.009675
+
+== C. repair at the cap, then increments up to the cap again: true tail / eps ==
+(true law = c*Q(mu_bar) + Q(mu_bar - c mu_bar), param-space law = Q(mu_bar), tail at tau = 1)
+xi=20.0    eps=0.001  mu_bar_xi=0.3576 | c=0.8: 0.448 c=0.5: 0.382 c=0.2: 0.657 c=0.05: 0.899
+xi=20.0    eps=0.01   mu_bar_xi=0.5186 | c=0.8: 0.613 c=0.5: 0.492 c=0.2: 0.712 c=0.05: 0.917
+xi=20.0    eps=0.1    mu_bar_xi=0.7440 | c=0.8: 0.846 c=0.5: 0.748 c=0.2: 0.849 c=0.05: 0.958
+xi=20.0    eps=0.2    mu_bar_xi=0.8399 | c=0.8: 0.924 c=0.5: 0.863 c=0.2: 0.912 c=0.05: 0.975
+xi=200.0   eps=0.001  mu_bar_xi=0.7845 | c=0.8: 0.389 c=0.5: 0.223 c=0.2: 0.455 c=0.05: 0.815
+xi=200.0   eps=0.01   mu_bar_xi=0.8383 | c=0.8: 0.571 c=0.5: 0.399 c=0.2: 0.608 c=0.05: 0.878
+xi=200.0   eps=0.1    mu_bar_xi=0.9121 | c=0.8: 0.82 c=0.5: 0.713 c=0.2: 0.825 c=0.05: 0.95
+xi=200.0   eps=0.2    mu_bar_xi=0.9431 | c=0.8: 0.904 c=0.5: 0.84 c=0.2: 0.903 c=0.05: 0.973
+xi=2000.0  eps=0.001  mu_bar_xi=0.9312 | c=0.8: 0.378 c=0.5: 0.191 c=0.2: 0.398 c=0.05: 0.786
+xi=2000.0  eps=0.01   mu_bar_xi=0.9482 | c=0.8: 0.561 c=0.5: 0.372 c=0.2: 0.573 c=0.05: 0.864
+xi=2000.0  eps=0.1    mu_bar_xi=0.9716 | c=0.8: 0.813 c=0.5: 0.701 c=0.2: 0.815 c=0.05: 0.947
+xi=2000.0  eps=0.2    mu_bar_xi=0.9814 | c=0.8: 0.899 c=0.5: 0.832 c=0.2: 0.898 c=0.05: 0.972
+
+== D. does a tail comparison survive further increments? xi=200, c=0.2, eps=0.2 ==
+added mean 0.000: total mean 0.189, tau'=0.2134: true tail 0.0416 vs param tail 0.2
+added mean 0.100: total mean 0.289, tau'=0.3196: true tail 0.1210 vs param tail 0.2
+added mean 0.300: total mean 0.489, tau'=0.5293: true tail 0.1594 vs param tail 0.2
+added mean 0.500: total mean 0.689, tau'=0.7371: true tail 0.1726 vs param tail 0.2
+added mean 0.754: total mean 0.943, tau'=1.0000: true tail 0.1805 vs param tail 0.2
+
+== E. same scan with MC cross-check for one cell ==
+convolution 0.18051, MC 0.18050 +- 0.00038

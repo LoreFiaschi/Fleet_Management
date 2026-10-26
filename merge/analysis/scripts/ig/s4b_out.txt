@@ -1,0 +1,2 @@
+mu_bar=0.4730, missions 8 x 0.05287: true tail 0.10588
+MC (each mission sampled): 0.10584 +- 0.00031

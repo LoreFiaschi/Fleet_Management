@@ -7,3 +7,19 @@
 - Tightening of the linear reliability surrogates beyond their single-tangent forms
 
 - Schedule-dependent Bernstein support
+
+- Merge the branches lore and main: implement the choices recorded in merge/decisions.md, then update scoping.tex and spec/spec.tex.
+
+- Extend the Monte Carlo replay validator (main's Gamma stochastic validator) to every degradation model.
+
+Research directions (from ASSESSMENT.md, 7 Jul 2026):
+
+- Rolling-horizon deployment: re-solve with observed states as condition-monitoring data arrive; the loop constraint becomes a terminal safety envelope.
+
+- Scenario (sample average approximation) chance constraints: sample the empirical rainflow distribution and allow failure in at most floor(eps*S) scenarios; it measures what the Cantelli/Bernstein conservatism costs.
+
+- Distributionally robust framing: Cantelli is the tight bound over the two-moment ambiguity set; this sets up a Wasserstein-ball extension for the sampling error of the moments.
+
+- Decomposition for scale: components couple only through the assignment variables (Benders or Dantzig-Wolfe: an assignment master, per-component reliability subproblems).
+
+- Policy baseline: compare against simple condition-based threshold policies.

@@ -1,0 +1,2180 @@
+"""
+Shared Gurobi model layer for fleet management (model-agnostic skeleton).
+
+This module owns everything that does **not** depend on which degradation model
+a cell uses:
+
+* the shared context object ``FleetModel`` (sizes, decision variables, per-cell
+  parameters, increment accessors);
+* the shared variables and the general constraints / problem equations
+  (assignment, mission demand, safety ``u``);
+* the objective  ``J = sum_l C_M[l] m[l] + C_R[l] z[l] +``
+  ``C_rep[l] r[l] + C_D u``;
+* solution extraction, status decoding, run-option and cost resolution.
+
+Degradation models plug in through the **cell-builder registry**: each model
+registers a ``CellBuilder`` with
+
+    prepare(ctx, cfg, cells, opts)   create that model's auxiliary variables and
+                                     per-cell arrays for *its* cells (called once
+                                     per model that appears in the fleet)
+    add_cell(ctx, i, l)              add the constraints of ONE (vehicle,
+                                     component) cell
+    extract(ctx, cfg, out)           optional: add model-specific arrays to the
+                                     result dict
+
+``solve_mixed`` then builds one program for a fleet whose cells use *different*
+degradation models: shared skeleton once, then the right block per cell.
+
+Layering
+--------
+    base.py       shared skeleton + registry + solve_mixed   (this file)
+    rainflow.py   rainflow cell math + reliability bounds; registers "rainflow"
+    gamma block   finite-horizon common-rate tail builder below; registers "gamma"
+
+`base` must not import the model modules at import time (they import `base`);
+``solve_mixed`` imports them lazily so their registration side-effect happens.
+"""
+
+from __future__ import annotations
+
+from dataclasses import dataclass, field
+import math
+import time
+from typing import Callable, Dict, Optional, Protocol
+
+import numpy as np
+import gurobipy as gp
+from gurobipy import GRB
+
+
+# ===========================================================================
+# Shared context
+# ===========================================================================
+@dataclass
+class FleetModel:
+    """Everything the per-cell builders need, built once and passed around.
+
+    Required fields are model-agnostic. The optional ones are filled in by a
+    degradation model's ``prepare`` hook for the cells that need them (e.g.
+    rainflow's variance / latch / descriptor variables), so a builder can read
+    ``ctx.<field>`` exactly as if it owned the context.
+    """
+    # --- structure ---
+    model: gp.Model
+    F: int; H1: int; H2: int; M: int; L: int; T: int
+    # --- shared decision variables / states ---
+    x: gp.tupledict                        # assignment  (F, M+1, T)
+    m_rep: gp.tupledict                    # imperfect repair (F, L, T)
+    r_rep: Optional[gp.tupledict]          # replacement (F, L, T) or None
+    idle: gp.tupledict                     # depot-idle action (F, L, T)
+    nb: gp.tupledict                       # no-intervention selector for rainflow
+    mu_var: gp.tupledict                   # mean damage state (F, L, T)
+    z_var: gp.tupledict                    # removed expected damage (F, L, T)
+    u_var: gp.Var                         # maximum aggregate damage over i,k
+    # --- shared per-cell (F, L) parameters ---
+    model_of: np.ndarray
+    tau: np.ndarray
+    eps: np.ndarray
+    rho: np.ndarray
+    mu_0: np.ndarray
+    mu_new: np.ndarray
+    allow_replacement: bool
+    mu_inc: Callable[[int, int, int, int], float]   # (i, j0, l, k) -> mean increment
+
+    # --- optional, model-specific (filled by a model's prepare hook) ---
+    v_var: Optional[gp.tupledict] = None
+    gmu: Optional[gp.tupledict] = None
+    gv: Optional[gp.tupledict] = None
+    gR: Optional[gp.tupledict] = None      # ARD1 latch for the Hoeffding R budget
+    R_var: Optional[gp.tupledict] = None
+    K_var: Optional[gp.tupledict] = None
+    bound_of: Optional[np.ndarray] = None
+    repair_of: Optional[np.ndarray] = None
+    v_0: Optional[np.ndarray] = None
+    v_new: Optional[np.ndarray] = None
+    s_chernoff: Optional[np.ndarray] = None
+    support_max_of: Optional[np.ndarray] = None
+    Le: Optional[np.ndarray] = None
+    ln_eps: Optional[np.ndarray] = None
+    track_v_of: Optional[np.ndarray] = None
+    latch_of: Optional[np.ndarray] = None
+    impl_of: dict = field(default_factory=dict)
+    pwl_points: int = 8
+    tangent_ref: float = 0.5
+    v_inc: Optional[Callable[[int, int, int, int], float]] = None
+    w2_inc: Optional[Callable[[int, int, int, int], float]] = None
+    cgf_inc: Optional[Callable[[int, int, int, int], float]] = None
+    # free-form per-model storage (gamma state, future models, ...)
+    extras: dict = field(default_factory=dict)
+
+    # --- helpers ---
+    def cells_of(self, model_name: str):
+        """All (i, l) cells whose degradation model is ``model_name``."""
+        return [(i, l) for i in range(self.F) for l in range(self.L)
+                if str(self.model_of[i, l]) == model_name]
+
+    def all_cells(self):
+        return [(i, l) for i in range(self.F) for l in range(self.L)]
+
+    def rainflow_cells(self):               # backwards-compatible alias
+        return self.cells_of("rainflow")
+
+
+# ===========================================================================
+# Cell-builder registry
+# ===========================================================================
+class CellBuilder(Protocol):
+    """Interface a degradation model implements to plug into the shared model."""
+
+    name: str
+
+    def prepare(self, ctx: FleetModel, cfg, cells, opts: dict) -> None:
+        """Create this model's auxiliary variables / per-cell arrays for ``cells``."""
+        ...
+
+    def add_cell(self, ctx: FleetModel, i: int, l: int) -> None:
+        """Add the constraints of one (vehicle, component) cell."""
+        ...
+
+
+CELL_BUILDERS: Dict[str, CellBuilder] = {}
+
+
+def register_cell_builder(name: str, builder) -> None:
+    """Register a degradation model's cell builder under ``name``."""
+    CELL_BUILDERS[name] = builder
+
+
+def get_cell_builder(name: str):
+    try:
+        return CELL_BUILDERS[name]
+    except KeyError:
+        raise NotImplementedError(
+            f"degradation model {name!r} has no cell builder registered; "
+            f"available: {tuple(CELL_BUILDERS)}."
+        )
+
+
+def dispatch_cell(ctx: FleetModel, i: int, l: int) -> None:
+    """Route one cell to its model's builder."""
+    get_cell_builder(str(ctx.model_of[i, l])).add_cell(ctx, i, l)
+
+
+# ===========================================================================
+# ###################  GAMMA FINITE-HORIZON TAIL BLOCK  #####################
+# ===========================================================================
+# The modular gamma block goes here. A gamma cell shares the fleet skeleton
+# (assignment x, the safety variable u and the objective), so it MUST drive the
+# shared mean state ``ctx.mu_var[i,l,k]`` — that is what the u / C_D term reads.
+# Everything gamma-specific (its own
+# state variables, shape/scale bookkeeping) can live in ``ctx.extras["gamma"]``.
+#
+# The numerical calibration is independent of Gurobi. This block consumes its
+# bounded mission shapes, creates A', and keeps physical expected damage mu as a
+# separate shared state. Initial and replacement distributions are calibrated as
+# mutually exclusive seed histories.
+#
+# At repair, the common bounding rate remains fixed and the bounding shape is
+# reduced consistently with the selected repair model. ARD-inf contracts the
+# complete mean and shape states. ARD1 contracts only the damage accumulated
+# since the previous intervention and therefore requires separate mean and shape
+# latches. ARD-inf always uses direct state balances and exact binary-product
+# hulls, including its replacement reset. ARD1 uses corresponding products for
+# repairable damage, the state discarded by replacement, and the latch reset.
+# No Gamma branch needs a no-intervention selector or conditional Big-M row.
+# ---------------------------------------------------------------------------
+def _add_binary_scaled_product(
+    model,
+    product,
+    state,
+    active,
+    *,
+    scale: float,
+    state_upper: float,
+    name: str,
+) -> None:
+    """Convex-hull linearization of ``product = scale * state * active``.
+
+    The formulation is exact for a non-negative bounded ``state`` and binary
+    ``active``.  Unlike a pair of conditional state equalities, it introduces
+    only the one bound-derived coefficient that the continuous-by-binary
+    product mathematically requires.  ``product`` has a non-negative lower
+    bound at variable creation.
+    """
+    factor = float(scale)
+    upper = float(state_upper)
+    if not np.isfinite(factor) or factor < 0.0:
+        raise ValueError(f"invalid product scale for {name}: {factor}")
+    if not np.isfinite(upper) or upper < 0.0:
+        raise ValueError(f"invalid state upper bound for {name}: {upper}")
+
+    coefficient = factor * upper
+    model.addConstr(product <= factor * state, name=f"{name}_state_ub")
+    model.addConstr(product <= coefficient * active, name=f"{name}_binary_ub")
+    model.addConstr(
+        product >= factor * state - coefficient * (1 - active),
+        name=f"{name}_lower",
+    )
+
+    summary = getattr(model, "_binary_product_summary", None)
+    if summary is None:
+        summary = {
+            "products": 0,
+            "linear_rows": 0,
+            "maximum_bound_coefficient": 0.0,
+        }
+        model._binary_product_summary = summary
+    summary["products"] += 1
+    summary["linear_rows"] += 3
+    summary["maximum_bound_coefficient"] = max(
+        summary["maximum_bound_coefficient"], coefficient,
+    )
+
+
+def _gamma_reachable_upper_bounds(
+    *,
+    initial_mean: float,
+    replacement_mean: float,
+    mean_increments: np.ndarray,
+    mean_limit: float,
+    initial_shape: float,
+    replacement_shape: float,
+    shape_increments: np.ndarray,
+    shape_limit: float,
+    remaining: float,
+    repair_model: str,
+    allow_replacement: bool,
+) -> dict[str, np.ndarray]:
+    """Return safe time-indexed bounds for one finite-horizon Gamma cell.
+
+    ``mean_increments`` and ``shape_increments`` contain one non-negative
+    upper bound per time step.  Normal operation adds at most that amount;
+    repair cannot increase either state; replacement resets it to the supplied
+    seed.  ARD1 latches are treated separately because normal operation holds
+    them and an intervention resets them to the post-intervention state.
+
+    The recursion deliberately over-approximates reachability.  It is therefore
+    safe for product-hull construction without solving the scheduling problem
+    first.
+    """
+    mean_inc = np.asarray(mean_increments, dtype=float)
+    shape_inc = np.asarray(shape_increments, dtype=float)
+    if mean_inc.ndim != 1 or shape_inc.shape != mean_inc.shape:
+        raise ValueError(
+            "Gamma reachable-bound increments must be equal 1-D arrays."
+        )
+    if np.any(mean_inc < 0.0) or np.any(shape_inc < 0.0):
+        raise ValueError("Gamma reachable-bound increments must be non-negative.")
+
+    T = int(mean_inc.size)
+    mean_upper = np.empty(T, dtype=float)
+    shape_upper = np.empty(T, dtype=float)
+    removed_upper = np.empty(T, dtype=float)
+    mean_latch_upper = np.zeros(T, dtype=float)
+    shape_latch_upper = np.zeros(T, dtype=float)
+
+    previous_mean = float(initial_mean)
+    previous_shape = float(initial_shape)
+    previous_mean_latch = 0.0
+    previous_shape_latch = 0.0
+    use_latch = repair_model == "ard1"
+    repaired_fraction = 1.0 - float(remaining)
+
+    for k in range(T):
+        if use_latch:
+            repaired_mean = (
+                remaining * previous_mean
+                + repaired_fraction * previous_mean_latch
+            )
+            repaired_shape = (
+                remaining * previous_shape
+                + repaired_fraction * previous_shape_latch
+            )
+        else:
+            repaired_mean = remaining * previous_mean
+            repaired_shape = remaining * previous_shape
+
+        mean_candidates = [previous_mean + float(mean_inc[k]), repaired_mean]
+        shape_candidates = [previous_shape + float(shape_inc[k]), repaired_shape]
+        if allow_replacement:
+            mean_candidates.append(float(replacement_mean))
+            shape_candidates.append(float(replacement_shape))
+
+        current_mean = min(float(mean_limit), max(mean_candidates))
+        current_shape = min(float(shape_limit), max(shape_candidates))
+        mean_upper[k] = max(0.0, current_mean)
+        shape_upper[k] = max(0.0, current_shape)
+
+        # ARD1 removes rho * (state - latch).  The latch has lower bound zero,
+        # so rho * previous_mean is the safe reachable upper bound for both
+        # repair models.
+        repair_removed = max(0.0, repaired_fraction * previous_mean)
+        # z is the damage removed by imperfect repair. Replacement has its own
+        # binary cost and therefore must not also contribute to the repair cost.
+        removed_upper[k] = min(float(mean_limit), repair_removed)
+
+        if use_latch:
+            mean_latch_candidates = [previous_mean_latch, repaired_mean]
+            shape_latch_candidates = [previous_shape_latch, repaired_shape]
+            if allow_replacement:
+                mean_latch_candidates.append(float(replacement_mean))
+                shape_latch_candidates.append(float(replacement_shape))
+            mean_latch_upper[k] = min(
+                mean_upper[k], float(mean_limit), max(mean_latch_candidates)
+            )
+            shape_latch_upper[k] = min(
+                shape_upper[k], float(shape_limit), max(shape_latch_candidates)
+            )
+            previous_mean_latch = float(mean_latch_upper[k])
+            previous_shape_latch = float(shape_latch_upper[k])
+
+        previous_mean = float(mean_upper[k])
+        previous_shape = float(shape_upper[k])
+
+    return {
+        "mean": mean_upper,
+        "shape": shape_upper,
+        "removed_mean": removed_upper,
+        "mean_latch": mean_latch_upper,
+        "shape_latch": shape_latch_upper,
+    }
+
+
+class GammaCellBuilder:
+    """Selectable common-rate Gamma surrogate for modular Gamma cells.
+
+    The current route calibrates each repeated mission-increment type and each
+    alternative seed state at one common rate. The common bounding rate remains
+    fixed during repair, while the physical mean and bounding shape are
+    contracted according to ARD-inf or ARD1. ARD1 uses separate mean and
+    bounding-shape latches storing the state after the previous intervention.
+    """
+
+    name = "gamma"
+
+    def prepare(self, ctx: FleetModel, cfg, cells, opts: dict) -> None:
+        """Calibrate mission shapes offline and create the bounding state."""
+        from fleet_management.degradation_model.gamma_utils.gamma_repeated_calibration import (
+            calibrate_gamma_cell_tail_bound,
+            required_shape_for_tail,
+        )
+
+        cells = list(cells)
+        if not cells:
+            return
+
+        def rate_profile(values, i, l, shape, name):
+            """Accept the legacy (F,L) rate or the forthcoming profile form."""
+            if values is None:
+                raise ValueError(f"gamma cell (i={i}, l={l}) needs '{name}'.")
+            arr = np.asarray(values, dtype=float)
+            if arr.ndim == 2:
+                value = float(arr[i, l])
+                return np.full(shape, value, dtype=float)
+            if arr.ndim == 4:
+                cell = np.asarray(arr[i, l], dtype=float)
+                try:
+                    return np.broadcast_to(cell, shape).astype(float, copy=True)
+                except ValueError as error:
+                    raise ValueError(
+                        f"gamma cell (i={i}, l={l}) {name} profile {cell.shape} "
+                        f"cannot broadcast to {shape}."
+                    ) from error
+            raise ValueError(
+                f"'{name}' must be normalized as (F,L) or (F,L,M,H); "
+                f"got shape {arr.shape}."
+            )
+
+        state_keys = [(i, l, k) for i, l in cells for k in range(ctx.T)]
+        A_var = ctx.model.addVars(state_keys, lb=0.0, name="A_gamma_bound")
+        ard1_cells = [
+            (i, l) for i, l in cells if str(cfg.repair_model[i, l]) == "ard1"
+        ]
+        ard1_keys = [(i, l, k) for i, l in ard1_cells for k in range(ctx.T)]
+        ardinf_product_cells = [
+            (i, l) for i, l in cells
+            if str(cfg.repair_model[i, l]) == "ardinf"
+        ]
+        ard1_product_cells = list(ard1_cells)
+        ard1_no_replacement_cells = (
+            [] if ctx.allow_replacement else list(ard1_cells)
+        )
+        ard1_replacement_cells = (
+            list(ard1_cells) if ctx.allow_replacement else []
+        )
+        removed_shape_keys = [
+            (i, l, k)
+            for i, l in ardinf_product_cells
+            for k in range(ctx.T)
+        ]
+        removed_shape = (
+            ctx.model.addVars(removed_shape_keys, lb=0.0, name="zA_gamma")
+            if removed_shape_keys else None
+        )
+        ardinf_replacement_cells = (
+            ardinf_product_cells if ctx.allow_replacement else []
+        )
+        replacement_product_keys = [
+            (i, l, k)
+            for i, l in ardinf_replacement_cells
+            for k in range(ctx.T)
+        ]
+        replaced_mean = (
+            ctx.model.addVars(
+                replacement_product_keys,
+                lb=0.0,
+                name="qRmu_gamma_ardinf",
+            )
+            if replacement_product_keys else None
+        )
+        replaced_shape = (
+            ctx.model.addVars(
+                replacement_product_keys,
+                lb=0.0,
+                name="qRA_gamma_ardinf",
+            )
+            if replacement_product_keys else None
+        )
+        repairable_keys = [
+            (i, l, k)
+            for i, l in ard1_product_cells
+            for k in range(ctx.T)
+        ]
+        repairable_mean = (
+            ctx.model.addVars(repairable_keys, lb=0.0, name="qmu_gamma_ard1")
+            if repairable_keys else None
+        )
+        repairable_shape = (
+            ctx.model.addVars(repairable_keys, lb=0.0, name="qA_gamma_ard1")
+            if repairable_keys else None
+        )
+        ard1_replacement_keys = [
+            (i, l, k)
+            for i, l in ard1_replacement_cells
+            for k in range(ctx.T)
+        ]
+        ard1_replaced_mean = (
+            ctx.model.addVars(
+                ard1_replacement_keys,
+                lb=0.0,
+                name="qRmu_gamma_ard1",
+            )
+            if ard1_replacement_keys else None
+        )
+        ard1_replaced_shape = (
+            ctx.model.addVars(
+                ard1_replacement_keys,
+                lb=0.0,
+                name="qRA_gamma_ard1",
+            )
+            if ard1_replacement_keys else None
+        )
+        ard1_latch_replacement_keys = [
+            (i, l, k)
+            for i, l in ard1_replacement_cells
+            for k in range(1, ctx.T)
+        ]
+        ard1_replaced_mean_latch = (
+            ctx.model.addVars(
+                ard1_latch_replacement_keys,
+                lb=0.0,
+                name="qRgmu_gamma_ard1",
+            )
+            if ard1_latch_replacement_keys else None
+        )
+        ard1_replaced_shape_latch = (
+            ctx.model.addVars(
+                ard1_latch_replacement_keys,
+                lb=0.0,
+                name="qRgA_gamma_ard1",
+            )
+            if ard1_latch_replacement_keys else None
+        )
+        mean_latch = (
+            ctx.model.addVars(ard1_keys, lb=0.0, name="gmu_gamma")
+            if ard1_keys else None
+        )
+
+        shape_latch = (
+            ctx.model.addVars(ard1_keys, lb=0.0, name="gA_gamma")
+            if ard1_keys else None
+        )
+
+        common_rate = np.zeros((ctx.F, ctx.L))
+        maximum_shape = np.zeros((ctx.F, ctx.L))
+        bounded_trans = {}
+        bounded_operating = {}
+        initial_shape = np.zeros((ctx.F, ctx.L))
+        replacement_shape = np.zeros((ctx.F, ctx.L))
+        calibrations = {}
+        calibration_seconds = {}
+        reachable_upper_bounds = {}
+
+        beta_trans_cfg = getattr(cfg, "gamma_beta_trans", None)
+        beta_bound_cfg = getattr(cfg, "gamma_beta_bound", None)
+        calibration_method = getattr(
+            cfg, "gamma_calibration_method", "finite_count"
+        )
+        for i, l in cells:
+            repair_model = str(cfg.repair_model[i, l])
+            if repair_model not in {"ardinf", "ard1"}:
+                raise ValueError(
+                    f"gamma cell (i={i}, l={l}): unsupported repair_model "
+                    f"{repair_model!r}; expected 'ardinf' or 'ard1'."
+                )
+            operating = np.asarray(cfg.mu[i, l], dtype=float)
+            if operating.shape[-1] != ctx.H2:
+                raise ValueError(
+                    f"gamma cell (i={i}, l={l}): operating mu profile must have "
+                    f"length H2={ctx.H2}, got {operating.shape[-1]}."
+                )
+            beta_operating = rate_profile(
+                cfg.gamma_beta, i, l, operating.shape, "gamma_beta"
+            )
+
+            if cfg.mu_trans is None:
+                indices = np.arange(ctx.H1) % ctx.H2
+                trans = operating[..., indices]
+                if beta_trans_cfg is None:
+                    beta_trans = beta_operating[..., indices]
+                else:
+                    beta_trans = rate_profile(
+                        beta_trans_cfg, i, l, trans.shape, "gamma_beta_trans"
+                    )
+            else:
+                trans = np.asarray(cfg.mu_trans[i, l], dtype=float)
+                if beta_trans_cfg is None:
+                    indices = np.arange(ctx.H1) % ctx.H2
+                    beta_trans = beta_operating[..., indices]
+                else:
+                    beta_trans = rate_profile(
+                        beta_trans_cfg, i, l, trans.shape, "gamma_beta_trans"
+                    )
+
+            selected_rate = (
+                None
+                if beta_bound_cfg is None
+                else float(np.asarray(beta_bound_cfg, dtype=float)[i, l])
+            )
+            combined_mu = np.concatenate((trans, operating), axis=-1)
+            combined_beta = np.concatenate((beta_trans, beta_operating), axis=-1)
+            beta_0_cfg = getattr(cfg, "gamma_beta_0", None)
+            beta_new_cfg = getattr(cfg, "gamma_beta_new", None)
+            calibration_start = time.perf_counter()
+            calibration_kwargs = {
+                "expected_damage": combined_mu,
+                "rates": combined_beta,
+                "threshold": float(ctx.tau[i, l]),
+                "max_total_count": ctx.T,
+                "initial_expected_damage": float(ctx.mu_0[i, l]),
+                "initial_rate": (
+                    None if beta_0_cfg is None else float(beta_0_cfg[i, l])
+                ),
+                "replacement_expected_damage": float(ctx.mu_new[i, l]),
+                "replacement_rate": (
+                    None if beta_new_cfg is None else float(beta_new_cfg[i, l])
+                ),
+                "common_rate": selected_rate,
+            }
+            if calibration_method == "repeated_increment":
+                calibration = calibrate_gamma_cell_tail_bound(
+                    epsilon=float(ctx.eps[i, l]),
+                    **calibration_kwargs,
+                )
+                ctx.impl_of[(i, l)] = "gamma_repeated_tail"
+            elif calibration_method == "finite_count":
+                from fleet_management.degradation_model.gamma_utils.gamma_tail_bound import (
+                    calculate_seeded_profile_tail_bound_parameters,
+                )
+
+                calibration = calculate_seeded_profile_tail_bound_parameters(
+                    **calibration_kwargs,
+                )
+                ctx.impl_of[(i, l)] = "gamma_finite_tail"
+            else:
+                raise ValueError(
+                    f"unsupported gamma_calibration_method={calibration_method!r}"
+                )
+            split = ctx.H1
+            bounded_trans[i, l] = calibration.bounded_shapes[..., :split]
+            bounded_operating[i, l] = calibration.bounded_shapes[..., split:]
+            calibrations[i, l] = calibration
+            initial_shape[i, l] = calibration.initial_bounded_shape
+            replacement_shape[i, l] = calibration.replacement_bounded_shape
+            common_rate[i, l] = calibration.common_rate
+            maximum_shape[i, l] = required_shape_for_tail(
+                float(ctx.eps[i, l]),
+                calibration.common_rate,
+                float(ctx.tau[i, l]),
+            )
+            calibration_seconds[i, l] = time.perf_counter() - calibration_start
+            bounds = _gamma_reachable_upper_bounds(
+                initial_mean=float(ctx.mu_0[i, l]),
+                replacement_mean=float(ctx.mu_new[i, l]),
+                mean_increments=np.max(combined_mu, axis=0),
+                mean_limit=float(ctx.tau[i, l]),
+                initial_shape=float(initial_shape[i, l]),
+                replacement_shape=float(replacement_shape[i, l]),
+                shape_increments=np.max(calibration.bounded_shapes, axis=0),
+                shape_limit=float(maximum_shape[i, l]),
+                remaining=1.0 - float(ctx.rho[i, l]),
+                repair_model=repair_model,
+                allow_replacement=ctx.allow_replacement,
+            )
+            reachable_upper_bounds[i, l] = bounds
+            for k in range(ctx.T):
+                A_var[i, l, k].UB = float(bounds["shape"][k])
+                ctx.mu_var[i, l, k].UB = float(bounds["mean"][k])
+                ctx.z_var[i, l, k].UB = float(bounds["removed_mean"][k])
+                if mean_latch is not None and (i, l) in ard1_cells:
+                    mean_latch[i, l, k].UB = float(bounds["mean_latch"][k])
+                    shape_latch[i, l, k].UB = float(bounds["shape_latch"][k])
+                if removed_shape is not None and (i, l) in ardinf_product_cells:
+                    previous_shape_upper = (
+                        float(initial_shape[i, l])
+                        if k == 0 else float(bounds["shape"][k - 1])
+                    )
+                    removed_shape[i, l, k].UB = (
+                        float(ctx.rho[i, l]) * previous_shape_upper
+                    )
+                if replaced_mean is not None and (i, l) in ardinf_replacement_cells:
+                    previous_mean_upper = (
+                        float(ctx.mu_0[i, l])
+                        if k == 0 else float(bounds["mean"][k - 1])
+                    )
+                    previous_shape_upper = (
+                        float(initial_shape[i, l])
+                        if k == 0 else float(bounds["shape"][k - 1])
+                    )
+                    replaced_mean[i, l, k].UB = previous_mean_upper
+                    replaced_shape[i, l, k].UB = previous_shape_upper
+                if repairable_mean is not None and (i, l) in ard1_product_cells:
+                    previous_mean_upper = (
+                        float(ctx.mu_0[i, l])
+                        if k == 0 else float(bounds["mean"][k - 1])
+                    )
+                    previous_shape_upper = (
+                        float(initial_shape[i, l])
+                        if k == 0 else float(bounds["shape"][k - 1])
+                    )
+                    repairable_mean[i, l, k].UB = previous_mean_upper
+                    repairable_shape[i, l, k].UB = previous_shape_upper
+                if ard1_replaced_mean is not None and (i, l) in ard1_replacement_cells:
+                    previous_mean_upper = (
+                        float(ctx.mu_0[i, l])
+                        if k == 0 else float(bounds["mean"][k - 1])
+                    )
+                    previous_shape_upper = (
+                        float(initial_shape[i, l])
+                        if k == 0 else float(bounds["shape"][k - 1])
+                    )
+                    ard1_replaced_mean[i, l, k].UB = previous_mean_upper
+                    ard1_replaced_shape[i, l, k].UB = previous_shape_upper
+                    if k > 0:
+                        ard1_replaced_mean_latch[i, l, k].UB = float(
+                            bounds["mean_latch"][k - 1]
+                        )
+                        ard1_replaced_shape_latch[i, l, k].UB = float(
+                            bounds["shape_latch"][k - 1]
+                        )
+
+        product_hull_cells = ardinf_product_cells + ard1_product_cells
+        if len(ardinf_product_cells) == len(cells):
+            dynamics_formulation = (
+                "ardinf_replacement_product_hull"
+                if ctx.allow_replacement else "ardinf_product_hull"
+            )
+        elif len(ard1_product_cells) == len(cells):
+            dynamics_formulation = (
+                "ard1_replacement_product_hull"
+                if ctx.allow_replacement else "ard1_product_hull"
+            )
+        elif len(product_hull_cells) == len(cells):
+            dynamics_formulation = (
+                "replacement_product_hull"
+                if ctx.allow_replacement else "no_replacement_product_hull"
+            )
+        else:
+            raise AssertionError("Gamma repair model was not assigned a formulation")
+
+        ctx.extras["gamma"] = {
+            "cells": cells,
+            "ard1_cells": ard1_cells,
+            "ardinf_product_cells": ardinf_product_cells,
+            # Compatibility metadata for existing reports.
+            "ardinf_no_replacement_cells": (
+                [] if ctx.allow_replacement else ardinf_product_cells
+            ),
+            "ardinf_replacement_cells": ardinf_replacement_cells,
+            "ard1_product_cells": ard1_product_cells,
+            "ard1_no_replacement_cells": ard1_no_replacement_cells,
+            "ard1_replacement_cells": ard1_replacement_cells,
+            "repair_model": {
+                (i, l): str(cfg.repair_model[i, l]) for i, l in cells
+            },
+            "A_var": A_var,
+            "removed_shape": removed_shape,
+            "replaced_mean": replaced_mean,
+            "replaced_shape": replaced_shape,
+            "repairable_mean": repairable_mean,
+            "repairable_shape": repairable_shape,
+            "ard1_replaced_mean": ard1_replaced_mean,
+            "ard1_replaced_shape": ard1_replaced_shape,
+            "ard1_replaced_mean_latch": ard1_replaced_mean_latch,
+            "ard1_replaced_shape_latch": ard1_replaced_shape_latch,
+            "mean_latch": mean_latch,
+            "shape_latch": shape_latch,
+            "common_rate": common_rate,
+            "maximum_shape": maximum_shape,
+            "bounded_trans": bounded_trans,
+            "bounded_operating": bounded_operating,
+            "initial_shape": initial_shape,
+            "replacement_shape": replacement_shape,
+            "calibrations": calibrations,
+            "calibration_seconds": calibration_seconds,
+            "calibration_method": calibration_method,
+            "reachable_upper_bounds": reachable_upper_bounds,
+            "dynamics_formulation": dynamics_formulation,
+            "product_bound_strategy": "time_dependent_reachable",
+            # Backwards-compatible result field; Gamma no longer uses Big-M.
+            "big_m_bound_strategy": "time_dependent_reachable",
+        }
+
+    def add_cell(self, ctx: FleetModel, i: int, l: int) -> None:
+        """Add physical-mean and conservative-shape dynamics for one cell."""
+        add_maintenance_gating(ctx, i, l)
+        data = ctx.extras["gamma"]
+        A_var = data["A_var"]
+        trans = data["bounded_trans"][i, l]
+        operating = data["bounded_operating"][i, l]
+        initial_shape = float(data["initial_shape"][i, l])
+        replacement_shape = float(data["replacement_shape"][i, l])
+        maximum = float(data["maximum_shape"][i, l])
+        reachable = data["reachable_upper_bounds"][i, l]
+        repair_model = data["repair_model"][i, l]
+        use_latch = repair_model == "ard1"
+        use_product_hull = (
+            (i, l) in data["ardinf_product_cells"]
+        )
+        use_ard1_product_hull = (
+            (i, l) in data["ard1_product_cells"]
+        )
+        removed_shape = data["removed_shape"]
+        replaced_mean = data["replaced_mean"]
+        replaced_shape = data["replaced_shape"]
+        repairable_mean = data["repairable_mean"]
+        repairable_shape = data["repairable_shape"]
+        ard1_replaced_mean = data["ard1_replaced_mean"]
+        ard1_replaced_shape = data["ard1_replaced_shape"]
+        ard1_replaced_mean_latch = data["ard1_replaced_mean_latch"]
+        ard1_replaced_shape_latch = data["ard1_replaced_shape_latch"]
+        mean_latch = data["mean_latch"]
+        shape_latch = data["shape_latch"]
+        md = ctx.model
+
+        # Repair retains the common bounding rate and contracts the bounding shape.
+        # ARD-inf acts on the complete state. ARD1 acts only on the part accumulated
+        # since the previous intervention, represented by the mean and shape latches.
+        rho = float(ctx.rho[i, l])
+        remaining = 1.0 - rho
+        for k in range(ctx.T):
+            A_prev = initial_shape if k == 0 else A_var[i, l, k - 1]
+            mu_prev = float(ctx.mu_0[i, l]) if k == 0 else ctx.mu_var[i, l, k - 1]
+            A_prev_ub = initial_shape if k == 0 else None
+            mu_prev_ub = float(ctx.mu_0[i, l]) if k == 0 else None
+            if k > 0:
+                A_prev_ub = float(reachable["shape"][k - 1])
+                mu_prev_ub = float(reachable["mean"][k - 1])
+            mean_latch_prev = (
+                0.0 if k == 0 else mean_latch[i, l, k - 1]
+            ) if use_latch else None
+
+            shape_latch_prev = (
+                0.0 if k == 0 else shape_latch[i, l, k - 1]
+            ) if use_latch else None
+
+            if k < ctx.H1:
+                shape_profile = trans
+                h = k
+            else:
+                shape_profile = operating
+                h = (k - ctx.H1) % ctx.H2
+            shape_inc = gp.quicksum(
+                ctx.x[i, j, k] * float(shape_profile[j - 1, h])
+                for j in range(1, ctx.M + 1)
+            )
+            mean_inc = gp.quicksum(
+                ctx.x[i, j, k] * ctx.mu_inc(i, j - 1, l, k)
+                for j in range(1, ctx.M + 1)
+            )
+
+            if use_product_hull:
+                # Maintenance gating makes repair and replacement mutually
+                # exclusive and forces every mission assignment to zero when
+                # either action is selected. The abstract nonlinear ARD-inf
+                # transition can therefore be written as two state balances
+                # and exact binary-product hulls:
+                #   mu_k = mu_prev + mean_inc - z_k,
+                #   z_k  = rho * mu_prev * m_k,
+                # with additional previous-state products for a replacement
+                # reset. The no-intervention selector is unnecessary.
+                zA = removed_shape[i, l, k]
+                if k == 0:
+                    md.addConstr(
+                        ctx.z_var[i, l, k] == rho * float(ctx.mu_0[i, l])
+                        * ctx.m_rep[i, l, k],
+                        name=f"z_gamma_ardinf_seed_{i}_{l}_{k}",
+                    )
+                    md.addConstr(
+                        zA == rho * initial_shape * ctx.m_rep[i, l, k],
+                        name=f"zA_gamma_ardinf_seed_{i}_{l}_{k}",
+                    )
+                else:
+                    _add_binary_scaled_product(
+                        md,
+                        ctx.z_var[i, l, k],
+                        mu_prev,
+                        ctx.m_rep[i, l, k],
+                        scale=rho,
+                        state_upper=mu_prev_ub,
+                        name=f"z_gamma_ardinf_product_{i}_{l}_{k}",
+                    )
+                    _add_binary_scaled_product(
+                        md,
+                        zA,
+                        A_prev,
+                        ctx.m_rep[i, l, k],
+                        scale=rho,
+                        state_upper=A_prev_ub,
+                        name=f"zA_gamma_ardinf_product_{i}_{l}_{k}",
+                    )
+                replacement_mean_term = 0.0
+                replacement_shape_term = 0.0
+                replacement_seed_mean = float(ctx.mu_new[i, l])
+                if ctx.allow_replacement:
+                    qRmu = replaced_mean[i, l, k]
+                    qRA = replaced_shape[i, l, k]
+                    if k == 0:
+                        md.addConstr(
+                            qRmu == float(ctx.mu_0[i, l])
+                            * ctx.r_rep[i, l, k],
+                            name=f"qRmu_gamma_ardinf_seed_{i}_{l}_{k}",
+                        )
+                        md.addConstr(
+                            qRA == initial_shape * ctx.r_rep[i, l, k],
+                            name=f"qRA_gamma_ardinf_seed_{i}_{l}_{k}",
+                        )
+                    else:
+                        _add_binary_scaled_product(
+                            md,
+                            qRmu,
+                            mu_prev,
+                            ctx.r_rep[i, l, k],
+                            scale=1.0,
+                            state_upper=mu_prev_ub,
+                            name=f"qRmu_gamma_ardinf_product_{i}_{l}_{k}",
+                        )
+                        _add_binary_scaled_product(
+                            md,
+                            qRA,
+                            A_prev,
+                            ctx.r_rep[i, l, k],
+                            scale=1.0,
+                            state_upper=A_prev_ub,
+                            name=f"qRA_gamma_ardinf_product_{i}_{l}_{k}",
+                        )
+                    replacement_mean_term = (
+                        -qRmu + replacement_seed_mean * ctx.r_rep[i, l, k]
+                    )
+                    replacement_shape_term = (
+                        -qRA + replacement_shape * ctx.r_rep[i, l, k]
+                    )
+                md.addConstr(
+                    ctx.mu_var[i, l, k] == mu_prev + mean_inc
+                    - ctx.z_var[i, l, k] + replacement_mean_term,
+                    name=f"mu_gamma_ardinf_balance_{i}_{l}_{k}",
+                )
+                md.addConstr(
+                    A_var[i, l, k] == A_prev + shape_inc - zA
+                    + replacement_shape_term,
+                    name=f"A_gamma_ardinf_balance_{i}_{l}_{k}",
+                )
+                md.addConstr(
+                    A_var[i, l, k] <= maximum,
+                    name=f"rel_gamma_{i}_{l}_{k}",
+                )
+                continue
+
+            if use_ard1_product_hull:
+                # Project ARD1 repairs only damage accumulated since the latest
+                # intervention. Replacement discards the complete previous
+                # state and makes its seed the new latch. Exact products select
+                # the repairable state, the replaced state, and (after k=0)
+                # the replaced latch. No conditional state equality is needed.
+                qmu = repairable_mean[i, l, k]
+                qA = repairable_shape[i, l, k]
+                active_mean = mu_prev - mean_latch_prev
+                active_shape = A_prev - shape_latch_prev
+                if k == 0:
+                    md.addConstr(
+                        qmu == float(ctx.mu_0[i, l]) * ctx.m_rep[i, l, k],
+                        name=f"qmu_gamma_ard1_seed_{i}_{l}_{k}",
+                    )
+                    md.addConstr(
+                        qA == initial_shape * ctx.m_rep[i, l, k],
+                        name=f"qA_gamma_ard1_seed_{i}_{l}_{k}",
+                    )
+                else:
+                    _add_binary_scaled_product(
+                        md,
+                        qmu,
+                        active_mean,
+                        ctx.m_rep[i, l, k],
+                        scale=1.0,
+                        state_upper=mu_prev_ub,
+                        name=f"qmu_gamma_ard1_product_{i}_{l}_{k}",
+                    )
+                    _add_binary_scaled_product(
+                        md,
+                        qA,
+                        active_shape,
+                        ctx.m_rep[i, l, k],
+                        scale=1.0,
+                        state_upper=A_prev_ub,
+                        name=f"qA_gamma_ard1_product_{i}_{l}_{k}",
+                    )
+                replacement_mean_term = 0.0
+                replacement_shape_term = 0.0
+                replacement_mean_latch_term = 0.0
+                replacement_shape_latch_term = 0.0
+                if ctx.allow_replacement:
+                    qRmu = ard1_replaced_mean[i, l, k]
+                    qRA = ard1_replaced_shape[i, l, k]
+                    if k == 0:
+                        md.addConstr(
+                            qRmu == float(ctx.mu_0[i, l])
+                            * ctx.r_rep[i, l, k],
+                            name=f"qRmu_gamma_ard1_seed_{i}_{l}_{k}",
+                        )
+                        md.addConstr(
+                            qRA == initial_shape * ctx.r_rep[i, l, k],
+                            name=f"qRA_gamma_ard1_seed_{i}_{l}_{k}",
+                        )
+                    else:
+                        _add_binary_scaled_product(
+                            md,
+                            qRmu,
+                            mu_prev,
+                            ctx.r_rep[i, l, k],
+                            scale=1.0,
+                            state_upper=mu_prev_ub,
+                            name=f"qRmu_gamma_ard1_product_{i}_{l}_{k}",
+                        )
+                        _add_binary_scaled_product(
+                            md,
+                            qRA,
+                            A_prev,
+                            ctx.r_rep[i, l, k],
+                            scale=1.0,
+                            state_upper=A_prev_ub,
+                            name=f"qRA_gamma_ard1_product_{i}_{l}_{k}",
+                        )
+                        qRgmu = ard1_replaced_mean_latch[i, l, k]
+                        qRgA = ard1_replaced_shape_latch[i, l, k]
+                        _add_binary_scaled_product(
+                            md,
+                            qRgmu,
+                            mean_latch_prev,
+                            ctx.r_rep[i, l, k],
+                            scale=1.0,
+                            state_upper=float(reachable["mean_latch"][k - 1]),
+                            name=f"qRgmu_gamma_ard1_product_{i}_{l}_{k}",
+                        )
+                        _add_binary_scaled_product(
+                            md,
+                            qRgA,
+                            shape_latch_prev,
+                            ctx.r_rep[i, l, k],
+                            scale=1.0,
+                            state_upper=float(reachable["shape_latch"][k - 1]),
+                            name=f"qRgA_gamma_ard1_product_{i}_{l}_{k}",
+                        )
+                        replacement_mean_latch_term = -qRgmu
+                        replacement_shape_latch_term = -qRgA
+                    replacement_mean_term = (
+                        -qRmu + float(ctx.mu_new[i, l]) * ctx.r_rep[i, l, k]
+                    )
+                    replacement_shape_term = (
+                        -qRA + replacement_shape * ctx.r_rep[i, l, k]
+                    )
+                    replacement_mean_latch_term += (
+                        float(ctx.mu_new[i, l]) * ctx.r_rep[i, l, k]
+                    )
+                    replacement_shape_latch_term += (
+                        replacement_shape * ctx.r_rep[i, l, k]
+                    )
+                md.addConstr(
+                    ctx.z_var[i, l, k] == rho * qmu,
+                    name=f"z_gamma_ard1_balance_{i}_{l}_{k}",
+                )
+                md.addConstr(
+                    ctx.mu_var[i, l, k] == mu_prev + mean_inc - rho * qmu
+                    + replacement_mean_term,
+                    name=f"mu_gamma_ard1_balance_{i}_{l}_{k}",
+                )
+                md.addConstr(
+                    A_var[i, l, k] == A_prev + shape_inc - rho * qA
+                    + replacement_shape_term,
+                    name=f"A_gamma_ard1_balance_{i}_{l}_{k}",
+                )
+                md.addConstr(
+                    mean_latch[i, l, k]
+                    == mean_latch_prev + remaining * qmu
+                    + replacement_mean_latch_term,
+                    name=f"gmu_gamma_ard1_balance_{i}_{l}_{k}",
+                )
+                md.addConstr(
+                    shape_latch[i, l, k]
+                    == shape_latch_prev + remaining * qA
+                    + replacement_shape_latch_term,
+                    name=f"gA_gamma_ard1_balance_{i}_{l}_{k}",
+                )
+                md.addConstr(
+                    A_var[i, l, k] <= maximum,
+                    name=f"rel_gamma_{i}_{l}_{k}",
+                )
+                continue
+
+            raise AssertionError(
+                f"Gamma cell {(i, l)} has no product-hull dynamics"
+            )
+
+        # The bound state and the separately tracked physical mean must both be
+        # repeatable because A'/beta_bar is not assumed to equal physical mu.
+        k_start, k_end = ctx.H1 - 1, ctx.T - 1
+        md.addConstr(
+            A_var[i, l, k_end] <= A_var[i, l, k_start],
+            name=f"loop_A_gamma_{i}_{l}",
+        )
+        md.addConstr(
+            ctx.mu_var[i, l, k_end] <= ctx.mu_var[i, l, k_start],
+            name=f"loop_mu_gamma_{i}_{l}",
+        )
+
+    def extract(self, ctx: FleetModel, cfg, out: dict) -> None:
+        """Add bounding shapes, rates, tails, and concise calibration metadata."""
+        if out.get("x") is None or "gamma" not in ctx.extras:
+            return
+        from scipy.stats import gamma as gamma_distribution
+
+        data = ctx.extras["gamma"]
+        shape = np.zeros((ctx.F, ctx.L, ctx.T))
+        tail = np.zeros((ctx.F, ctx.L, ctx.T))
+
+        shape_operating = np.zeros((ctx.F, ctx.L, ctx.M, ctx.H2))
+        shape_transitory = np.zeros((ctx.F, ctx.L, ctx.M, ctx.H1))
+        maximum_shape = np.zeros((ctx.F, ctx.L))
+
+        mean_latch_solution = (
+            np.zeros((ctx.F, ctx.L, ctx.T))
+            if data["mean_latch"] is not None else None
+        )
+
+        shape_latch_solution = (
+            np.zeros((ctx.F, ctx.L, ctx.T))
+            if data["shape_latch"] is not None else None
+        )
+        summaries = []
+        for i, l in data["cells"]:
+            rate = float(data["common_rate"][i, l])
+            calibration = data["calibrations"][i, l]
+
+            shape_operating[i, l] = data["bounded_operating"][i, l]
+            shape_transitory[i, l] = data["bounded_trans"][i, l]
+            maximum_shape[i, l] = data["maximum_shape"][i, l]
+
+            repeated_method = data["calibration_method"] == "repeated_increment"
+            constraints = (
+                calibration.checks
+                if repeated_method
+                else calibration.compressed.constraints
+            )
+            for k in range(ctx.T):
+                value = data["A_var"][i, l, k].X
+                shape[i, l, k] = value
+                tail[i, l, k] = gamma_distribution.sf(
+                    float(ctx.tau[i, l]), a=value, scale=1.0 / rate
+                ) if value > 0.0 else 0.0
+                if mean_latch_solution is not None and (i, l) in data["ard1_cells"]:
+                    mean_latch_solution[i, l, k] = data["mean_latch"][i, l, k].X
+                    shape_latch_solution[i, l, k] = data["shape_latch"][i, l, k].X
+            repair_model = str(cfg.repair_model[i, l])
+            reachable = data["reachable_upper_bounds"][i, l]
+            summary = {
+                "i": i,
+                "l": l,
+                "method": data["calibration_method"],
+                "guarantee_scope": (
+                    "homogeneous_repetitions_per_increment_type"
+                    if repeated_method else "finite_count_vectors"
+                ),
+                "common_rate": rate,
+                "increment_types": int(calibration.type_max_counts.size),
+                "increment_opportunities": int(calibration.original_shapes.size),
+                "seed_types": int(calibration.increment_offset),
+                "calibration_lp_variables": (
+                    0
+                    if repeated_method
+                    else int(calibration.compressed.original_shapes.size)
+                ),
+                "tail_constraints": len(constraints),
+                "calibration_seconds": float(
+                    data["calibration_seconds"][i, l]
+                ),
+                "total_convolution_series_terms": (
+                    0 if repeated_method else int(sum(
+                        item.convolution_series_terms for item in constraints
+                    ))
+                ),
+                "maximum_convolution_series_terms": (
+                    0 if repeated_method else int(max(
+                        (item.convolution_series_terms for item in constraints),
+                        default=0,
+                    ))
+                ),
+                "maximum_convolution_remaining_mass": (
+                    0.0 if repeated_method else float(max(
+                        (item.convolution_remaining_mass for item in constraints),
+                        default=0.0,
+                    ))
+                ),
+                "worst_calibration_margin": calibration.worst_tail_margin,
+                "initial_bounded_shape": calibration.initial_bounded_shape,
+                "replacement_bounded_shape": calibration.replacement_bounded_shape,
+                "repair_bound": f"{repair_model}_fixed_rate_shape_scaling",
+                "big_m_bound_strategy": data["big_m_bound_strategy"],
+                "maximum_reachable_mean": float(np.max(reachable["mean"])),
+                "maximum_reachable_shape": float(np.max(reachable["shape"])),
+                "maximum_reachable_mean_latch": float(
+                    np.max(reachable["mean_latch"])
+                ),
+                "maximum_reachable_shape_latch": float(
+                    np.max(reachable["shape_latch"])
+                ),
+            }
+            if repeated_method:
+                safe_counts = calibration.maximum_safe_counts
+                summary["maximum_safe_counts"] = safe_counts.tolist()
+                summary["minimum_safe_count"] = int(np.min(safe_counts))
+                summary["maximum_safe_count"] = int(np.max(safe_counts))
+            summaries.append(summary)
+        out["gamma_shape_bound"] = shape
+        out["gamma_tail_bound"] = tail
+        out["gamma_beta_bound"] = data["common_rate"]
+        out["gamma_calibration"] = summaries
+        out["gamma_calibration_method"] = data["calibration_method"]
+        out["gamma_shape_increment"] = shape_operating
+        out["gamma_shape_increment_trans"] = shape_transitory
+        out["gamma_maximum_shape"] = maximum_shape
+        out["gamma_dynamics_formulation"] = data["dynamics_formulation"]
+        out["gamma_big_m_bound_strategy"] = data["big_m_bound_strategy"]
+        if mean_latch_solution is not None:
+            out["gamma_mean_latch"] = mean_latch_solution
+            out["gamma_shape_latch"] = shape_latch_solution
+
+
+register_cell_builder("gamma", GammaCellBuilder())
+
+
+# ===========================================================================
+# Options, costs, accessors
+# ===========================================================================
+def pick(explicit, from_options, default):
+    """First non-None of (explicit kwarg, cfg.options value, default)."""
+    if explicit is not None:
+        return explicit
+    if from_options is not None:
+        return from_options
+    return default
+
+
+def resolve_run_options(cfg, **overrides) -> dict:
+    """Merge explicit kwargs, ``cfg.options`` and defaults into one dict."""
+    o = cfg.options
+    return {
+        "allow_replacement": pick(overrides.get("allow_replacement"),
+                                  o.get("allow_replacement"), True),
+        "verbose": pick(overrides.get("verbose"), o.get("verbose"), 1),
+        "mip_gap": pick(overrides.get("mip_gap"), o.get("mip_gap"), 0.12),
+        "time_limit": pick(overrides.get("time_limit"), o.get("time_limit"), None),
+        "fast": pick(overrides.get("fast"), o.get("fast"), False),
+        "gurobi_params": pick(overrides.get("gurobi_params"),
+                              o.get("gurobi_params"), None),
+        # reliability-constraint implementation (rainflow cells)
+        "reliability_impl": pick(overrides.get("reliability_impl"),
+                                 o.get("reliability_impl"), "exact"),
+        "pwl_points": int(pick(overrides.get("pwl_points"), o.get("pwl_points"), 8)),
+        "tangent_ref": float(pick(overrides.get("tangent_ref"),
+                                  o.get("tangent_ref"), 0.5)),
+        "replacement_as_new": bool(pick(overrides.get("replacement_as_new"),
+                                        o.get("replacement_as_new"), True)),
+        "objective_mode": str(pick(
+            overrides.get("objective_mode"),
+            o.get("objective_mode"),
+            "total",
+        )).strip().lower(),
+        "evaluation_horizon": pick(
+            overrides.get("evaluation_horizon"),
+            o.get("evaluation_horizon"),
+            None,
+        ),
+        "progress_interval_seconds": float(pick(
+            overrides.get("progress_interval_seconds"),
+            o.get("progress_interval_seconds"),
+            5.0,
+        )),
+        "relaxation_warm_start": bool(pick(
+            overrides.get("relaxation_warm_start"),
+            o.get("relaxation_warm_start"),
+            False,
+        )),
+        "relaxation_time_limit": float(pick(
+            overrides.get("relaxation_time_limit"),
+            o.get("relaxation_time_limit"),
+            60.0,
+        )),
+    }
+
+
+def resolve_costs(cfg, tau) -> dict:
+    """Resolve component costs for repair, removed damage and replacement.
+
+    ``C_D`` is the damage-regularisation coefficient (legacy alias ``C_S``).
+    ``C_M``, ``C_R`` and ``C_rep`` are component vectors. Scalar YAML values
+    have already been broadcast by ``load_config``. ``C_rep`` defaults
+    component-wise to ``C_R[l] * max_i(tau[i,l])`` when not supplied.
+    """
+    c = dict(cfg.costs)
+    if "C_D" not in c or c["C_D"] is None:
+        if "C_S" in c and c["C_S"] is not None:
+            c["C_D"] = float(c["C_S"])
+        else:
+            raise KeyError("missing damage cost 'C_D' (legacy alias 'C_S').")
+    for key in ("C_M", "C_R"):
+        if key not in c:
+            raise KeyError(f"missing required cost coefficient '{key}'.")
+    for key in ("C_M", "C_R"):
+        values = np.asarray(c[key], dtype=float)
+        if values.shape != (cfg.L,):
+            raise ValueError(f"normalized {key} must have shape ({cfg.L},)")
+        c[key] = values
+    if "C_rep" not in c or c["C_rep"] is None:
+        c["C_rep"] = c["C_R"] * np.max(np.asarray(tau), axis=0)
+    else:
+        values = np.asarray(c["C_rep"], dtype=float)
+        if values.shape != (cfg.L,):
+            raise ValueError(f"normalized C_rep must have shape ({cfg.L},)")
+        c["C_rep"] = values
+    return c
+
+
+def cell_max(op, tr, i, l) -> float:
+    """Max of a profile over cell (i, l) across operating and transitory arrays,
+    each shaped (F, L, M, H)."""
+    m = float(op[i, l].max()) if op is not None else 0.0
+    if tr is not None:
+        m = max(m, float(tr[i, l].max()))
+    return m
+
+
+def make_accessor(op, tr, H1, H2, transform=lambda a: a):
+    """Phase-aware increment accessor ``f(i, j0, l, k)`` over a (F, L, M, H)
+    profile: steps k < H1 read the transitory array when present, otherwise the
+    operating one; later steps cycle the operating profile."""
+    if op is None and tr is None:
+        return lambda *a: 0.0
+
+    def f(i, j0, l, k):
+        if k < H1:
+            src = tr if tr is not None else op
+            h = k % (H1 if tr is not None else H2)
+            return float(transform(src[i, l, j0, h]))
+        return float(transform(op[i, l, j0, (k - H1) % H2]))
+    return f
+
+
+def apply_performance_params(model, time_limit, mip_gap, fast, extra) -> None:
+    """Presolve / heuristics tuning; everything is overridable via gurobi_params."""
+    if mip_gap is not None:
+        model.Params.MIPGap = mip_gap
+    if time_limit is not None:
+        model.Params.TimeLimit = float(time_limit)
+    if fast:
+        model.Params.MIPFocus = 1
+        model.Params.Heuristics = 0.5
+        model.Params.ImproveStartGap = 0.5
+        if time_limit is not None:
+            model.Params.NoRelHeurTime = max(2.0, 0.15 * float(time_limit))
+    if extra:
+        for key, val in extra.items():
+            model.setParam(key, val)
+
+
+def _make_progress_callback(interval_seconds: float):
+    """Return a lightweight Gurobi callback recording primal/dual progress."""
+    interval = max(0.1, float(interval_seconds))
+
+    def callback(model, where):
+        if where != GRB.Callback.MIP:
+            return
+        try:
+            runtime = float(model.cbGet(GRB.Callback.RUNTIME))
+            incumbent_raw = float(model.cbGet(GRB.Callback.MIP_OBJBST))
+            bound_raw = float(model.cbGet(GRB.Callback.MIP_OBJBND))
+            nodes = float(model.cbGet(GRB.Callback.MIP_NODCNT))
+            solutions = int(model.cbGet(GRB.Callback.MIP_SOLCNT))
+        except gp.GurobiError:
+            return
+
+        incumbent = (
+            None if abs(incumbent_raw) >= 0.5 * GRB.INFINITY else incumbent_raw
+        )
+        bound = None if abs(bound_raw) >= 0.5 * GRB.INFINITY else bound_raw
+        gap = None
+        if incumbent is not None and bound is not None:
+            gap = abs(incumbent - bound) / max(abs(incumbent), 1e-10)
+
+        records = model._optimization_progress
+        last_time = model._optimization_progress_last_time
+        last_solutions = model._optimization_progress_last_solutions
+        if (
+            not records
+            or runtime - last_time >= interval
+            or solutions != last_solutions
+        ):
+            records.append({
+                "runtime_seconds": runtime,
+                "incumbent": incumbent,
+                "best_bound": bound,
+                "relative_gap": gap,
+                "nodes": nodes,
+                "solutions": solutions,
+            })
+            model._optimization_progress_last_time = runtime
+            model._optimization_progress_last_solutions = solutions
+
+    return callback
+
+
+def _initialize_progress(model, interval_seconds: float):
+    model._optimization_progress = []
+    model._optimization_progress_last_time = -math.inf
+    model._optimization_progress_last_solutions = -1
+    return _make_progress_callback(interval_seconds)
+
+
+def _append_final_progress(model) -> None:
+    """Ensure the saved trajectory contains the final solver state."""
+    incumbent = float(model.ObjVal) if int(model.SolCount) > 0 else None
+    try:
+        bound = float(model.ObjBound)
+    except (AttributeError, gp.GurobiError):
+        bound = None
+    try:
+        gap = float(model.MIPGap) if int(model.SolCount) > 0 else None
+    except (AttributeError, gp.GurobiError):
+        gap = None
+    record = {
+        "runtime_seconds": float(model.Runtime),
+        "incumbent": incumbent,
+        "best_bound": bound,
+        "relative_gap": gap,
+        "nodes": float(model.NodeCount),
+        "solutions": int(model.SolCount),
+    }
+    records = model._optimization_progress
+    if not records or abs(records[-1]["runtime_seconds"] - record["runtime_seconds"]) > 1e-9:
+        records.append(record)
+    else:
+        records[-1] = record
+
+
+def apply_binary_warm_start(ctx: FleetModel, result: dict | None) -> dict:
+    """Map a previous schedule onto the current horizon as a Gurobi MIP start.
+
+    Initialization steps retain their index. Operating steps repeat the old H2
+    schedule cyclically, allowing a solved shorter horizon to seed a longer
+    candidate. Only discrete schedule/action variables are started; Gurobi
+    reconstructs all continuous degradation states from the constraints.
+    """
+    diagnostics = {"applied": False, "values": 0, "source_horizon": None}
+    if not result or result.get("x") is None:
+        return diagnostics
+
+    old_h1 = int(result.get("H1", ctx.H1))
+    old_h2 = int(result.get("H2", max(1, np.asarray(result["x"]).shape[-1] - old_h1)))
+    x_old = np.asarray(result["x"], dtype=float)
+    m_old = None if result.get("m") is None else np.asarray(result["m"], dtype=float)
+    r_old = None if result.get("r") is None else np.asarray(result["r"], dtype=float)
+
+    def old_step(k: int) -> int:
+        if k < ctx.H1 and k < old_h1:
+            return k
+        return old_h1 + ((max(0, k - ctx.H1)) % old_h2)
+
+    values = 0
+    for k in range(ctx.T):
+        source_k = old_step(k)
+        if source_k >= x_old.shape[-1]:
+            continue
+        for i in range(min(ctx.F, x_old.shape[0])):
+            for j in range(min(ctx.M + 1, x_old.shape[1])):
+                ctx.x[i, j, k].Start = float(round(x_old[i, j, source_k]))
+                values += 1
+            for l in range(ctx.L):
+                if m_old is not None and i < m_old.shape[0] and l < m_old.shape[1]:
+                    m_value = float(round(m_old[i, l, source_k]))
+                    ctx.m_rep[i, l, k].Start = m_value
+                    values += 1
+                else:
+                    m_value = 0.0
+                r_value = 0.0
+                if ctx.allow_replacement and r_old is not None:
+                    if i < r_old.shape[0] and l < r_old.shape[1]:
+                        r_value = float(round(r_old[i, l, source_k]))
+                        ctx.r_rep[i, l, k].Start = r_value
+                        values += 1
+                depot_value = float(round(x_old[i, 0, source_k]))
+                ctx.idle[i, l, k].Start = max(
+                    0.0, depot_value - m_value - r_value
+                )
+                values += 1
+                if (i, l, k) in ctx.nb:
+                    ctx.nb[i, l, k].Start = max(
+                        0.0, 1.0 - m_value - r_value
+                    )
+                    values += 1
+
+    diagnostics.update({
+        "applied": values > 0,
+        "values": values,
+        "source_horizon": {"H1": old_h1, "H2": old_h2},
+    })
+    return diagnostics
+
+
+def complete_binary_warm_start(
+    model: gp.Model,
+    result: dict | None,
+    diagnostics: dict,
+) -> dict:
+    """Complete a greedy discrete start by solving its fixed-binary model.
+
+    Gurobi can attempt to complete a partial MIP start itself, but that effort
+    is deliberately limited and may reject a feasible discrete schedule before
+    reconstructing the many continuous degradation and product variables.  A
+    greedy start may therefore request this explicit phase: copy the complete
+    model, fix every initialized integer variable, solve the remaining model,
+    and copy the resulting full solution back through ``Start`` attributes.
+
+    The original model is never relaxed.  A completed start is therefore a
+    feasible point of exactly the model that will subsequently be optimized.
+    """
+    requested = bool(result and result.get("complete_binary_start", False))
+    completion = {
+        "requested": requested,
+        "status": "not_requested",
+        "fixed_integer_variables": 0,
+        "values_copied": 0,
+        "runtime_seconds": None,
+        "iis_constraints": [],
+    }
+    diagnostics["completion"] = completion
+    if not requested or not diagnostics.get("applied", False):
+        return diagnostics
+
+    model.update()
+    fixed = model.copy()
+    original_variables = model.getVars()
+    fixed_variables = fixed.getVars()
+    fixed_count = 0
+    for original, candidate in zip(original_variables, fixed_variables):
+        if original.VType not in {GRB.BINARY, GRB.INTEGER}:
+            continue
+        value = float(original.Start)
+        # GRB.UNDEFINED is greater than GRB.INFINITY.  Only variables actually
+        # initialized by apply_binary_warm_start are fixed here.
+        if not np.isfinite(value) or abs(value) >= GRB.INFINITY:
+            continue
+        value = float(round(value))
+        candidate.LB = value
+        candidate.UB = value
+        fixed_count += 1
+
+    completion["fixed_integer_variables"] = fixed_count
+    fixed.Params.OutputFlag = 0
+    fixed.Params.LogToConsole = 0
+    fixed.Params.LogFile = ""
+    fixed.Params.TimeLimit = float(
+        result.get("completion_time_limit", 60.0)
+    )
+    fixed.optimize()
+    completion["runtime_seconds"] = float(fixed.Runtime)
+
+    if int(fixed.SolCount) > 0:
+        for original, candidate in zip(original_variables, fixed_variables):
+            original.Start = float(candidate.X)
+        completion["status"] = "completed"
+        completion["values_copied"] = len(original_variables)
+    else:
+        status_names = {
+            GRB.INFEASIBLE: "infeasible",
+            GRB.INF_OR_UNBD: "infeasible_or_unbounded",
+            GRB.TIME_LIMIT: "time_limit",
+        }
+        completion["status"] = status_names.get(
+            int(fixed.Status), f"status_{int(fixed.Status)}"
+        )
+        if int(fixed.Status) == GRB.INFEASIBLE:
+            fixed.computeIIS()
+            rows = [
+                constraint.ConstrName
+                for constraint in fixed.getConstrs()
+                if constraint.IISConstr
+            ]
+            general = [
+                constraint.GenConstrName
+                for constraint in fixed.getGenConstrs()
+                if constraint.IISGenConstr
+            ]
+            completion["iis_constraints"] = (rows + general)[:50]
+
+    fixed.dispose()
+    return diagnostics
+
+
+def apply_relaxation_warm_start(
+    model: gp.Model,
+    *,
+    time_limit: float,
+) -> dict:
+    """Solve an optional phase-I feasibility relaxation and copy a MIP start.
+
+    Gurobi relaxes linear rows with an L1 violation objective while retaining
+    integrality and the model's general constraints. The relaxed solution is
+    *not* reported as feasible for the original problem: only its discrete
+    values are copied as hints, and the original model must still establish a
+    valid incumbent.
+    """
+    diagnostics = {
+        "enabled": True,
+        "status": "not_run",
+        "relaxation_objective": None,
+        "values_copied": 0,
+        "runtime_seconds": None,
+    }
+    model.update()
+    relaxed = model.copy()
+    relaxed.ModelName = f"{model.ModelName}_phase1_relaxation"
+    relaxed.Params.TimeLimit = max(1.0, float(time_limit))
+    relaxed.Params.MIPGap = 0.05
+    # type=0: sum of absolute violations; minrelax=False; variable bounds stay
+    # hard; linear constraints are relaxable.
+    relaxed.feasRelaxS(0, False, False, True)
+    relaxed.optimize()
+    diagnostics["runtime_seconds"] = float(relaxed.Runtime)
+    diagnostics["status"] = status_string(relaxed.Status)
+    if int(relaxed.SolCount) <= 0:
+        return diagnostics
+
+    diagnostics["relaxation_objective"] = float(relaxed.ObjVal)
+    relaxed_by_name = {var.VarName: var for var in relaxed.getVars()}
+    copied = 0
+    for variable in model.getVars():
+        if variable.VType not in {GRB.BINARY, GRB.INTEGER}:
+            continue
+        source = relaxed_by_name.get(variable.VarName)
+        if source is None:
+            continue
+        variable.Start = float(round(source.X))
+        copied += 1
+    diagnostics["values_copied"] = copied
+    return diagnostics
+
+
+# ===========================================================================
+# Model + shared variables
+# ===========================================================================
+def build_context(cfg, opts: dict, model_name: str = "fleet_management") -> FleetModel:
+    """Create the Gurobi model, the shared variables, and the context object."""
+    F, L, M = cfg.F, cfg.L, cfg.M
+    H1, H2, T = cfg.H1, cfg.H2, cfg.T
+    allow_replacement = bool(opts["allow_replacement"])
+
+    md = gp.Model(model_name)
+    md.Params.OutputFlag = int(opts["verbose"])
+    apply_performance_params(md, opts["time_limit"], opts["mip_gap"],
+                             opts["fast"], opts["gurobi_params"])
+
+    x = md.addVars(F, M + 1, T, vtype=GRB.BINARY, name="x")
+    m_rep = md.addVars(F, L, T, vtype=GRB.BINARY, name="m")
+    r_rep = md.addVars(F, L, T, vtype=GRB.BINARY, name="r") if allow_replacement else None
+    # Explicit depot action requested by the mathematical formulation:
+    # idle at the depot, imperfect repair, or replacement. Rainflow also needs
+    # a distinct no-intervention selector: during a mission the component is
+    # not depot-idle, but its state still follows the carry recursion.
+    idle = md.addVars(F, L, T, vtype=GRB.BINARY, name="idle")
+    nb_keys = [
+        (i, l, k)
+        for i in range(F)
+        for l in range(L)
+        if str(cfg.model[i, l]) != "gamma"
+        for k in range(T)
+    ]
+    nb = md.addVars(nb_keys, vtype=GRB.BINARY, name="nb")
+    mu_var = md.addVars(F, L, T, lb=0.0, name="mu")
+    z_var = md.addVars(F, L, T, lb=0.0, name="z")
+    u_var = md.addVar(lb=0.0, name="u")
+
+    ctx = FleetModel(
+        model=md, F=F, H1=H1, H2=H2, M=M, L=L, T=T,
+        x=x, m_rep=m_rep, r_rep=r_rep, idle=idle, nb=nb,
+        mu_var=mu_var, z_var=z_var, u_var=u_var,
+        model_of=cfg.model, tau=cfg.tau, eps=cfg.epsilon, rho=cfg.rho,
+        mu_0=cfg.mu_0,
+        mu_new=(cfg.replacement_mu if cfg.replacement_mu is not None
+                else np.zeros((F, L))),
+        allow_replacement=allow_replacement,
+        mu_inc=make_accessor(cfg.mu, cfg.mu_trans, H1, H2),
+        pwl_points=int(opts["pwl_points"]), tangent_ref=float(opts["tangent_ref"]),
+    )
+
+    # generically valid bounds; a model's prepare may tighten them further
+    for i in range(F):
+        for l in range(L):
+            t = float(cfg.tau[i, l])
+            for k in range(T):
+                ctx.mu_var[i, l, k].UB = t
+                ctx.z_var[i, l, k].UB = t
+    return ctx
+
+
+# ===========================================================================
+# General constraints and problem equations (model-agnostic)
+# ===========================================================================
+def add_base_constraints(ctx: FleetModel) -> None:
+    """Assignment, mission demand and safety regularisation variable ``u``.
+
+    These couple *all* cells, so every (i, l) must have a ``mu_var`` recursion
+    defined by its model's cell builder.
+    """
+    md, F, M, L, T = ctx.model, ctx.F, ctx.M, ctx.L, ctx.T
+    x, mu_var, u_var = ctx.x, ctx.mu_var, ctx.u_var
+
+    # one activity per vehicle and step (depot counts as activity 0)
+    for i in range(F):
+        for k in range(T):
+            md.addConstr(gp.quicksum(x[i, j, k] for j in range(M + 1)) <= 1,
+                         name=f"assign_{i}_{k}")
+    # every mission is served at every step
+    for j in range(1, M + 1):
+        for k in range(T):
+            md.addConstr(gp.quicksum(x[i, j, k] for i in range(F)) == 1,
+                         name=f"demand_{j}_{k}")
+    # Damage regularisation epigraph. There is intentionally no separate
+    # fleet-wide cap sum(mu) <= F-M: it is absent from the abstract formulation,
+    # dimensionally tied damage to fleet size, and duplicated the role of the
+    # component reliability constraints and the objective penalty on u.
+    for k in range(T):
+        for i in range(F):
+            md.addConstr(
+                u_var >= gp.quicksum(mu_var[i, l, k] for l in range(L)),
+                name=f"u_{i}_{k}",
+            )
+
+
+def add_maintenance_gating(ctx: FleetModel, i: int, l: int) -> None:
+    """Define the component action while the vehicle is assigned to the depot.
+
+    ``idle + repair + replacement = x[i,0,k]`` simultaneously enforces depot
+    availability and mutual exclusivity. Multiple components of one vehicle
+    may still be maintained during the same depot visit. Rainflow additionally
+    keeps ``nb`` as its no-intervention/carry selector; unlike depot-idle, that
+    selector is also one while the vehicle performs a mission.
+    """
+    md, T = ctx.model, ctx.T
+    x, idle, m_rep, r_rep, nb = (
+        ctx.x, ctx.idle, ctx.m_rep, ctx.r_rep, ctx.nb
+    )
+    for k in range(T):
+        if ctx.allow_replacement:
+            md.addConstr(
+                idle[i, l, k] + m_rep[i, l, k] + r_rep[i, l, k]
+                == x[i, 0, k],
+                name=f"depot_action_{i}_{l}_{k}",
+            )
+        else:
+            md.addConstr(
+                idle[i, l, k] + m_rep[i, l, k] == x[i, 0, k],
+                name=f"depot_action_{i}_{l}_{k}",
+            )
+        if (i, l, k) in nb:
+            if ctx.allow_replacement:
+                md.addConstr(
+                    nb[i, l, k] + m_rep[i, l, k] + r_rep[i, l, k] == 1,
+                    name=f"nb_def_{i}_{l}_{k}",
+                )
+            else:
+                md.addConstr(
+                    nb[i, l, k] + m_rep[i, l, k] == 1,
+                    name=f"nb_def_{i}_{l}_{k}",
+                )
+
+
+def build_objective(ctx: FleetModel, costs: dict, opts: dict) -> None:
+    """Build the objective with one undivided horizon-maximum penalty.
+
+    Time-additive maintenance, repair and replacement costs may be averaged or
+    projected. The regularization term ``C_D * u`` is added exactly once,
+    because ``u`` is the maximum aggregate vehicle damage over the complete
+    modeled horizon.
+    """
+    md, F, L, T = ctx.model, ctx.F, ctx.L, ctx.T
+    C_M = costs["C_M"]
+    C_R = costs["C_R"]
+    C_D = costs["C_D"]
+    C_rep = costs["C_rep"]
+
+    J_additive = gp.LinExpr()
+    J_op_additive = gp.LinExpr()
+
+    for k in range(T):
+        step_cost = gp.LinExpr()
+        for i in range(F):
+            for l in range(L):
+                step_cost += C_M[l] * ctx.m_rep[i, l, k]
+                step_cost += C_R[l] * ctx.z_var[i, l, k]
+                if ctx.allow_replacement:
+                    step_cost += C_rep[l] * ctx.r_rep[i, l, k]
+
+        J_additive += step_cost
+        if k >= ctx.H1:
+            J_op_additive += step_cost
+
+    damage_penalty = C_D * ctx.u_var
+    mode = str(opts.get("objective_mode", "total")).strip().lower()
+
+    if mode == "total":
+        objective = J_additive + damage_penalty
+    elif mode == "operating_average":
+        objective = (1.0 / ctx.H2) * J_op_additive + damage_penalty
+    elif mode == "evaluation_total":
+        evaluation_horizon = opts.get("evaluation_horizon")
+        if evaluation_horizon is None:
+            raise ValueError(
+                "objective_mode='evaluation_total' requires evaluation_horizon"
+            )
+        evaluation_horizon = int(evaluation_horizon)
+        if evaluation_horizon <= ctx.H1:
+            raise ValueError("evaluation_horizon must exceed H1")
+
+        J_initialization_additive = J_additive - J_op_additive
+        operating_periods = evaluation_horizon - ctx.H1
+        objective = (
+            J_initialization_additive
+            + (operating_periods / ctx.H2) * J_op_additive
+            + damage_penalty
+        )
+    else:
+        raise ValueError(
+            "objective_mode must be 'total', 'operating_average' or "
+            "'evaluation_total'; "
+            f"got {mode!r}."
+        )
+
+    md.setObjective(objective, GRB.MINIMIZE)
+
+    ctx.extras["phase_costs"] = {
+        "mode": mode,
+        "evaluation_horizon": opts.get("evaluation_horizon"),
+        "J_additive": J_additive,
+        "J_op_additive": J_op_additive,
+        "damage_penalty": damage_penalty,
+        "costs": {
+            "C_M": C_M.tolist(),
+            "C_R": C_R.tolist(),
+            "C_D": float(C_D),
+            "C_rep": C_rep.tolist(),
+        },
+    }
+
+
+# ===========================================================================
+# Results
+# ===========================================================================
+def status_string(code: int) -> str:
+    return {
+        GRB.OPTIMAL: "optimal",
+        GRB.TIME_LIMIT: "time_limit",
+        GRB.SUBOPTIMAL: "suboptimal",
+        GRB.INTERRUPTED: "interrupted",
+        GRB.SOLUTION_LIMIT: "solution_limit",
+        GRB.NODE_LIMIT: "node_limit",
+        GRB.ITERATION_LIMIT: "iteration_limit",
+        GRB.INFEASIBLE: "infeasible",
+        GRB.INF_OR_UNBD: "inf_or_unbounded",
+        GRB.UNBOUNDED: "unbounded",
+    }.get(code, f"gurobi_status_{code}")
+
+
+def collapse(arr):
+    """A per-cell (F, L) selector array -> a single string when every cell agrees,
+    else a plain nested list. Keeps results free of NumPy objects."""
+    if arr is None:
+        return None
+    flat = {str(v) for v in np.asarray(arr).ravel()}
+    if len(flat) == 1:
+        return next(iter(flat))
+    return np.asarray(arr).astype(str).tolist()
+
+
+def collapse_dict(impl_of, F, L):
+    """Per-cell impl names -> one string when all agree, else a nested list."""
+    flat = set(impl_of.values())
+    if not flat:
+        return ""
+    if len(flat) == 1:
+        return next(iter(flat))
+    grid = [["" for _ in range(L)] for _ in range(F)]
+    for (i, l), name in impl_of.items():
+        grid[i][l] = name
+    return grid
+
+
+def extract_solution(ctx: FleetModel, cfg, model) -> dict:
+    """Shared result dict; each model's ``extract`` hook may add its own arrays."""
+    F, L, M, T = ctx.F, ctx.L, ctx.M, ctx.T
+    meta = {
+        "status": status_string(model.status),
+        "method": collapse(cfg.bound_method),
+        "bound_method": collapse(cfg.bound_method),
+        "repair_model": collapse(cfg.repair_model),
+        "reliability_impl": collapse_dict(ctx.impl_of, F, L),
+        "models": cfg.models,
+        "model_assignment": np.asarray(cfg.model).astype(str).tolist(),
+        "component_names": list(cfg.component_names),
+        "F": F, "H": cfg.H, "H1": ctx.H1, "H2": ctx.H2, "T": T, "M": M, "L": L,
+        "tau": cfg.tau, "mu_0": cfg.mu_0, "v_0": cfg.v_0, "model": model,
+    }
+    try:
+        objbnd = float(model.ObjBound)
+    except (AttributeError, gp.GurobiError):
+        objbnd = None
+
+    if model.SolCount == 0:
+        # A relative MIP gap is undefined without an incumbent.  The best
+        # bound may still be informative and is retained when Gurobi exposes it.
+        meta.update({"objective": None, "mip_gap": None, "bound": objbnd,
+                     "x": None, "mu": None, "v": None, "z": None,
+                     "m": None, "r": None, "idle": None, "u": None})
+        return meta
+
+    try:
+        gap = float(model.MIPGap)
+    except (AttributeError, gp.GurobiError):
+        gap = None
+    x_sol = np.zeros((F, M + 1, T)); mu_sol = np.zeros((F, L, T))
+    v_sol = np.zeros((F, L, T)); z_sol = np.zeros((F, L, T))
+    m_sol = np.zeros((F, L, T)); r_sol = np.zeros((F, L, T))
+    u_sol = 0.0
+    idle_sol = np.zeros((F, L, T))
+    track_v = ctx.track_v_of
+    for k in range(T):
+        for i in range(F):
+            for j in range(M + 1):
+                x_sol[i, j, k] = ctx.x[i, j, k].X
+            for l in range(L):
+                mu_sol[i, l, k] = ctx.mu_var[i, l, k].X
+                if ctx.v_var is not None and (track_v is None or track_v[i, l]):
+                    v_sol[i, l, k] = ctx.v_var[i, l, k].X
+                z_sol[i, l, k] = ctx.z_var[i, l, k].X
+                m_sol[i, l, k] = ctx.m_rep[i, l, k].X
+                idle_sol[i, l, k] = ctx.idle[i, l, k].X
+                if ctx.allow_replacement:
+                    r_sol[i, l, k] = ctx.r_rep[i, l, k].X
+    # Canonical horizon-wide maximum, independent of possible numerical slack
+    # in the epigraph variable.
+    u_sol = max(
+        float(np.sum(mu_sol[i, :, k]))
+        for i in range(F)
+        for k in range(T)
+    )
+    meta.update({"objective": model.ObjVal, "mip_gap": gap, "bound": objbnd,
+                 "x": x_sol, "mu": mu_sol, "v": v_sol, "z": z_sol,
+                 "m": m_sol, "r": r_sol, "idle": idle_sol, "u": u_sol})
+    phase = ctx.extras.get("phase_costs")
+    if phase is not None:
+        coefficients = phase["costs"]
+        step_costs = np.zeros(T, dtype=float)
+
+        # These are genuinely time-additive monetary/intervention costs.
+        # The horizon-maximum damage penalty is reported separately.
+        for k in range(T):
+            step_costs[k] = (
+                float(np.sum(
+                    np.asarray(coefficients["C_M"])[None, :] * m_sol[:, :, k]
+                ))
+                + float(np.sum(
+                    np.asarray(coefficients["C_R"])[None, :] * z_sol[:, :, k]
+                ))
+                + float(np.sum(
+                    np.asarray(coefficients["C_rep"])[None, :] * r_sol[:, :, k]
+                ))
+            )
+
+        J_init_additive = float(np.sum(step_costs[:ctx.H1]))
+        J_op_additive = float(np.sum(step_costs[ctx.H1:]))
+        J_op_average = J_op_additive / ctx.H2
+        damage_penalty = float(coefficients["C_D"]) * u_sol
+        operating_objective = J_op_average + damage_penalty
+
+        evaluation_horizon = phase.get("evaluation_horizon")
+        projected_evaluation_cost = (
+            J_init_additive
+            + (int(evaluation_horizon) - ctx.H1) * J_op_average
+            if evaluation_horizon is not None
+            else None
+        )
+        evaluation_objective = (
+            projected_evaluation_cost + damage_penalty
+            if projected_evaluation_cost is not None
+            else None
+        )
+
+        meta.update({
+            "objective_mode": phase["mode"],
+            "evaluation_horizon": evaluation_horizon,
+            "J_initialization": J_init_additive,
+            "J_op": J_op_additive,
+            "J_op_average": J_op_average,
+            "peak_damage": u_sol,
+            "damage_penalty": damage_penalty,
+            "operating_objective": operating_objective,
+            "J_total": (
+                J_init_additive + J_op_additive + damage_penalty
+            ),
+            "projected_evaluation_cost": projected_evaluation_cost,
+            "evaluation_objective": evaluation_objective,
+            "step_costs": step_costs,
+            "component_costs": coefficients,
+        })
+    return meta
+
+
+# ===========================================================================
+# Assembly: build a whole fleet from the registered cell builders
+# ===========================================================================
+def _load_builders() -> None:
+    """Import the model modules so they register their cell builders.
+    Done lazily to avoid a circular import (they import this module)."""
+    if "rainflow" not in CELL_BUILDERS:
+        from fleet_management.degradation_model import rainflow  # noqa: F401
+
+
+def build_fleet(cfg, opts: dict, model_name: str = "fleet_management_mixed") -> FleetModel:
+    """Shared skeleton + one constraint block per cell, dispatched by model."""
+    _load_builders()
+    ctx = build_context(cfg, opts, model_name=model_name)
+
+    # per-model preparation (auxiliary variables, per-cell arrays, solver flags)
+    present = sorted({str(m) for m in np.asarray(cfg.model).ravel()})
+    for name in present:
+        builder = get_cell_builder(name)
+        builder.prepare(ctx, cfg, ctx.cells_of(name), opts)
+
+    # shared objective and general constraints
+    build_objective(ctx, resolve_costs(cfg, cfg.tau), opts)
+    add_base_constraints(ctx)
+
+    # per-cell blocks
+    for i in range(cfg.F):
+        for l in range(cfg.L):
+            dispatch_cell(ctx, i, l)
+    return ctx
+
+
+def solve_mixed(cfg, **overrides) -> dict:
+    """Solve a fleet whose cells may use **different** degradation models.
+
+    Builds the shared skeleton once (``base``) and fills in each cell's
+    constraints through its registered builder. An unimplemented model (today:
+    gamma) raises ``NotImplementedError`` from its placeholder block.
+    """
+    backend_start = time.perf_counter()
+    _load_builders()
+    warm_start = overrides.pop("warm_start", None)
+    opts = resolve_run_options(cfg, **overrides)
+    construction_start = time.perf_counter()
+    ctx = build_fleet(cfg, opts)
+    ctx.model.update()
+    warm_start_diagnostics = apply_binary_warm_start(ctx, warm_start)
+    warm_start_diagnostics = complete_binary_warm_start(
+        ctx.model, warm_start, warm_start_diagnostics
+    )
+    relaxation_diagnostics = {
+        "enabled": False,
+        "status": "disabled",
+        "relaxation_objective": None,
+        "values_copied": 0,
+        "runtime_seconds": None,
+    }
+    if opts["relaxation_warm_start"] and not warm_start_diagnostics["applied"]:
+        relaxation_diagnostics = apply_relaxation_warm_start(
+            ctx.model,
+            time_limit=opts["relaxation_time_limit"],
+        )
+    construction_seconds = time.perf_counter() - construction_start
+
+    optimizer_start = time.perf_counter()
+    callback = _initialize_progress(
+        ctx.model, opts["progress_interval_seconds"]
+    )
+    ctx.model.optimize(callback)
+    _append_final_progress(ctx.model)
+    optimizer_seconds = time.perf_counter() - optimizer_start
+
+    extraction_start = time.perf_counter()
+    out = extract_solution(ctx, cfg, ctx.model)
+    out["optimization_progress"] = list(ctx.model._optimization_progress)
+    out["warm_start"] = warm_start_diagnostics
+    out["relaxation_warm_start"] = relaxation_diagnostics
+    for name in sorted({str(m) for m in np.asarray(cfg.model).ravel()}):
+        hook = getattr(get_cell_builder(name), "extract", None)
+        if hook is not None:
+            hook(ctx, cfg, out)
+    extraction_seconds = time.perf_counter() - extraction_start
+
+    from fleet_management.degradation_model.gamma_utils.gamma_diagnostics import (
+        collect_gurobi_model_statistics,
+        compare_estimate_with_actual,
+        estimate_gamma_formulation,
+    )
+
+    performance = collect_gurobi_model_statistics(ctx.model)
+    performance.update({
+        "model_construction_seconds": construction_seconds,
+        "optimizer_call_seconds": optimizer_seconds,
+        "solution_extraction_seconds": extraction_seconds,
+        "backend_wall_seconds": time.perf_counter() - backend_start,
+        "requested_time_limit_seconds": (
+            None if opts["time_limit"] is None else float(opts["time_limit"])
+        ),
+        "requested_mip_gap": (
+            None if opts["mip_gap"] is None else float(opts["mip_gap"])
+        ),
+        "threads": int(ctx.model.Params.Threads),
+        "seed": int(ctx.model.Params.Seed),
+    })
+    if "gamma" in ctx.extras:
+        performance["gamma_calibration_seconds"] = float(sum(
+            ctx.extras["gamma"]["calibration_seconds"].values()
+        ))
+        formulation = estimate_gamma_formulation(
+            cfg, allow_replacement=ctx.allow_replacement
+        )
+        formulation["actual_gurobi_model"] = {
+            key: performance[key]
+            for key in (
+                "variables",
+                "continuous_variables",
+                "integer_variables",
+                "binary_variables",
+                "linear_constraints",
+                "general_constraints",
+                "indicator_constraints",
+                "quadratic_constraints",
+                "nonzeros",
+            )
+        }
+        formulation["comparison"] = compare_estimate_with_actual(
+            formulation, formulation["actual_gurobi_model"]
+        )
+        big_m_summary = {
+            "conditional_equalities": 0,
+            "linear_rows": 0,
+            "minimum_coefficient": None,
+            "maximum_coefficient": 0.0,
+            **dict(getattr(ctx.model, "_tight_big_m_summary", {})),
+        }
+        big_m_summary.update({
+            "encoding": "not used by the Gamma formulation",
+            "upper_row": None,
+            "lower_row": None,
+            "M_upper": None,
+            "M_lower": None,
+            "bound_strategy": "time_dependent_reachable",
+        })
+        formulation["big_m_implementation"] = big_m_summary
+        product_summary = {
+            "products": 0,
+            "linear_rows": 0,
+            "maximum_bound_coefficient": 0.0,
+            **dict(getattr(ctx.model, "_binary_product_summary", {})),
+        }
+        product_summary.update({
+            "scope": (
+                "Gamma ARD-infinity and Gamma ARD1, with or without replacement"
+            ),
+            "product_identities": [
+                "ARD-infinity: w = rho * previous_state * repair_binary",
+                "ARD-infinity replacement: q = previous_state * replacement_binary",
+                "ARD1: q = (previous_state - previous_latch) * repair_binary",
+                "ARD1 replacement: qR = previous_state * replacement_binary",
+                "ARD1 replacement latch: qRg = previous_latch * replacement_binary",
+            ],
+            "assumptions": (
+                "0 <= selected continuous state <= reachable upper bound"
+            ),
+            "rows": [
+                "product <= scale * selected_state",
+                "product <= scale * upper_bound * repair_binary",
+                "product >= scale * selected_state - scale * upper_bound * "
+                "(1 - repair_binary)",
+            ],
+            "seed_step": (
+                "previous state and latch are constant, so product = "
+                "scale * seed * "
+                "repair_binary is already linear"
+            ),
+        })
+        formulation["binary_product_implementation"] = product_summary
+        out["gamma_formulation"] = formulation
+    performance["backend_wall_seconds"] = time.perf_counter() - backend_start
+    out["performance"] = performance
+    # Release native resources, including an active LogFile handle on Windows,
+    # after all solution and diagnostic information has been extracted.
+    ctx.model.dispose()
+    return out
+
+
+# ===========================================================================
+# Mathematical interface (kept from the original base.py)
+# ===========================================================================
+class AccumulatedDegradationModel(Protocol):
+    """Mathematical interface for accumulated-degradation models."""
+
+    name: str
+
+    def increment_parameter(self, expected_damage: np.ndarray) -> np.ndarray:
+        """Convert expected mission damage into model parameters."""
+        ...
+
+    def expected_damage(self, state_parameter: np.ndarray) -> np.ndarray:
+        """Return expected damage represented by the state."""
+        ...
+
+    def tail_probability(self, state_parameter: np.ndarray,
+                         threshold: float) -> np.ndarray:
+        """Return P(D > threshold)."""
+        ...

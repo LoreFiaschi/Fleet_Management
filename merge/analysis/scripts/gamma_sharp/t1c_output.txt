@@ -1,0 +1,34 @@
+(a) threshold t1(eps) = root of t f_A(t) = A dQ/da(A,t), A = A_hat(t, eps)
+  eps=0.001: t1=0.43614  A_hat(t1)=0.0015484  g(t1-0.01)=-1.30e-05  g(t1+0.01)=+1.29e-05
+  eps=0.01: t1=0.44839  A_hat(t1)=0.015823  g(t1-0.01)=-1.23e-04  g(t1+0.01)=+1.22e-04
+  eps=0.1: t1=0.61422  A_hat(t1)=0.20307  g(t1-0.01)=-6.81e-04  g(t1+0.01)=+6.74e-04
+(b) above t1: largest Q(A_hat/c, t/c)/eps over c in [1e-4, 0.999], t on a log grid t1..1000
+  eps=0.001: max ratio 0.9999997175 at t=0.4361, c=0.999; min of g/(A eps) on the grid = +8.047e-04 (> 0: slope at c=1 has the safe sign)
+  eps=0.01: max ratio 0.9999997241 at t=0.4484, c=0.999; min of g/(A eps) on the grid = +3.443e-05 (> 0: slope at c=1 has the safe sign)
+  eps=0.1: max ratio 0.9999997913 at t=0.6142, c=0.999; min of g/(A eps) on the grid = +2.041e-06 (> 0: slope at c=1 has the safe sign)
+(c) below t1: worst one-term member at the cap (exact) and Monte Carlo check
+  eps=0.001  t=0.01  A_hat=0.0002478  c*=0.02251  tail/eps=7.006936
+  eps=0.001  t=0.1   A_hat=0.0005487  c*=0.2289   tail/eps=1.546203
+  eps=0.001  t=0.3   A_hat=0.001104   c*=0.6878   tail/eps=1.036541
+  eps=0.001  t=0.4   A_hat=0.001423   c*=0.9171   tail/eps=1.002064
+  eps=0.001  t=0.43  A_hat=0.001527   c*=0.9859   tail/eps=1.000056
+  eps=0.01   t=0.01  A_hat=0.002488   c*=0.01799  tail/eps=7.375094
+  eps=0.01   t=0.1   A_hat=0.005501   c*=0.2191   tail/eps=1.564868  MC 1.5548 +- 0.0196
+  eps=0.01   t=0.3   A_hat=0.01102    c*=0.6682   tail/eps=1.041276  MC 1.0275 +- 0.0159
+  eps=0.01   t=0.4   A_hat=0.01416    c*=0.892    tail/eps=1.003497
+  eps=0.01   t=0.43  A_hat=0.01518    c*=0.959    tail/eps=1.000478
+  eps=0.1    t=0.01  A_hat=0.02596    c*=0.0001023 tail/eps=10.000000 (A_hat > t: drift alone gives tail 1)
+  eps=0.1    t=0.1   A_hat=0.05655    c*=0.1115   tail/eps=1.835903
+  eps=0.1    t=0.3   A_hat=0.1091     c*=0.4675   tail/eps=1.109131
+  eps=0.1    t=0.4   A_hat=0.1369     c*=0.6413   tail/eps=1.038523
+  eps=0.1    t=0.43  A_hat=0.1456     c*=0.6927   tail/eps=1.026567
+  eps=0.1    t=0.6   A_hat=0.1984     c*=0.9768   tail/eps=1.000114
+(d) eps -> 0: t1(eps) (Q loses relative precision below eps = 1e-4, so no smaller eps)
+  eps=0.0001: t1=0.43495
+(e) cross-check: g/A against phi'(1) (central difference of the quadrature phi of T1a)
+  eps=0.01 t=0.44839: g/A=-2.825004e-08  phi'(1)=+3.251699e-08
+  eps=0.01 t=1.00000: g/A=+1.380160e-01  phi'(1)=+1.380160e-01
+  eps=0.01 t=3.00000: g/A=+4.811422e-02  phi'(1)=+4.811422e-02
+  eps=0.1 t=0.61422: g/A=-5.613023e-10  phi'(1)=+3.832068e-08
+  eps=0.1 t=1.00000: g/A=+6.219407e-02  phi'(1)=+6.219409e-02
+  eps=0.1 t=3.00000: g/A=+4.611406e-02  phi'(1)=+4.611406e-02
