@@ -1,5 +1,38 @@
 # Spec version 1.0: conventions shared by every writer
 
+## Spec versus scoping (user, 26 Oct 2026; overrides anything below that conflicts)
+
+The user: *"spec.tex must contain only exactly what is implemented (or going to be implemented). It is not verbose,
+there are no long explanations, no theorems, etc. All these stuff must belong to scoping file."* Style model:
+`merge/spec_drafts/style_reference_spec_v03.tex` (read its style, ignore its content).
+
+- **Stays in the spec**: the codebase and its mathematical constructions. Inputs (tables: key, shape, default, cells,
+  one-line meaning); consistency checks (the rule only, no reason); variables with the condition under which each is
+  built; the objective (equations, one line per mode); every row in its forms (exact, big-M, indicator, tangent, pwl)
+  with the condition under which it is built; the definitions that the rows use (repair laws as formulas, natural
+  ranges, constants); every precomputed constant with the formula or algorithm that computes it (the inverse Gaussian
+  cap, the Gamma cap `A_1` and `beta*`, the Bernstein constant, the variance ranges); outputs; tool behaviour; file
+  layout; input schema; one input example. A consequence that an implementer or user must know may stay as one
+  sentence, with a pointer: "(scoping document, section "...")".
+- **Moves to the scoping document**: theorems, propositions, lemmas, corollaries and their proofs; derivations;
+  worked examples and numerical illustrations; the reasons for a choice, a default or a check; comparisons between
+  models, forms or encodings; discussions of conservatism, slack, acceptance, accuracy or speed; literature and
+  citations; open research questions.
+- **The spec cites nothing** from the literature. The scoping document holds the sources.
+- **No information is lost.** Every block you remove goes into `merge/spec_drafts/moved_<X>.md`, so that the scoping
+  writer can place it. One entry per block:
+  `### M-<X>-<n>: <title>`; `- From:` section and label; `- Kind:` proof, statement, derivation, example, rationale,
+  comparison, literature, remark, open question; `- Suggested destination:` a section of `scoping.tex` (list below);
+  `- Spec keeps:` the one line left in the spec, or "nothing"; then the removed LaTeX, verbatim, in a fenced block.
+- **Sections of `scoping.tex`** (destinations): Overview of the problem (Scheduling and maintenance variables, Damage
+  dynamics, Stochastic loop constraint, Cost function, Abstract problem formulation); Literature review (Stochastic
+  degradation and fatigue models: damage-accumulation processes, discrete-time formulation, S-N curve and
+  Palmgren-Miner, conservative surrogates for the empirical damage-increment distribution, the loop constraint under
+  the Route-I bounds, two refinements, random fatigue life); Stochastic orderings (within each degradation family;
+  loop constraint for each degradation model); Maintenance strategies (taxonomy, virtual age models, reduction-based
+  models, connection to the fleet management formulation); Focus on electric vehicles; Optimization problem for a
+  fleet of electric vehicles; Implementation details.
+
 Written by Claude on 26 Oct 2026, for the four writers of `spec/spec.tex` version 1.0. Every writer follows this
 sheet. If a convention below is wrong or missing, do not invent another one: write the problem in your status file
 and use the convention as written.

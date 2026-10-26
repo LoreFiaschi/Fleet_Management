@@ -1,22 +1,22 @@
 # Status of writer C (inputs, outputs, input file schema)
 
-Status: done (26 Oct 2026), with the follow-up corrections of the coordinator applied (section "Follow-up corrections"
-below). `fragments_C.tex` has 3 blocks, 819 lines, 19 pages in `wrap_C.tex`. Build: 0 errors, 0 overfull or underfull
-boxes, 0 `Float too large`, 0 undefined citations; the only undefined references are labels of writers A, B and D
-(`sec:repair_laws`, `sec:encoding`, `sec:linear_forms`, `sec:replacement`, `sec:loop`, `sec:objective`, `sec:damage_reg`,
-`sec:repair_cost`, `sec:depot`, `sec:dyn_gaussian`, `sec:dyn_ig`, `sec:dyn_gamma`, `sec:dyn_rainflow`, `sec:sweeps`,
-`sec:warm_starts`). Every own label resolves. Check script `checks/C_checks.py`: 87 PASS, 0 FAIL
-(`checks/C_checks_output.txt`). Next: Claude assembles; see "For the assembly".
+Status: done (26 Oct 2026). `fragments_C.tex` is rewritten as a pure specification (conventions.md, "Spec versus scoping"):
+493 lines (826 before), 14 pages in `wrap_C.tex`. Build: 0 errors, 0 overfull or underfull boxes, 0 `Float too large`; the
+only undefined references are labels of writers A, B and D. Every own label resolves (`sec:inputs`, `sec:input_scalars`,
+`sec:input_increments`, `sec:run_options`, `sec:consistency_checks`, `sec:output`, `sec:output_reports`, `sec:schema`,
+`eq:c_phase`, `eq:c_u`, `eq:c_zpost`; `eq:c_step` and `eq:c_phases` are gone, nobody else cited them).
+Check script `checks/C_checks.py`: 102 PASS, 0 FAIL (`checks/C_checks_output.txt`); the YAML example is now written
+with inline lists and still passes every check. Removed text: `moved_C.md`, 31 blocks (M-C-1 to M-C-31), verbatim.
 
 ## Checklist of decision bullets (items of decisions.md owned by C)
 
 Block 1 (input specification and checks)
-- [x] Input key table: every key once, with shape, default, meaning, models (62 keys; script checks that each key of the
+- [x] Input key table: every key once, with shape, default, meaning, models (63 keys; script checks that each key of the
       tables appears once and that the tables equal the checker's canonical set)
 - [x] Unknown and old keys: error naming the canonical key and, where the meaning changed, the new meaning (21 rejected keys)
 - [x] `null` at non-applicable cells accepted (Block 1, "Absent entries")
 - [x] Axis order (F, L, M, H) (`sec:input_increments`)
-- [x] Input checks: full list (`sec:consistency_checks`; 35 items in 12 groups, each with its reason)
+- [x] Input checks: full list (`sec:consistency_checks`; 36 items in 13 groups, each with its reason)
 - [x] `epsilon` per cell in (0,1); `eps < 0.5` at G and W; remark on `V_max` as the natural range (`sec:input_reliability`)
 - [x] Costs: shapes, `C_rep` required, `C_M` scalar, `C_D >= 0` (no `u` when 0), `penalty_type`, `objective_mode`,
       `evaluation_horizon` (`sec:input_costs`, `sec:run_options`)
@@ -109,6 +109,22 @@ Block 3 (schema)
     the completion status values, `iis_constraints` empty unless "infeasible"; relaxation status "disabled", "skipped" or
     the Gurobi status string.
 
+## Rewrite as a pure specification (26 Oct 2026)
+
+- Kept: every key table (key, shape, default, cells, one-line meaning), the phase lookup (equation and one rule), the
+  rejected-key table, the consistency checks as rules, the output tables and value rules, the report definitions, the file
+  formats, the HDF5 layout, the schema tables and the YAML example. Definitions that a rule needs stay (support width,
+  natural ranges, `c = kappa b / 3`, the shape priority rule, the formula of `z` after the solve and of `u`).
+- Removed to `moved_C.md`: the reason of every check (12 blocks), the remark on the range of `epsilon`, the remark on the
+  variance of a law on a range of width `w` (the checks keep the rule `v <= b^2/4` without a name), the starting-anchor
+  paragraph and example, the phase-lookup examples, the shape-ambiguity note, the rationale paragraphs of the initial-state,
+  replacement and model-constant subsections, the wording of the table rows that was shortened, the description of the YAML
+  example, and the discussion of tracked values and of the cost report.
+- Layout: the table markup is shortened by the macros `\tabstart{columns}{header}`, `\tabend` and `\keytab` (defined in the
+  first eight lines of the fragment, with the earlier row macros and the `\_` redefinition); Claude moves them into the
+  preamble at assembly. No table lost a column or a row.
+- Not changed: all checks (rules), all labels other than `eq:c_step` and `eq:c_phases`, the content of the YAML example.
+
 ## Follow-up corrections (coordinator messages of 26 Oct 2026, applied)
 
 1. Default of `repair_model` is `ardinf` (key table, example).
@@ -145,6 +161,34 @@ Block 3 (schema)
    - Warm-start reports: my tables follow D's `sec:warm_reports` (`warm_start.mode` with "start", "hint", "both" or `null`;
      relaxation status "skipped" when the option is on and a start or a hint was applied).
 
+## Review corrections (`review_io_tools.md` and `review_formulation.md`, 26 Oct 2026, applied)
+
+- IO 2 and formulation 1(a): Bernstein tangent check is `tangent_ref * tau < sqrt(tau (tau - 2c))`; `pwl`: `tau/(2P) < sqrt(tau (tau - 2c))`
+  with `P = pwl_points`; the reason names the row at `mu = 0` (the same condition in A's and B's sections is for them).
+- IO 3: "every non-null entry of `reliability_impl` is exact, tangent or pwl, also at a linear-row cell"; "Absent entries":
+  a selector entry at a non-applicable cell is still checked; schema: "may be null", and `tangent_ref` and `pwl_points`
+  are not read at every cell.
+- IO 4: new group "Costs" (finite and >= 0). IO 5: Jensen on the starting anchors of a Chernoff cell, `g^K_0 >= s g^mu_0`.
+- IO 6 and formulation 1(b): the replacement state satisfies every row of a replacement day in the form built at the
+  cell (pwl: the segment of `mu^new`), its side row, and `v^new <= V^user`; `v_max_user >= v^new` added.
+- IO 10 and formulation 3: `penalty_type = quadratic` with `C_D > 0` needs `reliability_impl = exact` at every cell with a
+  quadratic row (G, W, RF with Ca, Ho, Be); another value is an error (key row and check item).
+- IO 9 (sentence on `u`): the objective equals the matching report entry when the variable `u` has no slack, otherwise it
+  is larger by `C_D` times the slack. IO 11: the cost report cites A's Eqs. `eq:a_daycost` and `eq:a_phases` (my
+  `eq:c_step` and `eq:c_phases` are gone); `z` reads 0 where it is NaN.
+- IO 13: every reader treats a missing key as null. IO 14: `gamma_beta` shape note. IO 17: `enabled` is the value of the
+  option. IO 18: `idle` key versus idle day of the train (marks D and I). IO 19: `depot_capacity` points to `sec:assignment`,
+  the progress report to `sec:output_reports`.
+- IO 7 (decided by Claude): input key `validation` kept as a Run Options row (mapping, default none; the six settings;
+  `solve` does not read it); writer D writes how the validators read it.
+- Suggestions: `E > H1` whenever `evaluation_horizon` is given; `mu^new >= 3 sqrt(v^new)` at Gaussian cells; `eta` described as
+  "dispersion of the inverse Gaussian law of each term"; the checks on replacement values (nonnegativity, Popoviciu,
+  Jensen, 3 sigma, `v_max_user`, natural ranges, replacement rows) run only if `allow_replacement` is true.
+  Not changed: the Bernstein support constant still includes `support_new` (B's Eq. `eq:rf_bsupport` does not depend on
+  `allow_replacement`), so the precondition `tau > 2 kappa b / 3` uses it in both cases.
+- `C_checks.py`: new rules and the cases of the reviewer (gap `(0.9608, 0.9616)` of the example: `tangent_ref = 0.961` is
+  rejected; `pwl` with `P = 1`; a replacement state that passes the exact row and fails the tangent row), 102 PASS.
+
 ## Keys of main's code that the decided table lacks
 
 - Input: `gamma_calibration_method` (see question 8). The HDF5 reader of `main` lists `c` (`main:solver.py:261`,
@@ -155,7 +199,7 @@ Block 3 (schema)
 
 ## For the assembly (Claude)
 
-- The first five lines of `fragments_C.tex` define the row macros `\keyrow`, `\optrow`, `\rejrow`, `\typerow` and redefine
+- The first eight lines of `fragments_C.tex` define the row and table macros `\keyrow`, `\optrow`, `\rejrow`, `\typerow` and redefine
   `\_` (so that a long key can break after an underscore). I need no new package, but the `array` package would remove the
   need for the macros. Block 1 uses the macros; Blocks 2 and 3 use `\rejrow` and `\typerow`. Move the five lines into the
   preamble, or keep them at the top of Block 1.

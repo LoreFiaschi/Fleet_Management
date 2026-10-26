@@ -1,4 +1,4 @@
-This is pdfTeX, Version 3.141592653-2.6-1.40.27 (MiKTeX 25.4) (preloaded format=pdflatex 2025.7.24)  26 OCT 2026 12:03
+This is pdfTeX, Version 3.141592653-2.6-1.40.27 (MiKTeX 25.4) (preloaded format=pdflatex 2025.7.24)  26 OCT 2026 17:14
 entering extended mode
  restricted \write18 enabled.
  %&-line parsing enabled.
@@ -823,7 +823,17 @@ Package: amsthm 2020/05/29 v2.20.6
 \thm@headsep=\skip83
 \dth@everypar=\toks48
 )
-Package hyperref Info: Option `colorlinks' set `true' on input line 24.
+(C:\Users\utente\AppData\Local\Programs\MiKTeX\tex/latex/tools\array.sty
+Package: array 2025/06/08 v2.6j Tabular extension package (FMi)
+\col@sep=\dimen317
+\ar@mcellbox=\box79
+\extrarowheight=\dimen318
+\NC@list=\toks49
+\extratabsurround=\skip84
+\backup@length=\skip85
+\ar@cellbox=\box80
+)
+Package hyperref Info: Option `colorlinks' set `true' on input line 26.
 \c@theorem=\count356
 )
 (C:\Users\utente\AppData\Local\Programs\MiKTeX\tex/latex/l3backend\l3backend-pd
@@ -902,16 +912,16 @@ ap_C.out)
 kii
 [Loading MPS to PDF converter (version 2006.09.02).]
 \scratchcounter=\count358
-\scratchdimen=\dimen317
-\scratchbox=\box79
+\scratchdimen=\dimen319
+\scratchbox=\box81
 \nofMPsegments=\count359
 \nofMParguments=\count360
-\everyMPshowfont=\toks49
+\everyMPshowfont=\toks50
 \MPscratchCnt=\count361
-\MPscratchDim=\dimen318
+\MPscratchDim=\dimen320
 \MPnumerator=\count362
 \makeMPintoPDFobject=\count363
-\everyMPtoPDFconversion=\toks50
+\everyMPtoPDFconversion=\toks51
 )
 (C:\Users\utente\AppData\Local\Programs\MiKTeX\tex/latex/epstopdf-pkg\epstopdf-
 base.sty
@@ -948,7 +958,7 @@ File: mt-cmr.cfg 2013/05/19 v2.2 microtype config. file: Computer Modern Roman
 (RS)
 )
 (fragments_C.tex
-LaTeX Font Info:    Trying to load font information for U+msa on input line 14.
+LaTeX Font Info:    Trying to load font information for U+msa on input line 13.
 
 
 (C:\Users\utente\AppData\Local\Programs\MiKTeX\tex/latex/amsfonts\umsa.fd
@@ -957,7 +967,7 @@ File: umsa.fd 2013/01/14 v3.01 AMS symbols A
 (C:\Users\utente\AppData\Local\Programs\MiKTeX\tex/latex/microtype\mt-msa.cfg
 File: mt-msa.cfg 2006/02/04 v1.1 microtype config. file: AMS symbols (a) (RS)
 )
-LaTeX Font Info:    Trying to load font information for U+msb on input line 14.
+LaTeX Font Info:    Trying to load font information for U+msb on input line 13.
 
 
 (C:\Users\utente\AppData\Local\Programs\MiKTeX\tex/latex/amsfonts\umsb.fd
@@ -967,193 +977,168 @@ File: umsb.fd 2013/01/14 v3.01 AMS symbols B
 File: mt-msb.cfg 2005/06/01 v1.0 microtype config. file: AMS symbols (b) (RS)
 )
 
-LaTeX Warning: Reference `sec:loop' on page 1 undefined on input line 61.
-
-
-LaTeX Warning: Reference `sec:repair_laws' on page 1 undefined on input line 74
+LaTeX Warning: Reference `sec:repair_laws' on page 1 undefined on input line 41
 .
 
 
-LaTeX Warning: Reference `sec:dyn_rainflow' on page 1 undefined on input line 7
-5.
+LaTeX Warning: Reference `sec:dyn_rainflow' on page 1 undefined on input line 4
+2.
 
 
-LaTeX Warning: Reference `sec:linear_forms' on page 1 undefined on input line 7
-6.
+LaTeX Warning: Reference `sec:linear_forms' on page 1 undefined on input line 4
+3.
 
 
-LaTeX Warning: Reference `sec:encoding' on page 1 undefined on input line 77.
-
-
+LaTeX Warning: Reference `sec:encoding' on page 1 undefined on input line 44.
 
 [1{C:/Users/utente/AppData/Local/MiKTeX/fonts/map/pdftex/pdftex.map}
 
 ]
 
-LaTeX Warning: Reference `sec:encoding' on page 2 undefined on input line 103.
+[2] [3]
+
+LaTeX Warning: Reference `sec:dyn_ig' on page 4 undefined on input line 125.
 
 
-
-[2]
-
-LaTeX Warning: Reference `sec:repair_laws' on page 3 undefined on input line 12
-5.
-
-
-LaTeX Warning: Reference `sec:dyn_rainflow' on page 3 undefined on input line 1
-53.
-
-
-
-[3]
-
-LaTeX Warning: Reference `sec:replacement' on page 4 undefined on input line 17
-6.
-
-
-LaTeX Warning: Reference `sec:dyn_rainflow' on page 4 undefined on input line 1
-76.
-
-
+LaTeX Warning: Reference `sec:damage_reg' on page 4 undefined on input line 138
+.
 
 [4]
 
-LaTeX Warning: Reference `sec:dyn_ig' on page 5 undefined on input line 241.
-
-[5]
-
-LaTeX Warning: Reference `sec:dyn_gamma' on page 6 undefined on input line 249.
+LaTeX Warning: Reference `sec:objective' on page 5 undefined on input line 149.
 
 
 
-LaTeX Warning: Reference `sec:damage_reg' on page 6 undefined on input line 264
-.
+LaTeX Warning: Reference `sec:warm_starts' on page 5 undefined on input line 15
+2.
 
 
-LaTeX Warning: Reference `sec:objective' on page 6 undefined on input line 270.
+LaTeX Warning: Reference `sec:validation_gamma' on page 5 undefined on input li
+ne 154.
 
 
-
-LaTeX Warning: Reference `sec:objective' on page 6 undefined on input line 288.
-
-
-
-LaTeX Warning: Reference `sec:warm_starts' on page 6 undefined on input line 29
-1.
-
-[6]
-
-LaTeX Warning: Reference `sec:warm_starts' on page 7 undefined on input line 29
+LaTeX Warning: Reference `sec:warm_starts' on page 5 undefined on input line 15
 7.
 
 
-LaTeX Warning: Reference `sec:sweeps' on page 7 undefined on input line 298.
-
-
-LaTeX Warning: Reference `sec:dyn_gamma' on page 7 undefined on input line 319.
+LaTeX Warning: Reference `sec:dyn_gamma' on page 5 undefined on input line 171.
 
 
 
-LaTeX Warning: Reference `sec:dyn_gamma' on page 7 undefined on input line 320.
+LaTeX Warning: Reference `sec:dyn_gamma' on page 5 undefined on input line 172.
 
 
 
-LaTeX Warning: Reference `sec:sweeps' on page 7 undefined on input line 324.
+LaTeX Warning: Reference `sec:sweeps' on page 5 undefined on input line 176.
 
 
-LaTeX Warning: Reference `sec:warm_starts' on page 7 undefined on input line 32
-4.
+LaTeX Warning: Reference `sec:warm_starts' on page 5 undefined on input line 17
+6.
 
 
-LaTeX Warning: Reference `sec:depot' on page 7 undefined on input line 325.
+LaTeX Warning: Reference `sec:assignment' on page 5 undefined on input line 177
+.
 
 
-LaTeX Warning: Reference `sec:loop' on page 7 undefined on input line 326.
+LaTeX Warning: Reference `sec:loop' on page 5 undefined on input line 178.
+
+
+
+[5]
+
+[6]
+
+LaTeX Warning: Reference `sec:dyn_gaussian' on page 7 undefined on input line 2
+24.
+
+
+LaTeX Warning: Reference `sec:dyn_rainflow' on page 7 undefined on input line 2
+24.
+
+
+LaTeX Warning: Reference `sec:dyn_gaussian' on page 7 undefined on input line 2
+25.
+
+
+LaTeX Warning: Reference `sec:dyn_rainflow' on page 7 undefined on input line 2
+25.
+
+
+LaTeX Warning: Reference `sec:linear_forms' on page 7 undefined on input line 2
+25.
 
 
 
 [7]
 
+LaTeX Warning: Reference `sec:dyn_rainflow' on page 8 undefined on input line 2
+47.
+
+
+LaTeX Warning: Reference `sec:variables' on page 8 undefined on input line 284.
+
+
+
+LaTeX Warning: Reference `sec:repair_laws' on page 8 undefined on input line 29
+2.
+
+
+LaTeX Warning: Reference `eq:a_daycost' on page 8 undefined on input line 296.
+
+
+LaTeX Warning: Reference `eq:a_phases' on page 8 undefined on input line 297.
+
+
+LaTeX Warning: Reference `eq:d_projected' on page 8 undefined on input line 300
+.
+
 [8]
 
-LaTeX Warning: Reference `sec:dyn_gaussian' on page 9 undefined on input line 3
-75.
-
-
-LaTeX Warning: Reference `sec:dyn_rainflow' on page 9 undefined on input line 3
-75.
-
-
-LaTeX Warning: Reference `sec:dyn_gaussian' on page 9 undefined on input line 3
-76.
-
-
-LaTeX Warning: Reference `sec:dyn_rainflow' on page 9 undefined on input line 3
-76.
+LaTeX Warning: Reference `sec:encoding' on page 9 undefined on input line 312.
 
 
 
 [9]
 
-LaTeX Warning: Reference `sec:dyn_gamma' on page 10 undefined on input line 403
+LaTeX Warning: Reference `sec:repair_cost' on page 10 undefined on input line 3
+14.
+
+
+LaTeX Warning: Reference `eq:a_daycost' on page 10 undefined on input line 331.
+
+
+
+LaTeX Warning: Reference `eq:a_phases' on page 10 undefined on input line 331.
+
+
+LaTeX Warning: Reference `sec:objective' on page 10 undefined on input line 331
 .
 
+LaTeX Font Info:    Font shape `OT1/cmtt/bx/n' in size <10.95> not available
+(Font)              Font shape `OT1/cmtt/m/n' tried instead on input line 335.
 
-LaTeX Warning: Reference `sec:dyn_rainflow' on page 10 undefined on input line 
-415.
+LaTeX Warning: Reference `sec:warm_starts' on page 10 undefined on input line 3
+45.
 
 
-LaTeX Warning: Reference `sec:dyn_rainflow' on page 10 undefined on input line 
-416.
+LaTeX Warning: Reference `sec:warm_start_modes' on page 10 undefined on input l
+ine 345.
+
+
+LaTeX Warning: Reference `sec:warm_relaxation' on page 10 undefined on input li
+ne 348.
 
 
 
 [10]
 
-LaTeX Warning: Reference `sec:sweeps' on page 11 undefined on input line 441.
+[11]
 
-[11] [12]
+[12]) (references.tex
 
-LaTeX Warning: Reference `sec:loop' on page 13 undefined on input line 509.
-
-
-LaTeX Warning: Reference `sec:encoding' on page 13 undefined on input line 510.
-
-
-
-LaTeX Warning: Reference `sec:repair_cost' on page 13 undefined on input line 5
-13.
-
-LaTeX Font Info:    Font shape `OT1/cmtt/bx/n' in size <10.95> not available
-(Font)              Font shape `OT1/cmtt/m/n' tried instead on input line 554.
-
-
-[13]
-
-LaTeX Warning: Reference `sec:warm_starts' on page 14 undefined on input line 5
-81.
-
-
+[13])
 
 [14]
-LaTeX Font Info:    Trying to load font information for OMS+cmtt on input line 
-621.
-LaTeX Font Info:    No file OMScmtt.fd. on input line 621.
-
-
-LaTeX Font Warning: Font shape `OMS/cmtt/m/n' undefined
-(Font)              using `OMS/cmsy/m/n' instead
-(Font)              for symbol `textbraceleft' on input line 621.
-
-[15]
-
-[16]
-
-[17]
-
-[18]) (references.tex)
-
-[19]
 (C:\Users\utente\Documents\GitHub\Fleet_Management\merge\spec_drafts\build_C\wr
 ap_C.aux)
  ***********
@@ -1162,20 +1147,17 @@ L3 programming layer <2025-07-11>
  ***********
 
 
-LaTeX Font Warning: Some font shapes were not available, defaults substituted.
-
-
 LaTeX Warning: There were undefined references.
 
 Package rerunfilecheck Info: File `wrap_C.out' has not changed.
-(rerunfilecheck)             Checksum: 6A48F23E2C535F761DD9BDE8507885AA;3405.
+(rerunfilecheck)             Checksum: 92710E8D2ED6DB9993F5802653F5AEAC;3404.
  ) 
 Here is how much of TeX's memory you used:
- 27485 strings out of 468149
- 503069 string characters out of 5430598
- 1273335 words of memory out of 5000000
- 55299 multiletter control sequences out of 15000+600000
- 641659 words of font info for 166 fonts, out of 8000000 for 9000
+ 27415 strings out of 468149
+ 502410 string characters out of 5430598
+ 1379660 words of memory out of 5000000
+ 55362 multiletter control sequences out of 15000+600000
+ 640004 words of font info for 138 fonts, out of 8000000 for 9000
  1141 hyphenation exceptions out of 8191
  107i,14n,110p,1197b,1978s stack positions out of 10000i,1000n,20000p,200000b,200000s
  <C:\Users\utente\AppData\Local\MiKTeX\fonts/pk/ljfour/jknappen/ec/dpi600\tcr
@@ -1199,9 +1181,9 @@ ppData/Local/Programs/MiKTeX/fonts/type1/public/amsfonts/cm/cmtt10.pfb><C:/User
 s/utente/AppData/Local/Programs/MiKTeX/fonts/type1/public/amsfonts/symbols/msbm
 10.pfb>
 Output written on C:\Users\utente\Documents\GitHub\Fleet_Management\merge\spec_
-drafts\build_C\wrap_C.pdf (19 pages, 342088 bytes).
+drafts\build_C\wrap_C.pdf (14 pages, 303280 bytes).
 PDF statistics:
- 491 PDF objects out of 1000 (max. 8388607)
- 198 named destinations out of 1000 (max. 500000)
+ 367 PDF objects out of 1000 (max. 8388607)
+ 119 named destinations out of 1000 (max. 500000)
  30413 words of extra memory for PDF output out of 35830 (max. 10000000)
 

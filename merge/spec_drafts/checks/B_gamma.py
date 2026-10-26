@@ -165,3 +165,9 @@ if __name__ == "__main__":
     print("  A_hat=%.6g  c*=%.4f  rate ratio 1/c*=%.3f  tail/eps=%.4f" % (Ah, c, 1.0 / c, v / 0.01))
     A1 = A_one(0.1, 0.01)
     print("  A_1=%.6g  A_1/A_hat=%.4f  w(A_1)/eps=%.6f" % (A1, A1 / Ah, w(A1, 0.1)[0] / 0.01))
+    print("(8) w(A) < 1/2 for every A < t (so for eps >= 1/2 every A < t qualifies), and w -> 1/2 as A -> t")
+    worst = 0.0
+    for t in [0.01, 0.1, 1.0, 10.0, 100.0]:
+        for r in [0.5, 0.9, 0.99, 0.999]:
+            worst = max(worst, w(r * t, t, n=800)[0])
+    print("  largest w(A) over t in {0.01, ..., 100}, A/t up to 0.999: %.6f (< 0.5)" % worst)

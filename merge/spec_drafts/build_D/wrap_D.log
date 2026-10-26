@@ -1,4 +1,4 @@
-This is pdfTeX, Version 3.141592653-2.6-1.40.27 (MiKTeX 25.4) (preloaded format=pdflatex 2025.7.24)  26 OCT 2026 12:00
+This is pdfTeX, Version 3.141592653-2.6-1.40.27 (MiKTeX 25.4) (preloaded format=pdflatex 2025.7.24)  26 OCT 2026 17:14
 entering extended mode
  restricted \write18 enabled.
  %&-line parsing enabled.
@@ -823,7 +823,17 @@ Package: amsthm 2020/05/29 v2.20.6
 \thm@headsep=\skip83
 \dth@everypar=\toks48
 )
-Package hyperref Info: Option `colorlinks' set `true' on input line 24.
+(C:\Users\utente\AppData\Local\Programs\MiKTeX\tex/latex/tools\array.sty
+Package: array 2025/06/08 v2.6j Tabular extension package (FMi)
+\col@sep=\dimen317
+\ar@mcellbox=\box79
+\extrarowheight=\dimen318
+\NC@list=\toks49
+\extratabsurround=\skip84
+\backup@length=\skip85
+\ar@cellbox=\box80
+)
+Package hyperref Info: Option `colorlinks' set `true' on input line 26.
 \c@theorem=\count356
 )
 (C:\Users\utente\AppData\Local\Programs\MiKTeX\tex/latex/l3backend\l3backend-pd
@@ -902,16 +912,16 @@ ap_D.out)
 kii
 [Loading MPS to PDF converter (version 2006.09.02).]
 \scratchcounter=\count358
-\scratchdimen=\dimen317
-\scratchbox=\box79
+\scratchdimen=\dimen319
+\scratchbox=\box81
 \nofMPsegments=\count359
 \nofMParguments=\count360
-\everyMPshowfont=\toks49
+\everyMPshowfont=\toks50
 \MPscratchCnt=\count361
-\MPscratchDim=\dimen318
+\MPscratchDim=\dimen320
 \MPnumerator=\count362
 \makeMPintoPDFobject=\count363
-\everyMPtoPDFconversion=\toks50
+\everyMPtoPDFconversion=\toks51
 )
 (C:\Users\utente\AppData\Local\Programs\MiKTeX\tex/latex/epstopdf-pkg\epstopdf-
 base.sty
@@ -948,7 +958,32 @@ File: mt-cmr.cfg 2013/05/19 v2.2 microtype config. file: Computer Modern Roman
 (RS)
 )
 (fragments_D.tex
-LaTeX Font Info:    Trying to load font information for U+msa on input line 6.
+(C:\Users\utente\AppData\Local\Programs\MiKTeX\tex/latex/listings\lstlang1.sty
+File: lstlang1.sty 2024/09/23 1.10c listings language file
+)
+LaTeX Font Info:    Font shape `OT1/cmtt/bx/n' in size <10> not available
+(Font)              Font shape `OT1/cmtt/m/n' tried instead on input line 48.
+
+LaTeX Warning: Reference `sec:output_files' on page 1 undefined on input line 5
+1.
+
+
+LaTeX Warning: Reference `sec:schema' on page 1 undefined on input line 52.
+
+
+LaTeX Warning: Reference `sec:consistency_checks' on page 1 undefined on input 
+line 53.
+
+
+LaTeX Warning: Reference `sec:output' on page 1 undefined on input line 55.
+
+
+LaTeX Warning: Reference `sec:output_files' on page 1 undefined on input line 5
+5.
+
+
+
+LaTeX Font Info:    Trying to load font information for U+msa on input line 64.
 
 (C:\Users\utente\AppData\Local\Programs\MiKTeX\tex/latex/amsfonts\umsa.fd
 File: umsa.fd 2013/01/14 v3.01 AMS symbols A
@@ -956,7 +991,8 @@ File: umsa.fd 2013/01/14 v3.01 AMS symbols A
 (C:\Users\utente\AppData\Local\Programs\MiKTeX\tex/latex/microtype\mt-msa.cfg
 File: mt-msa.cfg 2006/02/04 v1.1 microtype config. file: AMS symbols (a) (RS)
 )
-LaTeX Font Info:    Trying to load font information for U+msb on input line 6.
+LaTeX Font Info:    Trying to load font information for U+msb on input line 64.
+
 
 (C:\Users\utente\AppData\Local\Programs\MiKTeX\tex/latex/amsfonts\umsb.fd
 File: umsb.fd 2013/01/14 v3.01 AMS symbols B
@@ -964,250 +1000,287 @@ File: umsb.fd 2013/01/14 v3.01 AMS symbols B
 (C:\Users\utente\AppData\Local\Programs\MiKTeX\tex/latex/microtype\mt-msb.cfg
 File: mt-msb.cfg 2005/06/01 v1.0 microtype config. file: AMS symbols (b) (RS)
 )
-
-LaTeX Warning: Reference `sec:notation' on page 1 undefined on input line 6.
-
-
-LaTeX Warning: Reference `sec:repair_cost' on page 1 undefined on input line 23
-.
-
-
-LaTeX Warning: Reference `sec:output' on page 1 undefined on input line 33.
-
-
-LaTeX Warning: Reference `sec:objective' on page 1 undefined on input line 35.
-
-
-LaTeX Warning: Reference `sec:run_options' on page 1 undefined on input line 53
-.
-
-
-LaTeX Warning: Reference `sec:loop' on page 1 undefined on input line 59.
-
-LaTeX Font Info:    Font shape `OT1/cmtt/bx/n' in size <10.95> not available
-(Font)              Font shape `OT1/cmtt/m/n' tried instead on input line 75.
-(C:\Users\utente\AppData\Local\Programs\MiKTeX\tex/latex/listings\lstlang1.sty
-File: lstlang1.sty 2024/09/23 1.10c listings language file
-)
-
 [1{C:/Users/utente/AppData/Local/MiKTeX/fonts/map/pdftex/pdftex.map}
 
 ]
-LaTeX Font Info:    Font shape `OT1/cmtt/bx/n' in size <10> not available
-(Font)              Font shape `OT1/cmtt/m/n' tried instead on input line 85.
+Overfull \hbox (2.69542pt too wide) in paragraph at lines 68--69
+[]\OT1/cmr/m/n/10.95 (-20) the Gamma val-ida-tors (Sec-tion [][]5.3[][]): the r
+e-play val-ida-tor \OT1/cmtt/m/n/10.95 validate[]gamma[]replay[]schedule
+ []
+
+
+Overfull \hbox (130.15395pt too wide) in paragraph at lines 68--69
+\OT1/cmr/m/n/10.95 (-20) with its file ver-sion \OT1/cmtt/m/n/10.95 validate[]g
+amma[]replay[]files\OT1/cmr/m/n/10.95 (-20) ; the Monte Carlo val-ida-tor \OT1/
+cmtt/m/n/10.95 validate[]gamma[]stochastic[]schedule\OT1/cmr/m/n/10.95 (-20) ;
+ []
+
+
+Overfull \hbox (71.3568pt too wide) in paragraph at lines 68--69
+\OT1/cmr/m/n/10.95 (-20) and the se-lec-tor of both, \OT1/cmtt/m/n/10.95 valida
+te[]gamma[]schedule\OT1/cmr/m/n/10.95 (-20) , with its file ver-sion \OT1/cmtt/
+m/n/10.95 validate[]gamma[]schedule[]files\OT1/cmr/m/n/10.95 (-20) . 
+ []
+
+
+Overfull \hbox (98.22252pt too wide) in paragraph at lines 70--71
+\OT1/cmr/m/n/10.95 (-20) heuris-tic \OT1/cmtt/m/n/10.95 build[]greedy[]warm[]st
+art \OT1/cmr/m/n/10.95 (-20) (Sec-tion [][]3.6[][]); the ex-act Gamma val-ida-t
+or \OT1/cmtt/m/n/10.95 validate[]gamma[]tail[]bound[]schedule
+ []
+
+
+LaTeX Warning: Reference `sec:constraints' on page 2 undefined on input line 85
+.
+
+
+LaTeX Warning: Reference `sec:variables' on page 2 undefined on input line 88.
+
+
+LaTeX Warning: Reference `eq:c_phase' on page 2 undefined on input line 88.
+
+
+LaTeX Warning: Reference `sec:objective' on page 2 undefined on input line 94.
+
+
+LaTeX Warning: Reference `sec:assignment' on page 2 undefined on input line 94.
+
+
+
+LaTeX Warning: Reference `sec:depot' on page 2 undefined on input line 94.
+
+
+LaTeX Warning: Reference `sec:damage_reg' on page 2 undefined on input line 94.
+
 
 
 LaTeX Warning: Reference `sec:consistency_checks' on page 2 undefined on input 
-line 125.
+line 97.
+
+
+Overfull \hbox (45.26344pt too wide) in paragraph at lines 106--108
+\OT1/cmr/m/n/10.95 (-20) A hori-zon sweep solves one in-put for sev-eral pairs 
+$(\OML/cmm/m/it/10.95 H[]; H[]\OT1/cmr/m/n/10.95 (-20) )$ and ranks the cases. 
+\OT1/cmtt/m/n/10.95 sweep[]operating[]horizons
+ []
 
 
 
-[2] [3]
+[2]
 
-LaTeX Warning: Reference `sec:output' on page 4 undefined on input line 206.
+LaTeX Warning: Reference `eq:a_phases' on page 3 undefined on input line 112.
+
+
+LaTeX Warning: Reference `sec:run_options' on page 3 undefined on input line 11
+9.
+
+LaTeX Font Info:    Font shape `OT1/cmtt/bx/n' in size <10.95> not available
+(Font)              Font shape `OT1/cmtt/m/n' tried instead on input line 123.
+
+Overfull \hbox (2.59062pt too wide) in paragraph at lines 141--142
+[]\OT1/cmtt/m/n/10.95 objective[]mode\OT1/cmr/m/n/10.95 (-20) , \OT1/cmtt/m/n/1
+0.95 evaluation[]horizon\OT1/cmr/m/n/10.95 (-20) : writ-ten into ev-ery case in
+-put; \OT1/cmtt/m/n/10.95 "evaluation[]total"
+ []
+
+
+LaTeX Warning: Reference `sec:schema' on page 3 undefined on input line 145.
+
+
+LaTeX Warning: Reference `sec:consistency_checks' on page 3 undefined on input 
+line 146.
+
+
+
+[3]
+Overfull \hbox (88.00845pt too wide) in paragraph at lines 169--170
+\OT1/cmr/m/n/10.95 (-20) (\OT1/cmtt/m/n/10.95 "H2"\OT1/cmr/m/n/10.95 (-20) ); \
+OT1/cmtt/m/n/10.95 fixed[]dimensions \OT1/cmr/m/n/10.95 (-20) ($\OML/cmm/m/it/1
+0.95 F$\OT1/cmr/m/n/10.95 (-20) , $\OML/cmm/m/it/10.95 M$\OT1/cmr/m/n/10.95 (-2
+0) , $\OML/cmm/m/it/10.95 L$\OT1/cmr/m/n/10.95 (-20) ) and \OT1/cmtt/m/n/10.95 
+H1\OT1/cmr/m/n/10.95 (-20) ; \OT1/cmtt/m/n/10.95 planned[]operating[]horizons \
+OT1/cmr/m/n/10.95 (-20) and \OT1/cmtt/m/n/10.95 evaluated[]operating[]horizons\
+OT1/cmr/m/n/10.95 (-20) ;
+ []
+
+
+Overfull \hbox (96.57623pt too wide) in paragraph at lines 169--170
+\OT1/cmtt/m/n/10.95 warm[]start \OT1/cmr/m/n/10.95 (-20) (\OT1/cmtt/m/n/10.95 e
+nabled\OT1/cmr/m/n/10.95 (-20) , \OT1/cmtt/m/n/10.95 mode\OT1/cmr/m/n/10.95 (-2
+0) ) and \OT1/cmtt/m/n/10.95 n[]workers\OT1/cmr/m/n/10.95 (-20) ; \OT1/cmtt/m/n
+/10.95 stopping[]rule\OT1/cmr/m/n/10.95 (-20) , with \OT1/cmtt/m/n/10.95 enable
+d\OT1/cmr/m/n/10.95 (-20) , \OT1/cmtt/m/n/10.95 relative[]gradient[]tolerance[]
+per[]H2\OT1/cmr/m/n/10.95 (-20) ,
+ []
+
+
+Overfull \hbox (19.82582pt too wide) in paragraph at lines 169--170
+\OT1/cmr/m/n/10.95 (-20) the stop ar-gu-ments \OT1/cmtt/m/n/10.95 flat[]gradien
+ts[]required\OT1/cmr/m/n/10.95 (-20) , \OT1/cmtt/m/n/10.95 minimum[]cases \OT1/
+cmr/m/n/10.95 (-20) and \OT1/cmtt/m/n/10.95 maximum[]mip[]gap[]for[]stopping
+ []
+
+
+Overfull \hbox (101.74503pt too wide) in paragraph at lines 169--170
+\OT1/cmr/m/n/10.95 (-20) un-der their own names (the last one \OT1/cmtt/m/n/10.
+95 null \OT1/cmr/m/n/10.95 (-20) for the de-fault), the \OT1/cmtt/m/n/10.95 rea
+son \OT1/cmr/m/n/10.95 (-20) (\OT1/cmtt/m/n/10.95 "in[]progress"\OT1/cmr/m/n/10
+.95 (-20) , \OT1/cmtt/m/n/10.95 "candidate[]range[]exhausted"\OT1/cmr/m/n/10.95
+ (-20) ,
+ []
+
+
+LaTeX Warning: Reference `sec:output' on page 4 undefined on input line 171.
+
+
+Overfull \hbox (52.92523pt too wide) in paragraph at lines 171--172
+\OT1/cmtt/m/n/10.95 absolute[]mip[]gap $\OT1/cmr/m/n/10.95 (-20) = []\OMS/cmsy/
+m/n/10.95 f\OT1/cmr/m/n/10.95 (-20) 0\OML/cmm/m/it/10.95 ;  [] \OMS/cmsy/m/n/10
+.95 ^^@ []g$\OT1/cmr/m/n/10.95 (-20) ; \OT1/cmtt/m/n/10.95 requested[]mip[]gap 
+\OT1/cmr/m/n/10.95 (-20) and \OT1/cmtt/m/n/10.95 requested[]time[]limit[]second
+s\OT1/cmr/m/n/10.95 (-20) ,
+ []
+
+
+Overfull \hbox (99.21474pt too wide) in paragraph at lines 171--172
+\OT1/cmtt/m/n/10.95 work[]units\OT1/cmr/m/n/10.95 (-20) ; the gra-di-ent keys \
+OT1/cmtt/m/n/10.95 cost[]gradient[]per[]H2\OT1/cmr/m/n/10.95 (-20) , \OT1/cmtt/
+m/n/10.95 relative[]cost[]gradient[]per[]H2\OT1/cmr/m/n/10.95 (-20) , \OT1/cmtt
+/m/n/10.95 gradient[]classification
+ []
 
 
 
 [4]
 
+LaTeX Warning: Reference `sec:output_reports' on page 5 undefined on input line
+ 214.
+
+
+
 [5]
 
-LaTeX Warning: Reference `sec:run_options' on page 6 undefined on input line 33
-2.
+LaTeX Warning: Reference `eq:a_ind_sum' on page 6 undefined on input line 229.
 
 
-LaTeX Warning: Reference `sec:replacement' on page 6 undefined on input line 35
-6.
-
-
-LaTeX Warning: Reference `eq:a_ind_sum' on page 6 undefined on input line 359.
+LaTeX Warning: Reference `sec:run_options' on page 6 undefined on input line 24
+7.
 
 
 
 [6]
 
-LaTeX Warning: Reference `sec:output' on page 7 undefined on input line 414.
+LaTeX Warning: Reference `sec:consistency_checks' on page 7 undefined on input 
+line 275.
+
+
+LaTeX Warning: Reference `sec:encoding' on page 7 undefined on input line 280.
+
+
+LaTeX Warning: Reference `sec:loop' on page 7 undefined on input line 280.
+
+
+LaTeX Warning: Reference `sec:dyn_gaussian' on page 7 undefined on input line 2
+80.
+
+
+LaTeX Warning: Reference `sec:dyn_rainflow' on page 7 undefined on input line 2
+80.
+
+
+LaTeX Warning: Reference `sec:linear_forms' on page 7 undefined on input line 2
+80.
+
+
+LaTeX Warning: Reference `sec:output' on page 7 undefined on input line 300.
+
+
 
 [7]
 
-LaTeX Warning: Reference `sec:inputs' on page 8 undefined on input line 454.
-
-
-LaTeX Warning: Reference `sec:consistency_checks' on page 8 undefined on input 
-line 471.
-
-
-LaTeX Warning: Reference `sec:encoding' on page 8 undefined on input line 481.
-
-
-LaTeX Warning: Reference `sec:loop' on page 8 undefined on input line 485.
-
-
-LaTeX Warning: Reference `sec:dyn_gaussian' on page 8 undefined on input line 4
-87.
-
-
-LaTeX Warning: Reference `sec:dyn_rainflow' on page 8 undefined on input line 4
-87.
+LaTeX Warning: Reference `sec:assignment' on page 8 undefined on input line 321
+.
 
 
 
 [8]
 
+LaTeX Warning: Reference `sec:consistency_checks' on page 9 undefined on input 
+line 353.
+
+
+LaTeX Warning: Reference `sec:assignment' on page 9 undefined on input line 357
+.
+
+
+LaTeX Warning: Reference `sec:depot' on page 9 undefined on input line 359.
+
+
+LaTeX Warning: Reference `sec:output' on page 9 undefined on input line 360.
+
+
+LaTeX Warning: Reference `sec:loop' on page 9 undefined on input line 361.
+
+
+LaTeX Warning: Reference `eq:a_objective' on page 9 undefined on input line 362
+.
+
+
+LaTeX Warning: Reference `eq:a_daycost' on page 9 undefined on input line 362.
+
+
+LaTeX Warning: Reference `sec:loop' on page 9 undefined on input line 376.
+
+
+LaTeX Warning: Reference `sec:dyn_gaussian' on page 9 undefined on input line 3
+77.
+
+
+LaTeX Warning: Reference `sec:dyn_rainflow' on page 9 undefined on input line 3
+77.
+
+
+LaTeX Warning: Reference `sec:dyn_gamma' on page 9 undefined on input line 379.
+
+
+
+
 [9]
 
-LaTeX Warning: Reference `sec:output' on page 10 undefined on input line 597.
+LaTeX Warning: Reference `sec:encoding' on page 10 undefined on input line 395.
 
 
-LaTeX Warning: Reference `sec:schema' on page 10 undefined on input line 606.
+
+LaTeX Warning: Reference `sec:repair_cost' on page 10 undefined on input line 3
+98.
 
 
-LaTeX Warning: Reference `sec:consistency_checks' on page 10 undefined on input
- line 608.
+LaTeX Warning: Reference `sec:dyn_gamma' on page 10 undefined on input line 399
+.
+
+
+LaTeX Warning: Reference `sec:dyn_gamma' on page 10 undefined on input line 413
+.
 
 
 
 [10]
-
-LaTeX Warning: Reference `sec:constraints' on page 11 undefined on input line 6
-40.
-
-
-LaTeX Warning: Reference `sec:encoding' on page 11 undefined on input line 641.
-
-
-
-LaTeX Warning: Reference `sec:repair_cost' on page 11 undefined on input line 6
-41.
+Overfull \hbox (18.84584pt too wide) in paragraph at lines 432--438
+\OT1/cmr/m/n/10.95 (-20) (\OT1/cmtt/m/n/10.95 failed[]replays\OT1/cmr/m/n/10.95
+ (-20) , \OT1/cmtt/m/n/10.95 failure[]rate\OT1/cmr/m/n/10.95 (-20) , \OT1/cmtt/
+m/n/10.95 failure[]rate[]upper[]confidence[]bound\OT1/cmr/m/n/10.95 (-20) , \OT
+1/cmtt/m/n/10.95 maximum[]failure[]rate\OT1/cmr/m/n/10.95 (-20) ,
+ []
 
 
-LaTeX Warning: Reference `sec:linear_forms' on page 11 undefined on input line 
-642.
+LaTeX Warning: Reference `sec:run_options' on page 11 undefined on input line 4
+39.
 
+) (references.tex
 
-LaTeX Warning: Reference `sec:loop' on page 11 undefined on input line 643.
-
-
-LaTeX Warning: Reference `sec:input_increments' on page 11 undefined on input l
-ine 656.
-
-
-LaTeX Warning: Reference `sec:objective' on page 11 undefined on input line 662
-.
-
-
-LaTeX Warning: Reference `sec:assignment' on page 11 undefined on input line 66
-3.
-
-
-LaTeX Warning: Reference `sec:depot' on page 11 undefined on input line 663.
-
-
-LaTeX Warning: Reference `sec:damage_reg' on page 11 undefined on input line 66
-4.
-
-
-LaTeX Warning: Reference `sec:consistency_checks' on page 11 undefined on input
- line 670.
-
-
-
-[11]
-
-LaTeX Warning: Reference `sec:output' on page 12 undefined on input line 698.
-
-
-LaTeX Warning: Reference `sec:output' on page 12 undefined on input line 702.
-
-
-LaTeX Warning: Reference `sec:encoding' on page 12 undefined on input line 716.
-
-
-
+[11])
 
 [12]
-
-LaTeX Warning: Reference `sec:consistency_checks' on page 13 undefined on input
- line 795.
-
-
-
-[13]
-
-LaTeX Warning: Reference `sec:assignment' on page 14 undefined on input line 80
-9.
-
-
-LaTeX Warning: Reference `sec:depot' on page 14 undefined on input line 813.
-
-
-LaTeX Warning: Reference `sec:damage_reg' on page 14 undefined on input line 81
-7.
-
-
-LaTeX Warning: Reference `sec:loop' on page 14 undefined on input line 819.
-
-
-LaTeX Warning: Reference `sec:objective' on page 14 undefined on input line 830
-.
-
-
-LaTeX Warning: Reference `sec:encoding' on page 14 undefined on input line 834.
-
-
-
-
-[14]
-
-LaTeX Warning: Reference `sec:loop' on page 15 undefined on input line 855.
-
-
-LaTeX Warning: Reference `sec:dyn_gaussian' on page 15 undefined on input line 
-864.
-
-
-LaTeX Warning: Reference `sec:dyn_rainflow' on page 15 undefined on input line 
-864.
-
-
-LaTeX Warning: Reference `sec:dyn_gamma' on page 15 undefined on input line 871
-.
-
-
-LaTeX Warning: Reference `sec:inputs' on page 15 undefined on input line 878.
-
-
-LaTeX Warning: Reference `sec:dyn_gamma' on page 15 undefined on input line 885
-.
-
-
-LaTeX Warning: Reference `sec:encoding' on page 15 undefined on input line 899.
-
-
-
-LaTeX Warning: Reference `sec:encoding' on page 15 undefined on input line 908.
-
-
-
-LaTeX Warning: Reference `sec:repair_cost' on page 15 undefined on input line 9
-11.
-
-
-LaTeX Warning: Reference `sec:dyn_gamma' on page 15 undefined on input line 912
-.
-
-[15]
-
-LaTeX Warning: Reference `sec:dyn_gamma' on page 16 undefined on input line 933
-.
-
-
-
-[16]) (references.tex
-
-[17])
-
-[18]
 (C:\Users\utente\Documents\GitHub\Fleet_Management\merge\spec_drafts\build_D\wr
 ap_D.aux)
  ***********
@@ -1219,16 +1292,16 @@ L3 programming layer <2025-07-11>
 LaTeX Warning: There were undefined references.
 
 Package rerunfilecheck Info: File `wrap_D.out' has not changed.
-(rerunfilecheck)             Checksum: 4A1ED338FC7A0A89F2FB0D9F5B0F07C4;3756.
+(rerunfilecheck)             Checksum: 9C72F6DEDE7D43DA918EC3851793BF92;3949.
  ) 
 Here is how much of TeX's memory you used:
- 27794 strings out of 468149
- 507061 string characters out of 5430598
- 1314503 words of memory out of 5000000
- 55611 multiletter control sequences out of 15000+600000
- 641865 words of font info for 167 fonts, out of 8000000 for 9000
+ 27682 strings out of 468149
+ 506164 string characters out of 5430598
+ 1482376 words of memory out of 5000000
+ 55571 multiletter control sequences out of 15000+600000
+ 640171 words of font info for 144 fonts, out of 8000000 for 9000
  1141 hyphenation exceptions out of 8191
- 107i,15n,110p,1197b,2038s stack positions out of 10000i,1000n,20000p,200000b,200000s
+ 107i,14n,110p,1587b,1360s stack positions out of 10000i,1000n,20000p,200000b,200000s
  <C:\Users\utente\AppData\Local\MiKTeX\fonts/pk/ljfour/jknappen/ec/dpi600\tcr
 m1095.pk><C:/Users/utente/AppData/Local/Programs/MiKTeX/fonts/type1/public/amsf
 onts/cm/cmbx10.pfb><C:/Users/utente/AppData/Local/Programs/MiKTeX/fonts/type1/p
@@ -1240,21 +1313,19 @@ pData/Local/Programs/MiKTeX/fonts/type1/public/amsfonts/cm/cmmi7.pfb><C:/Users/
 utente/AppData/Local/Programs/MiKTeX/fonts/type1/public/amsfonts/cm/cmmi8.pfb><
 C:/Users/utente/AppData/Local/Programs/MiKTeX/fonts/type1/public/amsfonts/cm/cm
 r10.pfb><C:/Users/utente/AppData/Local/Programs/MiKTeX/fonts/type1/public/amsfo
-nts/cm/cmr5.pfb><C:/Users/utente/AppData/Local/Programs/MiKTeX/fonts/type1/publ
-ic/amsfonts/cm/cmr6.pfb><C:/Users/utente/AppData/Local/Programs/MiKTeX/fonts/ty
-pe1/public/amsfonts/cm/cmr7.pfb><C:/Users/utente/AppData/Local/Programs/MiKTeX/
-fonts/type1/public/amsfonts/cm/cmr8.pfb><C:/Users/utente/AppData/Local/Programs
-/MiKTeX/fonts/type1/public/amsfonts/cm/cmsy10.pfb><C:/Users/utente/AppData/Loca
-l/Programs/MiKTeX/fonts/type1/public/amsfonts/cm/cmsy7.pfb><C:/Users/utente/App
-Data/Local/Programs/MiKTeX/fonts/type1/public/amsfonts/cm/cmsy8.pfb><C:/Users/u
-tente/AppData/Local/Programs/MiKTeX/fonts/type1/public/amsfonts/cm/cmti10.pfb><
-C:/Users/utente/AppData/Local/Programs/MiKTeX/fonts/type1/public/amsfonts/cm/cm
-tt10.pfb><C:/Users/utente/AppData/Local/Programs/MiKTeX/fonts/type1/public/amsf
-onts/symbols/msbm10.pfb>
+nts/cm/cmr6.pfb><C:/Users/utente/AppData/Local/Programs/MiKTeX/fonts/type1/publ
+ic/amsfonts/cm/cmr7.pfb><C:/Users/utente/AppData/Local/Programs/MiKTeX/fonts/ty
+pe1/public/amsfonts/cm/cmr8.pfb><C:/Users/utente/AppData/Local/Programs/MiKTeX/
+fonts/type1/public/amsfonts/cm/cmsy10.pfb><C:/Users/utente/AppData/Local/Progra
+ms/MiKTeX/fonts/type1/public/amsfonts/cm/cmsy8.pfb><C:/Users/utente/AppData/Loc
+al/Programs/MiKTeX/fonts/type1/public/amsfonts/cm/cmti10.pfb><C:/Users/utente/A
+ppData/Local/Programs/MiKTeX/fonts/type1/public/amsfonts/cm/cmtt10.pfb><C:/User
+s/utente/AppData/Local/Programs/MiKTeX/fonts/type1/public/amsfonts/symbols/msbm
+10.pfb>
 Output written on C:\Users\utente\Documents\GitHub\Fleet_Management\merge\spec_
-drafts\build_D\wrap_D.pdf (18 pages, 374691 bytes).
+drafts\build_D\wrap_D.pdf (12 pages, 323099 bytes).
 PDF statistics:
- 509 PDF objects out of 1000 (max. 8388607)
- 190 named destinations out of 1000 (max. 500000)
- 28885 words of extra memory for PDF output out of 29859 (max. 10000000)
+ 425 PDF objects out of 1000 (max. 8388607)
+ 156 named destinations out of 1000 (max. 500000)
+ 27365 words of extra memory for PDF output out of 29859 (max. 10000000)
 

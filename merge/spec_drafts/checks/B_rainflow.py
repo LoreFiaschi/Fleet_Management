@@ -213,3 +213,38 @@ if __name__ == "__main__":
     print("  K_X(5) = %.4f;  row with K_0 = 0: %.3f <= %.3f ? %s" % (KX, KX - s * tau, math.log(eps), KX - s * tau <= math.log(eps)))
     print("  row with K_0 = s mu_0: %.3f <= %.3f ? %s;  true P(D > tau) = 0.5" % (
         s * mu0 + KX - s * tau, math.log(eps), s * mu0 + KX - s * tau <= math.log(eps)))
+
+    print("(10) Bernstein tangent and pwl: the row admits (mu, v) with v >= 0, mu in [0, tau - c] iff mu_r^2 <= tau(tau - 2c)")
+    mism, acc_old_empty = 0, 0
+    for _ in range(400):
+        tau = random.uniform(0.2, 3.0)
+        eps = random.uniform(0.001, 0.4)
+        kap = math.log(1 / eps)
+        c = random.uniform(0.0, 0.49) * tau
+        b = 3 * c / kap
+        f = lambda mu: ((tau - mu) ** 2 - 2 * c * (tau - mu)) / (2 * kap)
+        fp = lambda mu: (-2 * (tau - mu) + 2 * c) / (2 * kap)
+        for _ in range(3):
+            mu_r = random.uniform(0.0, 0.999) * tau
+            grid = [k * (tau - c) / 2000 for k in range(2001)]
+            feasible = max(f(mu_r) + fp(mu_r) * (mu - mu_r) for mu in grid) >= 0
+            rule = mu_r ** 2 <= tau * (tau - 2 * c)
+            if feasible != rule and abs(mu_r ** 2 - tau * (tau - 2 * c)) > 1e-9:
+                mism += 1
+            if mu_r < tau - c and not feasible:
+                acc_old_empty += 1
+        for P in (1, 2, 4, 8):
+            mids = [(p - 0.5) * tau / P for p in range(1, P + 1)]
+            edges = [p * tau / P for p in range(P + 1)]
+            ok = False
+            for k in range(2001):
+                mu = k * (tau - c) / 2000
+                p = min(int(mu / (tau / P)), P - 1)
+                if f(mids[p]) + fp(mids[p]) * (mu - mids[p]) >= 0:
+                    ok = True
+                    break
+            rule = (tau / (2 * P)) ** 2 <= tau * (tau - 2 * c)
+            if ok != rule and abs((tau / (2 * P)) ** 2 - tau * (tau - 2 * c)) > 1e-6:
+                mism += 1
+    print("  mismatches between grid search and the rule (tangent: 1200 points; pwl: 1600 cases): %d" % mism)
+    print("  tangent points with mu_r < tau - c whose row is empty (accepted by the weaker condition): %d" % acc_old_empty)

@@ -1,76 +1,124 @@
 % ================================================================
+\section{Architecture}
+\label{sec:files}
+% ================================================================
+
+\subsection{Package Layout}
+
+\begin{lstlisting}
+Fleet_Management/
+  pyproject.toml            Python >= 3.10; extra "dashboard"
+  README.md
+  spec/                     this specification: spec.tex, references.bib
+  examples/                 example inputs and regression scripts
+  tests/                    pytest suite
+  experiments/              experiments: inputs, runners, job scripts
+  results/validator_tests/  fixtures of the validator tests (test data)
+  euler/                    two Slurm jobs of the ETH Euler cluster
+  src/fleet_management/
+    __init__.py             public API
+    config.py               reader, checks, broadcasting; load_config
+    solver.py               solve(): checks, dispatch, result files
+    horizon_sweep.py        sweep_operating_horizons, sweep_horizon_grid
+    greedy_warm_start.py    build_greedy_warm_start
+    validator_dashboard.py  Streamlit entry point of the dashboards
+    degradation_model/
+      base.py               shared model, registry, objective,
+                            warm starts, result extraction,
+                            performance counters
+      gaussian.py, inverse_gaussian.py, wiener.py, gamma.py, rainflow.py
+                            cell builders; gamma.py computes the cap A_1
+      gamma_utils/
+        gamma_replay_validator.py      replay validator
+        gamma_stochastic_validator.py  Monte Carlo validator
+        gamma_tail_validator.py        exact validator
+        gamma_tail_bound.py            moschopoulos_tail_probability
+    utils/plotter.py        plot_management, plot_horizon_sweep
+    validation/
+      validator.py          validate
+      dashboard_inspector.py, dashboard_gamma.py
+\end{lstlisting}
+\texttt{examples/regression/} holds the scripts of the two Slurm jobs (Slurm is the job scheduler of the cluster): the job \texttt{gamma\_horizon\_convergence.sbatch} runs \texttt{run\_horizon\_sweep.py}, and the job \texttt{vbz\_progressive\_feasibility.sbatch} runs \texttt{run\_progressive\_vbz\_feasibility.py}.
+
+\subsection{Data Flow of One Solve}
+\label{sec:data_flow}
+
+\begin{lstlisting}[language=Python]
+solve(input_path, results_path="output.yaml", *,
+      warm_start=None, warm_start_mode="start") -> dict
+\end{lstlisting}
+\begin{enumerate}[nosep,label=\arabic*.]
+  \item Check the input file: it exists (\texttt{FileNotFoundError}) and has the extension \texttt{.yaml}, \texttt{.yml}, \texttt{.json}, \texttt{.h5} or \texttt{.hdf5} (\texttt{ValueError}). Check \texttt{results\_path} (Section~\ref{sec:output_files}).
+  \item Read the file with the input reader (Section~\ref{sec:schema}) into a mapping.
+  \item \texttt{load\_config}: normalise the mapping into a \texttt{FleetConfig} and run the checks of Section~\ref{sec:consistency_checks} (\texttt{ValueError}).
+  \item Build the model (Section~\ref{sec:builders}), apply the warm start (Section~\ref{sec:warm_starts}) and optimise.
+  \item Extract the result (Section~\ref{sec:output}): the shared extraction, then the \texttt{extract} hook of each builder. Write the result file (Section~\ref{sec:output_files}) and return the result.
+\end{enumerate}
+Steps 3 to 5 form the internal entry point \texttt{solve\_mapping(data, results\_path=None, *, warm\_start=None, warm\_start\_mode="start")}, which takes the mapping of step~2. Gurobi errors are not caught.
+
+\subsection{Public API}
+\label{sec:api}
+
+The package exports:
+\begin{itemize}[nosep]
+  \item one solve: \texttt{solve} (Section~\ref{sec:data_flow});
+  \item horizon sweeps: \texttt{sweep\_operating\_horizons} and \texttt{sweep\_horizon\_grid} (Section~\ref{sec:sweeps});
+  \item plots: \texttt{plot\_management} and \texttt{plot\_horizon\_sweep} (Section~\ref{sec:plotting});
+  \item the structural validator \texttt{validate} (Section~\ref{sec:validation_structural});
+  \item the Gamma validators (Section~\ref{sec:validation_gamma}): the replay validator \texttt{validate\_gamma\_replay\_schedule} with its file version \texttt{validate\_gamma\_replay\_files}; the Monte Carlo validator \texttt{validate\_gamma\_stochastic\_schedule}; and the selector of both, \texttt{validate\_gamma\_schedule}, with its file version \texttt{validate\_gamma\_schedule\_files}.
+\end{itemize}
+Internal functions, not exported: \texttt{solve\_mapping} and \texttt{load\_config} (Section~\ref{sec:data_flow}); the greedy heuristic \texttt{build\_greedy\_warm\_start} (Section~\ref{sec:greedy}); the exact Gamma validator \texttt{validate\_gamma\_tail\_bound\_schedule} and its file version (Section~\ref{sec:validation_gamma}).
+
+\subsection{Cell-Builder Interface}
+\label{sec:builders}
+
+A registry maps each model name (\texttt{gaussian}, \texttt{inverse\_gaussian}, \texttt{wiener}, \texttt{gamma}, \texttt{rainflow}) to a builder; the model of cell $(i,\ell)$ is its entry of \texttt{model}.
+\begin{lstlisting}[language=Python]
+register_cell_builder(name, builder)  # CELL_BUILDERS[name] = builder
+get_cell_builder(name)    # NotImplementedError, with the names, if absent
+dispatch_cell(ctx, i, l)  # get_cell_builder(ctx.model_of[i, l])
+                          #     .add_cell(ctx, i, l)
+\end{lstlisting}
+A builder has the attribute \texttt{name} and three hooks:
+\begin{itemize}[nosep]
+  \item \texttt{prepare(ctx, cfg, cells, opts)}: called once per model in the fleet, with its cells. It stores the per-cell arrays of the model in \texttt{ctx}, creates the variables of the tracked quantities, anchors and selectors of these cells only, may tighten variable bounds, and sets Gurobi's \texttt{NonConvex} to $2$ if some cell keeps an exact quadratic row.
+  \item \texttt{add\_cell(ctx, i, l)}: adds the rows of one cell (Section~\ref{sec:constraints}): dynamics in the form of \texttt{encoding}, replacement and anchor rows, repair-cost rows, reliability rows in the form of \texttt{reliability\_impl}, loop rows of the full tracked state.
+  \item \texttt{extract(ctx, cfg, out)}, optional: adds model-specific entries to the result \texttt{out} after the shared entries.
+\end{itemize}
+The context \texttt{ctx} holds the sizes $F$, $L$, $M$, $H_1$, $H_2$, $T$; the Gurobi model; the shared variables $x$, $x^m$, $x^r$ (absent if replacement is not allowed), $\mu$, $z$ (cells with $C_R > 0$) and $u$ (if $C_D > 0$), with the shapes of Section~\ref{sec:variables}; the per-cell arrays (model, $\tau$, $\varepsilon$, $\rho$, initial and replacement values, starting anchors); the increment accessor $(i, j, \ell, k) \mapsto$ increment after the phase lookup, Eq.~\eqref{eq:c_phase}, with $j = 0$ the depot; the run options; a dictionary \texttt{extras}.
+
+Building order:
+\begin{enumerate}[nosep,label=\arabic*.]
+  \item Create the model, apply the run options, create the shared variables.
+  \item Call \texttt{prepare} for each model present, in alphabetical order of the names.
+  \item Build the objective (Section~\ref{sec:objective}) and the rows that do not depend on the model: assignment (Section~\ref{sec:assignment}), depot day (Section~\ref{sec:depot}), damage penalty (Section~\ref{sec:damage_reg}).
+  \item Call \texttt{add\_cell} for every cell, $i$ outer, $\ell$ inner.
+\end{enumerate}
+Each builder defines $\mu_{i\ell k}$, $k = 1,\ldots,T$, for its cells. A model is added by a module with its builder, its registration, its input checks in \texttt{config.py} (Section~\ref{sec:consistency_checks}) and its section in this specification.
+
+% ==== BLOCK 2 ====
+
+% ================================================================
 \section{Horizon Sweeps}
 \label{sec:sweeps}
 % ================================================================
 
-A single call of \texttt{solve()} uses one horizon pair $H = [H_1, H_2]$ (Section~\ref{sec:notation}).
-A \emph{horizon sweep} solves one scenario for several pairs and compares the solved cases.
-Two functions implement the sweeps: \texttt{sweep\_operating\_horizons} varies $H_2$ for one $H_1$, and
-\texttt{sweep\_horizon\_grid} varies $H_1$ and $H_2$ on a grid.
+A horizon sweep solves one input for several pairs $(H_1, H_2)$ and ranks the cases. \texttt{sweep\_operating\_horizons} varies $H_2$ for one $H_1$; \texttt{sweep\_horizon\_grid} varies $H_1$ and $H_2$.
 No input key starts a sweep, and \texttt{solve()} never runs one.
-Both functions are exported by the package (Section~\ref{sec:api}).
 
-\subsection{Cost Measures and the Ranking Criteria}
+\subsection{Cost Measures and Ranking}
 \label{sec:sweep_criteria}
 
-Let $x$, $z$, $x^r$ be the solution of a case.
-The cost of day $k$ is
+$J_{\mathrm{init}}$ and $J_{\mathrm{op}}$ of a case are Eq.~\eqref{eq:a_phases} on its solution. The cost per operating day, and the projected cost over an evaluation horizon $E > H_1$, are
 \begin{equation}
-  c_k = C_M \sum_{i=1}^{F} x_{i0k}
-      + \sum_{i=1}^{F}\sum_{\ell=1}^{L} \bigl( C_{R,i\ell}\, z_{i\ell k} + C_{\mathrm{rep},i\ell}\, x^r_{i\ell k} \bigr),
-  \label{eq:d_daycost}
-\end{equation}
-where $z_{i\ell k} = 0$ for a cell with $C_{R,i\ell} = 0$ (no variable $z$ is built, Section~\ref{sec:repair_cost}).
-The cost of the transitory phase and the cost of the operating phase are
-\begin{equation}
-  J_{\mathrm{init}} = \sum_{k=1}^{H_1} c_k, \qquad
-  J_{\mathrm{op}} = \sum_{k=H_1+1}^{T} c_k, \qquad
-  \bar J_{\mathrm{op}} = J_{\mathrm{op}} / H_2 .
-  \label{eq:d_phasecosts}
-\end{equation}
-The peak damage is $u = \max_{i,k} \sum_{\ell} \mu_{i\ell k}$, and the damage penalty is $C_D\, u$.
-The result keys are \texttt{J\_initialization}, \texttt{J\_op}, \texttt{J\_op\_average} ($= \bar J_{\mathrm{op}}$),
-\texttt{peak\_damage} and \texttt{damage\_penalty} (Section~\ref{sec:output}).
-
-A solve with \texttt{objective\_mode = "operating\_average"} minimises $\bar J_{\mathrm{op}} + C_D\,u$ (Section~\ref{sec:objective}).
-The transitory phase has no cost in this objective, but it is still constrained.
-With \texttt{objective\_mode = "evaluation\_total"} and an \emph{evaluation horizon} $E > H_1$ (days),
-the solve minimises $P_E + C_D\,u$, where $P_E$ is the \emph{projected cost}
-\begin{equation}
+  \bar J_{\mathrm{op}} = J_{\mathrm{op}} / H_2, \qquad
   P_E = J_{\mathrm{init}} + (E - H_1)\,\bar J_{\mathrm{op}} .
   \label{eq:d_projected}
 \end{equation}
-$P_E$ is the cost of the transitory phase, then of the operating phase repeated until day $E$.
-Two result keys carry it:
-\texttt{projected\_evaluation\_cost} holds $P_E$, and
-\texttt{evaluation\_objective} holds $P_E + C_D\,u$.
-
-A case is \emph{feasible} when its result holds a solution and its status is not \texttt{"infeasible"},
-not \texttt{"unbounded"} and not \texttt{"inf\_or\_unbounded"}.
-The \emph{MIP gap} is the relative gap between the objective of the best solution found and the best bound
-(MIP: mixed-integer program).
-A case is \emph{proven} when it is feasible and Gurobi reports the status \texttt{"optimal"}
-at the MIP gap used for that case, that is, the run option \texttt{mip\_gap} of Section~\ref{sec:run_options}.
-A proven case is optimal within that gap, not exactly optimal.
-The sweep report records the requested gap of each case, so a reader sees how strong the proof is.
-
-\emph{Ranking criteria.}
-\texttt{sweep\_operating\_horizons} ranks cases by $\bar J_{\mathrm{op}}$.
-The loop constraint (Section~\ref{sec:loop}) makes the operating phase repeat,
-so $\bar J_{\mathrm{op}}$ is the cost per day of the repeating regime.
-It is comparable across values of $H_2$, whereas a raw objective over $T$ days is not.
-\texttt{sweep\_horizon\_grid} ranks by $\bar J_{\mathrm{op}}$ when no evaluation horizon is given.
-With an evaluation horizon it ranks by $P_E$, which also prices the transitory phase,
-so it is the criterion that compares different values of $H_1$.
-In both functions the \emph{best proven case} is the proven case with the smallest ranking value,
-and the \emph{best feasible case} is the feasible case with the smallest ranking value.
-A tie goes to the case evaluated first.
-
-\emph{Remark (what the proof certifies).}
-The status \texttt{"optimal"} certifies the objective that the solve minimised.
-This objective is $\bar J_{\mathrm{op}} + C_D\,u$ in the mode \texttt{operating\_average} and $P_E + C_D\,u$ in the mode
-\texttt{evaluation\_total}, while the ranking value is $\bar J_{\mathrm{op}}$ or $P_E$ alone.
-The sweep therefore ranks by cost and uses the damage penalty only inside each solve.
+A case is \emph{feasible} if its result holds a solution and its status is not \texttt{"infeasible"}, \texttt{"unbounded"} or \texttt{"inf\_or\_unbounded"}.
+A case is \emph{proven} if it is feasible and its status is \texttt{"optimal"} at the MIP gap used for the case: Gurobi's \texttt{MIPGap} after all options are set, \texttt{gurobi\_params} included (Section~\ref{sec:run_options}); it is the entry \texttt{requested\_mip\_gap} of \texttt{performance}.
+The \emph{ranking value} is $\bar J_{\mathrm{op}}$ in \texttt{sweep\_operating\_horizons}; in \texttt{sweep\_horizon\_grid} it is $P_E$ if an evaluation horizon is given, otherwise $\bar J_{\mathrm{op}}$.
+The \emph{best proven case} and the \emph{best feasible case} have the smallest ranking value among the proven and the feasible cases. A tie goes to the smaller $H_2$; in the grid, to the smaller $H_1$, then the smaller $H_2$.
 
 \subsection{\texttt{sweep\_operating\_horizons}}
 \label{sec:sweep_operating}
@@ -84,167 +132,53 @@ sweep_operating_horizons(
     warm_start=False, warm_start_mode="start", n_workers=1,
     objective_mode="operating_average", evaluation_horizon=None) -> dict
 \end{lstlisting}
-
-\begingroup\small
-\begin{longtable}{@{}p{5.8cm}p{9.2cm}@{}}
-\toprule
-Argument & Meaning \\
-\midrule
-{\raggedright \texttt{input\_path}\par} & {\raggedright Input file (YAML, JSON or HDF5). $H_1$ is the first entry of the input key \texttt{H},
-  or its value when \texttt{H} is a scalar. The second entry of \texttt{H} is ignored.\par} \\
-{\raggedright \texttt{operating\_horizons}\par} & {\raggedright Candidate values of $H_2$: positive integers, at least one, no duplicates.
-  The function evaluates them in increasing order.\par} \\
-{\raggedright \texttt{output\_path}\par} & {\raggedright Report file, with the suffix \texttt{.yaml} or \texttt{.yml}. The function creates missing
-  parent folders. \texttt{None}: no file is written.\par} \\
-{\raggedright \texttt{stop\_on\_gradient}, \texttt{gradient\_tolerance}, \texttt{flat\_gradients\_required},
-  \texttt{minimum\_cases}, \texttt{maximum\_mip\_gap\_for\_stopping}\par} & {\raggedright Early stop (Section~\ref{sec:sweep_stop}).
-  Required: $\texttt{gradient\_tolerance} \ge 0$ and finite, $\texttt{flat\_gradients\_required} \ge 1$,
-  $\texttt{minimum\_cases} \ge 2$, and $\texttt{maximum\_mip\_gap\_for\_stopping}$ is \texttt{None} or a finite number $\ge 0$.\par} \\
-{\raggedright \texttt{warm\_start}, \texttt{warm\_start\_mode}\par} & {\raggedright Warm start between cases (Section~\ref{sec:warm_starts}).\par} \\
-{\raggedright \texttt{n\_workers}\par} & {\raggedright Number of cases solved at the same time (Section~\ref{sec:sweep_parallel}).\par} \\
-{\raggedright \texttt{objective\_mode}, \texttt{evaluation\_horizon}\par} & {\raggedright Written into every case input, replacing the values of
-  the input file. The mode \texttt{evaluation\_total} needs $E > H_1$.\par} \\
-\bottomrule
-\end{longtable}
-\endgroup
-
-\emph{Behaviour.}
-\begin{enumerate}[label=\arabic*.]
-  \item The function reads the input file with the reader of \texttt{solve()} (Section~\ref{sec:api}).
-    It accepts the same formats and raises the same file errors.
-    The data must be a mapping (\texttt{TypeError} otherwise).
-  \item The function checks every argument of the table above before it solves any case.
-    An invalid argument raises \texttt{ValueError}. An argument error is never recorded as a case error.
-    It also raises \texttt{ValueError} when \texttt{H} is a list of a length other than two,
-    or when \texttt{warm\_start} is true and $\texttt{n\_workers} > 1$,
-    or when \texttt{stop\_on\_gradient} is true and $\texttt{n\_workers} > 1$.
-  \item For each candidate $H_2$, the case input is the input data with
-    \texttt{H} $= [H_1, H_2]$, \texttt{objective\_mode} and (if given) \texttt{evaluation\_horizon}
-    replaced. Nothing else changes: the function does not interpolate time-indexed data.
-    A profile whose length differs from $H_2$ (and does not broadcast) is rejected by the input checks of
-    Section~\ref{sec:consistency_checks}. This rejection is an error of that case only.
-  \item The case is solved as \texttt{solve()} solves an input file, with \texttt{results\_path=None}.
-    The sweep keeps the summary of the case (Section~\ref{sec:sweep_report}), not its schedule.
-  \item After each case the function appends the case row, annotates the gradient
-    (Section~\ref{sec:sweep_stop}), tests the stopping rule, and writes a checkpoint when
-    \texttt{output\_path} is given (Section~\ref{sec:sweep_report}).
-  \item At the end the function writes the final report and returns it.
+Arguments with a rule:
+\begin{itemize}[nosep]
+  \item \texttt{input\_path}: $H_1$ is the first entry of \texttt{H}, or \texttt{H} if it is a scalar; the second entry is ignored.
+  \item \texttt{operating\_horizons}: the values of $H_2$; positive integers, at least one, no duplicates; evaluated in increasing order.
+  \item \texttt{output\_path}: the report file, \texttt{.yaml} or \texttt{.yml}; missing parent folders are created; \texttt{None} writes no file.
+  \item The arguments of the early stop (Section~\ref{sec:sweep_stop}): \texttt{gradient\_tolerance} is finite and $\ge 0$; \texttt{flat\_gradients\_required} is $\ge 1$; \texttt{minimum\_cases} is $\ge 2$; \texttt{maximum\_mip\_gap\_for\_stopping} is \texttt{None} or a finite number $\ge 0$.
+  \item \texttt{objective\_mode}, \texttt{evaluation\_horizon}: written into every case input; \texttt{"evaluation\_total"} needs $E > H_1$. For \texttt{warm\_start}, \texttt{warm\_start\_mode} and \texttt{n\_workers}, see Sections~\ref{sec:warm_sweeps} and~\ref{sec:sweep_parallel}.
+\end{itemize}
+Steps:
+\begin{enumerate}[nosep,label=\arabic*.]
+  \item Read the input file with the input reader (Section~\ref{sec:schema}); the data must be a mapping (\texttt{TypeError}). Check every argument.
+  \item For each $H_2$, the case input is the input data with \texttt{H} $= [H_1, H_2]$, and with \texttt{objective\_mode} and \texttt{evaluation\_horizon} (if given) replaced. Time-indexed data are not interpolated: a profile whose length is not $H_2$ fails the checks of Section~\ref{sec:consistency_checks}, as an error of that case.
+  \item Solve the case input with \texttt{solve\_mapping} (Section~\ref{sec:data_flow}) and \texttt{results\_path=None}; no temporary file is written. Keep the row of the case, not its schedule.
+  \item After each case: append its row, annotate the gradient (Section~\ref{sec:sweep_stop}), test the stop rule, write a checkpoint if \texttt{output\_path} is given. At the end, write the final report and return it.
 \end{enumerate}
+\emph{Errors.} \texttt{ValueError} before the first case for an invalid argument, for a list \texttt{H} whose length is not two, and for \texttt{warm\_start} or \texttt{stop\_on\_gradient} with $\texttt{n\_workers} > 1$; such an error is never recorded as a case error. An error inside a case is captured in its row (Section~\ref{sec:sweep_report}).
 
 \subsection{Early Stop}
 \label{sec:sweep_stop}
 
-Let $\bar J_n$ and $H_{2,n}$ be the cost per day and the operating horizon of the $n$-th evaluated case.
-When cases $n-1$ and $n$ are both feasible, the \emph{relative gradient} of case $n$ is
+Let $\bar J_n$ be the cost per operating day of the $n$-th evaluated case. If cases $n-1$ and $n$ are feasible, the relative gradient is
 \begin{equation}
   \hat g_n = \frac{\bar J_n - \bar J_{n-1}}{(H_{2,n} - H_{2,n-1})\,\max\{\,|\bar J_{n-1}|,\ \varepsilon_{\mathrm{mach}}\}},
   \label{eq:d_gradient}
 \end{equation}
 with $\varepsilon_{\mathrm{mach}}$ the machine precision of double-precision numbers.
-Case $n$ is classified \texttt{"increase"} if $\hat g_n > \texttt{gradient\_tolerance}$,
-\texttt{"decrease"} if $\hat g_n < -\texttt{gradient\_tolerance}$, and \texttt{"flat"} otherwise.
-If one of the two cases is not feasible, or if $n = 1$, the class is \texttt{"unavailable"}.
-A case \emph{qualifies} when it reports a finite MIP gap that is at most its gap threshold.
-The threshold of a case is \texttt{maximum\_mip\_gap\_for\_stopping} if that argument is a number,
-and otherwise the MIP gap used for that case (the entry \texttt{requested\_mip\_gap} of its row).
-With the default, a case qualifies when Gurobi has met the gap that was requested for it.
-The gradient of case $n$ is \emph{eligible to stop} when both cases $n-1$ and $n$ qualify.
-The function annotates every case with these values, also when \texttt{stop\_on\_gradient} is false.
-
-With \texttt{stop\_on\_gradient = True} the function stops after case $n$ when
-$n \ge \texttt{minimum\_cases}$, the gradient of case $n$ is eligible to stop, and one of these holds:
-\begin{itemize}
-  \item the class of case $n$ is \texttt{"increase"} (stopping reason \texttt{"cost\_increase"});
-  \item the class of case $n$ is \texttt{"flat"}, and the last \texttt{flat\_gradients\_required} cases up to $n$
-    all have the class \texttt{"flat"} and an eligible gradient (stopping reason \texttt{"flat\_gradient"}).
-\end{itemize}
-The last candidate in \texttt{operating\_horizons} is always a hard limit.
-A case that does not qualify, for example one that stopped at the time limit above its requested gap, is recorded,
-but it cannot trigger a stop.
+With $t = \texttt{gradient\_tolerance}$, the \emph{class} of case $n$ is \texttt{"increase"} if $\hat g_n > t$, \texttt{"decrease"} if $\hat g_n < -t$, \texttt{"flat"} otherwise, and \texttt{"unavailable"} if $n = 1$ or one of the two cases is not feasible.
+A case \emph{qualifies} if it reports a finite MIP gap at most its threshold: \texttt{maximum\_mip\_gap\_for\_stopping} if it is a number, otherwise the MIP gap used for the case (\texttt{requested\_mip\_gap} of its row). The gradient of case $n$ is \emph{eligible to stop} if cases $n-1$ and $n$ qualify.
+Every row carries its gradient, class and eligibility, also if \texttt{stop\_on\_gradient} is false. With \texttt{stop\_on\_gradient=True} the sweep stops after case $n$ if $n \ge \texttt{minimum\_cases}$, the gradient of case $n$ is eligible, and either the class of case $n$ is \texttt{"increase"} (reason \texttt{"cost\_increase"}) or the last \texttt{flat\_gradients\_required} cases up to $n$ all have the class \texttt{"flat"} and an eligible gradient (reason \texttt{"flat\_gradient"}).
+The last candidate of \texttt{operating\_horizons} is a hard limit.
 
 \subsection{Report, Checkpoint and Errors}
 \label{sec:sweep_report}
 
-The report is a mapping of plain Python types. The file is written with a safe YAML writer, so it
-contains no arrays and no Python objects.
+The report is a mapping of plain Python types, written as YAML. \emph{Keys:} \texttt{input} (input path); \texttt{complete} (\texttt{false} in a checkpoint); \texttt{last\_completed\_H2}; \texttt{objective} (a text); \texttt{varied\_parameter} (\texttt{"H2"}); \texttt{fixed\_dimensions} ($F$, $M$, $L$) and \texttt{H1}; \texttt{planned\_operating\_horizons} and \texttt{evaluated\_operating\_horizons}; \texttt{warm\_start} (\texttt{enabled}, \texttt{mode}) and \texttt{n\_workers}; \texttt{stopping\_rule}, with \texttt{enabled}, \texttt{relative\_gradient\_tolerance\_per\_H2}, the stop arguments \texttt{flat\_gradients\_required}, \texttt{minimum\_cases} and \texttt{maximum\_mip\_gap\_for\_stopping} under their own names (the last one \texttt{null} for the default), the \texttt{reason} (\texttt{"in\_progress"}, \texttt{"candidate\_range\_exhausted"}, \texttt{"cost\_increase"} or \texttt{"flat\_gradient"}) and \texttt{stopped\_early} (complete with fewer cases than planned); \texttt{cases} (the rows, by $H_2$); \texttt{formulation\_growth} from the first to the last row with counts: \texttt{from\_H2}, \texttt{to\_H2}, \texttt{added\_time\_steps} and, for each count $q$ of \texttt{formulation}, \texttt{added\_}$q$ and $q$\texttt{\_per\_added\_time\_step} (\texttt{null} with fewer than two such rows); for $b \in \{$\texttt{proven}, \texttt{feasible}$\}$, \texttt{best\_}$b$\texttt{\_H2} and \texttt{best\_}$b$\texttt{\_J\_op\_average}, and \texttt{best\_feasible\_status} (\texttt{null} without such a case).
 
-\begingroup\small
-\begin{longtable}{@{}p{5.8cm}p{9.2cm}@{}}
-\toprule
-Key & Content \\
-\midrule
-{\raggedright \texttt{input}\par} & {\raggedright Path of the input file, as given.\par} \\
-{\raggedright \texttt{complete}\par} & {\raggedright \texttt{false} in a checkpoint, \texttt{true} in the final report (also after an early stop).\par} \\
-{\raggedright \texttt{last\_completed\_H2}\par} & {\raggedright Largest $H_2$ among the evaluated cases; \texttt{null} before the first case.\par} \\
-{\raggedright \texttt{objective}, \texttt{varied\_parameter}\par} & {\raggedright Text that names the minimised objective, and the string \texttt{"H2"}.\par} \\
-{\raggedright \texttt{fixed\_dimensions}, \texttt{H1}\par} & {\raggedright $F$, $M$, $L$, $H_1$.\par} \\
-{\raggedright \texttt{planned\_operating\_horizons}, \texttt{evaluated\_operating\_horizons}\par} & {\raggedright The sorted candidates, and the
-  $H_2$ of the cases in \texttt{cases}.\par} \\
-{\raggedright \texttt{warm\_start}, \texttt{n\_workers}\par} & {\raggedright \texttt{enabled}, \texttt{mode}; number of workers.\par} \\
-{\raggedright \texttt{stopping\_rule}\par} & {\raggedright \texttt{enabled}, \texttt{relative\_gradient\_tolerance\_per\_H2},
-  \texttt{flat\_gradients\_required}, \texttt{minimum\_cases}, \texttt{maximum\_mip\_gap\_for\_stopping}
-  (\texttt{null} when the default applies), \texttt{reason} (\texttt{"in\_progress"}, \texttt{"candidate\_range\_exhausted"}, \texttt{"cost\_increase"} or
-  \texttt{"flat\_gradient"}), \texttt{stopped\_early} (the run is complete and fewer cases than planned were evaluated).\par} \\
-{\raggedright \texttt{cases}\par} & {\raggedright One row per evaluated case, ordered by $H_2$ (rows below).\par} \\
-{\raggedright \texttt{formulation\_growth}\par} & {\raggedright Between the first and the last case that carry formulation counts:
-  \texttt{from\_H2}, \texttt{to\_H2}, \texttt{added\_time\_steps}, and for each count key $q$ of the row entry
-  \texttt{formulation}, the entries \texttt{added\_}$q$ and $q$\texttt{\_per\_added\_time\_step}.
-  \texttt{null} when fewer than two cases carry counts or both have the same $T$.\par} \\
-{\raggedright \texttt{best\_proven\_H2}, \texttt{best\_proven\_J\_op\_average}\par} & {\raggedright Best proven case (\texttt{null} if none).\par} \\
-{\raggedright \texttt{best\_feasible\_H2}, \texttt{best\_feasible\_J\_op\_average}, \texttt{best\_feasible\_status}\par} & {\raggedright   Best feasible case (\texttt{null} if none).\par} \\
-\bottomrule
-\end{longtable}
+\emph{Keys of a case row:} \texttt{H1}, \texttt{H2}, \texttt{T}, \texttt{dimensions} ($F$, $M$, $L$, $H_1$, $H_2$, $T$); from the result of the case (Section~\ref{sec:output}), \texttt{status}, \texttt{objective\_mode}, \texttt{evaluation\_horizon}, \texttt{objective}, the scalar keys of the cost report, and the warm-start report \texttt{warm\_start}; \texttt{objective\_bound}, \texttt{mip\_gap} and \texttt{absolute\_mip\_gap} $= \max\{0,\ \text{objective} - \text{bound}\}$; \texttt{requested\_mip\_gap} and \texttt{requested\_time\_limit\_seconds}, Gurobi's \texttt{MIPGap} and \texttt{TimeLimit} after all options are set; \texttt{optimizer\_seconds}, \texttt{solutions\_found}; \texttt{formulation}, the size entries of \texttt{performance} from \texttt{variables} to \texttt{nonzeros}; \texttt{timing}, the wall-clock entries of \texttt{performance} with \texttt{branch\_and\_bound\_nodes}, \texttt{simplex\_iterations} and \texttt{work\_units}; the gradient keys \texttt{cost\_gradient\_per\_H2}, \texttt{relative\_cost\_gradient\_per\_H2}, \texttt{gradient\_classification} and \texttt{gradient\_stopping\_eligible} (Section~\ref{sec:sweep_stop}).
 
-\begin{longtable}{@{}p{5.8cm}p{9.2cm}@{}}
-\toprule
-Entry of a case row & Content \\
-\midrule
-{\raggedright \texttt{H1}, \texttt{H2}, \texttt{T}, \texttt{dimensions}\par} & {\raggedright Horizons and the sizes $F$, $M$, $L$, $H_1$, $H_2$, $T$.\par} \\
-{\raggedright \texttt{status}, \texttt{objective\_mode}, \texttt{evaluation\_horizon}\par} & {\raggedright As in the result of the case.\par} \\
-{\raggedright \texttt{objective}, \texttt{J\_op}, \texttt{J\_op\_average}, \texttt{J\_initialization}, \texttt{peak\_damage},
-  \texttt{damage\_penalty}, \texttt{operating\_objective}, \texttt{evaluation\_objective}, \texttt{J\_total},
-  \texttt{projected\_evaluation\_cost}\par} & {\raggedright Result keys of the case (Section~\ref{sec:output}).\par} \\
-{\raggedright \texttt{objective\_bound}, \texttt{mip\_gap}, \texttt{absolute\_mip\_gap}\par} & {\raggedright Best bound; relative gap; the difference
-  $\max\{0,\ \texttt{objective} - \texttt{objective\_bound}\}$.\par} \\
-{\raggedright \texttt{requested\_mip\_gap}, \texttt{time\_limit\_seconds}, \texttt{optimizer\_seconds}, \texttt{solutions\_found}\par} & {\raggedright   The run options used and the optimizer outcome.\par} \\
-{\raggedright \texttt{warm\_start}\par} & {\raggedright The warm-start report of the case (Section~\ref{sec:warm_starts}).\par} \\
-{\raggedright \texttt{formulation}\par} & {\raggedright Model size from the \texttt{performance} entry of the result: \texttt{variables},
-  \texttt{continuous\_variables}, \texttt{integer\_variables}, \texttt{binary\_variables},
-  \texttt{linear\_constraints}, \texttt{general\_constraints}, \texttt{indicator\_constraints},
-  \texttt{quadratic\_constraints}, \texttt{nonzeros}.\par} \\
-{\raggedright \texttt{timing}\par} & {\raggedright \texttt{model\_construction\_seconds}, \texttt{optimizer\_call\_seconds},
-  \texttt{solution\_extraction\_seconds}, \texttt{backend\_wall\_seconds}, \texttt{branch\_and\_bound\_nodes},
-  \texttt{simplex\_iterations}, \texttt{work\_units}.\par} \\
-{\raggedright \texttt{cost\_gradient\_per\_H2}, \texttt{relative\_cost\_gradient\_per\_H2}, \texttt{gradient\_classification},
-  \texttt{gradient\_stopping\_eligible}\par} & {\raggedright Equation~\eqref{eq:d_gradient} and its class (Section~\ref{sec:sweep_stop}).\par} \\
-\bottomrule
-\end{longtable}
-\endgroup
+\emph{Checkpoint.} With \texttt{output\_path}, the report is rewritten after every case, with \texttt{complete = false} and the reason \texttt{"in\_progress"} until the sweep ends.
 
-\emph{Checkpoint.}
-When \texttt{output\_path} is given, the function rewrites the report after every case.
-Until the sweep ends, the report has \texttt{complete = false} and the stopping reason \texttt{"in\_progress"}.
-If a job ends before the run is complete, the file is a valid report of the cases evaluated so far.
-In parallel mode the function recomputes the gradient annotations over the rows ordered by $H_2$ at each rewrite.
-
-\emph{Error capture.}
-The function catches every exception (class \texttt{Exception}) that a case raises after the arguments are accepted,
-for example a failed input check of the case or a solver error such as a missing licence.
-It logs the error at level ERROR with $H_1$ and $H_2$, records a row with the status
-\texttt{"error: "} followed by the message and \texttt{null} in every other entry except the sizes,
-and continues with the next case.
-Such a row is neither feasible nor proven.
-An error does not stop the sweep, and a warm start never uses the result of a failed case (Section~\ref{sec:warm_starts}).
+\emph{Case errors.} An exception (class \texttt{Exception}) raised by a case after the arguments are accepted is logged at level ERROR with $H_1$ and $H_2$. The row of the case has the status \texttt{"error: "} followed by the message, and \texttt{null} in every entry except the sizes; the sweep continues. Such a row is neither feasible nor proven, and is never a warm-start source.
 
 \subsection{Parallel Cases}
 \label{sec:sweep_parallel}
 
-With $\texttt{n\_workers} > 1$ the function solves up to \texttt{n\_workers} cases at the same time,
-each in its own process with its own Gurobi environment.
-Each running solve uses one Gurobi licence token, so a licence with one token allows only $\texttt{n\_workers} = 1$.
-The cases do not use each other's results, so the option is refused together with warm starts between cases,
-and together with the early stop, which needs the preceding cases before it starts the following ones.
-Rows arrive in the order in which the cases finish; the report orders them by $H_2$.
+With $\texttt{n\_workers} > 1$, up to \texttt{n\_workers} cases are solved at the same time, each in its own process with its own Gurobi environment and one Gurobi licence token. The option is refused with \texttt{warm\_start} and with \texttt{stop\_on\_gradient}.
+Rows arrive in the order of completion; the report orders them by $H_2$, and each rewrite recomputes the gradient annotations over the ordered rows.
 
 \subsection{\texttt{sweep\_horizon\_grid}}
 \label{sec:sweep_grid}
@@ -255,87 +189,34 @@ sweep_horizon_grid(
     output_path=None, warm_start=True, evaluation_horizon=None,
     **sweep_options) -> dict
 \end{lstlisting}
+Both horizon lists hold positive integers; they are sorted and repeated values are removed. \texttt{evaluation\_horizon}, if given, must exceed every $H_1$ (\texttt{ValueError}).
+\texttt{sweep\_options} are the keyword arguments of \texttt{sweep\_operating\_horizons} except \texttt{objective\_mode}. With $\texttt{n\_workers} > 1$, \texttt{warm\_start=False} must be passed.
 
-The function evaluates every pair $(H_1, H_2)$ of the two lists.
-Both lists contain positive integers; the function sorts them and removes repeated values.
-If \texttt{evaluation\_horizon} is given, it must exceed every candidate $H_1$ (\texttt{ValueError} otherwise).
-The keyword options in \texttt{sweep\_options} are those of Section~\ref{sec:sweep_operating} except
-\texttt{objective\_mode}, which the grid sets itself.
-Because \texttt{warm\_start} is true by default, a call with $\texttt{n\_workers} > 1$ must also pass
-\texttt{warm\_start=False}.
+For each $H_1$ in increasing order, \texttt{sweep\_operating\_horizons} runs on the input data with that $H_1$ and the list of $H_2$, with \texttt{objective\_mode} \texttt{"evaluation\_total"} if an evaluation horizon is given and \texttt{"operating\_average"} otherwise.
+Warm starts (Section~\ref{sec:warm_sweeps}), the early stop and the capture of case errors act within each $H_1$; the early stop uses $\bar J_{\mathrm{op}}$ also when $E$ is given. The grid report is rewritten after every case (\texttt{complete = false}) and at the end.
 
-For each $H_1$ in increasing order, the function runs \texttt{sweep\_operating\_horizons} on the input data with that $H_1$
-and the list of $H_2$.
-It sets \texttt{objective\_mode} to \texttt{"evaluation\_total"} when an evaluation horizon is given,
-and to \texttt{"operating\_average"} otherwise.
-The first case of each $H_1$ starts without warm start; the following cases use the nearest preceding case of the same $H_1$
-that has a solution.
-The early stop applies within each $H_1$ and uses $\bar J_{\mathrm{op}}$ as in Section~\ref{sec:sweep_stop}.
-Case errors are captured as in Section~\ref{sec:sweep_report}.
-The function rewrites the grid report after every case of every $H_1$ (with \texttt{complete = false}) and at the end.
-
-\begingroup\small
-\begin{longtable}{@{}p{5.8cm}p{9.2cm}@{}}
-\toprule
-Key of the grid report & Content \\
-\midrule
-{\raggedright \texttt{input}, \texttt{complete}\par} & {\raggedright As in Section~\ref{sec:sweep_report}.\par} \\
-{\raggedright \texttt{objective}, \texttt{comparison\_metric}\par} & {\raggedright Text that names the minimised objective; the ranking key,
-  \texttt{"projected\_evaluation\_cost"} ($P_E$) or \texttt{"J\_op\_average"}.\par} \\
-{\raggedright \texttt{mip\_certificate\_metric}\par} & {\raggedright The string \texttt{"objective"}: the proof rule refers to the solved objective
-  (remark in Section~\ref{sec:sweep_criteria}).\par} \\
-{\raggedright \texttt{evaluation\_horizon}\par} & {\raggedright $E$, or \texttt{null}.\par} \\
-{\raggedright \texttt{varied\_parameters}, \texttt{fixed\_dimensions}\par} & {\raggedright \texttt{["H1", "H2"]}; $F$, $M$, $L$.\par} \\
-{\raggedright \texttt{planned\_transitory\_horizons}, \texttt{planned\_operating\_horizons}\par} & {\raggedright The sorted candidates.\par} \\
-{\raggedright \texttt{warm\_start\_enabled}\par} & {\raggedright The value of \texttt{warm\_start}.\par} \\
-{\raggedright \texttt{H1\_sweeps}\par} & {\raggedright The report of each operating sweep, one per $H_1$.
-  Its key \texttt{input} names the input file of the grid.\par} \\
-{\raggedright \texttt{cases}\par} & {\raggedright All case rows, ordered by $H_1$ and then $H_2$.\par} \\
-{\raggedright \texttt{best\_proven}, \texttt{best\_feasible}\par} & {\raggedright \texttt{null}, or a mapping with \texttt{H1}, \texttt{H2}, \texttt{T},
-  \texttt{J\_initialization}, \texttt{J\_op\_average}, \texttt{peak\_damage}, \texttt{damage\_penalty},
-  \texttt{objective}, \texttt{operating\_objective}, \texttt{evaluation\_objective},
-  \texttt{projected\_evaluation\_cost}, \texttt{status}, \texttt{mip\_gap} of the selected case.\par} \\
-\bottomrule
-\end{longtable}
-\endgroup
+\emph{Keys:} \texttt{input}, \texttt{complete} and \texttt{objective} as in Section~\ref{sec:sweep_report}; \texttt{comparison\_metric}, the ranking key (\texttt{"projected\_evaluation\_cost"} or \texttt{"J\_op\_average"}); \texttt{mip\_certificate\_metric} (\texttt{"objective"}); \texttt{evaluation\_horizon}; \texttt{varied\_parameters} (\texttt{["H1", "H2"]}); \texttt{fixed\_dimensions} ($F$, $M$, $L$); the candidates \texttt{planned\_transitory\_horizons} and \texttt{planned\_operating\_horizons}; the flag \texttt{warm\_start\_enabled}; \texttt{H1\_sweeps}, the report of each operating sweep, with the input file of the grid as \texttt{input}; \texttt{cases}, all rows by $H_1$, then $H_2$; \texttt{best\_proven} and \texttt{best\_feasible}, \texttt{null} or a mapping with \texttt{H1}, \texttt{H2}, \texttt{T}, \texttt{status}, \texttt{mip\_gap}, \texttt{objective} and the scalar keys of the cost report except \texttt{J\_op} and \texttt{J\_total}.
 
 % ================================================================
 \section{Warm Starts}
 \label{sec:warm_starts}
 % ================================================================
 
-A \emph{warm start} gives Gurobi values for the binary variables, so that the search begins from a known schedule.
-A warm start changes the time of a solve, not the model: it does not change the feasible set or the objective.
-The package has four mechanisms:
-\begin{enumerate}[nosep,label=\arabic*.]
-  \item a \emph{start} from the schedule of a previous result (Gurobi attribute \texttt{Start}), with an optional completion;
-  \item \emph{hints} from the schedule of a previous result (Gurobi attribute \texttt{VarHintVal});
-  \item a \emph{relaxation start}, which needs no previous result;
-  \item a \emph{greedy heuristic}, which constructs a schedule from the input and returns it in the form of item 1.
-\end{enumerate}
+A warm start gives Gurobi values for the binary variables. Four mechanisms exist: a \emph{start} (attribute \texttt{Start}) from a source, with an optional completion; \emph{hints} (attribute \texttt{VarHintVal}) from a source; a \emph{relaxation start}; and the \emph{greedy heuristic}, which builds a source from the input.
 
-\subsection{Interface}
+\subsection{Interface and Reports}
 \label{sec:warm_interface}
+\label{sec:warm_reports}
 
-\texttt{solve()} (Section~\ref{sec:api}) has two keyword arguments for warm starts:
-\texttt{warm\_start} (default \texttt{None}) and \texttt{warm\_start\_mode} (default \texttt{"start"}).
-The argument \texttt{warm\_start} is a \emph{source}: a dictionary with the keys of a result,
-or the dictionary that the greedy heuristic returns (Section~\ref{sec:greedy}).
-A source must carry the arrays \texttt{x} (shape $F' \times (M'+1) \times T'$) and the integers \texttt{H1}, \texttt{H2}
-with $T' = H_1' + H_2'$; it may carry \texttt{m} and \texttt{r} (shape $F' \times L' \times T'$).
-A source without a solution (\texttt{x} is \texttt{null}) is accepted and has no effect.
-A result with a solution found before a time limit is a valid source.
-The sizes $F'$, $M'$, $L'$ may differ from the problem's sizes: the values are set for the indices that both have.
-
-\texttt{warm\_start\_mode} is \texttt{"start"}, \texttt{"hint"} or \texttt{"both"}; another value raises \texttt{ValueError}.
-The relaxation start is selected by the run options \texttt{relaxation\_warm\_start} and \texttt{relaxation\_time\_limit}
-(Section~\ref{sec:run_options}).
+\texttt{solve()} takes \texttt{warm\_start}, a source or \texttt{None} (default), and \texttt{warm\_start\_mode}: \texttt{"start"} (default), \texttt{"hint"} or \texttt{"both"}; another value raises \texttt{ValueError}.
+A \emph{source} is a result dictionary or the dictionary returned by the greedy heuristic (Section~\ref{sec:greedy}). It carries \texttt{x} (shape $F' \times (M'+1) \times T'$) and the integers \texttt{H1}, \texttt{H2} with $T' = H_1' + H_2'$; it may carry \texttt{m} and \texttt{r} (shape $F' \times L' \times T'$).
+A source whose \texttt{x} is missing or \texttt{null} has no effect. $F'$, $M'$, $L'$ may differ from $F$, $M$, $L$: values are set for the indices that both have.
+The result keys \texttt{warm\_start} and \texttt{relaxation\_warm\_start} report what each mechanism did (Section~\ref{sec:output_reports}).
 
 \subsection{Day Mapping}
 \label{sec:warm_map}
 
-The source has the horizons $H_1'$, $H_2'$ and the problem has $H_1$, $H_2$.
-Day $k \in \{1,\ldots,T\}$ of the problem takes the values of the source day
+Day $k \in \{1,\ldots,T\}$ takes the values of the source day
 \begin{equation}
   \sigma(k) =
   \begin{cases}
@@ -344,103 +225,37 @@ Day $k \in \{1,\ldots,T\}$ of the problem takes the values of the source day
   \end{cases}
   \label{eq:d_daymap}
 \end{equation}
-So the transitory days keep their index, and the operating days repeat the operating phase of the source cyclically.
-A shorter operating phase can seed a longer one.
-When $H_1 > H_1'$, the days $H_1'+1,\ldots,H_1$ all take the first operating day of the source.
-When the source has the same sizes $F$, $M$, $L$, the mapped schedule copies whole days of the source,
-so it keeps the one-activity rows, the mission coverage and the depot-day rows of every day.
-It need not satisfy the dynamics or the loop rows of the horizons of the problem.
-For each day $k$, train $i$ and cell $(i,\ell)$ the mapped values are
-$x_{ijk} \leftarrow x'_{ij\sigma(k)}$ for $j = 0,\ldots,M$, $x^m_{i\ell k} \leftarrow m'_{i\ell\sigma(k)}$
-(value $0$ if the source has no \texttt{m}), and $x^r_{i\ell k} \leftarrow r'_{i\ell\sigma(k)}$
-when replacement is allowed (\texttt{allow\_replacement}, Section~\ref{sec:replacement}) and the source has \texttt{r}.
-Every value is rounded to the nearest integer.
-Each other binary variable that these values fix through its defining rows
-(the selector $n_{i\ell k}$ of the indicator form, Eq.~\eqref{eq:a_ind_sum}) receives that value.
+The mapped values, rounded to the nearest integer, are $x_{ijk} \leftarrow x'_{ij\sigma(k)}$ for $j = 0,\ldots,M$; $x^m_{i\ell k} \leftarrow m'_{i\ell\sigma(k)}$, or $0$ if the source has no \texttt{m}; and $x^r_{i\ell k} \leftarrow r'_{i\ell\sigma(k)}$ if \texttt{allow\_replacement} is true and the source has \texttt{r}.
+A binary variable that these values fix through its defining rows (the selector $n_{i\ell k}$ of Eq.~\eqref{eq:a_ind_sum}) gets that value.
 
 \subsection{Start, Hints and Completion}
 \label{sec:warm_start_modes}
 
-\emph{Mode \texttt{"start"}.}
-The solve sets the attribute \texttt{Start} of every mapped variable (Section~\ref{sec:warm_map}).
-The continuous variables get no value. Gurobi tries to complete the start by itself, with limited effort,
-and discards a start that it cannot make feasible.
+Mode \texttt{"start"} sets \texttt{Start} of every mapped variable; continuous variables get no value. Mode \texttt{"hint"} sets \texttt{VarHintVal} instead, with no \texttt{Start}, no completion and no \texttt{VarHintPri}. Mode \texttt{"both"} sets \texttt{Start} and \texttt{VarHintVal}. In the modes \texttt{"start"} and \texttt{"both"} the completion runs if the source requests it.
 
-\emph{Completion.}
-If the source has the key \texttt{complete\_binary\_start} with the value \texttt{true}, the solve completes the start
-before it optimises. The time limit of the completion is the source key \texttt{completion\_time\_limit} (seconds, default $60$).
-The steps are:
+\emph{Completion.} Only the source requests it, with \texttt{complete\_binary\_start = true}; the greedy heuristic does. It runs if the mapping set at least one value, with the time limit \texttt{completion\_time\_limit} of the source (seconds, default $60$).
 \begin{enumerate}[nosep,label=\arabic*.]
-  \item Copy the model. In the copy, fix every binary variable that received a \texttt{Start} value to that value.
-  \item Optimise the copy. All binary values are fixed, so the copy has only continuous variables.
-  \item If the copy has a solution, set the attribute \texttt{Start} of every variable of the original model to the value in the copy.
-    The start is then a complete, feasible point of the original model.
-  \item Otherwise record the status of the copy. If the copy is infeasible, compute an \emph{irreducible infeasible subset} (IIS)
-    of the copy: a set of rows that is infeasible, and that becomes feasible when any one row is removed (Gurobi function \texttt{computeIIS}).
-    Record the names of its linear rows and general constraints, at most $50$ names.
+  \item Copy the model; fix every binary variable that has a \texttt{Start} value to that value; the other binary variables stay free. Optimise the copy within the time limit.
+  \item If the copy has a solution, set \texttt{Start} of every variable of the original model to its value in the copy.
+  \item Otherwise record the status of the copy. If it is infeasible, compute an irreducible infeasible subset (IIS, Gurobi \texttt{computeIIS}) of the copy and record the names of at most $50$ of its linear rows and general constraints.
 \end{enumerate}
-The solve never relaxes or changes the original model, and it never stops because a completion failed:
-the optimisation starts with the binary values only.
-A completion is requested by the source, not by an argument of \texttt{solve()}.
-The greedy heuristic requests it.
-
-\emph{Mode \texttt{"hint"}.}
-The solve sets the attribute \texttt{VarHintVal} of every mapped variable to its mapped value, and sets no \texttt{Start} and no completion.
-Gurobi uses hints to guide its heuristics and its branching during the whole solve.
-A hint needs no feasible point, so it also helps when the mapped schedule does not fit the horizons of the problem
-and Gurobi discards it as a start. The hint priority \texttt{VarHintPri} is not set.
-
-\emph{Mode \texttt{"both"}.}
-The solve sets \texttt{Start} and \texttt{VarHintVal} on the same variables, and performs the completion if the source requests it.
+The original model is not changed; a failed completion does not stop the solve.
 
 \subsection{Relaxation Start}
 \label{sec:warm_relaxation}
 
-If \texttt{relaxation\_warm\_start} is true and no start or hint was applied (the entry \texttt{applied} of \texttt{warm\_start} is false),
-the solve computes a start without a source:
+If the run option \texttt{relaxation\_warm\_start} (Section~\ref{sec:run_options}) is true and no start or hint was applied (\texttt{applied} is false in the report \texttt{warm\_start}):
 \begin{enumerate}[nosep,label=\arabic*.]
-  \item Copy the model, and relax its linear rows with Gurobi's function \texttt{feasRelaxS}, which minimises the sum of the absolute violations.
-    The relaxation keeps integrality, variable bounds and general constraints.
-  \item Optimise the relaxed copy with the time limit $\max\{1,\ \texttt{relaxation\_time\_limit}\}$ seconds and the MIP gap $0.05$.
-  \item If the copy has a solution, set \texttt{Start} of every integer variable of the original model to the rounded value of
-    the variable of the same name in the copy.
+  \item Copy the model and relax its linear rows with Gurobi's \texttt{feasRelaxS} (sum of absolute violations); integrality, variable bounds and general constraints are kept.
+  \item Optimise the copy with the time limit $\max\{1,\ \texttt{relaxation\_time\_limit}\}$ seconds and the MIP gap $0.05$.
+  \item If the copy has a solution, set \texttt{Start} of every integer variable of the original model to the rounded value of the variable of the same name in the copy.
 \end{enumerate}
-The relaxed solution is not a feasible point of the original model.
-It gives integer values only, and the original model must find its own first solution.
-
-\subsection{Warm-Start Reports}
-\label{sec:warm_reports}
-
-The result of a solve carries two dictionaries (Section~\ref{sec:output}).
-
-\begingroup\small
-\begin{longtable}{@{}p{5.8cm}p{9.2cm}@{}}
-\toprule
-Key & Content \\
-\midrule
-{\raggedright \texttt{warm\_start.applied}\par} & {\raggedright \texttt{true} when at least one value was set.\par} \\
-{\raggedright \texttt{warm\_start.values}\par} & {\raggedright Number of values set.\par} \\
-{\raggedright \texttt{warm\_start.mode}\par} & {\raggedright The mode used, or \texttt{null} without a source.\par} \\
-{\raggedright \texttt{warm\_start.source\_horizon}\par} & {\raggedright \texttt{H1} and \texttt{H2} of the source, or \texttt{null}.\par} \\
-{\raggedright \texttt{warm\_start.completion}\par} & {\raggedright \texttt{requested}; \texttt{status} (\texttt{"not\_requested"},
-  \texttt{"completed"}, \texttt{"infeasible"}, \texttt{"infeasible\_or\_unbounded"}, \texttt{"time\_limit"} or
-  \texttt{"status\_}$q$\texttt{"} with the Gurobi status code $q$); \texttt{fixed\_integer\_variables};
-  \texttt{values\_copied}; \texttt{runtime\_seconds}; \texttt{iis\_constraints} (list of names, empty unless the status is \texttt{"infeasible"}).\par} \\
-{\raggedright \texttt{relaxation\_warm\_start}\par} & {\raggedright \texttt{enabled}; \texttt{status} (\texttt{"disabled"} when the option is false,
-  \texttt{"skipped"} when it is true and a start was applied, otherwise the Gurobi status of the relaxed copy as a string);
-  \texttt{relaxation\_objective}; \texttt{values\_copied}; \texttt{runtime\_seconds}.\par} \\
-\bottomrule
-\end{longtable}
-\endgroup
+The relaxed solution is not a point of the original model.
 
 \subsection{Warm Starts in Sweeps}
 \label{sec:warm_sweeps}
 
-The sweep functions (Section~\ref{sec:sweeps}) with \texttt{warm\_start=True} use, for each case, the result of the nearest preceding case of the same $H_1$
-that has a solution as the source of the solve, with the mode \texttt{warm\_start\_mode}.
-A case that raised an error or has no solution is skipped.
-The first case of a sequence has no source.
-Warm starts between cases need the preceding results, so they are refused together with parallel cases (Section~\ref{sec:sweep_parallel}).
+With \texttt{warm\_start=True}, the source of a case is the result of the nearest preceding case of the same $H_1$ that has a solution, used in the mode \texttt{warm\_start\_mode}. The first case of each $H_1$ has no source; a case with an error or without a solution is never a source.
 
 \subsection{Greedy Heuristic}
 \label{sec:greedy}
@@ -449,334 +264,83 @@ Warm starts between cases need the preceding results, so they are refused togeth
 build_greedy_warm_start(cfg, *, repair_trigger=0.70)
     -> (dict, GreedyWarmStartReport)
 \end{lstlisting}
+Module \texttt{fleet\_management.greedy\_warm\_start}, not exported; it works for every model. \texttt{cfg} is the normalised configuration (\texttt{load\_config}, Section~\ref{sec:data_flow}); $r = \texttt{repair\_trigger}$ must lie in $[0,1]$ (\texttt{ValueError}).
+The returned source has the keys \texttt{H1}, \texttt{H2}, \texttt{x}, \texttt{m}, \texttt{r}, \texttt{complete\_binary\_start} (\texttt{true}) and \texttt{completion\_time\_limit} ($60$).
 
-The function is in the module \texttt{fleet\_management.greedy\_warm\_start}; the package does not export it.
-The argument \texttt{cfg} is the normalised configuration of an input (Section~\ref{sec:inputs}).
-The trigger \texttt{repair\_trigger} must lie in $[0,1]$ (\texttt{ValueError} otherwise).
-The function works for every model of this specification.
-It builds a schedule that tries to satisfy the rows of the model. It does not try to give a low cost.
-It returns a source for \texttt{solve()}: the dictionary with the keys \texttt{H1}, \texttt{H2}, \texttt{x}, \texttt{m}, \texttt{r},
-\texttt{complete\_binary\_start} (\texttt{true}) and \texttt{completion\_time\_limit} ($60$),
-and a report.
-
-\emph{Construction pass.}
-Keep a proxy state $\hat s_{i\ell}$ for each cell, with the initial value $\mu_{0,i\ell}$.
-Treat the days $k = 1,\ldots,T$ in order.
-\begin{enumerate}[label=\arabic*.]
-  \item Order the missions by decreasing difficulty $\max_{i,\ell} \mu^{\inc}_{i\ell jk}/\tau_{i\ell}$.
-    A tie goes to the mission with the larger index.
-  \item Take the missions in this order. Give each one to the train $i$ that has no mission yet on day $k$ and
-    minimises the pair $\bigl(\max_\ell (\hat s_{i\ell} + \mu^{\inc}_{i\ell jk})/\tau_{i\ell},\ \sum_\ell (\hat s_{i\ell} + \mu^{\inc}_{i\ell jk})/\tau_{i\ell}\bigr)$
-    in lexicographic order. A tie goes to the smaller index $i$. Increase $\hat s_{i\ell}$ by $\mu^{\inc}_{i\ell jk}$ for the train and day.
-    The input check $F > M$ (Section~\ref{sec:consistency_checks}) guarantees a train for every mission.
-  \item Let $r$ be the value of \texttt{repair\_trigger}.
-    A train without a mission stays idle, except when some component has $\hat s_{i\ell} > r\,\tau_{i\ell}$.
-    Then the train goes to the depot ($x_{i0k} = 1$), every such component is repaired ($x^m_{i\ell k} = 1$),
-    and $\hat s_{i\ell} \leftarrow (1-\rho_{i\ell})\,\hat s_{i\ell}$ for it.
+\emph{Construction pass.} A proxy state $\hat s_{i\ell}$ starts at $\mu_{0,i\ell}$. For each day $k = 1,\ldots,T$:
+\begin{enumerate}[nosep,label=\arabic*.]
+  \item Order the missions by decreasing $\max_{i,\ell} \mu^{\inc}_{i\ell jk}/\tau_{i\ell}$; a tie goes to the larger $j$.
+  \item In this order, give each mission to the train $i$ without a mission on day $k$ that minimises, in lexicographic order,
+    $\bigl(\max_\ell (\hat s_{i\ell} + \mu^{\inc}_{i\ell jk})/\tau_{i\ell},\ \sum_\ell (\hat s_{i\ell} + \mu^{\inc}_{i\ell jk})/\tau_{i\ell}\bigr)$; a tie goes to the smaller $i$.
+    Add $\mu^{\inc}_{i\ell jk}$ to $\hat s_{i\ell}$. The check $F > M$ (Section~\ref{sec:consistency_checks}) guarantees a train for every mission.
+  \item A train without a mission is idle, unless some component has $\hat s_{i\ell} > r\,\tau_{i\ell}$: then $x_{i0k} = 1$, and every such component is repaired ($x^m_{i\ell k} = 1$, $\hat s_{i\ell} \leftarrow (1-\rho_{i\ell})\,\hat s_{i\ell}$ for every repair law).
 \end{enumerate}
-The pass schedules no replacement. The proxy uses the whole-state repair map for every cell, whatever its repair law.
+The construction pass schedules no replacement.
 
-\emph{Loop pass.}
-After the construction pass the missions are fixed, so the cells are independent except through the depot days of a train.
-For each cell, compute its reference trajectory $\zeta$ (Section~\ref{sec:encoding}) for the current schedule,
-with the starting values, the starting anchors and the replacement values of the inputs.
-The \emph{excess} $e$ of the cell is the largest of
-\begin{itemize}[nosep]
-  \item $\max\{0,\ \zeta^{q}_{T} - \zeta^{q}_{H_1}\}/M_q$ for every tracked quantity and anchor $q$ with natural range $M_q$ (the loop row, Section~\ref{sec:loop});
-  \item the violation of the reliability row of the cell in its exact form, on every day, divided by the natural range of the quantity that the row bounds
-    (Sections~\ref{sec:dyn_gaussian}--\ref{sec:dyn_rainflow}).
-\end{itemize}
-While $e > 10^{-10}$, the pass tries every \emph{free day} $k \in \{H_1+1,\ldots,T\}$, a day on which the train has no mission and the cell has no intervention.
-It puts a repair of the cell on the free day (the train goes to the depot on that day) and recomputes the excess.
-It keeps the repair that gives the smallest excess; a tie goes to the later day.
-If no repair lowers $e$ by more than $10^{-10}$ and replacement is allowed, the same trial is made with a replacement.
-If no trial lowers $e$, the pass counts one failure for the cell and goes to the next cell.
-Repairs and replacements of a cell never use a day on which the train flies a mission.
+\emph{Loop pass.} For each cell, compute the reference trajectory $\zeta$ (Section~\ref{sec:encoding}) of the current schedule from the initial values, starting anchors and replacement values of the inputs. The excess $e$ of the cell is the largest of the loop excesses $\max\{0,\ \zeta^{q}_{T} - \zeta^{q}_{H_1}\}/M_q$ of every tracked quantity and anchor $q$ with natural range $M_q$ (Section~\ref{sec:loop}), and of the violations of the reliability row on every day, divided by the natural range of the bounded quantity. The row is taken in the form built at the cell (Sections~\ref{sec:dyn_gaussian}--\ref{sec:dyn_rainflow}): the exact row for \texttt{"exact"}, the tangent row for \texttt{"tangent"}, and for \texttt{"pwl"} the cap of the segment that contains the mean of the day (Section~\ref{sec:linear_forms}).
+While $e > 10^{-10}$: for every free day $k \in \{H_1+1,\ldots,T\}$ (the train has no mission, the cell no intervention), put a repair of the cell on day $k$ (the train goes to the depot) and recompute $e$; keep the repair with the smallest $e$, a tie to the later day.
+If no repair lowers $e$ by more than $10^{-10}$ and replacement is allowed, repeat the trial with a replacement. If no trial lowers $e$, count one failure for the cell and go to the next cell. A start with failures is returned.
 
-\emph{Report.}
-\texttt{GreedyWarmStartReport} is a record; its method \texttt{as\_dict()} returns the fields below as plain Python types.
-\begingroup\small
-\begin{longtable}{@{}p{5.8cm}p{9.2cm}@{}}
-\toprule
-Field & Content \\
-\midrule
-{\raggedright \texttt{repairs}, \texttt{replacements}\par} & {\raggedright Number of ones in \texttt{m} and in \texttt{r}.\par} \\
-{\raggedright \texttt{repeatability\_feasible}\par} & {\raggedright \texttt{true} when the loop pass counted no failure.\par} \\
-{\raggedright \texttt{repeatability\_failures}\par} & {\raggedright Number of cells with a failure.\par} \\
-{\raggedright \texttt{maximum\_repeatability\_excess}\par} & {\raggedright Largest raw excess (in the units of its quantity) over all cells after the loop pass.\par} \\
-{\raggedright \texttt{maximum\_proxy\_ratio}\par} & {\raggedright Largest value of $\hat s_{i\ell}/\tau_{i\ell}$ in the construction pass and of the reference mean over $\tau_{i\ell}$ in the loop pass.\par} \\
-{\raggedright \texttt{assignment\_order}\par} & {\raggedright For each day, the list of missions (indices $1,\ldots,M$) in the order that the pass treated them.\par} \\
-\bottomrule
-\end{longtable}
-\endgroup
-A start with failures is still returned. Its completion can then end with the status \texttt{"infeasible"} with an IIS.
+\emph{Report.} \texttt{GreedyWarmStartReport.as\_dict()} returns plain Python types. Keys: \texttt{repairs} and \texttt{replacements}, the numbers of ones in \texttt{m} and \texttt{r}; \texttt{repeatability\_feasible}, true without a failure; \texttt{repeatability\_failures}, the number of cells with a failure; \texttt{maximum\_repeatability\_excess}, the largest raw excess over all cells after the loop pass; \texttt{maximum\_proxy\_ratio}, the largest $\hat s_{i\ell}/\tau_{i\ell}$ of the construction pass and reference mean over $\tau_{i\ell}$ of the loop pass; \texttt{assignment\_order}, for each day, the missions in the order treated.
 
 % ================================================================
-\section{File \& Folder Structure}
-\label{sec:files}
-% ================================================================
-
-The package \texttt{fleet\_management} has one module per task. The shared Gurobi model and the registry of cell builders
-are in \texttt{base.py}; each degradation model has its own module.
-
-\begin{lstlisting}
-Fleet_Management/
-    pyproject.toml                Python >= 3.10; extra "dashboard" (streamlit)
-    README.md
-    spec/spec.tex, references.bib this specification
-    examples/                     example inputs and regression scripts
-    tests/                        pytest suite
-    euler/                        two Slurm job scripts of the ETH Euler cluster
-    src/fleet_management/
-        __init__.py               public API (Section "Public API")
-        config.py                 input reading, checks and broadcasting: load_config -> FleetConfig
-        solver.py                 solve(): file checks, dispatch, serialisation (YAML, JSON, HDF5)
-        horizon_sweep.py          sweep_operating_horizons, sweep_horizon_grid
-        greedy_warm_start.py      build_greedy_warm_start
-        validator_dashboard.py    Streamlit entry point of the dashboards
-        degradation_model/
-            base.py               shared model, registry, objective, warm starts, result extraction,
-                                  performance counters
-            gaussian.py           cell builder "gaussian"
-            inverse_gaussian.py   cell builder "inverse_gaussian"
-            wiener.py             cell builder "wiener"
-            gamma.py              cell builder "gamma"; computation of the cap A_1
-            rainflow.py           cell builder "rainflow" (five bounds)
-            gamma_utils/
-                gamma_replay_validator.py       replay validator
-                gamma_stochastic_validator.py   Monte Carlo validator
-                gamma_tail_validator.py         exact validator
-                gamma_tail_bound.py             moschopoulos_tail_probability
-        utils/
-            plotter.py            plot_management, plot_horizon_sweep
-        validation/
-            validator.py          validate
-            dashboard_inspector.py, dashboard_gamma.py
-\end{lstlisting}
-
-\emph{Cluster jobs.}
-The folder \texttt{euler/} holds two Slurm job scripts (Slurm is the job scheduler of the Euler cluster of ETH Z\"urich).
-Each runs one script of \texttt{examples/regression/}:
-\begin{itemize}[nosep]
-  \item \texttt{gamma\_horizon\_convergence.sbatch} runs \texttt{run\_horizon\_sweep.py};
-  \item \texttt{vbz\_progressive\_feasibility.sbatch} runs \texttt{run\_progressive\_vbz\_feasibility.py}.
-\end{itemize}
-Both scripts call only the public API of Section~\ref{sec:api}. The behaviour that this specification defines does not depend on them.
-
-\subsection{Public API}
-\label{sec:api}
-
-The package exports the functions of the table.
-
-\begingroup\small
-\begin{longtable}{@{}p{6.8cm}p{8.2cm}@{}}
-\toprule
-Function & Defined in \\
-\midrule
-\texttt{solve} & this section \\
-\texttt{plot\_management} & Section~\ref{sec:plotting} \\
-\texttt{plot\_horizon\_sweep} & Section~\ref{sec:plotting} \\
-\texttt{sweep\_operating\_horizons} & Section~\ref{sec:sweeps} \\
-\texttt{sweep\_horizon\_grid} & Section~\ref{sec:sweeps} \\
-\texttt{validate} & Section~\ref{sec:validation} \\
-\texttt{validate\_gamma\_replay\_schedule} & Section~\ref{sec:validation_gamma} \\
-\texttt{validate\_gamma\_replay\_files} & Section~\ref{sec:validation_gamma} \\
-\texttt{validate\_gamma\_stochastic\_schedule} & Section~\ref{sec:validation_gamma} \\
-\texttt{validate\_gamma\_schedule} & Section~\ref{sec:validation_gamma} \\
-\texttt{validate\_gamma\_schedule\_files} & Section~\ref{sec:validation_gamma} \\
-\bottomrule
-\end{longtable}
-\endgroup
-
-\begin{lstlisting}[language=Python]
-solve(input_path, results_path="output.yaml", *,
-      warm_start=None, warm_start_mode="start") -> dict
-\end{lstlisting}
-
-\texttt{solve()} reads one input file, builds one Gurobi model for the whole fleet, solves it, and returns the result dictionary of
-Section~\ref{sec:output}. Arrays in the dictionary are NumPy arrays; Gurobi objects are not stored in it.
-\begin{enumerate}[nosep,label=\arabic*.]
-  \item The input file must exist (\texttt{FileNotFoundError}) and have the extension \texttt{.yaml}, \texttt{.yml}, \texttt{.json},
-    \texttt{.h5} or \texttt{.hdf5} (\texttt{ValueError}).
-  \item If \texttt{results\_path} is not \texttt{None}, the solve resolves it before it reads the input.
-    A path without an extension gets the extension \texttt{.yaml}.
-    The extension selects the format of the result file: YAML, JSON or HDF5 (as for inputs); another extension raises \texttt{ValueError}.
-    The folder of the result file must exist (\texttt{FileNotFoundError}) and be writable (\texttt{PermissionError}).
-    With \texttt{results\_path=None} no file is written.
-  \item The \emph{input reader} reads the file by its extension into a mapping of the keys of Section~\ref{sec:schema}.
-    The horizon sweeps and \texttt{validate} use the same reader.
-  \item \texttt{load\_config} normalises the mapping and runs the checks of Section~\ref{sec:consistency_checks}.
-    A failed check raises \texttt{ValueError}, and no model is built.
-  \item The solve builds the model (Section~\ref{sec:builders}), applies the warm start (Section~\ref{sec:warm_starts}), optimises,
-    extracts the solution, writes the result file if requested, and returns the dictionary.
-\end{enumerate}
-Every fleet, whatever its models, goes through the same route: no model has a separate solver.
-Gurobi errors, such as a missing licence, are not caught.
-
-\subsection{Cell-Builder Interface}
-\label{sec:builders}
-
-The shared model of \texttt{base.py} is built once for the whole fleet. Each cell $(i,\ell)$ is then filled in by the
-\emph{cell builder} of its model (the entry of \texttt{model} in the input). Builders are registered in a dictionary by model name.
-
-\begin{lstlisting}[language=Python]
-register_cell_builder(name, builder)   # CELL_BUILDERS[name] = builder
-get_cell_builder(name)                 # NotImplementedError if name is not registered
-dispatch_cell(ctx, i, l)               # get_cell_builder(ctx.model_of[i, l]).add_cell(ctx, i, l)
-\end{lstlisting}
-
-The names are \texttt{gaussian}, \texttt{inverse\_gaussian}, \texttt{wiener}, \texttt{gamma} and \texttt{rainflow}.
-The error of \texttt{get\_cell\_builder} lists the registered names.
-A builder is an object with the attribute \texttt{name} and the hooks below.
-
-\begingroup\small
-\begin{longtable}{@{}p{3.6cm}p{11.4cm}@{}}
-\toprule
-Hook & Duty \\
-\midrule
-{\raggedright \texttt{prepare(ctx, cfg, cells, opts)}\par} & Called once for each model that occurs in the fleet, with the list \texttt{cells} of the cells of
-  that model. It stores the per-cell arrays of the model in the context and creates the variables of the model's tracked quantities,
-  anchors and selectors, for these cells only (no variable that no row uses). It may tighten variable bounds, and it sets Gurobi's parameter \texttt{NonConvex} to $2$ when some cell of the model keeps an exact quadratic row. \\
-{\raggedright \texttt{add\_cell(ctx, i, l)}\par} & Adds every row of one cell that Section~\ref{sec:constraints} assigns to it: the dynamics in the form selected by
-  \texttt{encoding} (Section~\ref{sec:encoding}), the replacement and anchor rows, the repair-cost rows (Section~\ref{sec:repair_cost}),
-  the reliability rows in the form selected by \texttt{reliability\_impl} (Section~\ref{sec:linear_forms}), and the loop rows of the full tracked
-  state (Section~\ref{sec:loop}). \\
-{\raggedright \texttt{extract(ctx, cfg, out)}\par} & Optional. Adds model-specific entries to the result dictionary \texttt{out}, after the shared entries
-  are extracted. \\
-\bottomrule
-\end{longtable}
-\endgroup
-
-The \emph{context} \texttt{ctx} carries the sizes ($F$, $L$, $M$, $H_1$, $H_2$, $T$), the Gurobi model, the shared variables
-($x$ of shape $F \times (M+1) \times T$; $x^m$ and $x^r$ of shape $F \times L \times T$, with $x^r$ absent when replacement is not allowed;
-the mean $\mu$ of shape $F \times L \times T$; $z$ at the cells with $C_R > 0$; $u$ when $C_D > 0$), the per-cell arrays
-(model, $\tau$, $\varepsilon$, $\rho$, initial and replacement values, starting anchors), the increment accessor, the resolved run options
-and a dictionary \texttt{extras} for storage of a model.
-The increment accessor returns, for train $i$, mission $j$ (index from $0$ for the depot), cell $\ell$ and day $k$, the increment after the
-phase lookup of Section~\ref{sec:input_increments}.
-
-\emph{Building order.}
-\begin{enumerate}[nosep,label=\arabic*.]
-  \item Create the model, apply the run options, and create the shared variables.
-  \item Call \texttt{prepare} once for each model present, in the alphabetical order of the names.
-  \item Build the objective (Section~\ref{sec:objective}) and the rows that do not depend on the model:
-    the assignment rows (Section~\ref{sec:assignment}), the depot-day rows (Section~\ref{sec:depot}) and the damage-regularisation rows
-    (Section~\ref{sec:damage_reg}).
-  \item Call \texttt{add\_cell} for every cell, with $i$ in the outer loop and $\ell$ in the inner loop.
-\end{enumerate}
-Every builder must define the shared variable $\mu_{i\ell k}$ for all $k = 1,\ldots,T$ of each of its cells, because the damage regularisation
-and the output read it. After the optimisation, the shared extraction reads the variables, and then each model's \texttt{extract} hook runs.
-A model is added by writing a module with its builder and registering it, by adding its input checks to \texttt{config.py}
-(Section~\ref{sec:consistency_checks}), and by adding its section to this specification.
-
-\subsection{Plotting API and Layout}
+\section{Plotting API and Layout}
 \label{sec:plotting}
+% ================================================================
 
-The package has one schedule plot and one sweep plot, both in \texttt{utils/plotter.py}.
+Both plots are in \texttt{utils/plotter.py}.
+
+\subsection{Schedule Plot}
 
 \begin{lstlisting}[language=Python]
 plot_management(input_file_path, plot_file_path=None) -> None
 \end{lstlisting}
+\texttt{input\_file\_path} is a result file of \texttt{solve()} (YAML, JSON or HDF5). \texttt{plot\_file\_path} is a \texttt{.png} or \texttt{.pdf} image, default \texttt{"output.png"}; a path without extension gets \texttt{.png}.
+Errors: \texttt{FileNotFoundError} for a missing result file or image folder; \texttt{PermissionError} for an image folder that is not writable; \texttt{ValueError} for another extension of either file.
+Any result with a solution is plotted, whatever its status. \texttt{ValueError}, naming the keys, if the result lacks one of \texttt{F}, \texttt{M}, \texttt{L}, \texttt{H1}, \texttt{H2}, \texttt{tau}, \texttt{mu\_0}, \texttt{mu}, \texttt{x}; if a shape differs from Section~\ref{sec:output}; if $H_1 + H_2 \neq T$; or if \texttt{component\_names} has a length other than $L$.
+Missing \texttt{m} and \texttt{r} are read as zero; the default name of component $\ell$ is ``Component $\ell$'' ($\ell$ from $1$); the model of each row is read from the key \texttt{model}.
 
-\begingroup\small
-\begin{longtable}{@{}p{3.8cm}p{11.2cm}@{}}
-\toprule
-Parameter & Description \\
-\midrule
-\texttt{input\_file\_path} & Result file of \texttt{solve()}, in YAML, JSON or HDF5 format. A missing file raises
-  \texttt{FileNotFoundError}; another extension raises \texttt{ValueError}. \\
-\texttt{plot\_file\_path} & Image file, \texttt{.png} or \texttt{.pdf}. Default \texttt{"output.png"}. A path without an extension gets
-  \texttt{.png}. Another extension raises \texttt{ValueError}; a missing folder, \texttt{FileNotFoundError}; a folder without write
-  permission, \texttt{PermissionError}. \\
-\bottomrule
-\end{longtable}
-\endgroup
-
-The function plots any result that holds a solution, whatever its status: an incumbent found before a time limit is plotted, and
-the status is shown in the summary panel. It raises \texttt{ValueError} when the result lacks one of the keys \texttt{F}, \texttt{M},
-\texttt{L}, \texttt{H1}, \texttt{H2}, \texttt{tau}, \texttt{mu\_0}, \texttt{mu}, \texttt{x} (names the missing keys),
-when a shape differs from Section~\ref{sec:output}, or when $H_1 + H_2 \neq T$.
-The keys \texttt{m} and \texttt{r} are read when present and taken as all zero otherwise.
-The names of the components come from \texttt{component\_names} (default ``Component $\ell$'' with $\ell$ from $1$);
-a list of a length other than $L$ raises \texttt{ValueError}.
-The model of each cell comes from the key \texttt{model} (Section~\ref{sec:output}).
-
-\subsubsection{Plot Layout}
-
-The figure has a grid on the left and a summary panel on the right.
+\emph{Layout.} A grid on the left, a summary panel on the right.
 \begin{itemize}[nosep]
-  \item \textbf{Rows.} One row for each cell $(i,\ell)$, ordered by train and then by component: $F\,L$ rows.
-    The label of a row has two lines: ``Train $i$ --- \emph{component name}'' and the model name of the cell
-    (\texttt{gaussian}, \texttt{inverse\_gaussian}, \texttt{wiener}, \texttt{gamma} or \texttt{rainflow}).
-    A heavier horizontal line separates the trains.
-  \item \textbf{Columns.} $T + 1$ columns: ``initial'' (the values $\mu_{0,i\ell}$) and the days $1,\ldots,T$.
-    A vertical dashed line after day $H_1$ separates the phases. Above the grid, the labels ``transitory'' and ``operating'' name the two parts.
-  \item \textbf{Colour.} The background of a field is a green-to-red scale of $\mu_{i\ell k}/\tau_{i\ell}$, clipped to $[0,1]$ (green $0$, red $1$).
-    A colour bar is labelled ``tracked mean / failure threshold''. The values are the tracked means, which are upper bounds of the expected degradation
-    (Section~\ref{sec:encoding}).
-  \item \textbf{Marks.} Each field of a day carries one mark. The first rule that applies decides:
+  \item Rows: one per cell $(i,\ell)$, ordered by train, then component. Each label has two lines, ``Train $i$ --- \emph{component name}'' and the model name. A heavier line separates the trains.
+  \item Columns: ``initial'' ($\mu_{0,i\ell}$) and the days $1,\ldots,T$; a vertical dashed line after day $H_1$; the labels ``transitory'' and ``operating'' above the grid.
+  \item Colour: a green-to-red scale of $\mu_{i\ell k}/\tau_{i\ell}$, clipped to $[0,1]$; colour bar ``tracked mean / failure threshold''.
+  \item Marks: one per field of a day, given by the first rule of the table that applies; none in the column ``initial''. A value counts as $1$ if it is above $0.5$. A legend names the five marks.
 \end{itemize}
 
 \begingroup\small
-\begin{longtable}{@{}p{1.6cm}p{13.4cm}@{}}
+\begin{longtable}{@{}L{1.6cm}L{13.4cm}@{}}
 \toprule
 Mark & Rule for cell $(i,\ell)$ on day $k$ \\
 \midrule
+\endhead
 \texttt{P} & replacement: $x^r_{i\ell k} = 1$ \\
 \texttt{R} & repair: $x^m_{i\ell k} = 1$ \\
-\texttt{M}$_j$ & train $i$ flies mission $j$: $x_{ijk} = 1$ with $j \geq 1$ (the mark shows $j$) \\
-\texttt{D} & depot day without intervention: $x_{i0k} = 1$, $x^m_{i\ell k} = 0$, $x^r_{i\ell k} = 0$ \\
-\texttt{I} & idle: the train has no activity on day $k$ (all $x_{ijk} = 0$) \\
+\texttt{M}$_j$ & train $i$ flies mission $j \geq 1$: $x_{ijk} = 1$ (the mark shows $j$) \\
+\texttt{D} & depot day without intervention: $x_{i0k} = 1$, $x^m_{i\ell k} = x^r_{i\ell k} = 0$ \\
+\texttt{I} & idle day of the train (Section~\ref{sec:assignment}) \\
 \bottomrule
 \end{longtable}
 \endgroup
 
-A legend below the grid names the five marks, with a distinct colour for each. A value is $1$ when it is above $0.5$.
-The column ``initial'' has no mark.
+The summary panel ``Run summary'' shows the values that the result holds: status (coloured by outcome), objective, sizes and horizon, models and repair laws present, objective mode with $J_{\mathrm{op}}/H_2$, MIP gap in percent, numbers of variables (all, continuous, integer) and linear rows, optimizer time, branch-and-bound nodes, and the numbers of repairs and replacements.
+The counts come from \texttt{performance}; if a Gurobi log \texttt{runner.out} lies in the folder of the result file, the panel shows instead the presolved counts of its lines ``Presolved: $r$ rows, $c$ columns'' and ``Variable types: $a$ continuous, $b$ integer'', and says so.
 
-\emph{Summary panel} (title ``Run summary''). Each line is a label and a value; a line is omitted when its value is missing from the result.
-Status (coloured by outcome); Objective; Dimensions $F$, $M$, $L$; Horizon $H_1$, $H_2$, $T$; Models (the distinct model names);
-Repair (the distinct values of \texttt{repair\_model}); Objective mode and $J_{\mathrm{op}}/H_2$, if \texttt{objective\_mode} is in the result;
-MIP gap in percent; the numbers of variables, continuous variables, integer variables and linear rows; optimizer time;
-branch-and-bound nodes; repaired components; replaced components.
-The model counts are those of Gurobi's presolved model when the result carries them (\texttt{presolved\_performance}),
-and those of the original model otherwise; the label says which.
-When the result carries no presolved counts and a file \texttt{runner.out} (a Gurobi log) lies in the folder of the result file,
-the plot reads the counts from the lines ``Presolved: $r$ rows, $c$ columns'' and ``Variable types: $a$ continuous, $b$ integer''.
-The numbers of repaired and replaced components are the numbers of ones in \texttt{m} and \texttt{r}
-(components, not depot visits).
+\subsection{Sweep Plot}
 
 \begin{lstlisting}[language=Python]
 plot_horizon_sweep(sweep_report_path, plot_file_path=None) -> None
 \end{lstlisting}
-
-\texttt{sweep\_report\_path} is one path, or a list of paths, of reports of \texttt{sweep\_operating\_horizons}.
-A report is a YAML or JSON file. Another file type raises \texttt{ValueError}, a missing file raises \texttt{FileNotFoundError},
-and an empty list raises \texttt{ValueError}.
-The default image file is \texttt{"horizon\_sweep.png"}; the rules for \texttt{plot\_file\_path} are those of \texttt{plot\_management}.
-Reports in a list must agree in $F$, $M$, $L$ and $H_1$ (\texttt{ValueError} otherwise), and each needs a list \texttt{cases}.
-When several cases have the same $H_2$, the plot keeps the one with a solution, then the smaller $J_{\mathrm{op}}/H_2$, then the larger
-objective bound. A report without a case raises \texttt{ValueError}.
-The figure has three panels over $H_2$ (the cases are joined by lines that are not extrapolations):
-\begin{enumerate}[nosep,label=(\alph*)]
-  \item $J_{\mathrm{op}}/H_2$ for each case, with a different mark for a proven case (status \texttt{"optimal"}), a feasible case that is not proven,
-    and a case without a feasible solution (including an error row); the best feasible case is marked and the values of the proven cases are written;
-  \item the relative MIP gap in percent. When the entry \texttt{maximum\_}\allowbreak\texttt{mip\_gap\_for\_stopping}
-    of \texttt{stopping\_rule} is a number, a horizontal line shows it; otherwise a mark shows the requested MIP gap of each case;
-  \item the numbers of continuous variables, integer variables and linear constraints.
-\end{enumerate}
-The title names the sweep and the sizes $F$, $M$, $L$, $H_1$.
+\texttt{sweep\_report\_path} is one path, or a list of paths, of reports of \texttt{sweep\_operating\_horizons} (YAML or JSON); \texttt{ValueError} for another file type or an empty list, \texttt{FileNotFoundError} for a missing file.
+\texttt{plot\_file\_path}: as for \texttt{plot\_management}, with the default \texttt{"horizon\_sweep.png"}. The reports must agree in $F$, $M$, $L$, $H_1$, and each needs a list \texttt{cases} (\texttt{ValueError}).
+For equal $H_2$ the plot keeps the case with a solution, then the smaller $J_{\mathrm{op}}/H_2$, then the larger objective bound. The title names the sweep and $F$, $M$, $L$, $H_1$. Three panels over $H_2$ show: (a) $J_{\mathrm{op}}/H_2$ of each case, with one mark for a proven case (status \texttt{"optimal"}), one for a feasible case that is not proven, and one for a case without a feasible solution (error rows included), a mark on the best feasible case, and the values of the proven cases; (b) the relative MIP gap in percent, with a horizontal line at \texttt{maximum\_mip\_gap\_for\_stopping} of \texttt{stopping\_rule} if it is a number, otherwise a mark at the requested MIP gap of each case; (c) the numbers of continuous variables, integer variables and linear constraints.
 
 % ================================================================
 \section{Validation Tools}
 \label{sec:validation}
 % ================================================================
 
-The validation tools check a saved result against its input. They do not call the optimiser and they read no Gurobi object.
-There are three groups: the structural validator for every model (Section~\ref{sec:validation_structural}),
-the dashboards (Section~\ref{sec:validation_dashboards}), and the validators of the Gamma model (Section~\ref{sec:validation_gamma}).
-All tools read the input with the input reader of \texttt{solve()} and normalise it with \texttt{load\_config} (Section~\ref{sec:api}),
-and read a result file in the formats that \texttt{solve()} writes. They read the model of each cell from the result key \texttt{model}.
+The tools check a saved result against its input; they do not call the optimiser. Each tool reads the input with the input reader and \texttt{load\_config} (Section~\ref{sec:data_flow}), reads a result file in any format that \texttt{solve()} writes, and takes the model of each cell from the result key \texttt{model}.
 
 \subsection{Structural Validator}
 \label{sec:validation_structural}
@@ -785,104 +349,40 @@ and read a result file in the formats that \texttt{solve()} writes. They read th
 validate(input_path, results_path, validation_path="validation.yaml",
          tol=1e-6) -> dict
 \end{lstlisting}
+The report is written to \texttt{validation\_path} (\texttt{.yaml}, \texttt{.yml} or \texttt{.json}; no extension gets \texttt{.yaml}; the folder is created) and returned.
+Errors: \texttt{FileNotFoundError} for a missing file; \texttt{PermissionError} for a folder that is not writable; \texttt{ValueError} for an unsupported extension, a result without \texttt{x} (missing or \texttt{null}), an input that fails Section~\ref{sec:consistency_checks}, or sizes $F$, $M$, $L$, $H_1$, $H_2$ or array shapes that differ between result and input (named in the message).
+The status is not a check: a feasible incumbent is validated like an optimal solution, and the report echoes the status. A check passes if its violation is at most \texttt{tol}. The checks, each with its violation:
+\begin{itemize}[nosep]
+  \item \texttt{binary}: $x$, $x^m$, $x^r$ take only the values $0$ and $1$; the largest distance of an entry from $\{0,1\}$.
+  \item \texttt{one\_activity}: $\sum_{j=0}^{M} x_{ijk} \leq 1$ (Section~\ref{sec:assignment}); $\max\{0,\ \max_{i,k}(\sum_j x_{ijk} - 1)\}$.
+  \item \texttt{mission\_coverage}: every mission $j = 1,\ldots,M$ has $\sum_{i} x_{ijk} = 1$ (the depot $j = 0$ is not summed); $\max_{j \geq 1,k} |\sum_i x_{ijk} - 1|$.
+  \item \texttt{depot\_gating}: $x^m_{i\ell k} + x^r_{i\ell k} \leq x_{i0k}$ (Section~\ref{sec:depot}), and $x^r = 0$ if \texttt{allow\_replacement} is false; the largest excess of the left side over the right side.
+  \item \texttt{idle}, if the result has the key \texttt{idle} (Section~\ref{sec:output}): $\max |\texttt{idle}_{i\ell k} - (x_{i0k} - x^m_{i\ell k} - x^r_{i\ell k})|$.
+  \item \texttt{loop\_}$q$ for $q \in \{\texttt{mu}, \texttt{v}, \texttt{R}, \texttt{K}, \texttt{g\_mu}, \texttt{g\_v}, \texttt{g\_R}, \texttt{g\_K}\}$: the loop row $q_{i\ell T} \leq q_{i\ell H_1}$ (Section~\ref{sec:loop}), with \texttt{NaN} and \texttt{null} entries skipped; $\max\{0,\ \max_{i,\ell}(q_{i\ell T} - q_{i\ell H_1})\}$.
+  \item \texttt{objective}: the saved objective $o$ is not below the recomputed objective $r$; $\max\{0,\ r - o\}/\max\{1, |o|\}$. The recomputed objective is Eq.~\eqref{eq:a_objective} in the objective mode of the input, with the day cost of Eq.~\eqref{eq:a_daycost} on the saved $x$, $z$ ($0$ where \texttt{NaN}) and $x^r$, the costs of the input, and the saved $u$.
+\end{itemize}
 
-\texttt{validate} checks that the saved schedule and states satisfy the rows of the formulation that do not need the solver,
-and writes and returns a report. The report file has the extension \texttt{.yaml}, \texttt{.yml} or \texttt{.json}
-(a path without an extension gets \texttt{.yaml}; another extension raises \texttt{ValueError}).
-The function creates the folder of the report; it raises \texttt{PermissionError} if the folder is not writable.
-It raises \texttt{FileNotFoundError} for a missing input or result file, and \texttt{ValueError} for the following:
-an unsupported extension, a result without a solution (\texttt{x} is \texttt{null}), an input that fails the checks of
-Section~\ref{sec:consistency_checks}, and a result whose sizes $F$, $M$, $L$, $H_1$, $H_2$ or whose array shapes differ from those of the input
-(the message names the quantity).
-The solver status is not a check: a feasible incumbent found before a time limit is validated like an optimal solution,
-and the report echoes the status.
-
-A check passes when its \emph{violation} is at most \texttt{tol}. The checks are:
-
-\begingroup\small
-\begin{longtable}{@{}p{3.4cm}p{6.2cm}p{5.4cm}@{}}
-\toprule
-Name & Statement & Violation \\
-\midrule
-{\raggedright \texttt{binary}\par} & $x$, $x^m$, $x^r$ take only the values $0$ and $1$ &
-  largest distance of an entry from $\{0,1\}$ \\
-{\raggedright \texttt{one\_activity}\par} & $\sum_{j=0}^{M} x_{ijk} \leq 1$ for all $i$, $k$ (Section~\ref{sec:assignment}) &
-  $\max\{0,\ \max_{i,k}(\sum_j x_{ijk} - 1)\}$ \\
-{\raggedright \texttt{mission\_coverage}\par} & $\sum_{i} x_{ijk} = 1$ for $j = 1,\ldots,M$ and all $k$; the depot $j = 0$ is not summed &
-  $\max_{j \geq 1,k} |\sum_i x_{ijk} - 1|$ \\
-{\raggedright \texttt{depot\_gating}\par} & $x^m_{i\ell k} + x^r_{i\ell k} \leq x_{i0k}$ (Section~\ref{sec:depot}); $x^r = 0$ if \texttt{allow\_replacement} is false &
-  largest excess of the left over the right side \\
-{\raggedright \texttt{idle}\par} & if the result has \texttt{idle}: $\texttt{idle}_{i\ell k} = x_{i0k} - x^m_{i\ell k} - x^r_{i\ell k}$ &
-  $\max |\texttt{idle} - (x_{i0k} - x^m - x^r)|$ \\
-{\raggedright \texttt{damage\_rows}\par} & if $C_D > 0$: the rows of Section~\ref{sec:damage_reg} hold for the saved $u$ and $\mu$ &
-  largest violation of a row \\
-{\raggedright \texttt{loop\_}$q$\par} & the loop row (Section~\ref{sec:loop}) $q_{i\ell T} \leq q_{i\ell H_1}$ for each tracked quantity or anchor $q \in \{\texttt{mu}, \texttt{v}, \texttt{R}, \texttt{K}, \texttt{g\_mu}, \texttt{g\_v}, \texttt{g\_R}, \texttt{g\_K}\}$. The result carries every one of them, with \texttt{NaN} (in a file \texttt{null}) at the cells that do not track it; these entries are skipped &
-  $\max\{0,\ \max_{i,\ell}(q_{i\ell T} - q_{i\ell H_1})\}$ \\
-{\raggedright \texttt{objective}\par} & the objective recomputed from the saved arrays equals the saved \texttt{objective} &
-  {\raggedright relative difference of the two values, with the divisor $\max\{1, |\texttt{objective}|\}$\par} \\
-\bottomrule
-\end{longtable}
-\endgroup
-
-The recomputed objective uses the day cost $c_k$ of Eq.~\eqref{eq:d_daycost} with the saved $x$, $z$, $x^r$ and the costs of the input, and the
-saved $u$. For \texttt{objective\_mode} equal to \texttt{total} it is $\sum_{k=1}^{T} c_k + C_D\,u$;
-for \texttt{operating\_average} it is $J_{\mathrm{op}}/H_2 + C_D\,u$; for \texttt{evaluation\_total} it is the projected cost $P_E$ of
-Eq.~\eqref{eq:d_projected} (Section~\ref{sec:objective}).
-The check does not test the optimality of the schedule. It tests that the reported objective is the cost of the reported solution.
-
-The loop checks use the saved tracked states, which satisfy the loop row, and not the reference trajectory:
-the reference trajectory of a feasible schedule can violate the loop row (Section~\ref{sec:encoding}).
-
-The report is a mapping with the keys \texttt{status}, \texttt{solver\_objective}, \texttt{recomputed\_objective}, \texttt{tolerance},
-\texttt{checks} (a list of mappings with \texttt{name}, \texttt{passed}, \texttt{violation}, \texttt{tolerance}), \texttt{passed}
-(all checks passed) and \texttt{max\_violation} (the largest violation).
+\emph{Keys:} \texttt{status}, \texttt{solver\_objective}, \texttt{recomputed\_objective}, \texttt{tolerance}; \texttt{checks}, a list of records with \texttt{name}, \texttt{passed}, \texttt{violation} and \texttt{tolerance}; \texttt{passed}, true if all checks passed; \texttt{max\_violation}.
 
 \subsection{Dashboards}
 \label{sec:validation_dashboards}
 
-The dashboards are Streamlit pages (Streamlit is a Python library for web dashboards; it is in the extra \texttt{dashboard}).
-The entry point is \texttt{validator\_dashboard.py}; the command is
-\texttt{python -m streamlit run src/fleet\_management/validator\_dashboard.py}.
-A sidebar selects the mode, the input file, the result file and the tolerance (default $10^{-6}$), and a button loads the pair.
-The dashboards read only the input and the result: they need no log file.
-A failed load shows the error on the page; no page is drawn from partial data.
+Streamlit pages (extra \texttt{dashboard}), started with
+\begin{lstlisting}
+python -m streamlit run src/fleet_management/validator_dashboard.py
+\end{lstlisting}
+The sidebar selects the mode, the input file, the result file and the tolerance (default $10^{-6}$); a button loads the pair. The dashboards read only these two files. A failed load shows the error and no page.
 
-\emph{Mode ``Result inspector''} (every model). Tabs:
-\begin{enumerate}[nosep,label=\arabic*.]
-  \item \emph{Overview}: status, objective, the models present, $H_1$, $H_2$, $T$, the number of reliability violations,
-    the largest $\mu/\tau$, and the cells with the smallest margin.
-  \item \emph{Reliability}: a table of the margin of every (train, component, day), with filters for train, component and violations only.
-  \item \emph{Repeatability}: for each cell and each saved tracked state, the value of the loop row (Section~\ref{sec:loop}).
-  \item \emph{Train timeline}: the mean of each component of one train over the days, with the threshold $\tau$ and the marks of
-    Section~\ref{sec:plotting}.
-  \item \emph{Heatmap}: the margins on the grid of cells and days.
-  \item \emph{Component comparison}: one component across the trains.
-  \item \emph{Validation}: the checks of \texttt{validate} (Section~\ref{sec:validation_structural}).
-  \item \emph{Raw data}: the table behind the tabs, with an export.
-\end{enumerate}
-The \emph{margin} of a cell on a day is the right side minus the left side of the reliability row of its model and bound, in its exact form,
-with the $\tau$, $\varepsilon$ and bound of that cell and the saved tracked states (Sections~\ref{sec:dyn_gaussian}--\ref{sec:dyn_rainflow}).
-A margin of at least $-\texttt{tolerance}$ means that the row holds. The exact form is used also when the solve used the tangent or
-piecewise-linear form, so the margin shows the true slack.
-The result carries every tracked quantity; the dashboard leaves out the entries that are \texttt{NaN}.
-The margins of cells with different models and bounds are not comparable in size; only the sign is.
+\emph{Mode ``Result inspector''} (every model). Tabs: \emph{Overview} (status, objective, models, $H_1$, $H_2$, $T$, number of reliability violations, largest $\mu/\tau$, cells with the smallest margin); \emph{Reliability} (margins by train, component and day; filters for train, component and violations only); \emph{Repeatability} (the loop row of each cell and saved tracked quantity, Section~\ref{sec:loop}); \emph{Train timeline} (the means of one train with $\tau$ and the marks of Section~\ref{sec:plotting}); \emph{Heatmap} (margins over cells and days); \emph{Component comparison} (one component across the trains); \emph{Validation} (the checks of \texttt{validate}); \emph{Raw data} (with an export).
+The \emph{margin} of a cell on a day is the right side minus the left side of the exact form of its reliability row (Sections~\ref{sec:dyn_gaussian}--\ref{sec:dyn_rainflow}), on the saved tracked states. The row holds if the margin is at least $-\texttt{tolerance}$; \texttt{NaN} entries are left out.
 
-\emph{Mode ``Gamma diagnostic''} (Gamma cells). Tabs: an overview with the counts of repairs and replacements and the outcome of the
-replay validator; the tracked mean of each Gamma cell with its cap $A_1(\beta^*\tau,\varepsilon)/\beta^*$ (Section~\ref{sec:dyn_gamma});
-the exact tail probability of the true damage against $\varepsilon$ (Section~\ref{sec:validation_gamma}); a heatmap of this tail over the cells and days;
-and the raw data.
+\emph{Mode ``Gamma diagnostic''} (Gamma cells), which runs the replay and the exact validators (Section~\ref{sec:validation_gamma}). Tabs: an overview (repairs, replacements, outcome of the replay validator); the tracked mean of each Gamma cell with its cap $A_1(\beta^*\tau,\varepsilon)/\beta^*$ (Section~\ref{sec:dyn_gamma}); the exact tail probability of the true damage against $\varepsilon$, also as a heatmap; raw data. The mode needs no schedule inside the input file.
 
 \subsection{Validators of the Gamma Model}
 \label{sec:validation_gamma}
 
-The three validators of this section check the Gamma cells of a result. Each takes the normalised configuration \texttt{cfg} (Section~\ref{sec:inputs})
-and the result dictionary, or an input path and a result path, and returns a report (a mapping of plain Python types).
-Each raises \texttt{ValueError} when \texttt{cfg} has no Gamma cell, when a required array is missing, has a wrong shape or has a non-finite entry,
-and when an array that must be binary is not within \texttt{tolerance} of $\{0,1\}$.
-The argument \texttt{tolerance} (default $10^{-8}$) must be positive. With \texttt{raise\_on\_failure=True} a report with \texttt{valid = false} raises
-\texttt{AssertionError}. The file versions take also \texttt{report\_path} (default \texttt{None}): the report is written there as YAML or JSON
-(\texttt{ValueError} for another suffix), and the folder is created if it is missing.
-The tracked state of a Gamma cell is the mean $\mu$ and, under $\ARDone$, its anchor $g^{\mu}$ (Section~\ref{sec:dyn_gamma}).
+Each validator takes the normalised configuration \texttt{cfg} (\texttt{load\_config}) and the result dictionary, and returns a report of plain Python types. Its file version takes an input path, a result path and \texttt{report\_path} (default \texttt{None}); it writes the report as YAML or JSON (\texttt{ValueError} for another suffix) and creates the folder.
+\texttt{ValueError} if \texttt{cfg} has no Gamma cell; if a required array is missing, has a wrong shape or a non-finite entry; if an array that must be binary is not within \texttt{tolerance} of $\{0,1\}$. \texttt{tolerance} (default $10^{-8}$) must be positive. With \texttt{raise\_on\_failure=True}, a report with \texttt{valid = false} raises \texttt{AssertionError}.
 
 \emph{Replay validator.}
 \begin{lstlisting}[language=Python]
@@ -891,36 +391,18 @@ validate_gamma_replay_schedule(cfg, result, *, tolerance=1e-8,
 validate_gamma_replay_files(input_path, result_path, report_path=None,
                             **kwargs) -> dict
 \end{lstlisting}
-It replays the bookkeeping of the saved schedule. It reads the keys \texttt{x}, \texttt{m}, \texttt{r} (optional), \texttt{mu}, \texttt{z}, and
-the anchor \texttt{g\_mu} of the mean for the cells that use $\ARDone$.
-Global violations (strings in \texttt{global\_violations}): a result horizon different from $T$; a train with more than one activity;
-a mission not covered exactly once; repair and replacement of a cell on one day; an intervention on a day with a mission or without a depot day.
-For each Gamma cell and day $k$ the validator computes the reference trajectory of the mean and of its anchor
-(Section~\ref{sec:encoding}) from the saved schedule, with the initial values, the starting anchor and the replacement value of the cell.
-The \emph{event} of the day is \texttt{"replacement"}, \texttt{"repair"}, \texttt{"mission"} or \texttt{"idle"}. The errors, by field, are:
+It reads \texttt{x}, \texttt{m}, \texttt{r} (optional), \texttt{mu}, \texttt{z} and, for $\ARDone$ cells, \texttt{g\_mu}. Global violations (strings in \texttt{global\_violations}): a result horizon other than $T$; a train with more than one activity; a mission not covered exactly once; a repair and a replacement of a cell on one day; an intervention on a day with a mission or without a depot day.
+For each Gamma cell and day $k$, the reference trajectory of $\mu$ and $g^{\mu}$ (Section~\ref{sec:encoding}) is computed from the saved schedule, with the initial value, starting anchor and replacement value of the cell. The event of the day is \texttt{"replacement"}, \texttt{"repair"}, \texttt{"mission"} or \texttt{"idle"}. The errors are:
+\begin{itemize}[nosep]
+  \item \texttt{tracked\_mean}: $\max\{0,\ \text{reference mean} - \texttt{mu}_{i\ell k}\}$; \texttt{mean\_anchor}: the same for \texttt{g\_mu}, under $\ARDone$;
+  \item \texttt{removed\_mean}: $\max\{0,\ x^m_{i\ell k}\,\rho_{i\ell}(\mu_{i\ell,k-1} - g_{i\ell,k-1}) - z_{i\ell k}\}$, with $g = 0$ under $\ARDinf$ (Section~\ref{sec:repair_cost}); skipped where $z$ is \texttt{NaN} ($C_{R,i\ell} = 0$);
+  \item \texttt{cap}: $\max\{0,\ \texttt{mu}_{i\ell k} - A_1(\beta^*\tau,\varepsilon)/\beta^*\}$ (Section~\ref{sec:dyn_gamma});
+  \item \texttt{repeatability}: $\max\{0,\ \texttt{mu}_{i\ell T} - \texttt{mu}_{i\ell H_1}\}$, and the same for the saved anchor.
+\end{itemize}
+An error above \texttt{tolerance} adds a record \texttt{i}, \texttt{l}, \texttt{k}, \texttt{event}, \texttt{field}, \texttt{expected}, \texttt{saved}, \texttt{error} to \texttt{violations}.
+\emph{Keys:} \texttt{validator}; \texttt{valid}, true without a global violation and without a violation; \texttt{solver\_status}, \texttt{dimensions}, \texttt{gamma\_cells}, \texttt{gamma\_ard1\_cells}, \texttt{transitions\_checked}, \texttt{repairs}, \texttt{replacements}; \texttt{maximum\_errors}, the largest error of each field; \texttt{global\_violations}, \texttt{violations}, \texttt{timing}.
 
-\begingroup\small
-\begin{longtable}{@{}p{3.6cm}p{11.4cm}@{}}
-\toprule
-Field & Error \\
-\midrule
-{\raggedright \texttt{tracked\_mean}\par} & $\max\{0,\ \text{reference mean} - \texttt{mu}_{i\ell k}\}$: a tracked mean below the reference breaks the upper-bound
-  property of the one-sided rows (Section~\ref{sec:encoding}). A tracked mean above the reference is slack and is not an error. \\
-{\raggedright \texttt{mean\_anchor}\par} & the same for the anchor \texttt{g\_mu}, under $\ARDone$ \\
-{\raggedright \texttt{removed\_mean}\par} & $|z_{i\ell k} - x^m_{i\ell k}\,\rho_{i\ell}(\mu_{i\ell,k-1} - g_{i\ell,k-1})|$ computed from the saved states, with $g = 0$ under $\ARDinf$
-  (Section~\ref{sec:repair_cost}); $z = 0$ on a day without repair \\
-{\raggedright \texttt{cap}\par} & $\max\{0,\ \texttt{mu}_{i\ell k} - A_1(\beta^*\tau,\varepsilon)/\beta^*\}$ (Section~\ref{sec:dyn_gamma}) \\
-{\raggedright \texttt{repeatability}\par} & $\max\{0,\ \texttt{mu}_{i\ell T} - \texttt{mu}_{i\ell H_1}\}$, and the same for the saved anchor \\
-\bottomrule
-\end{longtable}
-\endgroup
-
-An error above \texttt{tolerance} adds a mapping \texttt{i}, \texttt{l}, \texttt{k}, \texttt{event}, \texttt{field}, \texttt{expected}, \texttt{saved}, \texttt{error}
-to \texttt{violations}. The report has the keys \texttt{validator}, \texttt{valid} (no global violation and no violation), \texttt{solver\_status},
-\texttt{dimensions}, \texttt{gamma\_cells}, \texttt{gamma\_ard1\_cells}, \texttt{transitions\_checked}, \texttt{repairs}, \texttt{replacements},
-\texttt{maximum\_errors} (the largest error of each field), \texttt{global\_violations}, \texttt{violations} and \texttt{timing}.
-
-\emph{Exact validator} (module \texttt{degradation\_model.\allowbreak gamma\_utils.\allowbreak gamma\_tail\_validator}; the package does not export it).
+\emph{Exact validator} (module \texttt{gamma\_utils.gamma\_tail\_validator}, not exported).
 \begin{lstlisting}[language=Python]
 validate_gamma_tail_bound_schedule(cfg, result, *, tolerance=1e-8,
     convolution_tolerance=1e-12, max_series_terms=100000,
@@ -928,24 +410,11 @@ validate_gamma_tail_bound_schedule(cfg, result, *, tolerance=1e-8,
 validate_gamma_tail_bound_files(input_path, result_path, report_path=None,
                                 **kwargs) -> dict
 \end{lstlisting}
-It checks the safety claim itself, for the saved schedule and without the tracked states.
-For each Gamma cell it rebuilds the true damage on each day $k = 1,\ldots,T$ as a list of independent Gamma terms, as in the proof of the class of true states
-(Section~\ref{sec:dyn_gamma}): every mission adds a term with the exact rate of its increment; a repair multiplies the rate of the repairable terms by $1/(1-\rho)$
-(the shape is unchanged; for $\rho = 1$ the repairable terms disappear); under $\ARDone$ the repaired terms join the frozen part of the anchor;
-a replacement starts a new list with the replacement term.
-An initial or replacement damage without a rate (the inputs \texttt{gamma\_beta\_0} or \texttt{gamma\_beta\_new} are omitted) is a known constant $c$ and
-is not a term: the tail is then $\Pr(\text{sum of the terms} > \tau - c)$, which is $1$ if $c > \tau$.
-It computes the tail $\Pr(D_k > \tau)$ of the sum of the terms with the Moschopoulos series. The series writes the law of a sum of
-independent Gamma variables with different rates as a mixture of Gamma laws with non-negative weights. When all rates are equal, the tail is the Gamma tail.
-The partial sum of the series is a lower bound of the tail. The validator adds the mixture weight that remains, which is at most \texttt{convolution\_tolerance},
-and so obtains a certified upper bound of the tail. If the series does not reach this tolerance within \texttt{max\_series\_terms} terms,
-the validator raises \texttt{RuntimeError}. The argument \texttt{convolution\_tolerance} must lie in $(0,1)$ and \texttt{max\_series\_terms} must be positive.
-A day passes when the upper bound is at most $\varepsilon_{i\ell} + \texttt{tolerance}$ and the saved mean is at least the exact mean $\mathbb{E}D_k$ minus \texttt{tolerance}.
-Under $\ARDone$ the saved anchor must also be at least the exact mean of the frozen part, minus \texttt{tolerance}.
-(The saved values may be larger: they are upper bounds.)
-The report adds, to the keys of the replay report, \texttt{minimum\_reliability\_slack} ($\min (\varepsilon - \text{tail upper bound})$), \texttt{worst\_reliability}
-(the step that attains it), \texttt{maximum\_remaining\_mass}, the numbers of series terms, and the timing of the tail computations.
-With \texttt{include\_steps=True} the report has the list \texttt{steps} with the terms and values of every cell and day.
+For each Gamma cell and day $k = 1,\ldots,T$, the true damage is a list of independent Gamma terms (Section~\ref{sec:dyn_gamma}). A mission adds a term with the exact rate of its increment. A repair multiplies the rate of the repairable terms by $1/(1-\rho)$, and removes them for $\rho = 1$; under $\ARDone$ the repaired terms join the frozen part of the anchor. A replacement starts a new list with the replacement term.
+An initial or replacement damage without a rate (\texttt{gamma\_beta\_0} or \texttt{gamma\_beta\_new} omitted) is a known constant $c$, not a term: the tail is $\Pr(\text{sum of the terms} > \tau - c)$, and $1$ if $c > \tau$.
+The tail $\Pr(D_k > \tau)$ is computed by the Moschopoulos series (with equal rates, the Gamma tail); the upper bound is the partial sum plus the remaining mixture mass, which is at most \texttt{convolution\_tolerance}. \texttt{RuntimeError} if the series does not reach this tolerance within \texttt{max\_series\_terms} terms. \texttt{convolution\_tolerance} must lie in $(0,1)$; \texttt{max\_series\_terms} must be positive.
+A day passes if the upper bound is at most $\varepsilon_{i\ell} + \texttt{tolerance}$, the saved mean is at least $\mathbb{E}D_k - \texttt{tolerance}$ and, under $\ARDone$, the saved anchor is at least the exact mean of the frozen part minus \texttt{tolerance}.
+\emph{Keys:} those of the replay report; \texttt{minimum\_reliability\_slack}, the minimum of $\varepsilon$ minus the upper bound; \texttt{worst\_reliability}, the step that attains it; \texttt{maximum\_remaining\_mass}; the numbers of series terms and the timing of the tail computations; with \texttt{include\_steps=True}, the list \texttt{steps} (terms and values of every cell and day).
 
 \emph{Monte Carlo validator.}
 \begin{lstlisting}[language=Python]
@@ -960,40 +429,11 @@ validate_gamma_schedule(cfg, result, *, mode=None, repetitions=None,
 validate_gamma_schedule_files(input_path, result_path, report_path=None,
                               **kwargs) -> dict
 \end{lstlisting}
-The schedule stays fixed. In each of \texttt{repetitions} runs, the validator draws the true damage of every Gamma cell:
-the initial damage, each mission increment and each replacement draw are independent Gamma variables with the inputs' means and rates
-(the initial damage under $\ARDone$ is the sum of two independent terms with the means $g^{\mu}_0$ and $\mu_0 - g^{\mu}_0$, the first one being the anchor).
-An initial or replacement damage without a rate (the inputs \texttt{gamma\_beta\_0} or \texttt{gamma\_beta\_new} are omitted) is the known constant of its mean.
-Each day it applies the repair law of the cell to the sampled path: $D \leftarrow (1-\rho)\,D$ under $\ARDinf$; $D \leftarrow g + (1-\rho)(D - g)$ then $g \leftarrow D$ under $\ARDone$;
-a replacement draws the damage of the replacement part and, under $\ARDone$, sets $g$ to it. After each day it records whether $D > \tau$.
-A \emph{schedule failure} is a run in which some Gamma cell exceeds its threshold on some day.
-The draws use a generator seeded with \texttt{random\_seed} and are made in batches of \texttt{batch\_size} runs; the same arguments give the same report.
-\texttt{confidence\_level} must lie in $(0,1)$, \texttt{repetitions} and \texttt{batch\_size} must be positive, and
-\texttt{maximum\_schedule\_failure\_rate} (if given) must lie in $[0,1]$.
+The schedule is fixed, and only Gamma cells are sampled. In each of \texttt{repetitions} runs, the true damage of every Gamma cell is drawn: the initial damage, each mission increment and each replacement draw are independent Gamma variables with the means and rates of the inputs. Under $\ARDone$ the initial damage is the sum of two independent terms with means $g^{\mu}_0$ (the anchor) and $\mu_0 - g^{\mu}_0$; a damage without a rate is the constant of its mean.
+Each day the repair law acts on the sampled path: $D \leftarrow (1-\rho)\,D$ under $\ARDinf$; $D \leftarrow g + (1-\rho)(D - g)$, then $g \leftarrow D$, under $\ARDone$. A replacement draws the damage of the replacement part and, under $\ARDone$, sets $g$ to it. After each day the run records whether $D > \tau$. A \emph{schedule failure} is a run in which some Gamma cell exceeds its threshold on some day.
+The generator is seeded with \texttt{random\_seed}, and draws are made in batches of \texttt{batch\_size} runs; the same arguments give the same report. \texttt{confidence\_level} must lie in $(0,1)$; \texttt{repetitions} and \texttt{batch\_size} must be positive; \texttt{maximum\_schedule\_failure\_rate}, if given, must lie in $[0,1]$.
+Each failure rate (of the fleet, of a cell, of the worst day of a cell) comes with its one-sided Clopper--Pearson upper bound at \texttt{confidence\_level}: for $f$ failures in $n$ runs, the \texttt{confidence\_level}-quantile of the law Beta$(f+1,\ n-f)$, and $1$ if $f = n$.
+\texttt{valid} is true if no target is given, or if the observed schedule failure rate is at most \texttt{maximum\_schedule\_failure\_rate}.
+\emph{Keys:} \texttt{validator}, \texttt{mode}, \texttt{valid}, \texttt{timing}, the arguments used; \texttt{scope} (``Gamma cells only''); \texttt{complete\_fleet\_validation} (false if the fleet has other cells); \texttt{excluded\_cells} (\texttt{i}, \texttt{l}, \texttt{component}, \texttt{model}, \texttt{reason} of each other cell); \texttt{schedule} (\texttt{failed\_replays}, \texttt{failure\_rate}, \texttt{failure\_rate\_upper\_confidence\_bound}, \texttt{maximum\_failure\_rate}, \texttt{observed\_target\_met}, \texttt{confidence\_qualified\_target\_met}); \texttt{cells}, for each Gamma cell \texttt{i}, \texttt{l}, \texttt{component}, \texttt{repair\_model}, \texttt{threshold}, \texttt{analytical\_epsilon}, \texttt{failed\_replays}, \texttt{failure\_rate} with its bound, \texttt{worst\_time\_step} with its failures, rate and bound, \texttt{maximum\_sampled\_damage}, \texttt{maximum\_threshold\_excess}.
 
-The report counts the failures of the fleet, of each cell and of the worst day of each cell. Each rate comes with its one-sided Clopper--Pearson
-upper confidence bound at \texttt{confidence\_level}. For $f$ failures in $n$ runs the bound is the \texttt{confidence\_level}-quantile of the
-Beta$(f+1,\ n-f)$ law, and $1$ if $f = n$. The keys are:
-
-\begingroup\small
-\begin{longtable}{@{}p{5.8cm}p{9.2cm}@{}}
-\toprule
-Key & Content \\
-\midrule
-{\raggedright \texttt{validator}, \texttt{mode}, \texttt{valid}, \texttt{timing}\par} & {\raggedright Name of the validator, the mode, the verdict, the time used.\par} \\
-{\raggedright \texttt{scope}, \texttt{complete\_fleet\_validation}\par} & {\raggedright ``Gamma cells only''; false if the fleet has cells of other models.\par} \\
-{\raggedright \texttt{excluded\_cells}\par} & {\raggedright For each cell that is not a Gamma cell: i, l, component, model, reason.\par} \\
-{\raggedright \texttt{repetitions}, \texttt{random\_seed}, \texttt{batch\_size}, \texttt{confidence\_level}\par} & {\raggedright The arguments used.\par} \\
-{\raggedright \texttt{schedule}\par} & {\raggedright failed\_replays, failure\_rate, failure\_rate\_upper\_confidence\_bound, maximum\_failure\_rate, observed\_target\_met, confidence\_qualified\_target\_met.\par} \\
-{\raggedright \texttt{cells}\par} & {\raggedright For each Gamma cell: i, l, component, repair\_model, threshold, analytical\_epsilon, failed\_replays, failure\_rate and its upper confidence bound, worst\_time\_step with the failures, the rate and the bound of that day, maximum\_sampled\_damage, maximum\_threshold\_excess.\par} \\
-\bottomrule
-\end{longtable}
-\endgroup
-
-The report is valid when the observed schedule failure rate is at most the target \texttt{maximum\_}\allowbreak\texttt{schedule\_failure\_rate}, or when no target is given.
-The result is an empirical stress test and not a proof: zero failures in $n$ runs does not show that the true rate is below $1/n$.
-
-\texttt{validate\_gamma\_schedule} selects the validators by \texttt{mode}: \texttt{"deterministic"} (the replay validator; the default),
-\texttt{"stochastic"} (the Monte Carlo validator), or \texttt{"both"} (a report with the keys \texttt{deterministic} and \texttt{stochastic} and \texttt{valid} true only if both are valid).
-Another value raises \texttt{ValueError}. An argument that is \texttt{None} takes the default of the Monte Carlo validator.
-The Monte Carlo validator samples Gamma cells only. It lists every other cell in \texttt{excluded\_cells} with the reason ``not a Gamma cell''.
+\texttt{validate\_gamma\_schedule} runs the validators that \texttt{mode} selects: \texttt{"deterministic"} (replay), \texttt{"stochastic"} (Monte Carlo) or \texttt{"both"}, with the keys \texttt{deterministic} and \texttt{stochastic} and \texttt{valid} true if both are valid; another value raises \texttt{ValueError}. An argument that is \texttt{None} takes the value of the key of the same name in the input block \texttt{validation} (Section~\ref{sec:run_options}), otherwise its default; the default of \texttt{mode} is \texttt{"deterministic"}.

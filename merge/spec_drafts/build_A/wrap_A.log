@@ -1,4 +1,4 @@
-This is pdfTeX, Version 3.141592653-2.6-1.40.27 (MiKTeX 25.4) (preloaded format=pdflatex 2025.7.24)  26 OCT 2026 12:00
+This is pdfTeX, Version 3.141592653-2.6-1.40.27 (MiKTeX 25.4) (preloaded format=pdflatex 2025.7.24)  26 OCT 2026 15:29
 entering extended mode
  restricted \write18 enabled.
  %&-line parsing enabled.
@@ -823,7 +823,17 @@ Package: amsthm 2020/05/29 v2.20.6
 \thm@headsep=\skip83
 \dth@everypar=\toks48
 )
-Package hyperref Info: Option `colorlinks' set `true' on input line 24.
+(C:\Users\utente\AppData\Local\Programs\MiKTeX\tex/latex/tools\array.sty
+Package: array 2025/06/08 v2.6j Tabular extension package (FMi)
+\col@sep=\dimen317
+\ar@mcellbox=\box79
+\extrarowheight=\dimen318
+\NC@list=\toks49
+\extratabsurround=\skip84
+\backup@length=\skip85
+\ar@cellbox=\box80
+)
+Package hyperref Info: Option `colorlinks' set `true' on input line 26.
 \c@theorem=\count356
 )
 (C:\Users\utente\AppData\Local\Programs\MiKTeX\tex/latex/l3backend\l3backend-pd
@@ -902,16 +912,16 @@ ap_A.out)
 kii
 [Loading MPS to PDF converter (version 2006.09.02).]
 \scratchcounter=\count358
-\scratchdimen=\dimen317
-\scratchbox=\box79
+\scratchdimen=\dimen319
+\scratchbox=\box81
 \nofMPsegments=\count359
 \nofMParguments=\count360
-\everyMPshowfont=\toks49
+\everyMPshowfont=\toks50
 \MPscratchCnt=\count361
-\MPscratchDim=\dimen318
+\MPscratchDim=\dimen320
 \MPnumerator=\count362
 \makeMPintoPDFobject=\count363
-\everyMPtoPDFconversion=\toks50
+\everyMPtoPDFconversion=\toks51
 )
 (C:\Users\utente\AppData\Local\Programs\MiKTeX\tex/latex/epstopdf-pkg\epstopdf-
 base.sty
@@ -966,294 +976,158 @@ File: mt-msb.cfg 2005/06/01 v1.0 microtype config. file: AMS symbols (b) (RS)
 )
 
 LaTeX Warning: Reference `sec:dyn_gaussian' on page 1 undefined on input line 2
-7.
+5.
 
 
-LaTeX Warning: Reference `sec:dyn_ig' on page 1 undefined on input line 29.
+LaTeX Warning: Reference `sec:dyn_ig' on page 1 undefined on input line 27.
 
 
-LaTeX Warning: Reference `sec:dyn_wiener' on page 1 undefined on input line 33.
+LaTeX Warning: Reference `sec:dyn_wiener' on page 1 undefined on input line 30.
 
 
 
-LaTeX Warning: Reference `sec:dyn_gamma' on page 1 undefined on input line 36.
+LaTeX Warning: Reference `sec:dyn_gamma' on page 1 undefined on input line 32.
 
 
-LaTeX Warning: Reference `sec:dyn_rainflow' on page 1 undefined on input line 4
-1.
+LaTeX Warning: Reference `sec:dyn_rainflow' on page 1 undefined on input line 3
+5.
 
 
-LaTeX Warning: Reference `sec:sweeps' on page 1 undefined on input line 71.
+LaTeX Warning: Reference `sec:sweeps' on page 1 undefined on input line 55.
 
 
-LaTeX Warning: Reference `sec:warm_starts' on page 1 undefined on input line 72
+LaTeX Warning: Reference `sec:warm_starts' on page 1 undefined on input line 55
 .
 
 
-LaTeX Warning: Reference `sec:plotting' on page 1 undefined on input line 73.
+LaTeX Warning: Reference `sec:plotting' on page 1 undefined on input line 56.
 
 
-LaTeX Warning: Reference `sec:validation' on page 1 undefined on input line 74.
+LaTeX Warning: Reference `sec:validation' on page 1 undefined on input line 56.
 
 
 
-LaTeX Warning: Reference `sec:schema' on page 1 undefined on input line 75.
+LaTeX Warning: Reference `sec:schema' on page 1 undefined on input line 57.
 
 
-LaTeX Warning: Reference `sec:output' on page 1 undefined on input line 75.
+LaTeX Warning: Reference `sec:output' on page 1 undefined on input line 58.
 
 
+LaTeX Warning: Reference `sec:input_scalars' on page 1 undefined on input line 
+87.
+
+
+LaTeX Warning: Reference `sec:inputs' on page 1 undefined on input line 96.
+
+
+LaTeX Warning: Reference `sec:input_increments' on page 1 undefined on input li
+ne 103.
+
+
+LaTeX Warning: Reference `sec:inputs' on page 1 undefined on input line 112.
+
+
+LaTeX Warning: Reference `sec:dyn_rainflow' on page 1 undefined on input line 1
+16.
+
+
+LaTeX Warning: Reference `sec:dyn_gaussian' on page 1 undefined on input line 1
+23.
+
+
+LaTeX Warning: Reference `sec:dyn_gaussian' on page 1 undefined on input line 1
+24.
+
+
+LaTeX Warning: Reference `sec:dyn_gaussian' on page 1 undefined on input line 1
+26.
+
+
+LaTeX Warning: Reference `sec:dyn_ig' on page 1 undefined on input line 129.
+
+
+LaTeX Warning: Reference `sec:dyn_gamma' on page 1 undefined on input line 132.
+
+
+
+LaTeX Warning: Reference `sec:dyn_rainflow' on page 1 undefined on input line 1
+34.
+
+
+LaTeX Warning: Reference `sec:dyn_rainflow' on page 1 undefined on input line 1
+36.
+
+
+LaTeX Warning: Reference `sec:dyn_rainflow' on page 1 undefined on input line 1
+38.
+
+
+LaTeX Warning: Reference `sec:dyn_rainflow' on page 1 undefined on input line 1
+39.
+
+
+LaTeX Warning: Reference `sec:dyn_rainflow' on page 1 undefined on input line 1
+41.
 
 [1{C:/Users/utente/AppData/Local/MiKTeX/fonts/map/pdftex/pdftex.map}
 
 ]
 
-LaTeX Warning: Reference `sec:input_scalars' on page 2 undefined on input line 
-105.
-
-
-LaTeX Warning: Reference `sec:inputs' on page 2 undefined on input line 115.
-
-
-LaTeX Warning: Reference `sec:input_increments' on page 2 undefined on input li
-ne 122.
-
-
-LaTeX Warning: Reference `sec:inputs' on page 2 undefined on input line 131.
-
-
-LaTeX Warning: Reference `sec:dyn_rainflow' on page 2 undefined on input line 1
-35.
-
-
-LaTeX Warning: Reference `sec:dyn_gaussian' on page 2 undefined on input line 1
-45.
-
-
-LaTeX Warning: Reference `sec:dyn_gaussian' on page 2 undefined on input line 1
-47.
-
-
-LaTeX Warning: Reference `sec:dyn_ig' on page 2 undefined on input line 150.
-
-
-LaTeX Warning: Reference `sec:dyn_gamma' on page 2 undefined on input line 153.
-
-
-
-LaTeX Warning: Reference `sec:dyn_rainflow' on page 2 undefined on input line 1
-55.
-
-
-LaTeX Warning: Reference `sec:dyn_rainflow' on page 2 undefined on input line 1
-57.
-
-
-LaTeX Warning: Reference `sec:dyn_rainflow' on page 2 undefined on input line 1
-59.
-
-
-LaTeX Warning: Reference `sec:dyn_rainflow' on page 2 undefined on input line 1
-60.
-
-
-LaTeX Warning: Reference `sec:dyn_rainflow' on page 2 undefined on input line 1
-62.
-
 [2]
-Underfull \hbox (badness 10000) in paragraph at lines 193--193
-[]|\OT1/cmtt/m/n/10 allow[]replacement =
- []
 
-
-Underfull \hbox (badness 10000) in paragraph at lines 195--195
-[]|\OT1/cmr/m/n/10 (+20) cells with \OT1/cmtt/m/n/10 encoding =
- []
-
-
-Underfull \hbox (badness 10000) in paragraph at lines 197--197
-[]|\OT1/cmr/m/n/10 (+20) continuous,
- []
-
-
-Underfull \hbox (badness 10000) in paragraph at lines 199--199
-[]|\OT1/cmr/m/n/10 (+20) continuous,
- []
-
-
-Underfull \hbox (badness 10000) in paragraph at lines 201--201
-[]|\OT1/cmr/m/n/10 (+20) continuous,
- []
-
-
-Underfull \hbox (badness 10000) in paragraph at lines 203--203
-[]|\OT1/cmr/m/n/10 (+20) continuous,
- []
-
-
-Underfull \hbox (badness 10000) in paragraph at lines 206--206
-[]|\OT1/cmr/m/n/10 (+20) continuous,
- []
-
-
-Underfull \hbox (badness 10000) in paragraph at lines 206--206
-\OT1/cmr/m/n/10 (+20) range of the
- []
-
-
-Underfull \hbox (badness 10000) in paragraph at lines 208--208
-[]|\OT1/cmr/m/n/10 (+20) binary,
- []
+LaTeX Warning: Reference `sec:inputs' on page 3 undefined on input line 235.
 
 
 
 [3]
 
-LaTeX Warning: Reference `sec:inputs' on page 4 undefined on input line 273.
-
-
-LaTeX Warning: Reference `sec:sweeps' on page 4 undefined on input line 282.
-
-
-
 [4]
+
+LaTeX Warning: Reference `sec:consistency_checks' on page 5 undefined on input 
+line 327.
+
+
+LaTeX Warning: Reference `eq:w_vrow' on page 5 undefined on input line 374.
+
+
+LaTeX Warning: Reference `sec:dyn_rainflow' on page 5 undefined on input line 3
+83.
+
+
+LaTeX Warning: Reference `sec:dyn_rainflow' on page 5 undefined on input line 3
+98.
+
+
+LaTeX Warning: Reference `sec:consistency_checks' on page 5 undefined on input 
+line 403.
+
+
 
 [5]
 
 LaTeX Warning: Reference `sec:consistency_checks' on page 6 undefined on input 
-line 437.
+line 449.
 
 
-LaTeX Warning: Reference `sec:dyn_ig' on page 6 undefined on input line 463.
+LaTeX Warning: Reference `sec:consistency_checks' on page 6 undefined on input 
+line 465.
 
 
-LaTeX Warning: Reference `sec:dyn_gamma' on page 6 undefined on input line 465.
-
-
-
-LaTeX Warning: Reference `sec:dyn_rainflow' on page 6 undefined on input line 4
-67.
 
 [6]
 
-LaTeX Warning: Reference `eq:w_vrow' on page 7 undefined on input line 535.
+LaTeX Warning: Reference `sec:consistency_checks' on page 7 undefined on input 
+line 515.
 
 
-LaTeX Warning: Reference `sec:dyn_rainflow' on page 7 undefined on input line 5
-48.
-
-
-
-[7]
-
-LaTeX Warning: Reference `sec:consistency_checks' on page 8 undefined on input 
-line 553.
-
-
-LaTeX Warning: Reference `sec:dyn_rainflow' on page 8 undefined on input line 6
-03.
-
-
-LaTeX Warning: Reference `sec:dyn_gaussian' on page 8 undefined on input line 6
-19.
-
-
-LaTeX Warning: Reference `sec:dyn_wiener' on page 8 undefined on input line 619
+LaTeX Warning: Reference `sec:dyn_wiener' on page 7 undefined on input line 542
 .
-
-
-LaTeX Warning: Reference `sec:dyn_ig' on page 8 undefined on input line 621.
-
-
-LaTeX Warning: Reference `sec:dyn_gamma' on page 8 undefined on input line 621.
-
-
-
-LaTeX Warning: Reference `sec:dyn_rainflow' on page 8 undefined on input line 6
-22.
-
-
-LaTeX Warning: Reference `sec:dyn_rainflow' on page 8 undefined on input line 6
-23.
-
-
-LaTeX Warning: Reference `sec:dyn_rainflow' on page 8 undefined on input line 6
-24.
-
-
-LaTeX Warning: Reference `sec:dyn_rainflow' on page 8 undefined on input line 6
-25.
-
-
-LaTeX Warning: Reference `sec:dyn_rainflow' on page 8 undefined on input line 6
-26.
-
-[8]
-
-[9]
-
-[10]
-
-LaTeX Warning: Reference `sec:dyn_rainflow' on page 11 undefined on input line 
-791.
-
-
-LaTeX Warning: Reference `sec:consistency_checks' on page 11 undefined on input
- line 796.
-
-
-LaTeX Warning: Reference `sec:consistency_checks' on page 11 undefined on input
- line 805.
-
-
-LaTeX Warning: Reference `sec:dyn_wiener' on page 11 undefined on input line 81
-3.
-
-
-LaTeX Warning: Reference `sec:consistency_checks' on page 11 undefined on input
- line 865.
-
-
-LaTeX Warning: Reference `sec:dyn_rainflow' on page 11 undefined on input line 
-866.
-
-
-
-[11]
-
-LaTeX Warning: Reference `sec:consistency_checks' on page 12 undefined on input
- line 887.
-
-
-
-[12]
-
-LaTeX Warning: Reference `sec:consistency_checks' on page 13 undefined on input
- line 1017.
-
-
-
-[13]
-
-LaTeX Warning: Reference `sec:consistency_checks' on page 14 undefined on input
- line 1037.
-
-
-LaTeX Warning: Reference `sec:input_increments' on page 14 undefined on input l
-ine 1067.
-
-
-
-[14]
-
-LaTeX Warning: Reference `sec:dyn_wiener' on page 15 undefined on input line 11
-77.
 
 ) (references.tex
 
-[15])
+[7])
 
-[16]
+[8]
 (C:\Users\utente\Documents\GitHub\Fleet_Management\merge\spec_drafts\build_A\wr
 ap_A.aux)
  ***********
@@ -1265,41 +1139,40 @@ L3 programming layer <2025-07-11>
 LaTeX Warning: There were undefined references.
 
 Package rerunfilecheck Info: File `wrap_A.out' has not changed.
-(rerunfilecheck)             Checksum: A4D5E3F861FD976443C71BED3B30192F;2506.
+(rerunfilecheck)             Checksum: 8DEC827FFC3E57FD8213C323CFD649C7;2286.
  ) 
 Here is how much of TeX's memory you used:
- 27167 strings out of 468149
- 500364 string characters out of 5430598
- 960959 words of memory out of 5000000
- 55061 multiletter control sequences out of 15000+600000
- 643241 words of font info for 185 fonts, out of 8000000 for 9000
+ 27076 strings out of 468149
+ 499277 string characters out of 5430598
+ 969706 words of memory out of 5000000
+ 55083 multiletter control sequences out of 15000+600000
+ 639831 words of font info for 139 fonts, out of 8000000 for 9000
  1141 hyphenation exceptions out of 8191
- 107i,14n,110p,1197b,633s stack positions out of 10000i,1000n,20000p,200000b,200000s
+ 107i,14n,110p,1197b,625s stack positions out of 10000i,1000n,20000p,200000b,200000s
  <C:\Users\utente\AppData\Local\MiKTeX\fonts/pk/ljfour/jknappen/ec/dpi600\tcr
 m1095.pk><C:/Users/utente/AppData/Local/Programs/MiKTeX/fonts/type1/public/amsf
 onts/cm/cmbx10.pfb><C:/Users/utente/AppData/Local/Programs/MiKTeX/fonts/type1/p
 ublic/amsfonts/cm/cmbx12.pfb><C:/Users/utente/AppData/Local/Programs/MiKTeX/fon
 ts/type1/public/amsfonts/cm/cmex10.pfb><C:/Users/utente/AppData/Local/Programs/
-MiKTeX/fonts/type1/public/amsfonts/cm/cmitt10.pfb><C:/Users/utente/AppData/Loca
-l/Programs/MiKTeX/fonts/type1/public/amsfonts/cm/cmmi10.pfb><C:/Users/utente/Ap
-pData/Local/Programs/MiKTeX/fonts/type1/public/amsfonts/cm/cmmi7.pfb><C:/Users/
-utente/AppData/Local/Programs/MiKTeX/fonts/type1/public/amsfonts/cm/cmmi8.pfb><
-C:/Users/utente/AppData/Local/Programs/MiKTeX/fonts/type1/public/amsfonts/cm/cm
-r10.pfb><C:/Users/utente/AppData/Local/Programs/MiKTeX/fonts/type1/public/amsfo
-nts/cm/cmr6.pfb><C:/Users/utente/AppData/Local/Programs/MiKTeX/fonts/type1/publ
-ic/amsfonts/cm/cmr7.pfb><C:/Users/utente/AppData/Local/Programs/MiKTeX/fonts/ty
-pe1/public/amsfonts/cm/cmr8.pfb><C:/Users/utente/AppData/Local/Programs/MiKTeX/
-fonts/type1/public/amsfonts/cm/cmsy10.pfb><C:/Users/utente/AppData/Local/Progra
-ms/MiKTeX/fonts/type1/public/amsfonts/cm/cmsy7.pfb><C:/Users/utente/AppData/Loc
-al/Programs/MiKTeX/fonts/type1/public/amsfonts/cm/cmsy8.pfb><C:/Users/utente/Ap
-pData/Local/Programs/MiKTeX/fonts/type1/public/amsfonts/cm/cmti10.pfb><C:/Users
-/utente/AppData/Local/Programs/MiKTeX/fonts/type1/public/amsfonts/cm/cmtt10.pfb
-><C:/Users/utente/AppData/Local/Programs/MiKTeX/fonts/type1/public/amsfonts/sym
-bols/msbm10.pfb>
+MiKTeX/fonts/type1/public/amsfonts/cm/cmmi10.pfb><C:/Users/utente/AppData/Local
+/Programs/MiKTeX/fonts/type1/public/amsfonts/cm/cmmi7.pfb><C:/Users/utente/AppD
+ata/Local/Programs/MiKTeX/fonts/type1/public/amsfonts/cm/cmmi8.pfb><C:/Users/ut
+ente/AppData/Local/Programs/MiKTeX/fonts/type1/public/amsfonts/cm/cmr10.pfb><C:
+/Users/utente/AppData/Local/Programs/MiKTeX/fonts/type1/public/amsfonts/cm/cmr6
+.pfb><C:/Users/utente/AppData/Local/Programs/MiKTeX/fonts/type1/public/amsfonts
+/cm/cmr7.pfb><C:/Users/utente/AppData/Local/Programs/MiKTeX/fonts/type1/public/
+amsfonts/cm/cmr8.pfb><C:/Users/utente/AppData/Local/Programs/MiKTeX/fonts/type1
+/public/amsfonts/cm/cmsy10.pfb><C:/Users/utente/AppData/Local/Programs/MiKTeX/f
+onts/type1/public/amsfonts/cm/cmsy7.pfb><C:/Users/utente/AppData/Local/Programs
+/MiKTeX/fonts/type1/public/amsfonts/cm/cmsy8.pfb><C:/Users/utente/AppData/Local
+/Programs/MiKTeX/fonts/type1/public/amsfonts/cm/cmti10.pfb><C:/Users/utente/App
+Data/Local/Programs/MiKTeX/fonts/type1/public/amsfonts/cm/cmtt10.pfb><C:/Users/
+utente/AppData/Local/Programs/MiKTeX/fonts/type1/public/amsfonts/symbols/msbm10
+.pfb>
 Output written on C:\Users\utente\Documents\GitHub\Fleet_Management\merge\spec_
-drafts\build_A\wrap_A.pdf (16 pages, 357498 bytes).
+drafts\build_A\wrap_A.pdf (8 pages, 271536 bytes).
 PDF statistics:
- 399 PDF objects out of 1000 (max. 8388607)
- 80 named destinations out of 1000 (max. 500000)
- 30349 words of extra memory for PDF output out of 35830 (max. 10000000)
+ 263 PDF objects out of 1000 (max. 8388607)
+ 56 named destinations out of 1000 (max. 500000)
+ 29829 words of extra memory for PDF output out of 29859 (max. 10000000)
 

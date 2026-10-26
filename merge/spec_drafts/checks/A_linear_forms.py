@@ -126,7 +126,57 @@ def check4():
     return f(tau, c2, c1, tau), fp(tau, c2, c1, tau)
 
 
+def check5(n=400, grid=2000):
+    """Bernstein: the tangent row at mu_r admits a point with v > 0, mu in
+    [0, tau - c], iff mu_r < sqrt(tau (tau - 2c)); the pwl form iff
+    tau/(2P) < sqrt(tau (tau - 2c)). Grid search against the rule."""
+    mism_t = mism_p = 0
+    cases = 0
+    for _ in range(n):
+        tau = random.uniform(0.2, 5)
+        eps = random.uniform(0.001, 0.3)
+        kappa = math.log(1 / eps)
+        c = random.uniform(0.0, 0.499) * tau
+        b = 3 * c / kappa
+        c2, c1 = 1 / (2 * kappa), -b / 3
+        side = tau - c
+        thr = math.sqrt(tau * (tau - 2 * c))
+        mus = [side * i / grid for i in range(grid + 1)]
+        for mu_r in (random.uniform(0, tau), thr * random.uniform(0.98, 1.02)):
+            if abs(mu_r - thr) < 1e-9:
+                continue
+            cases += 1
+            feas = any(f(mu_r, c2, c1, tau) + fp(mu_r, c2, c1, tau) * (m - mu_r) > 1e-12
+                       for m in mus)
+            if feas != (mu_r < thr):
+                mism_t += 1
+        for P in (1, 2, 3, 8):
+            mid1 = tau / (2 * P)
+            if abs(mid1 - thr) < 1e-9:
+                continue
+
+            def cap(m):
+                p = min(int(m / (tau / P)), P - 1) + 1
+                mid = (p - 0.5) * tau / P
+                return f(mid, c2, c1, tau) + fp(mid, c2, c1, tau) * (m - mid)
+            feas = any(cap(m) > 1e-12 for m in mus)
+            if feas != (mid1 < thr):
+                mism_p += 1
+    return cases, mism_t, mism_p
+
+
+def check6():
+    """Reviewer's example: tau = 1, eps = 0.01, c = 0.1: sqrt(0.8) = 0.894 < 0.9;
+    tangent_ref = 0.897 gives T(0) < 0."""
+    tau, eps, c = 1.0, 0.01, 0.1
+    kappa = math.log(1 / eps)
+    T0 = (tau * (tau - 2 * c) - 0.897 ** 2) / (2 * kappa)
+    return round(math.sqrt(0.8), 4), round(T0, 6)
+
+
 if __name__ == "__main__":
+    print("5. Bernstein tangent/pwl condition: cases, tangent mismatches, pwl mismatches =", check5())
+    print("6. reviewer example: sqrt(tau(tau-2c)), T(0) at mu_r = 0.897 =", check6())
     print("1. max |tangent - (f - c2 (mu-mu_r)^2)| =", check1()[0],
           "; max (tangent - f) =", check1()[1], "(must be <= 0)")
     print("2. pwl: max loss / (c2 tau^2/(4P^2)) =", check2()[0],

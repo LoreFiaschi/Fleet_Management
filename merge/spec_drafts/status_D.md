@@ -1,11 +1,16 @@
 # Status of writer D (tools: sweeps, warm starts, files and plotting, validation tools)
 
-Status: done (26 Oct 2026); revised the same day after the coordinator's answers (section "Answers received"). `fragments_D.tex` holds one block in the order Horizon Sweeps, Warm Starts, File & Folder
-Structure (Public API, Cell-Builder Interface, Plotting API and Layout), Validation Tools. It builds with
-`pdflatex ... wrap_D.tex` (run twice) at 0 errors, 0 overfull and 0 underfull boxes; the only undefined references are
-labels of writers A, B and C. Check script `checks/D_sweep_rules.py` passes (output `checks/D_sweep_rules_output.txt`).
-Next: Claude answers the questions below and places the block. About 990 lines of LaTeX (the brief said about 600;
-most of the excess is key tables that a developer needs to test the tools).
+Status: done (26 Oct 2026). `fragments_D.tex` is rewritten as a pure specification (user's rule "Spec versus scoping"): 677 lines (1009 before; 67 %), one block in the order Horizon Sweeps, Warm Starts,
+File & Folder Structure (Public API, Cell-Builder Interface, Plotting API and Layout), Validation Tools. It builds at 0 errors, 0 overfull and 0 underfull boxes; the only undefined references are labels of writers A, B and C.
+All labels are kept except `eq:d_daycost` (the day cost is now cited from `eq:a_daycost`; no other fragment referred to it). Check script `checks/D_sweep_rules.py` passes; the rules it tests are unchanged.
+Removed text: `moved_D.md`, 19 blocks (M-D-1 to M-D-19), each verbatim from the previous version (checked line by line against the copy in the scratchpad `spec_D/fragments_D_before_scoping_split.tex`).
+
+## What the rewrite changed
+
+- **Stays** (unchanged in content): every signature with defaults; the steps, errors, reports and key tables; the formulas (`eq:d_phasecosts`, `eq:d_projected`, `eq:d_gradient`, `eq:d_daymap`, the stopping rule, the proof rule, the Clopper--Pearson bound, the check violations); the layout; the builder interface; the plot layout and marks; the validator checks.
+- **Moved** (kinds): rationale (why a cost per day compares horizons, why parallel cases are refused, why hints help, why the objective check is one-sided, why the loop checks use saved states), remarks (what a proof certifies, the status of a relaxed solution, a stress test is not a proof), derivation (the Moschopoulos series: mixture, lower bound), comparison (one route for every fleet), introductory sentences.
+- **Shortened without loss**: the API table became one sentence; the greedy report table and the Monte Carlo key table became lists of keys; the dashboard tabs became one paragraph.
+- Long `\texttt` names carry `\allowbreak` after each escaped underscore; four paragraphs sit in a local `\sloppy` group. No preamble change.
 
 ## Checklist of decision bullets (all covered)
 
@@ -44,6 +49,17 @@ Cluster jobs and experiments: [x] one paragraph in `sec:files`: `euler/` keeps t
 - **Q22, tracked states.** The `validate` table has one loop check per quantity `q` in `mu, v, R, K, g_mu, g_v, g_R, g_K` (NaN/null entries skipped). The dashboards no longer replay a missing quantity. The replay validator reads `g_mu`. **These key names come from decisions.md; fragments_C.tex does not list them yet (checked 26 Oct 2026, 11:29).**
 - **Q28, Gamma rates.** The exact and the Monte Carlo validators treat an initial or replacement damage without a rate (`gamma_beta_0`, `gamma_beta_new` omitted) as a known constant; the exact validator shifts the threshold by the constant (tail 1 if the constant exceeds `tau`).
 - **Accepted as written:** Q1, 2, 3, 4, 6, 8, 9, 10, 11, 13 to 20, 23, 26, 27, 29, 30 (numbering of my first list).
+
+## Review fixes applied (26 Oct 2026, `review_io_tools.md`; builds at 0 errors, 0 overfull or underfull boxes)
+
+- **Items 1, 9, 11.** The check `objective` of `validate` is one-sided (`max{0, recomputed - objective} / max{1, |objective|}`); for `evaluation_total` the recomputed value is `P_E + C_D u`; `z` reads 0 where NaN; the check `damage_rows` is removed. Day cost: Eq. `eq:a_daycost`.
+- **Item 8.** `removed_mean` of the replay validator is one-sided and skipped where `z` is NaN.
+- **Item 7.** The Gamma validators take an argument that is `None` from the input block `validation` (C adds the key), then the default.
+- **Item 12.** The completion runs only when the mapping set a value; binaries without a `Start` stay free, so the copy can be a mixed-integer program.
+- **Item 13.** Readers treat a missing key as `null` (`x` is "missing or null" in `sec:warm_interface` and in `validate`).
+- **Items 15, 16, 17, 18, 19.** `u` is Eq. `eq:c_u`; the plot shows the original model counts, or the presolved counts read from `runner.out`; `skipped` applies after a start or a hint and `enabled` is the option value; the marks `D` and `I` say what the key `idle` is; `cfg` points to `load_config`, `sec:api`.
+- **Suggestions.** Ties go to the smaller `H2` (grid: smaller `H1`, then `H2`). `requested_mip_gap` and `requested_time_limit_seconds` are Gurobi's parameters after all options (also `gurobi_params`); the case row entry is renamed `requested_time_limit_seconds`. Sweeps call the internal entry point `solve_mapping(data, results_path=None, *, warm_start=None, warm_start_mode="start")` (the name is my proposal), write no temporary file, and keep the latest result with a solution when `warm_start=True`. The greedy loop pass tests the reliability row in the form built at the cell. Day and phase costs are cited, not restated, in the sweep section. The layout lists `experiments/` and `results/validator_tests/`. The mode "Gamma diagnostic" runs on the replay and exact validators.
+- **Not applied (not in the coordinator's list):** the check `E > H_1` whenever `E` is given (writers A and C); items 2 to 6, 10 and 14 (their sections).
 
 ## Points that other writers must align with my text
 

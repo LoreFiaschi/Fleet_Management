@@ -122,7 +122,7 @@ replacement_mu replacement_v support_new R_new cgf_new replacement_as_new allow_
 mu v support cgf s_chernoff gamma_beta mu_trans v_trans support_trans cgf_trans gamma_beta_trans
 sigma eta v_max_user gamma_beta_0 gamma_beta_new C_M C_R C_rep C_D penalty_type
 verbose mip_gap time_limit fast gurobi_params objective_mode evaluation_horizon progress_interval_seconds
-relaxation_warm_start relaxation_time_limit""".split())
+relaxation_warm_start relaxation_time_limit validation""".split())
 REJECTED = set("""maintenance_type tail_bound method formulation beta alpha_inc gamma_beta_bound gamma_calibration_method
 b_inc b_0 b_new n_workers warm_start depot_capacity C_P C_S alpha xi repair_rho mu_new v_new""".split())
 
@@ -208,6 +208,41 @@ def validate(d):
 
 
 SKIPPED = []
+
+
+def quad_row(kind, tt, ee, cc=None):
+    """f(mu), f'(mu), side bound of the quadratic reliability row Q <= f(mu) (Section Linear Forms)."""
+    kap = math.log(1.0 / ee)
+    if kind in ("gaussian", "wiener"):
+        z2 = NormalDist().inv_cdf(1 - ee) ** 2
+        return (lambda mu: (tt - mu) ** 2 / z2), (lambda mu: -2 * (tt - mu) / z2), tt
+    if kind == "cantelli":
+        k = ee / (1 - ee)
+        return (lambda mu: k * (tt - mu) ** 2), (lambda mu: -2 * k * (tt - mu)), tt
+    if kind == "hoeffding":
+        return (lambda mu: 2 * (tt - mu) ** 2 / kap), (lambda mu: -4 * (tt - mu) / kap), tt
+    if kind == "bernstein":
+        return ((lambda mu: ((tt - mu) ** 2 - 2 * cc * (tt - mu)) / (2 * kap)),
+                (lambda mu: -((tt - mu) - cc) / kap), tt - cc)
+    raise ValueError(kind)
+
+
+def row_cap(form, kind, mu, tt, ee, cc, tref, P):
+    """Largest Q that the row admits at mean mu in the given form; None if the side row fails."""
+    f, fp, side = quad_row(kind, tt, ee, cc)
+    if mu > side + 1e-15:
+        return None
+    if form == "exact":
+        return f(mu)
+    if form == "tangent":
+        mr = tref * tt
+        return f(mr) + fp(mr) * (mu - mr)
+    if form == "pwl":
+        w = tt / P
+        p = min(int(mu / w), P - 1)
+        mr = (p + 0.5) * w
+        return f(mr) + fp(mr) * (mu - mr)
+    raise ValueError(form)
 
 
 def ig_cap(eta, eps, tau):
@@ -327,20 +362,23 @@ def _validate(d):
             err.append("pwl_points must be an integer >= 1")
     if d.get("penalty_type", "inf_norm") not in ("inf_norm", "quadratic"):
         err.append("penalty_type")
-    if d["C_D"] < 0 or d["C_M"] < 0:
-        err.append("costs must be >= 0")
     Cr, Crep = cv("C_R"), cv("C_rep")
-    if any(x < 0 for r in Cr for x in r) or any(x < 0 for r in Crep for x in r):
-        err.append("costs must be >= 0")
+    costs_all = [d["C_D"], d["C_M"]] + [x for r in Cr for x in r] + [x for r in Crep for x in r]
+    if any((not isinstance(x, (int, float))) or (not math.isfinite(x)) or x < 0 for x in costs_all):
+        err.append("costs must be finite and >= 0")
     mode = d.get("objective_mode", "total")
     if mode not in ("total", "operating_average", "evaluation_total"):
         err.append("objective_mode")
-    if mode == "evaluation_total":
+    if mode == "evaluation_total" and "evaluation_horizon" not in d:
+        err.append("evaluation_horizon required in mode evaluation_total")
+    if "evaluation_horizon" in d:
         E = d.get("evaluation_horizon")
         if not isinstance(E, int) or E <= H1:
             err.append("evaluation_horizon must exceed H1")
     if d.get("mip_gap", 0) < 0 or d.get("time_limit", 1) <= 0:
         err.append("option range")
+    if "validation" in d and not isinstance(d["validation"], dict):
+        err.append("validation must be a mapping")
 
     # profiles after the phase lookup
     def prof(name, trname, fn=profile):
@@ -394,13 +432,14 @@ def _validate(d):
             if eff == "tangent" and not (0 <= tref[i][l] < 1):
                 err.append(f"{where}: tangent_ref in [0,1)")
             tracks_v = m in ("gaussian", "wiener") or b in ("cantelli", "bernstein")
+            allow_rep0 = d.get("allow_replacement", True)
             if tracks_v:
-                for nm, val in (("v_0", v0[i][l]), ("replacement_v", rv[i][l])):
+                for nm, val in (("v_0", v0[i][l]),) + ((("replacement_v", rv[i][l]),) if allow_rep0 else ()):
                     if val is None or val < 0:
                         err.append(f"{where}: {nm} >= 0")
             if m == "rainflow":
                 if b in ("hoeffding", "bernstein"):
-                    for nm, val in (("support_0", sup0[i][l]), ("support_new", supn[i][l])):
+                    for nm, val in (("support_0", sup0[i][l]),) + ((("support_new", supn[i][l]),) if allow_rep0 else ()):
                         if val is None or val < 0:
                             err.append(f"{where}: {nm} >= 0")
             # anchors (only ard1)
@@ -470,6 +509,8 @@ def _validate(d):
                     err.append(f"{where}: sigma > 0")
             if m == "gaussian" and not mu0[i][l] >= 3 * math.sqrt(v0[i][l]):
                 err.append(f"{where}: Gaussian 3-sigma at mu_0")
+            if m == "gaussian" and allow_rep0 and not rmu[i][l] >= 3 * math.sqrt(rv[i][l]):
+                err.append(f"{where}: Gaussian 3-sigma at mu_new")
             if m == "gamma":
                 for nm, val in (("gamma_beta_0", gb0[i][l]), ("gamma_beta_new", gbn[i][l])):
                     if val is not None and not (math.isfinite(val) and val > 0):
@@ -477,6 +518,8 @@ def _validate(d):
             if tracks_v and vmax[i][l] is not None:
                 if not (vmax[i][l] > 0 and vmax[i][l] >= v0[i][l]):
                     err.append(f"{where}: v_max_user > 0 and >= v_0")
+                if allow_rep0 and not vmax[i][l] >= rv[i][l]:
+                    err.append(f"{where}: v_max_user >= v_new")
             if b == "bernstein":
                 kappa = math.log(1.0 / eps[i][l])
                 bs = [sup0[i][l], supn[i][l]]
@@ -486,7 +529,7 @@ def _validate(d):
                     err.append(f"{where}: Bernstein precondition tau > 2 kappa b / 3")
                 if not (v0[i][l] <= sup0[i][l] ** 2 / 4 + 1e-15):
                     err.append(f"{where}: Popoviciu at v_0")
-                if not (rv[i][l] <= supn[i][l] ** 2 / 4 + 1e-15):
+                if allow_rep0 and not (rv[i][l] <= supn[i][l] ** 2 / 4 + 1e-15):
                     err.append(f"{where}: Popoviciu at replacement_v")
             if b == "chernoff":
                 s = s_ch[i][l]
@@ -494,8 +537,13 @@ def _validate(d):
                     err.append(f"{where}: s_chernoff > ln(1/eps)/tau")
                 k0 = cgf0[i][l] if cgf0[i][l] is not None else (s or 0) * mu0[i][l]
                 kn = cgfn[i][l] if cgfn[i][l] is not None else (s or 0) * rmu[i][l]
-                if s is not None and (k0 < s * mu0[i][l] - 1e-12 or kn < s * rmu[i][l] - 1e-12):
+                if s is not None and (k0 < s * mu0[i][l] - 1e-12 or (allow_rep0 and kn < s * rmu[i][l] - 1e-12)):
                     err.append(f"{where}: Jensen cgf_0 / cgf_new")
+                if s is not None and repair[i][l] == "ard1":
+                    gmu0 = anc["anchor_mu_0"][i][l] if anc["anchor_mu_0"][i][l] is not None else mu0[i][l]
+                    gK0 = anc["anchor_K_0"][i][l] if anc["anchor_K_0"][i][l] is not None else k0
+                    if gK0 < s * gmu0 - 1e-12:
+                        err.append(f"{where}: Jensen at the starting anchors g^K_0 >= s g^mu_0")
             # natural ranges of the initial and replacement values; replacement rows
             tt, ee = tau[i][l], eps[i][l]
             if not (0 < ee < 1) or not tt > 0:
@@ -513,8 +561,13 @@ def _validate(d):
                 bs2 += [looked_up(b_op, b_tr, F, L, M, H1, H2, i, l, j, k) for j in range(1, M + 1) for k in range(1, T + 1)]
                 bconst = max(bs2)
                 cc = kap * bconst / 3
-                if eff == "tangent" and not (tref[i][l] * tt < tt - cc):
-                    err.append(f"{where}: Bernstein tangent: tangent_ref * tau < tau - c")
+                lim = math.sqrt(max(tt * (tt - 2 * cc), 0.0))
+                if eff == "tangent" and not (tref[i][l] * tt < lim):
+                    err.append(f"{where}: Bernstein tangent: tangent_ref * tau < sqrt(tau (tau - 2c))")
+                if eff == "pwl":
+                    Pn = d.get("pwl_points", 8)
+                    if not (tt / (2 * Pn) < lim):
+                        err.append(f"{where}: Bernstein pwl: tau / (2P) < sqrt(tau (tau - 2c))")
             if m in ("gaussian", "wiener") and zq > 0:
                 vr = tt * tt / (zq * zq)
             if b == "cantelli":
@@ -551,8 +604,20 @@ def _validate(d):
             if allow_rep:
                 mn, vn = rmu[i][l], rv[i][l]
                 ok = True
-                if m in ("gaussian", "wiener"):
-                    ok = mn <= tt and (tt - mn) ** 2 >= zq * zq * vn - 1e-15
+                kind = m if m in ("gaussian", "wiener") else (b if b in ("cantelli", "hoeffding", "bernstein") else None)
+                if kind in ("gaussian", "wiener") and zq <= 0:
+                    kind = None
+                    ok = True
+                if kind is not None and eff not in ("exact", "tangent", "pwl"):
+                    kind = None          # the value is already an error
+                if kind is not None:
+                    Qn = Rn[i][l] if kind == "hoeffding" else vn
+                    capQ = row_cap(eff, kind, mn, tt, ee, cc, tref[i][l], d.get("pwl_points", 8))
+                    ok = capQ is not None and Qn <= capQ + 1e-15
+                    if vmax[i][l] is not None and tracks_v and not vn <= vmax[i][l]:
+                        ok = False
+                elif m in ("gaussian", "wiener"):
+                    pass
                 elif m == "inverse_gaussian":
                     cap = ig_cap(eta[i][l], ee, tt)
                     ok = mn <= cap
@@ -571,12 +636,6 @@ def _validate(d):
                         ok = mn <= cap
                 elif b == "markov":
                     ok = mn <= ee * tt
-                elif b == "cantelli":
-                    ok = mn <= tt and (1 - ee) * vn <= ee * (tt - mn) ** 2 + 1e-15
-                elif b == "hoeffding":
-                    ok = mn <= tt and (tt - mn) ** 2 >= (kap / 2) * Rn[i][l] - 1e-15
-                elif b == "bernstein":
-                    ok = mn <= tt - cc and (tt - cc - mn) ** 2 >= cc * cc + 2 * kap * vn - 1e-15
                 elif b == "chernoff":
                     kkn = cgfn[i][l] if cgfn[i][l] is not None else s_here * mn
                     ok = kkn - s_here * tt <= math.log(ee) + 1e-15
@@ -715,7 +774,30 @@ def main():
     def bern_tangent(d):
         d["reliability_impl"][2][0] = "tangent"
         d.update(tangent_ref=0.97)
-    mut("Bernstein tangent: tangent_ref 0.97 >= (tau - c)/tau = 0.9616", bern_tangent, "Bernstein tangent")
+    mut("Bernstein tangent: tangent_ref 0.97 >= sqrt(tau (tau - 2c))/tau = 0.9608", bern_tangent, "Bernstein tangent")
+
+    def bern_gap(d):
+        d["reliability_impl"][2][0] = "tangent"
+        d.update(tangent_ref=0.961)             # in the gap (0.9608, 0.9616): passes tau - c, leaves an empty row
+    mut("Bernstein tangent in the gap: tangent_ref 0.961 (below tau - c = 0.9616, above 0.9608)", bern_gap, "Bernstein tangent")
+
+    def bern_pwl(d):
+        d["reliability_impl"][2][0] = "pwl"
+        d.update(pwl_points=1, support_0=[[None, None], [None, None], [0.5, None]])
+    mut("Bernstein pwl with P = 1 and b = 0.5 (c = 0.384): tau/(2P) = 0.5 >= sqrt(tau (tau - 2c)) = 0.482", bern_pwl, "Bernstein pwl")
+
+    def tangent_rep(d):
+        d["reliability_impl"][0][0] = "tangent"
+        d.update(replacement_mu=[[0.8, 0.02], [0.02, 0.02], [0.02, 0.02]])
+    mut("Gaussian tangent cell (tangent_ref 0.4): replacement_mu 0.8 passes the exact row but not the tangent row",
+        tangent_rep, "replacement state violates")
+    mut("replacement_v above v_max_user (Wiener cell)", lambda d: d.update(replacement_v=[[0.00004, None], [0.06, None], [0.00004, None]]), "v_max_user >= v_new")
+    mut("Gaussian 3-sigma at mu_new: replacement_v 0.0001 > (0.02/3)^2", lambda d: d.update(replacement_v=[[0.0001, None], [0.00004, None], [0.00004, None]]), "3-sigma at mu_new")
+    mut("Jensen at the starting anchors: anchor_K_0 0.49 < s * anchor_mu_0 = 0.50", lambda d: d["anchor_K_0"].__setitem__(2, [None, 0.49]), "Jensen at the starting anchors")
+    mut("infinite cost", lambda d: d.update(C_M=float("inf")), "costs must be finite")
+    mut("evaluation_horizon <= H1 in the mode total", lambda d: d.update(objective_mode="total", evaluation_horizon=2), "evaluation_horizon must exceed H1")
+    mut("null reliability_impl at an applicable cell", lambda d: d["reliability_impl"].__setitem__(0, [None, None]), "null at an applicable cell")
+    mut("validation is not a mapping", lambda d: d.update(validation=[1, 2]), "validation must be a mapping")
 
     # positive boundary cases
     def pos(desc, fn):
@@ -731,7 +813,12 @@ def main():
     pos("quadratic penalty with tangent at linear-row cells only", lambda d: d.update(
         penalty_type="quadratic", reliability_impl=[["exact", "tangent"], ["exact", "pwl"], ["exact", "tangent"]]))
     pos("Markov cell, replacement_mu 0.05 <= eps*tau", lambda d: (d["bound_method"][2].__setitem__(1, "markov"), d.update(replacement_mu=0.05)))
-    pos("Bernstein tangent: tangent_ref 0.95 < 0.9616", lambda d: (d["reliability_impl"][2].__setitem__(0, "tangent"), d.update(tangent_ref=0.95)))
+    pos("Bernstein tangent: tangent_ref 0.95 < 0.9608", lambda d: (d["reliability_impl"][2].__setitem__(0, "tangent"), d.update(tangent_ref=0.95)))
+    pos("Bernstein pwl with P = 8 and b = 0.5: tau/(2P) = 0.0625 < 0.482", lambda d: (d["reliability_impl"][2].__setitem__(0, "pwl"), d.update(pwl_points=8, support_0=[[None, None], [None, None], [0.5, None]])))
+    pos("Gaussian exact cell: replacement_mu 0.8 satisfies the exact row", lambda d: (d["reliability_impl"][0].__setitem__(0, "exact"), d.update(replacement_mu=[[0.8, 0.02], [0.02, 0.02], [0.02, 0.02]])))
+    pos("replacement checks skipped: allow_replacement false with replacement_v above v_max_user", lambda d: d.update(allow_replacement=False, replacement_v=[[0.0001, None], [0.06, None], [0.00004, None]]))
+    pos("evaluation_horizon 30 in the mode total", lambda d: d.update(objective_mode="total"))
+    pos("validation mapping", lambda d: d.update(validation={"mode": "monte_carlo", "repetitions": 100, "random_seed": 1}))
     pos("replacement checks skipped when allow_replacement is false", lambda d: d.update(allow_replacement=False, replacement_mu=1.2))
     pos("IG cell with repair_model ardinf (the default) and no repair_model key at all", lambda d: d.pop("repair_model"))
     pos("gamma_beta_new omitted: known replacement damage", lambda d: d.pop("gamma_beta_new"))

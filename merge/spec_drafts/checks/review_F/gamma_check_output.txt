@@ -1,0 +1,16 @@
+(1) A_1/A_hat at eps = 0.01; spec table: 0.142 0.642 0.961 1 1
+  t=0.01  A_hat=0.002487739  A_1=0.0003528888  ratio=0.1419
+  t=0.1  A_hat=0.00550124  A_1=0.003528888  ratio=0.6415
+  t=0.3  A_hat=0.01102059  A_1=0.01058666  ratio=0.9606
+  t=1  A_hat=0.04365273  A_1=0.04365273  ratio=1.0000
+  t=10  A_hat=3.971716  A_1=3.971716  ratio=1.0000
+(2) witness: eps=0.01, t=0.1, A_hat=0.0055012 (spec); mission rate 4.56 beta*, tail 1.565 eps
+  A_hat=0.0055012  tail at c=1/4.56: 1.56487 eps
+(3) r*: max_s Q(r s, s) = eps; spec: 0.00355, 0.0353, 0.331
+  eps=0.001  r*=0.00355
+  eps=0.01  r*=0.03529
+  eps=0.1  r*=0.33062
+(4) t1: sign change of d/dc Q(A_hat/c, t/c) at c=1; spec: 0.436, 0.448, 0.614
+  eps=0.001  t1=0.4361  (sign of dQ/dc below t1: -)
+  eps=0.01  t1=0.4484  (sign of dQ/dc below t1: -)
+  eps=0.1  t1=0.6142  (sign of dQ/dc below t1: -)

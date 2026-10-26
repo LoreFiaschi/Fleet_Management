@@ -28,3 +28,6 @@
 (9) Chernoff with a known initial damage: tau=1, eps=0.1, s=5, mu_0=0.6, X in {0, 0.5} w.p. 1/2
   K_X(5) = 1.8857;  row with K_0 = 0: -3.114 <= -2.303 ? True
   row with K_0 = s mu_0: -0.114 <= -2.303 ? False;  true P(D > tau) = 0.5
+(10) Bernstein tangent and pwl: the row admits (mu, v) with v >= 0, mu in [0, tau - c] iff mu_r^2 <= tau(tau - 2c)
+  mismatches between grid search and the rule (tangent: 1200 points; pwl: 1600 cases): 0
+  tangent points with mu_r < tau - c whose row is empty (accepted by the weaker condition): 104

@@ -1,4 +1,6 @@
-1. max |tangent - (f - c2 (mu-mu_r)^2)| = 3.410605131648481e-13 ; max (tangent - f) = -1.3127449127736668e-10 (must be <= 0)
+5. Bernstein tangent/pwl condition: cases, tangent mismatches, pwl mismatches = (800, 0, 0)
+6. reviewer example: sqrt(tau(tau-2c)), T(0) at mu_r = 0.897 = (0.8944, -0.0005)
+1. max |tangent - (f - c2 (mu-mu_r)^2)| = 5.933031843596837e-13 ; max (tangent - f) = -8.26463342207262e-11 (must be <= 0)
 2. pwl: max loss / (c2 tau^2/(4P^2)) = 0.9997352400302061 (must be <= 1); max (best tangent - segment tangent) = 0.0 (must be ~0)
 3. Cantelli example: exact 0.8103, tangent@0 0.4820, tangent@0.5 0.7140, pwl(8) 0.8102; tangent@0 at v=0: 0.5000
 4. tangent at tau with c1 = 0: f(tau), f'(tau) = (0.0, -0.0)

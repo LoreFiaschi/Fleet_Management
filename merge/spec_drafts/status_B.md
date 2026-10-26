@@ -1,7 +1,8 @@
 # Writer B: status
 
-Status: done (26 Oct 2026), including the coordinator's corrections of 26 Oct 2026 (section "Corrections applied"
-below). All five model sections written in `fragments_B.tex` (1109 lines), in the final order
+Status: done (26 Oct 2026). Latest step: the split into spec and scoping (section "Spec versus scoping" at the end):
+`fragments_B.tex` is now a pure specification of 459 lines; 52 blocks moved verbatim to `moved_B.md`. Earlier steps
+below are kept for the record (line counts there refer to the version before the split). All five model sections written in `fragments_B.tex` (1109 lines), in the final order
 Gaussian, inverse Gaussian, Wiener, Gamma, rainflow (one contiguous block). Built twice: 0 errors, 0 overfull
 boxes; the only undefined references are other writers' labels (`sec:consistency_checks`, `sec:encoding`,
 `sec:linear_forms`, `sec:loop`, `sec:repair_laws`, `sec:replacement`). PDF rendered and read (13 pages at 90 dpi).
@@ -144,6 +145,31 @@ Symbol fixes (coordinator's second message, 26 Oct 2026, found by writer A):
   bound) and the IG cap `\bar\mu` differ by the subscript; no change.
 Rebuilt: 0 errors, 0 overfull boxes.
 
+Review fixes (coordinator's third message, 26 Oct 2026; `review_formulation.md` must-fix 1(a), 6, 7 and
+suggestions; `review_io_tools.md` item 2):
+- Bernstein tangent condition: `mu_r < sqrt(tau (tau - 2c))`; `pwl` needs `tau/(2P) < sqrt(tau (tau - 2c))` for its
+  first segment. Argument: a tangent (or the convex maximum of the pwl tangents) has its largest value on
+  `[0, tau - c]` at an end point; at `tau - c` it is below `f(tau - c) < 0`; at 0 it is
+  `(tau(tau - 2c) - mu_r^2)/(2 kappa)`. The case `mu_r >= tau - c` is covered (stated as such). Check
+  `B_rainflow.py` (10): 0 mismatches against a grid search (1200 tangent points, 1600 pwl cases); 104 tangent points
+  with `mu_r < tau - c` have an empty row. The reference to `prop:a_tangent` was replaced by a section reference
+  (conventions: other writers through section labels only).
+- Gamma `A_1` for `eps >= 1/2`: `w(A) < 1/2` for every `A < t` (median of a Gamma law below its mean) and
+  `w(A) -> 1/2` as `A -> t`; for `eps < 1/2` the largest value exists below `t`; for `eps >= 1/2` `A_1` is the value
+  step 3 returns, below `t`. Corollary `cor:gm_safe` checked: its proof needs only `A < t` and `w(A) <= eps`, which
+  both cases give (sentence added to the proof). Check `B_gamma.py` (8): largest `w` 0.4854 for `A/t` up to 0.999.
+- Symbols: Gamma class `\mathcal{G}(m)`, `\mathcal{G}_N(m)`; `N` atoms; levels `\nu^*`, `\nu'`; added mean
+  `\Delta m` in `lem:gm_rates`. The fragment never used `\Phi` for the operating-phase map (only the normal
+  distribution function).
+- (M1)-(M3) restated in every model section with writer A's definitions (factors in [0, 1] and increments >= 0;
+  `theta_0 <= xi_0` and `theta_k <= varphi_k(theta_{k-1})`, equality except `K`; values satisfying the row and at least
+  the true statistics give the bound). The Gaussian section states the day-0 reason once; the others refer to it.
+- Weights in `[0, 1]`, "a term of weight 0 (possible when rho = 1) is dropped": IG, Gamma, rainflow.
+- IG remark: stated for every law below `mu Z` in the stop-loss order (the hypothesis of `thm:ig_cap`).
+- `beta_new` (Gamma) and `b_new` (Bernstein) enter only when `allow_replacement` is true.
+- Gaussian `V_max` remark: one sentence that `V^C`, `V^B`, `2 tau^2/kappa` grow without bound as eps -> 1.
+Rebuilt: 0 errors, 0 overfull boxes; 1149 lines.
+
 ## Questions for Claude (all answered on 26 Oct 2026; kept for the record)
 
 1. **IG and ARD1 (possible conflict).** The decision keeps IG cells at ARDinf only, for the reason "under ARD1 the
@@ -188,6 +214,44 @@ Rebuilt: 0 errors, 0 overfull boxes.
     `A_1 < t`. For larger `eps` its supremum can equal `t`; the spec avoids the issue by defining the row value as the
     lower end returned by the bisection (which satisfies `w(A_1) <= eps`). No action needed unless Claude prefers an
     input check `eps < 0.5` at Gamma cells too.
+
+## Spec versus scoping (coordinator's fourth message, 26 Oct 2026)
+
+- `fragments_B.tex` rewritten as a pure specification in the style of `style_reference_spec_v03.tex`: 459 lines
+  (1149 before, 40 %). Per model: cells, model laws and the one-line assumption (N1, W1, G1; rainflow A0-A3 as
+  one-line requirements on the input data), laws accepted, tracked quantities and anchors, day maps as formulas,
+  the rows table (increment, factor `a`, natural range, initial and replacement value), the reliability row in its
+  exact form with the forms by reference to `sec:linear_forms` (`chi`, `f`, side row), the optional `v_max_user`
+  row, and every precomputed constant with its algorithm: `kappa_G`, `V_max`; the IG cap (`F`, log-space, `q` by
+  root finding, `E[Z; Z > q] = F(1/q)` or quadrature with the density of `Z`); Gamma `beta*` (which terms enter,
+  `allow_replacement`), `w`, `A_1` (definition, the rule for eps >= 1/2, the three computation steps), the row
+  `mu_k <= tau` for a cell without a random term; rainflow `kappa_C`, `kappa`, `b`, `c` (with `allow_replacement`),
+  `V^C`, `V^B`, the ranges of `R` and `K`, `s`, the starting and replacement values of `R` and `K` with their
+  inputs and defaults; the Bernstein precondition, the Chernoff requirements and the Bernstein tangent and `pwl`
+  conditions as requirements citing `sec:consistency_checks`.
+- Notes with a pointer to the scoping document: IG needs no independence ("Stochastic orderings"); Wiener loop
+  forces a replacement ("Stochastic orderings", loop constraint for each degradation model); the rainflow defaults
+  describe a known damage ("Conservative surrogates for the empirical damage-increment distribution").
+- No `\cite` remains; no proposition, lemma, theorem, corollary, proof, validity argument, (M1)-(M3) block, Jensen
+  argument, remark or worked example remains.
+- `moved_B.md`: 52 blocks (M-B-1 to M-B-52), verbatim line ranges of the frozen copy
+  (scratchpad `spec_B/fragments_B_full_before_split.tex`), generated by the scratchpad script
+  `spec_B/make_moved_B.py`; each with From, Kind, Suggested destination and Spec keeps. Some blocks repeat a few
+  lines that the spec keeps in rewritten form (for example the computation of `A_1` with its justifications);
+  "Spec keeps" says which.
+- Labels kept: `sec:dyn_gaussian`, `sec:dyn_ig`, `sec:dyn_wiener`, `sec:dyn_gamma`, `sec:dyn_rainflow`, `eq:g_row`,
+  `eq:ig_row`, `eq:w_vrow`, `eq:gm_row`, `eq:gm_betastar`, `eq:rf_markov`, `eq:rf_cantelli`, `eq:rf_hoeffding`,
+  `eq:rf_bsupport`, `eq:rf_bernstein`, `eq:rf_chernoff`, and the day maps `eq:g_map_mu`, `eq:g_map_v`, `eq:ig_map`,
+  `eq:w_map_v`, `eq:gm_map`.
+- Labels removed (all now inside `moved_B.md`): `prop:g_exact`, `prop:ig_order`, `thm:ig_cap`, `def:gm_class`,
+  `lem:gm_class`, `lem:gm_rates`, `thm:gm_oneterm`, `eq:gm_oneterm`, `lem:gm_monotone`, `cor:gm_safe`,
+  `prop:rf_maps`. None is referenced by `fragments_A.tex`, `fragments_C.tex`, `fragments_D.tex` or `claude_*.tex`
+  (grep, 26 Oct 2026). Writer A's `sec:encoding` text mentions the Chernoff map inequality "(Section
+  dyn_rainflow)"; that section now states the map only; the inequality is in M-B-42.
+- Two small changes of form while rewriting: the Cantelli row is written `kappa_C^2 v_k <= (tau - mu_k)^2`
+  (equivalent to `(1 - eps) v_k <= eps (tau - mu_k)^2`); the rainflow day maps are stated in words without the
+  generic symbol `s`, which in that section is the Chernoff parameter.
+- Build: 0 errors, 0 overfull boxes; undefined references only to other writers' section labels.
 
 ## Not done
 

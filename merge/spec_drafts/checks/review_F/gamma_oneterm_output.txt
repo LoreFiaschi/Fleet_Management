@@ -1,0 +1,6 @@
+random two-term members: 250  largest P(S>t)/W(m,t) = 0.926831
+  at t=0.2 m=0.08378 delta=0.008613 (m1,c1)=(0.07384,0.3139) (m2,c2)=(0.00132,0.1319) P=0.120273 W=0.129768
+  t=0.1 m=0.0035 c*=0.2226 W=0.00991758 best two-term near c*: 0.00994417 (ratio 1.002681)
+  t=0.3 m=0.0106 c*=0.6666 W=0.0100126 best two-term near c*: 0.0100393 (ratio 1.002661)
+  t=1 m=0.0437 c*=1 W=0.0100113 best two-term near c*: 0.0100407 (ratio 1.002939)
+  t=0.448 m=0.0158 c*=1 W=0.009994 best two-term near c*: 0.010046 (ratio 1.005200)

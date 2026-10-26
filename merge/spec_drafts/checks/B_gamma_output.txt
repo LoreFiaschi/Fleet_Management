@@ -19,3 +19,5 @@
 (7) witness, eps = 0.01, t = 0.1: one mission of mean A_hat at scale c*
   A_hat=0.00550124  c*=0.2191  rate ratio 1/c*=4.564  tail/eps=1.5649
   A_1=0.00352889  A_1/A_hat=0.6415  w(A_1)/eps=1.000000
+(8) w(A) < 1/2 for every A < t (so for eps >= 1/2 every A < t qualifies), and w -> 1/2 as A -> t
+  largest w(A) over t in {0.01, ..., 100}, A/t up to 0.999: 0.485431 (< 0.5)

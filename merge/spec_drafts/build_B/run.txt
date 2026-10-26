@@ -233,7 +233,8 @@ For additional information on amsmath, use the `?' option.
 (C:\Users\utente\AppData\Local\Programs\MiKTeX\tex/latex/mathtools\mathtools.st
 y (C:\Users\utente\AppData\Local\Programs\MiKTeX\tex/latex/tools\calc.sty)
 (C:\Users\utente\AppData\Local\Programs\MiKTeX\tex/latex/mathtools\mhsetup.sty)
-) (C:\Users\utente\AppData\Local\Programs\MiKTeX\tex/latex/amscls\amsthm.sty))
+) (C:\Users\utente\AppData\Local\Programs\MiKTeX\tex/latex/amscls\amsthm.sty)
+(C:\Users\utente\AppData\Local\Programs\MiKTeX\tex/latex/tools\array.sty))
 (C:\Users\utente\AppData\Local\Programs\MiKTeX\tex/latex/l3backend\l3backend-pd
 ftex.def)
 (C:\Users\utente\Documents\GitHub\Fleet_Management\merge\spec_drafts\build_B\wr
@@ -261,158 +262,134 @@ Couldn't patch \deferred@thm@head!
 (C:\Users\utente\AppData\Local\Programs\MiKTeX\tex/latex/amsfonts\umsb.fd)
 (C:\Users\utente\AppData\Local\Programs\MiKTeX\tex/latex/microtype\mt-msb.cfg)
 
-LaTeX Warning: Reference `sec:repair_laws' on page 1 undefined on input line 16
+LaTeX Warning: Reference `sec:repair_laws' on page 1 undefined on input line 83
+.
+
+
+LaTeX Warning: Reference `sec:replacement' on page 1 undefined on input line 84
+.
+
+
+LaTeX Warning: Reference `eq:a_ind_sum' on page 1 undefined on input line 87.
+
+
+LaTeX Warning: Reference `eq:a_ind_anchor' on page 1 undefined on input line 87
 .
 
 
 LaTeX Warning: Reference `sec:consistency_checks' on page 1 undefined on input 
-line 18.
-
-
-LaTeX Warning: Reference `sec:encoding' on page 1 undefined on input line 69.
+line 92.
 
 
 [1{C:/Users/utente/AppData/Local/MiKTeX/fonts/map/pdftex/pdftex.map}]
 
-LaTeX Warning: Reference `sec:encoding' on page 2 undefined on input line 96.
+LaTeX Warning: Reference `sec:linear_forms' on page 2 undefined on input line 1
+00.
 
 
 LaTeX Warning: Reference `sec:linear_forms' on page 2 undefined on input line 1
-13.
+01.
 
 
-LaTeX Warning: Reference `sec:consistency_checks' on page 2 undefined on input 
-line 118.
+LaTeX Warning: Reference `sec:repair_laws' on page 2 undefined on input line 15
+9.
 
 
-LaTeX Warning: Reference `sec:consistency_checks' on page 2 undefined on input 
-line 124.
+LaTeX Warning: Reference `sec:replacement' on page 2 undefined on input line 16
+0.
 
 
-LaTeX Warning: Reference `sec:loop' on page 2 undefined on input line 135.
+LaTeX Warning: Reference `eq:a_ind_sum' on page 2 undefined on input line 163.
+
+
+LaTeX Warning: Reference `eq:a_ind_anchor' on page 2 undefined on input line 16
+3.
 
 
 [2]
 
-LaTeX Warning: Reference `sec:encoding' on page 3 undefined on input line 177.
+LaTeX Warning: Reference `sec:repair_laws' on page 3 undefined on input line 25
+9.
 
 
-LaTeX Warning: Reference `sec:encoding' on page 3 undefined on input line 200.
-
-
-LaTeX Warning: Reference `sec:linear_forms' on page 3 undefined on input line 2
-56.
+LaTeX Warning: Reference `sec:replacement' on page 3 undefined on input line 26
+0.
 
 
 [3]
 
-LaTeX Warning: Reference `sec:loop' on page 4 undefined on input line 316.
+LaTeX Warning: Reference `eq:a_ind_sum' on page 4 undefined on input line 263.
+
+
+LaTeX Warning: Reference `eq:a_ind_anchor' on page 4 undefined on input line 26
+3.
+
+
+LaTeX Warning: Reference `sec:repair_laws' on page 4 undefined on input line 33
+9.
+
+
+LaTeX Warning: Reference `sec:replacement' on page 4 undefined on input line 34
+0.
+
+
+LaTeX Warning: Reference `eq:a_ind_sum' on page 4 undefined on input line 343.
+
+
+LaTeX Warning: Reference `eq:a_ind_anchor' on page 4 undefined on input line 34
+3.
 
 
 [4]
 
-LaTeX Warning: Reference `sec:encoding' on page 5 undefined on input line 363.
+LaTeX Warning: Reference `sec:loop' on page 5 undefined on input line 416.
 
 
-LaTeX Warning: Reference `sec:loop' on page 5 undefined on input line 403.
+LaTeX Warning: Reference `sec:consistency_checks' on page 5 undefined on input 
+line 419.
 
 
 [5]
 
-LaTeX Warning: Reference `sec:repair_laws' on page 6 undefined on input line 44
-5.
+LaTeX Warning: Reference `sec:encoding' on page 6 undefined on input line 456.
 
 
-LaTeX Warning: Reference `sec:encoding' on page 6 undefined on input line 465.
+LaTeX Warning: Reference `sec:replacement' on page 6 undefined on input line 46
+4.
 
 
 [6]
+
+LaTeX Warning: Reference `sec:repair_laws' on page 7 undefined on input line 55
+3.
+
+
+LaTeX Warning: Reference `eq:a_ind_sum' on page 7 undefined on input line 557.
+
+
+LaTeX Warning: Reference `eq:a_ind_anchor' on page 7 undefined on input line 55
+7.
+
+
+LaTeX Warning: Reference `sec:consistency_checks' on page 7 undefined on input 
+line 594.
+
+
+LaTeX Warning: Reference `sec:consistency_checks' on page 7 undefined on input 
+line 602.
+
+
+LaTeX Warning: Reference `sec:linear_forms' on page 7 undefined on input line 6
+06.
+
+
 [7]
 
-LaTeX Warning: Reference `sec:linear_forms' on page 8 undefined on input line 6
-76.
+LaTeX Warning: Reference `sec:consistency_checks' on page 8 undefined on input 
+line 625.
 
-
+) (references.tex)
 [8]
-
-LaTeX Warning: Reference `sec:encoding' on page 9 undefined on input line 686.
-
-
-LaTeX Warning: Reference `sec:loop' on page 9 undefined on input line 767.
-
-
-[9]
-
-LaTeX Warning: Reference `sec:loop' on page 10 undefined on input line 808.
-
-
-LaTeX Warning: Reference `sec:consistency_checks' on page 10 undefined on input
- line 818.
-
-
-LaTeX Warning: Reference `sec:repair_laws' on page 10 undefined on input line 8
-68.
-
-
-[10]
-
-LaTeX Warning: Reference `sec:encoding' on page 11 undefined on input line 911.
-
-
-
-LaTeX Warning: Reference `sec:encoding' on page 11 undefined on input line 915.
-
-
-
-LaTeX Warning: Reference `sec:replacement' on page 11 undefined on input line 9
-20.
-
-
-LaTeX Warning: Reference `sec:replacement' on page 11 undefined on input line 9
-27.
-
-
-LaTeX Warning: Reference `sec:consistency_checks' on page 11 undefined on input
- line 934.
-
-
-[11]
-
-LaTeX Warning: Reference `sec:encoding' on page 12 undefined on input line 947.
-
-
-
-LaTeX Warning: Reference `sec:consistency_checks' on page 12 undefined on input
- line 955.
-
-
-LaTeX Warning: Reference `sec:encoding' on page 12 undefined on input line 978.
-
-
-
-[12]
-
-LaTeX Warning: Reference `sec:consistency_checks' on page 13 undefined on input
- line 1051.
-
-
-LaTeX Warning: Reference `sec:consistency_checks' on page 13 undefined on input
- line 1065.
-
-
-LaTeX Warning: Reference `sec:linear_forms' on page 13 undefined on input line 
-1074.
-
-
-LaTeX Warning: Reference `sec:consistency_checks' on page 13 undefined on input
- line 1092.
-
-
-LaTeX Warning: Reference `sec:loop' on page 13 undefined on input line 1108.
-
-) (references.tex
-[13])
-[14]
 (C:\Users\utente\Documents\GitHub\Fleet_Management\merge\spec_drafts\build_B\wr
 ap_B.aux)
 
@@ -425,21 +402,18 @@ ublic/amsfonts/cm/cmbx12.pfb><C:/Users/utente/AppData/Local/Programs/MiKTeX/fon
 ts/type1/public/amsfonts/cm/cmex10.pfb><C:/Users/utente/AppData/Local/Programs/
 MiKTeX/fonts/type1/public/amsfonts/cm/cmmi10.pfb><C:/Users/utente/AppData/Local
 /Programs/MiKTeX/fonts/type1/public/amsfonts/cm/cmmi6.pfb><C:/Users/utente/AppD
-ata/Local/Programs/MiKTeX/fonts/type1/public/amsfonts/cm/cmmi7.pfb><C:/Users/ut
-ente/AppData/Local/Programs/MiKTeX/fonts/type1/public/amsfonts/cm/cmmi8.pfb><C:
-/Users/utente/AppData/Local/Programs/MiKTeX/fonts/type1/public/amsfonts/cm/cmr1
-0.pfb><C:/Users/utente/AppData/Local/Programs/MiKTeX/fonts/type1/public/amsfont
-s/cm/cmr6.pfb><C:/Users/utente/AppData/Local/Programs/MiKTeX/fonts/type1/public
-/amsfonts/cm/cmr7.pfb><C:/Users/utente/AppData/Local/Programs/MiKTeX/fonts/type
-1/public/amsfonts/cm/cmr8.pfb><C:/Users/utente/AppData/Local/Programs/MiKTeX/fo
-nts/type1/public/amsfonts/cm/cmsy10.pfb><C:/Users/utente/AppData/Local/Programs
-/MiKTeX/fonts/type1/public/amsfonts/cm/cmsy6.pfb><C:/Users/utente/AppData/Local
-/Programs/MiKTeX/fonts/type1/public/amsfonts/cm/cmsy8.pfb><C:/Users/utente/AppD
-ata/Local/Programs/MiKTeX/fonts/type1/public/amsfonts/cm/cmti10.pfb><C:/Users/u
-tente/AppData/Local/Programs/MiKTeX/fonts/type1/public/amsfonts/cm/cmtt10.pfb><
-C:/Users/utente/AppData/Local/Programs/MiKTeX/fonts/type1/public/amsfonts/symbo
-ls/msbm10.pfb>
+ata/Local/Programs/MiKTeX/fonts/type1/public/amsfonts/cm/cmmi8.pfb><C:/Users/ut
+ente/AppData/Local/Programs/MiKTeX/fonts/type1/public/amsfonts/cm/cmr10.pfb><C:
+/Users/utente/AppData/Local/Programs/MiKTeX/fonts/type1/public/amsfonts/cm/cmr6
+.pfb><C:/Users/utente/AppData/Local/Programs/MiKTeX/fonts/type1/public/amsfonts
+/cm/cmr7.pfb><C:/Users/utente/AppData/Local/Programs/MiKTeX/fonts/type1/public/
+amsfonts/cm/cmr8.pfb><C:/Users/utente/AppData/Local/Programs/MiKTeX/fonts/type1
+/public/amsfonts/cm/cmsy10.pfb><C:/Users/utente/AppData/Local/Programs/MiKTeX/f
+onts/type1/public/amsfonts/cm/cmsy8.pfb><C:/Users/utente/AppData/Local/Programs
+/MiKTeX/fonts/type1/public/amsfonts/cm/cmti10.pfb><C:/Users/utente/AppData/Loca
+l/Programs/MiKTeX/fonts/type1/public/amsfonts/cm/cmtt10.pfb><C:/Users/utente/Ap
+pData/Local/Programs/MiKTeX/fonts/type1/public/amsfonts/symbols/msbm10.pfb>
 Output written on C:\Users\utente\Documents\GitHub\Fleet_Management\merge\spec_
-drafts\build_B\wrap_B.pdf (14 pages, 344432 bytes).
+drafts\build_B\wrap_B.pdf (8 pages, 259192 bytes).
 Transcript written on C:\Users\utente\Documents\GitHub\Fleet_Management\merge\s
 pec_drafts\build_B\wrap_B.log.

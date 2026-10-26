@@ -2,21 +2,24 @@
 
 Status: all 30 divergences decided (26 Oct 2026).
 
-**Resume here** (26 Oct 2026):
-- Documents: plan in [`documents_plan.md`](documents_plan.md), agreed by the user on 26 Oct 2026 ("yes, go").
-- **Step 1 in progress (26 Oct 2026): spec version 1.0.** Four writer agents work in `spec_drafts/`: shared sheet
-  `spec_drafts/conventions.md`; fragments `fragments_A.tex` (overview, notation, common formulation), `fragments_B.tex`
-  (five models), `fragments_C.tex` (inputs, outputs, schema), `fragments_D.tex` (tools); each writer's state in
-  `status_<X>.md`. Then Claude assembles `spec/spec.tex`, writes the full problem, the open questions and the changelog,
-  builds, checks every "`spec/spec.tex`" bullet of this file, and runs the skill's panel review.
-  State: fragments done and assembled (`spec_drafts/spec_assembled.tex`, 70 pages, clean build); two reviewer agents
-  write `spec_drafts/review_formulation.md` and `spec_drafts/review_io_tools.md`; then Claude applies the must-fix
-  items, reassembles (`spec_drafts/assemble.py`) and replaces `spec/spec.tex`.
-- **Step 5 started early (26 Oct 2026, the user's suggestion):** an agent updates `scoping.tex`; its state is in
-  [`scoping_status.md`](scoping_status.md). Corrections from the spec reviews that touch its passages are sent to it.
-- Pending action of the user: copy `lore`'s `test/` and `input/` folders into the repository (item "Tests and test
-  inputs").
-- Next after step 1: the user reads the spec; then a plan for the code.
+**Resume here** (26 Oct 2026; no background task runs):
+- **Spec (an SDD, Software Design Document) and scoping: done, waiting for the user's reading** (rule in `CLAUDE.md`).
+  `spec/spec.tex` (43 pages; 0 errors, 0 warnings; PDF `spec_drafts/build_final/spec.pdf`) holds only the codebase
+  and its mathematical constructions, in this order: overview, architecture, notation, inputs, variables, objective,
+  constraints (explicit big-M rows per model), full problem, outputs, sweeps, warm starts, plotting, validation, input
+  schema. `scoping.tex` (63 pages; clean build; `scoping.pdf`) holds every proof, example, reason and source, the open
+  questions and the spec's changelog (`sec:spec_changelog`); its whole text passed a readability pass for a reader
+  whose second language is English (record: `scoping_readability_status.md`; the copy before that pass:
+  `scoping_before_readability_pass.tex`). Moved blocks and their places: `spec_scoping_map.md`. Spec sources: the
+  fragments and `spec_drafts/claude_*.tex`, joined by `spec_drafts/assemble.py`; copy `spec_assembled.tex` to
+  `spec/spec.tex` with CRLF. Nothing is committed.
+- **Step 2, code:** plan in [`code_plan.md`](code_plan.md). WP0 to WP2 done on the branch `merge/lore-into-main`
+  (worktree `C:\Users\utente\Documents\GitHub\Fleet_Management-merge`, commit ed6694c; list in `wp1_removals.md`).
+  Next: WP3 (merge of `lore` into the branch) after the user reads the spec and commits `lore`'s finished work; then
+  WP4 and WP5.
+- **Pending actions of the user:** read the spec and the scoping document; commit `lore`'s work (spec, scoping
+  document, `merge/`); copy `lore`'s `test/` and `input/` folders into the repository (item "Tests and test inputs").
+- Documents plan: [`documents_plan.md`](documents_plan.md), agreed by the user on 26 Oct 2026.
 
 - **Purpose.** This file records the user's choice for each divergence between the branches `lore` and `main`.
   The merge writes these choices into `spec/spec.tex` first, then into the code, then into `scoping.tex` and the README
@@ -1524,6 +1527,12 @@ Questions raised by the four writers of spec version 1.0 (26 Oct 2026; their not
     in files where not tracked), so that the validator can check every loop row.
   - In the objective mode `operating_average`, `z` is not built on transitory days (coefficient 0); the transitory
     repair cost is computed after the solve.
+  - `main`'s input block `validation` (settings of the Gamma validators) is kept, by the policy on `main`'s features:
+    an input key that `solve` does not read (spec reviews, 26 Oct 2026).
+  - Spec reviews (26 Oct 2026; `spec_drafts/review_formulation.md`, `spec_drafts/review_io_tools.md`): 26 must-fix
+    items, sent to the writers for correction. Two were errors: the Bernstein tangent check (`tangent_ref·tau < tau - c` is not sufficient;
+    the condition is `tangent_ref·tau < sqrt(tau·(tau - 2c))`), and the validator's objective in the mode
+    `evaluation_total` (it dropped `C_D·u`).
 - **Corrections to this record**:
   - Item "Horizon sweep": `main`'s grid sweep ranks by the projected cost `J_init + (E - H1)·J_op/H2` without `C_D·u`
     (writer D, from `main:src/fleet_management/horizon_sweep.py`); the item wrote the term in. The spec follows

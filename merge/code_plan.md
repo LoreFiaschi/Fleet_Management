@@ -1,6 +1,10 @@
 # Code of the merged package: plan
 
-Status: proposal (26 Oct 2026), waiting for the user's agreement. No code is changed yet.
+Status (26 Oct 2026): agreed by the user for WP0 to WP2, which are done: worktree
+`C:\Users\utente\Documents\GitHub\Fleet_Management-merge`, branch `merge/lore-into-main`, commit ed6694c (65 files
+removed, egg-info untracked, `.gitignore` and `pyproject.toml`; details in `wp1_removals.md`). No local installs (the
+user's choice); Claude commits on that branch at each commit point. Next: WP3 after the user reads the spec and commits
+`lore`'s finished work; WP4 and WP5 after that.
 
 - **Purpose.** How the code of the merged package is built from `main`: the work packages, their order, what each
   needs before it starts, and who does it.

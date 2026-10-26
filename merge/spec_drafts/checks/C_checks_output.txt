@@ -1,12 +1,12 @@
 [PASS] every key of the input tables appears exactly once  ([])
 [PASS] keys of the input tables equal the canonical set of the checker  (only in tables: []; only in checker: [])
 [PASS] keys of the rejected table equal the rejected set of the checker  (only in table: []; only in checker: [])
-input keys: 62  rejected keys: 21
+input keys: 63  rejected keys: 21
 example read: 51 keys
 [PASS] example: every key is canonical  ([])
 [PASS] example: every canonical key of the key tables except the rejected ones appears or has a default
 [PASS] example passes every check
-canonical keys not used by the example: ['R_0', 'R_new', 'anchor_R_0', 'cgf_0', 'cgf_new', 'cgf_trans', 'gamma_beta_0', 'gamma_beta_trans', 'relaxation_time_limit', 'support_trans', 'v_trans']
+canonical keys not used by the example: ['R_0', 'R_new', 'anchor_R_0', 'cgf_0', 'cgf_new', 'cgf_trans', 'gamma_beta_0', 'gamma_beta_trans', 'relaxation_time_limit', 'support_trans', 'v_trans', 'validation']
 [PASS] negative: old key maintenance_type  (expected 'rejected key maintenance_type'; got ['rejected key maintenance_type'])
 [PASS] negative: unknown key  (expected 'unknown key foo'; got ['unknown key foo'])
 [PASS] negative: F = M  (expected 'F > M'; got ['F > M violated'])
@@ -17,7 +17,7 @@ canonical keys not used by the example: ['R_0', 'R_new', 'anchor_R_0', 'cgf_0', 
 [PASS] negative: anchor above mu_0  (expected 'anchor_mu_0'; got ['cell (1,1) gaussian: anchor_mu_0 in [0, initial value]'])
 [PASS] negative: anchor_K_0 above K_0 (0.70)  (expected 'anchor_K_0'; got ['cell (3,2) rainflow: anchor_K_0 in [0, initial value]'])
 [PASS] negative: anchor above mu_0 at an IG ard1 cell  (expected 'anchor_mu_0'; got ['cell (1,2) inverse_gaussian: anchor_mu_0 in [0, initial value]'])
-[PASS] negative: tangent_ref = 1  (expected 'tangent_ref'; got ['cell (1,1) gaussian: tangent_ref in [0,1)'])
+[PASS] negative: tangent_ref = 1  (expected 'tangent_ref'; got ['cell (1,1) gaussian: tangent_ref in [0,1)', 'cell (1,1) gaussian: replacement state violates the reliability row'])
 [PASS] negative: unknown reliability_impl value at an IG cell (the value is ignored, but must be valid)  (expected 'reliability_impl value'; got ['cell (1,2) inverse_gaussian: reliability_impl value'])
 [PASS] negative: unknown reliability_impl value  (expected 'reliability_impl value'; got ['cell (2,1) wiener: reliability_impl value'])
 [PASS] negative: Popoviciu violated (support 0.01, v 1e-4 > 0.01^2/4)  (expected 'Popoviciu'; got ['cell (3,1) rainflow: Popoviciu v <= b^2/4 (j=1, k=1)', 'cell (3,1) rainflow: Popoviciu v <= b^2/4 (j=1, k=2)'])
@@ -34,7 +34,7 @@ canonical keys not used by the example: ['R_0', 'R_new', 'anchor_R_0', 'cgf_0', 
 [PASS] negative: v_max_user below v_0  (expected 'v_max_user'; got ['cell (2,1) wiener: v_max_user > 0 and >= v_0'])
 [PASS] negative: quadratic penalty with tangent form  (expected 'quadratic penalty'; got ['quadratic penalty needs exact at every cell'])
 [PASS] negative: evaluation_horizon = H1  (expected 'evaluation_horizon'; got ['evaluation_horizon must exceed H1'])
-[PASS] negative: negative cost  (expected 'costs'; got ['costs must be >= 0'])
+[PASS] negative: negative cost  (expected 'costs'; got ['costs must be finite and >= 0'])
 [PASS] negative: sigma = 0  (expected 'sigma'; got ['cell (2,1) wiener: sigma > 0'])
 [PASS] negative: shape (F, M, L, H)-like mu of wrong shape  (expected 'profile shape'; got ["'mu' profile shape (2, 1) not accepted"])
 [PASS] negative: L disagrees with model  (expected 'L disagrees'; got ['L disagrees with model'])
@@ -43,15 +43,30 @@ canonical keys not used by the example: ['R_0', 'R_new', 'anchor_R_0', 'cgf_0', 
 [PASS] negative: R_0 above 2 tau^2/kappa (Hoeffding cell)  (expected 'natural range of R_0'; got ['cell (3,1) rainflow: natural range of R_0'])
 [PASS] negative: replacement_mu above tau  (expected 'natural range of replacement_mu'; got ['cell (1,1) gaussian: natural range of replacement_mu', 'cell (1,1) gaussian: replacement state violates the reliability row'])
 [PASS] negative: Markov cell: replacement_mu 0.2 > eps*tau = 0.1  (expected 'replacement state violates'; got ['cell (3,2) rainflow: replacement state violates the reliability row'])
-[PASS] negative: Gaussian cell: replacement (0.5, 0.33) breaks (tau - mu)^2 >= z^2 v  (expected 'replacement state violates'; got ['cell (1,1) gaussian: replacement state violates the reliability row', 'cell (1,2) inverse_gaussian: replacement state violates the reliability row'])
-[PASS] negative: IG and Gamma cells: replacement_mu 0.95 above their caps  (expected 'replacement state violates'; got ['cell (1,2) inverse_gaussian: replacement state violates the reliability row', 'cell (2,2) gamma: replacement state violates the reliability row'])
-[PASS] negative: Bernstein tangent: tangent_ref 0.97 >= (tau - c)/tau = 0.9616  (expected 'Bernstein tangent'; got ['cell (3,1) rainflow: Bernstein tangent: tangent_ref * tau < tau - c'])
+[PASS] negative: Gaussian cell: replacement (0.5, 0.33) breaks (tau - mu)^2 >= z^2 v  (expected 'replacement state violates'; got ['cell (1,1) gaussian: Gaussian 3-sigma at mu_new', 'cell (1,1) gaussian: replacement state violates the reliability row'])
+[PASS] negative: IG and Gamma cells: replacement_mu 0.95 above their caps  (expected 'replacement state violates'; got ['cell (1,1) gaussian: replacement state violates the reliability row', 'cell (1,2) inverse_gaussian: replacement state violates the reliability row'])
+[PASS] negative: Bernstein tangent: tangent_ref 0.97 >= sqrt(tau (tau - 2c))/tau = 0.9608  (expected 'Bernstein tangent'; got ['cell (3,1) rainflow: Bernstein tangent: tangent_ref * tau < sqrt(tau (tau - 2c))', 'cell (3,1) rainflow: replacement state violates the reliability row'])
+[PASS] negative: Bernstein tangent in the gap: tangent_ref 0.961 (below tau - c = 0.9616, above 0.9608)  (expected 'Bernstein tangent'; got ['cell (3,1) rainflow: Bernstein tangent: tangent_ref * tau < sqrt(tau (tau - 2c))', 'cell (3,1) rainflow: replacement state violates the reliability row'])
+[PASS] negative: Bernstein pwl with P = 1 and b = 0.5 (c = 0.384): tau/(2P) = 0.5 >= sqrt(tau (tau - 2c)) = 0.482  (expected 'Bernstein pwl'; got ['cell (3,1) rainflow: Bernstein pwl: tau / (2P) < sqrt(tau (tau - 2c))', 'cell (3,1) rainflow: replacement state violates the reliability row'])
+[PASS] negative: Gaussian tangent cell (tangent_ref 0.4): replacement_mu 0.8 passes the exact row but not the tangent row  (expected 'replacement state violates'; got ['cell (1,1) gaussian: replacement state violates the reliability row'])
+[PASS] negative: replacement_v above v_max_user (Wiener cell)  (expected 'v_max_user >= v_new'; got ['cell (2,1) wiener: v_max_user >= v_new', 'cell (2,1) wiener: replacement state violates the reliability row'])
+[PASS] negative: Gaussian 3-sigma at mu_new: replacement_v 0.0001 > (0.02/3)^2  (expected '3-sigma at mu_new'; got ['cell (1,1) gaussian: Gaussian 3-sigma at mu_new'])
+[PASS] negative: Jensen at the starting anchors: anchor_K_0 0.49 < s * anchor_mu_0 = 0.50  (expected 'Jensen at the starting anchors'; got ['cell (3,2) rainflow: Jensen at the starting anchors g^K_0 >= s g^mu_0'])
+[PASS] negative: infinite cost  (expected 'costs must be finite'; got ['costs must be finite and >= 0'])
+[PASS] negative: evaluation_horizon <= H1 in the mode total  (expected 'evaluation_horizon must exceed H1'; got ['evaluation_horizon must exceed H1'])
+[PASS] negative: null reliability_impl at an applicable cell  (expected 'null at an applicable cell'; got ['cell (1,1) gaussian: reliability_impl null at an applicable cell'])
+[PASS] negative: validation is not a mapping  (expected 'validation must be a mapping'; got ['validation must be a mapping'])
 [PASS] boundary accepted: Popoviciu equality: support 0.02 with v = 1e-4
 [PASS] boundary accepted: anchor_mu_0 equal to mu_0
 [PASS] boundary accepted: Chernoff and IG and Gamma cells with form tangent: the value is ignored
 [PASS] boundary accepted: quadratic penalty with tangent at linear-row cells only
 [PASS] boundary accepted: Markov cell, replacement_mu 0.05 <= eps*tau
-[PASS] boundary accepted: Bernstein tangent: tangent_ref 0.95 < 0.9616
+[PASS] boundary accepted: Bernstein tangent: tangent_ref 0.95 < 0.9608
+[PASS] boundary accepted: Bernstein pwl with P = 8 and b = 0.5: tau/(2P) = 0.0625 < 0.482
+[PASS] boundary accepted: Gaussian exact cell: replacement_mu 0.8 satisfies the exact row
+[PASS] boundary accepted: replacement checks skipped: allow_replacement false with replacement_v above v_max_user
+[PASS] boundary accepted: evaluation_horizon 30 in the mode total
+[PASS] boundary accepted: validation mapping
 [PASS] boundary accepted: replacement checks skipped when allow_replacement is false
 [PASS] boundary accepted: IG cell with repair_model ardinf (the default) and no repair_model key at all
 [PASS] boundary accepted: gamma_beta_new omitted: known replacement damage
