@@ -1,27 +1,26 @@
 # Merge of `lore` and `main`: decisions
 
-Status: 29 divergences decided, 1 open: the Gamma formulation. Work paused by the user on 26 Oct 2026.
+Status: all 30 divergences decided (26 Oct 2026).
 
-**Resume here** (state saved on 26 Oct 2026):
-- Gamma formulation: the analysis agent on the safety of `lore`'s exact cap and on the sharpest safe cap was paused.
-  All its computations are finished; only the editing of its write-up remains. Its state and next step are in
-  [`analysis/gamma_sharp.md`](analysis/gamma_sharp.md) (its `Status:` line and section "Resume here"); its 8 scripts
-  and outputs are in `analysis/scripts/gamma_sharp/`.
-  - Its main claim, **not yet checked by Claude**: below a threshold of `b·tau` (0.436, 0.448 and 0.614 for
-    `eps` = 0.001, 0.01 and 0.1) the single Gamma is not the worst case, shown by explicit one-term members. Above it
-    the sharp cap equals `lore`'s exact cap; this rests on an unproven Assumption U (finite sums of Gammas have a
-    unimodal density) and on a grid check up to `b·tau = 1000`.
-  - Next: finish the write-up (an agent briefed from the notes, or by hand); check the load-bearing claims against
-    the scripts; then put the options to the user in the answer menu, answering the user's questions recorded in
-    the item "Gamma formulation" below (tighter options, fewer constraints, safety of `lore`'s option).
-- Pending answer from the user: whether to paraphrase the user's verbatim quote about `main`'s authors in the item
-  "Code base of the merge", in case `merge/` is ever committed.
+**Resume here** (26 Oct 2026):
+- Documents: plan in [`documents_plan.md`](documents_plan.md), agreed by the user on 26 Oct 2026 ("yes, go").
+- **Step 1 in progress (26 Oct 2026): spec version 1.0.** Four writer agents work in `spec_drafts/`: shared sheet
+  `spec_drafts/conventions.md`; fragments `fragments_A.tex` (overview, notation, common formulation), `fragments_B.tex`
+  (five models), `fragments_C.tex` (inputs, outputs, schema), `fragments_D.tex` (tools); each writer's state in
+  `status_<X>.md`. Then Claude assembles `spec/spec.tex`, writes the full problem, the open questions and the changelog,
+  builds, checks every "`spec/spec.tex`" bullet of this file, and runs the skill's panel review.
+  State: fragments done and assembled (`spec_drafts/spec_assembled.tex`, 70 pages, clean build); two reviewer agents
+  write `spec_drafts/review_formulation.md` and `spec_drafts/review_io_tools.md`; then Claude applies the must-fix
+  items, reassembles (`spec_drafts/assemble.py`) and replaces `spec/spec.tex`.
+- **Step 5 started early (26 Oct 2026, the user's suggestion):** an agent updates `scoping.tex`; its state is in
+  [`scoping_status.md`](scoping_status.md). Corrections from the spec reviews that touch its passages are sent to it.
 - Pending action of the user: copy `lore`'s `test/` and `input/` folders into the repository (item "Tests and test
   inputs").
-- After the Gamma decision: the merge is implemented (to-do line in `Things to change.txt`).
+- Next after step 1: the user reads the spec; then a plan for the code.
 
 - **Purpose.** This file records the user's choice for each divergence between the branches `lore` and `main`.
-  The merge implements these choices in the code, then updates `scoping.tex` and `spec/spec.tex`.
+  The merge writes these choices into `spec/spec.tex` first, then into the code, then into `scoping.tex` and the README
+  ([`documents_plan.md`](documents_plan.md)).
 - **Branches compared**: `lore` at 651aa71, `main` at 978ea9a. Common ancestor: 462ac1d (25 Jun 2026).
 - **Evidence.** The facts behind each divergence are in [`../lore-vs-main.md`](../lore-vs-main.md) and in four
   reports written on 30 Sep 2026:
@@ -70,7 +69,7 @@ The order follows the dependencies: the foundations first, then the formulation,
 | Cost shapes and objective terms | decided |
 | Rainflow tail bounds | decided |
 | Linear forms of the reliability rows | decided |
-| Gamma formulation | open |
+| Gamma formulation | decided |
 | Inverse Gaussian reliability cap | decided |
 | Reliability level `epsilon` | decided |
 | Input checks | decided |
@@ -84,6 +83,7 @@ The order follows the dependencies: the foundations first, then the formulation,
 | Cluster jobs and experiments | decided |
 | Documents | decided |
 | Repository hygiene | decided |
+| Follow-up decisions from writing the spec | decided |
 
 ## Decided
 
@@ -166,9 +166,9 @@ The order follows the dependencies: the foundations first, then the formulation,
   `add_cell`) with Gamma and rainflow builders; more tooling (sweeps, warm starts, validators, cluster jobs). About
   22,600 lines of Python in `src/`; the files on the public solve path alone have about 5,600 lines.
 - **Options offered**: `main`'s code as the base (Claude's recommendation); `lore`'s code as the base.
-- **Decision (25 Oct 2026)**. User: *"we merge the two branches in "main". However, I don't trust main (it was done by
-  some students). So, any difference with lore should be judged carefully and then opt for one of the two versions.
-  Of course, what is in "lore" but not in "main" must be ported smoothly"*.
+- **Decision (25 Oct 2026)**, the user's instruction in neutral wording (the user chose to reword it, 26 Oct 2026): merge
+  the two branches into `main`; trust neither version by default; judge every difference from `lore` carefully and
+  choose one of the two versions; port everything that exists only on `lore` smoothly.
   - The merged package lives on the branch `main`.
   - No version is accepted by default. For each difference, both versions are checked, and one of them is chosen.
   - Everything that exists only on `lore` is ported into `main`.
@@ -322,7 +322,7 @@ The order follows the dependencies: the foundations first, then the formulation,
 | Model | Whole-state law | Since-last law |
 |---|---|---|
 | Gaussian | yes | yes (exact; new) |
-| IG | yes | no (the state leaves the IG family) |
+| IG | yes | yes (item "Follow-up decisions from writing the spec": the CVaR cap does not need the IG family) |
 | Wiener | yes, on the mean | yes, on the mean |
 | Gamma | by the item "Gamma formulation" | by the item "Gamma formulation" |
 | Rainflow, Markov, Cantelli, Hoeffding, Bernstein | yes | yes |
@@ -925,6 +925,185 @@ The order follows the dependencies: the foundations first, then the formulation,
   - Code: the two defaults in `resolve_run_options`; the proof test in `horizon_sweep._select_horizon_cases`.
   - `spec/spec.tex`: the run options and their defaults; the proof rule of the sweep.
 
+### Gamma formulation
+
+- `lore`: shape-scale convention; one scale per component; exact cap `alpha <= alpha_hat`; inputs `beta`,
+  `alpha_inc`.
+- `main`: shape-rate convention; a modular route with a common-rate calibration, which certifies repetitions of one
+  increment type only, and a legacy route; inputs `gamma_beta`, `gamma_beta_0`, `gamma_beta_new`,
+  `gamma_beta_bound`.
+- **Analysis** (an agent, 26 Oct 2026; notes in [`analysis/gamma.md`](analysis/gamma.md), derivations and
+  standard-library scripts; Claude checked the proof of S5 step by step and reproduced the counterexamples of S2 and
+  S3 by an independent Monte Carlo script, with matching results):
+  - S1: with rates `b_i >= b*`, `Σ X_i <=st Gamma(Σ a_i, b*)` (pathwise coupling). Safe, but very conservative when
+    the rates differ.
+  - S2, `main`'s `repeated_increment` calibration is **not safe**. Example: `tau = 1`, `eps = 0.01`; type 1 mean 0.1,
+    rate 10; type 2 mean 0.1, rate 200; cap 3.9717. The mix (1 of type 1, 7 of type 2) has surrogate shape 3.30 and
+    is accepted; its true tail is 0.059 (Claude's Monte Carlo: 0.0594 ± 0.0002). The mix (3, 2): 0.0142 (Claude:
+    0.0143). A grid search finds accepted unsafe schedules in 360 of 441 parameter sets. The model has no row that
+    limits a type to its certified count.
+  - S3, repair of the shape in parameter space (both branches), whole-state law: the true state is below the
+    surrogate in convex order, the repair day is safe, but later days are not. Example: `eps = 0.01`, `rho = 0.5`,
+    rate 0.01; a mission at the cap, a repair, a mission of half the cap: day-3 true tail 0.0133 (Claude: 0.01325 ±
+    0.00008). Unsafe cases need a cap shape at most 0.11 (`b·tau <= 0.3`); with periodic repetition the excess grows
+    to 1.84·`eps` after 4 cycles. Conjecture: safe for `b·tau >= 1`.
+  - S4, the since-last law in parameter space: the same verdict (day-3 tail 1.25·`eps` with an anchor at 0.25 of the
+    cap).
+  - Inputs on `main` (checked 26 Oct 2026): mostly `gamma_beta_bound: 10`, `gamma_beta: 20`, `tau = 0.6`, so a common
+    rate below the missions' own rate. The analysis finds accepted unsafe schedules in 27 of 90 such single-type
+    parameter sets (tails 0.0103 to 0.49). So **`main`'s Gamma experiment results may contain schedules less safe than
+    reported**.
+- **Proposed safe formulation** (the agent's proposal, S5):
+  - Track `A' = b*·mu`, with `mu` the tracked mean (linear dynamics, both repair laws, one-sided rows) and `b*` the
+    smallest rate of all increments, the initial state and the replacement state.
+  - Row `A' <= A_icx`, a constant computed offline from `B(A_icx) = eps`, where `B(A)` is the smaller of the
+    stop-loss bound `inf_{x < tau} E(Gamma(A, b*) - x)_+/(tau - x)` and the Chernoff bound.
+  - Theorem: on every day of every repetition, `D_k <=icx Gamma(A'_k, b*)`, so `P(D_k > tau) <= eps`. Steps: (L1)
+    `c·X <=cx Gamma(c·a, b)`, by `E[U | U + V] = c·(U + V)` for independent Gammas and Jensen; (L2) an increment of
+    rate `b_q >= b*` is `<=cx Gamma(b*·m_q, b*)`, its mean-matched law; (L3) the increasing convex order survives
+    sums, scaling, both repair laws and a larger shape. Claude checked each step.
+  - Price: allowed shape relative to the exact one-rate cap, `eps = 0.01`: 0.04 at `b*·tau = 0.01`, 0.35 at 1, 0.81
+    at 10, 0.96 at 100. With `main`'s inputs (`b*·tau` about 6): about 0.7.
+  - For `lore` (one rate) only the cap changes; for `main` the calibration and the bounding shape go.
+- **Other options** (from the analysis):
+  - Two tracked shapes with a disjunction: the un-repaired sum with the exact cap, or `A'` with `A_icx`. Tighter, but
+    it adds one binary per day and needs a replacement in every period on the days that use the first shape.
+  - The exact cap with parameter-space repair, limited to `b·tau >= 1`: rests on the S3 conjecture only.
+  - Chernoff at one fixed `s` with the exact cumulant, as `main`'s rainflow Chernoff: safe, no mean matching, looser.
+  - No imperfect repair for Gamma (replacement only): exact with one rate, safe by S1 with several rates.
+- Options for the formulation:
+  - **S5, the convex-order cap** (recommended): proven safe for every rate mix and both repair laws, linear.
+  - **S5, plus the two-shape disjunction as an option.**
+  - **`lore`'s exact cap with an input check `b·tau >= 1`**: rests on a conjecture.
+  - **`main`'s calibration as it is**: unsafe.
+- Options for `main`'s other Gamma code: **the `repeated_increment` and `finite_count` calibrations and the legacy
+  constant-rate route leave the solve path** (recommended; S5 supersedes them, and the legacy route ignores `H2` and the
+  repair law); kept as options.
+- Input names follow `main` (`mu`, `gamma_beta`, `gamma_beta_bound`, `gamma_beta_0`, `gamma_beta_new`): the
+  formulation needs means and rates only.
+- **User's questions (26 Oct 2026)**: *"among the first three options, is there a tighter one? Is there one that adds
+  fewer constraints? Check the safety of lore's option. Than we decide."* and, on `main`'s other code: *"Are we talking
+  about how to reshape all the Gammas to the same beta? Or is something else? If it is the reshaping, are you saying
+  that the calibration is wrong?"*
+- **Claude's answers (26 Oct 2026)**:
+  - Yes: `main`'s calibration is the reshaping of each mission type to the common rate `b*`, with a shape that matches
+    the tail at `tau` of repeated copies of that one type. A schedule mixes types, and the match does not survive the
+    sum: the type with mean 0.1 and rate 200 gets shape 0.3287 at rate 10, a mean of 0.033 instead of 0.1. So the
+    calibration is wrong for mixes (counterexample S2), as its own documentation concedes, and nothing limits a type
+    to its certified count. The legacy route is a different thing: `main`'s old one-rate backend. S5 also reshapes,
+    but it keeps each increment's mean, which is provably an upper bound in convex order.
+  - Constraints: S5 and `lore`'s option have one tracked state and one cap row per cell and day, as `lore` today; the
+    two-shape option adds a state, a binary and rows per day.
+  - Tightness: `lore`'s option, if safe, is the tightest; then the two-shape option; then S5.
+  - A fourth option (Claude's idea): S5's tracking with the sharpest safe cap `A_sharp`, the largest shape whose worst
+    tail over the whole class of true states is at most `eps`. Same constraints as S5; if `lore`'s option is safe for
+    `b*·tau >= 1`, `A_sharp` equals the exact cap there, for any rate mix.
+  - The safety of `lore`'s option is open: unsafe in general (S3), conjectured safe for `b·tau >= 1`. Two agents were
+    started on 26 Oct 2026: one reads the literature on extremal tails of weighted sums of independent Gamma
+    variables (notes: `analysis/gamma_literature.md`), one attempts a proof or a counterexample and computes `A_sharp`
+    (notes: `analysis/gamma_sharp.md`).
+- **Literature result** (an agent, 26 Oct 2026; notes in [`analysis/gamma_literature.md`](analysis/gamma_literature.md)):
+  - Read in full by the agent: Székely and Bakirov (2003); Roosta-Khorasani, Székely and Ascher (2015, arXiv
+    1404.0122); Yu (2017, arXiv 1607.02689); Roosta-Khorasani and Székely (2015, *Metrika*, arXiv 1601.04731); Janson
+    (2018, arXiv 1709.08157). Not read: Diaconis and Perlman (1990), behind a human-verification check (the user may
+    retrieve it: https://doi.org/10.1214/lnms/1215457557); Bock et al. (1987) and Kochar and Xu (2011), no access.
+  - Key theorem, checked by Claude on pages 2-4 of arXiv 1601.04731 (Roosta-Khorasani and Székely 2015, Theorem 1):
+    for `X_i` iid `Gamma(alpha, beta)` and weights with equal sums `s`, if `lambda` majorizes `mu`, then
+    `P(Σ lambda_i X_i > x) >= P(Σ mu_i X_i > x)` for all `x > (2·alpha + 1)·s/(2·beta)`, the mean times
+    `1 + 1/(2·alpha)`. (The paper's `P` is the distribution function `Pr(Σ lambda_i X_i < x)`.)
+  - Mapping to our class (Claude's check of the agent's step): if every shape and `b·m` are multiples of one `alpha`,
+    the single Gamma at the cap majorizes every member, so `lore`'s cap is safe for `b·tau > A + A/(2·alpha)`, with
+    `A` the cap shape. Example: integer shapes (`alpha = 1`), `eps = 0.01`, `b·tau = 10`: `A = 3.97`, threshold
+    5.96 < 10, safe. For arbitrary shapes `alpha` can be tiny and the threshold grows without bound.
+  - So the literature does not settle the whole class. The counterexample's two tails cross at `b·tau = 0.3045`
+    (agent's computation).
+- **Sharp-cap analysis** (an agent, 26 Oct 2026; notes in [`analysis/gamma_sharp.md`](analysis/gamma_sharp.md)). Claude
+  reproduced every number with independent code ([`analysis/scripts/verify_gamma_sharp/`](analysis/scripts/verify_gamma_sharp/))
+  and checked the proof step by step. Unimodality from the literature: [`analysis/gamma_unimodal.md`](analysis/gamma_unimodal.md)
+  (another agent; Claude checked the statement and the proof it cites).
+  - Class of true states: in units of `1/b*`, every true state of a schedule is a constant plus `Σ c_i·Y_i`, with
+    `Y_i ~ Gamma(a_i, 1)` independent and `c_i ∈ (0, 1]`. Rates above `b*` and repairs give `c_i < 1`.
+  - Theorem (Claude's own, by the agent): at a given mean, the largest tail over the class is reached by one term
+    `c·Gamma(A/c, 1)`. Proof: first-order conditions on the terms, a count of sign changes of a Laplace transform, and
+    the unimodality of sums of Gammas, a published theorem (Roosta-Khorasani and Székely 2015, *Metrika* 78, Theorem 4;
+    proof by Székely and Bakirov 2003 through Yamazato 1978). No source read proves the theorem itself.
+  - So the sharpest safe cap is a one-dimensional computation: `A_1(t, eps)`, the largest `A` with
+    `max over c ∈ (0, 1] of Q(A/c, t/c) <= eps`, at `t = b*·tau`.
+  - **`lore`'s exact cap is unsafe below a threshold `t1(eps)` of `b*·tau`**: 0.436, 0.448 and 0.614 for `eps` = 0.001,
+    0.01 and 0.1. Witness: `eps = 0.01`, `b*·tau = 0.1`, one mission with rate `4.6·b*` filled to the cap: tail
+    1.56·`eps`. With one rate (`lore`'s own setting), the repair counterexample S3: 1.33·`eps` at `b·tau <= 0.3`.
+  - **Above the threshold, `A_1` equals `lore`'s exact cap**, for any mix of rates (checked on 121 values of `b*·tau` up
+    to 1000; a per-cell computation of `A_1` needs no such check).
+  - Below the threshold, the mean cap `A_1/b*` is a fixed fraction of `tau`: 0.00355, 0.0353 and 0.331 for `eps` =
+    0.001, 0.01 and 0.1. Reason: `Q(A/c, t/c) = Q((A/t)·s, s)` with `s = t/c >= t`. For the same reason the mean cap
+    never decreases when `b*` grows, so the best safe `b*` is the smallest rate of the cell.
+  - Allowed shape relative to `lore`'s exact cap, `eps = 0.01`:
+
+    | `b*·tau` | 0.01 | 0.1 | 0.3 | 1 | 3 | 10 | 100 |
+    |---|---|---|---|---|---|---|---|
+    | sharp cap `A_1` | 0.14 | 0.64 | 0.96 | 1 | 1 | 1 | 1 |
+    | S5 cap `A_icx` | 0.04 | 0.18 | 0.28 | 0.35 | 0.49 | 0.81 | 0.96 |
+    | `lore`'s exact cap | 1, unsafe | 1, unsafe | 1, unsafe | 1 | 1 | 1 | 1 |
+
+- **Claude's answers after the analysis (26 Oct 2026)**:
+  - Tighter option: yes, the sharp cap. It is the largest cap that is safe for every true state, with one tracked
+    state; it equals `lore`'s exact cap wherever that cap is safe.
+  - Fewer constraints: no option has fewer. The sharp cap, S5 and `lore`'s option all have one tracked state and one
+    cap row per cell and day, as `lore` today. The two-shape option adds a binary per day; the sharp cap makes it
+    useless above the threshold, so it is dropped.
+  - Safety of `lore`'s option: unsafe below `t1(eps)`, safe above it.
+- **Options for the formulation (revised, 26 Oct 2026)**:
+  - **Sharp cap** (recommended): S5's tracking `A' = b*·mu`; `b*` computed per cell as the smallest rate of its
+    increments, initial state and replacement state, so the input `gamma_beta_bound` goes; the cap `A_1(b*·tau, eps)`
+    computed offline per cell (bisection on `A`, inner maximum over `c`).
+  - **S5 convex-order cap `A_icx`**: proven without the theorem above; looser.
+  - **`lore`'s exact cap with an input check `b*·tau >= t1(eps)`**: equal to the sharp cap where it is accepted; it
+    refuses the other inputs.
+- **Decision on `main`'s other Gamma code (26 Oct 2026, chosen in the answer menu)**: the `repeated_increment` and
+  `finite_count` calibrations and the legacy one-rate route leave the solve path. Git history keeps them.
+- **User's question on the cap (26 Oct 2026, in the answer menu)**: *"How does it work? I don't want to simply use the
+  minimum (or maximum, I don't remember which of them is the most conservative) beta for all the missions because it is
+  too conservative. The idea of the main's calibration was to find a beta that was tighter and at the same time safe.
+  Does your proposal do the same but in a safe way this time?"*
+- **Claude's answer (26 Oct 2026)**:
+  - The sharp cap keeps each mission's own mean; `b*` (the smallest rate, the most conservative) sets only how
+    dispersed the worst case may be. The conservative route the user means is S1: keep each mission's shape at rate
+    `b*`, which multiplies its mean by `b_q/b*`.
+  - With one rate per cell the sharp cap equals the exact cap. On `main`'s inputs (checked 26 Oct 2026: every Gamma
+    rate is a scalar 20 in every tracked experiment input and in `examples/regression/vbz_progressive/`;
+    `gamma_beta_bound: 10` is an input choice) the computed
+    `b*` is 20, and the cap is exact.
+  - With several rates in a cell, the sharp cap counts fast missions as if they were as dispersed as the slowest. With
+    one tracked total no safe cap can do better: a schedule of slow missions only must stay certified, and for it the
+    cap is already exact.
+  - So no: it does not do what `main`'s calibration intended. That needs per-rate weights: one tracked weighted total
+    `Σ_q w_q·mu_q` and one row, as `main`'s calibration, with weights checked against every mix (the step `main` missed).
+  - Illustration (`analysis/scripts/verify_gamma_sharp/two_rates.py`; example S2: `tau = 1`, `eps = 0.01`, slow
+    missions rate 10, fast missions rate 200, mean 0.1 each). Fast missions allowed: sharp cap 3.97; best safe weights
+    that keep slow-only schedules exact 6.29; exact for fast-only schedules 8.42. `main`'s line through the two
+    single-type limits reaches 2.96·`eps` on a mix.
+  - Status of the per-rate weights: Claude's own idea. Its safety check needs an extension of the theorem to several rate
+    groups (each group's worst case is one term). Claude sketched it; it is not written or checked. The illustration
+    searches a small grid of scales only.
+- **Decision (26 Oct 2026, chosen in the answer menu)**: the sharp cap. The per-rate weights are outstanding work,
+  outside the merge (added to `Things to change.txt` on 26 Oct 2026).
+  - Tracked state: the mean `mu`, with the dynamics, repair laws and one-sided rows of every model; `A' = b*·mu`.
+  - `b*` per cell: the smallest Gamma rate among its missions (both phases), its initial state and its replacement state.
+    The input `gamma_beta_bound` goes (an old key: an error with an explanation, item "Input key names").
+  - Row on every day: `mu <= A_1(b*·tau, eps)/b*`. `A_1` is computed offline per cell: bisection on `A`, with an inner
+    maximum over `c ∈ (0, 1]` of `Q(A/c, b*·tau/c)`.
+  - No input check on `b*·tau`: the sharp cap is safe at every value.
+- **To implement**:
+  - Code: the Gamma builder with the tracked mean and the cap row; the offline computation of `A_1`; `b*` per cell;
+    `main`'s calibrations, its legacy route and their inputs leave the solve path. The loop rows cover the mean and its
+    anchor `gmu` (item "States covered by the loop constraint"); the shape anchor `gA` goes, because the shape is no
+    longer tracked.
+  - `spec/spec.tex`: the Gamma section: the tracked state; the class of true states; the theorem with its proof
+    (Statement 2 of `analysis/gamma_sharp.md`, with unimodality cited to Roosta-Khorasani and Székely 2015, Theorem 4);
+    the computation of `A_1`; the remark that `A_1` equals the exact one-rate cap for `b*·tau >= t1(eps)`.
+  - `spec/references.bib`: Roosta-Khorasani and Székely (2015).
+  - `scoping.tex`: the Gamma part of "Stochastic ordering within each degradation family".
+
 ### Inverse Gaussian reliability cap
 
 - `lore`: from the exact IG distribution function, solved in log space.
@@ -1190,7 +1369,8 @@ The order follows the dependencies: the foundations first, then the formulation,
     removed.
   - `euler/README.md`: **written**, describing both families (recommended); the citation removed from the README.
 - **Decisions (26 Oct 2026, chosen in the answer menu)**:
-  - Family A: the scripts point to `test_rainflow.py`; the jobs are kept.
+  - Family A: dropped, with `test_rainflow.py` and the archived rainflow variants (item "Follow-up decisions from
+    writing the spec", 26 Oct 2026).
   - Results computed before the merge are removed. Scope, to confirm file by file at implementation: the solve
     results in `results/` (the two Gamma convergence sweeps with their inputs and plot, the old Gaussian runs
     `output*.yaml`, `schedule*.png`, `validation*.yaml`). Not in scope: the validator fixtures in
@@ -1199,7 +1379,8 @@ The order follows the dependencies: the foundations first, then the formulation,
     experiment is re-run). Local copies go to the Recycle Bin; git history keeps them.
   - The citation of `euler/README.md` is removed from the README; no cluster README is written.
 - **To implement**:
-  - Code: the family-A scripts; the removal of the results above; the README line.
+  - Code: the removal of the family-A scripts, `test_rainflow.py` and the archived rainflow variants; the removal of
+    the results above; the README line.
 
 ### Documents
 
@@ -1244,6 +1425,13 @@ The order follows the dependencies: the foundations first, then the formulation,
   - `lore_check.txt` stays deleted, and its notes are dropped (the user's choice; Claude had recommended moving them).
   - `ASSESSMENT.md`: its five research directions were added to `Things to change.txt` on 26 Oct 2026; the file is
     removed at implementation (local copy to the Recycle Bin; git history keeps it).
+- **Decisions on the plan of the documents (26 Oct 2026, chosen in the answer menu; plan in
+  [`documents_plan.md`](documents_plan.md))**:
+  - Change markers: version 1.0 of the spec adds no `%% --- CHANGE ...` markers, and the 133 existing markers are
+    removed. The changelog and git history keep the record. Claude's recommendation, after the user's rule that a source
+    file holds only the deliverable.
+  - After the merge, `merge/` and `lore-vs-main.md` move to an archive folder in the repository. The user's remark about
+    `main`'s authors is reworded (item "Code base of the merge"); commit 9889743 on `origin/lore` keeps the old wording.
 - **To implement**:
   - `spec/spec.tex` and `scoping.tex`: every decision of this file.
   - README, `CLAUDE.md`, `RegressionREADME.md`, `GAMMA_DIAGNOSTICS.md`: rewritten or updated for the merged package.
@@ -1288,100 +1476,57 @@ The order follows the dependencies: the foundations first, then the formulation,
 - **To implement**:
   - The new `.gitignore`; `git rm --cached` of the egg-info folder; `pyproject.toml`; `CLAUDE.md` added to git.
 
-## Open
+### Follow-up decisions from writing the spec
 
-Facts for each open item, in agenda order.
+Questions raised by the four writers of spec version 1.0 (26 Oct 2026; their notes are in `spec_drafts/status_*.md`).
 
-### Gamma formulation
-
-- `lore`: shape-scale convention; one scale per component; exact cap `alpha <= alpha_hat`; inputs `beta`,
-  `alpha_inc`.
-- `main`: shape-rate convention; a modular route with a common-rate calibration, which certifies repetitions of one
-  increment type only, and a legacy route; inputs `gamma_beta`, `gamma_beta_0`, `gamma_beta_new`,
-  `gamma_beta_bound`.
-- **Analysis** (an agent, 26 Oct 2026; notes in [`analysis/gamma.md`](analysis/gamma.md), derivations and
-  standard-library scripts; Claude checked the proof of S5 step by step and reproduced the counterexamples of S2 and
-  S3 by an independent Monte Carlo script, with matching results):
-  - S1: with rates `b_i >= b*`, `Σ X_i <=st Gamma(Σ a_i, b*)` (pathwise coupling). Safe, but very conservative when
-    the rates differ.
-  - S2, `main`'s `repeated_increment` calibration is **not safe**. Example: `tau = 1`, `eps = 0.01`; type 1 mean 0.1,
-    rate 10; type 2 mean 0.1, rate 200; cap 3.9717. The mix (1 of type 1, 7 of type 2) has surrogate shape 3.30 and
-    is accepted; its true tail is 0.059 (Claude's Monte Carlo: 0.0594 ± 0.0002). The mix (3, 2): 0.0142 (Claude:
-    0.0143). A grid search finds accepted unsafe schedules in 360 of 441 parameter sets. The model has no row that
-    limits a type to its certified count.
-  - S3, repair of the shape in parameter space (both branches), whole-state law: the true state is below the
-    surrogate in convex order, the repair day is safe, but later days are not. Example: `eps = 0.01`, `rho = 0.5`,
-    rate 0.01; a mission at the cap, a repair, a mission of half the cap: day-3 true tail 0.0133 (Claude: 0.01325 ±
-    0.00008). Unsafe cases need a cap shape at most 0.11 (`b·tau <= 0.3`); with periodic repetition the excess grows
-    to 1.84·`eps` after 4 cycles. Conjecture: safe for `b·tau >= 1`.
-  - S4, the since-last law in parameter space: the same verdict (day-3 tail 1.25·`eps` with an anchor at 0.25 of the
-    cap).
-  - Inputs on `main` (checked 26 Oct 2026): mostly `gamma_beta_bound: 10`, `gamma_beta: 20`, `tau = 0.6`, so a common
-    rate below the missions' own rate. The analysis finds accepted unsafe schedules in 27 of 90 such single-type
-    parameter sets (tails 0.0103 to 0.49). So **`main`'s Gamma experiment results may contain schedules less safe than
-    reported**.
-- **Proposed safe formulation** (the agent's proposal, S5):
-  - Track `A' = b*·mu`, with `mu` the tracked mean (linear dynamics, both repair laws, one-sided rows) and `b*` the
-    smallest rate of all increments, the initial state and the replacement state.
-  - Row `A' <= A_icx`, a constant computed offline from `B(A_icx) = eps`, where `B(A)` is the smaller of the
-    stop-loss bound `inf_{x < tau} E(Gamma(A, b*) - x)_+/(tau - x)` and the Chernoff bound.
-  - Theorem: on every day of every repetition, `D_k <=icx Gamma(A'_k, b*)`, so `P(D_k > tau) <= eps`. Steps: (L1)
-    `c·X <=cx Gamma(c·a, b)`, by `E[U | U + V] = c·(U + V)` for independent Gammas and Jensen; (L2) an increment of
-    rate `b_q >= b*` is `<=cx Gamma(b*·m_q, b*)`, its mean-matched law; (L3) the increasing convex order survives
-    sums, scaling, both repair laws and a larger shape. Claude checked each step.
-  - Price: allowed shape relative to the exact one-rate cap, `eps = 0.01`: 0.04 at `b*·tau = 0.01`, 0.35 at 1, 0.81
-    at 10, 0.96 at 100. With `main`'s inputs (`b*·tau` about 6): about 0.7.
-  - For `lore` (one rate) only the cap changes; for `main` the calibration and the bounding shape go.
-- **Other options** (from the analysis):
-  - Two tracked shapes with a disjunction: the un-repaired sum with the exact cap, or `A'` with `A_icx`. Tighter, but
-    it adds one binary per day and needs a replacement in every period on the days that use the first shape.
-  - The exact cap with parameter-space repair, limited to `b·tau >= 1`: rests on the S3 conjecture only.
-  - Chernoff at one fixed `s` with the exact cumulant, as `main`'s rainflow Chernoff: safe, no mean matching, looser.
-  - No imperfect repair for Gamma (replacement only): exact with one rate, safe by S1 with several rates.
-- Options for the formulation:
-  - **S5, the convex-order cap** (recommended): proven safe for every rate mix and both repair laws, linear.
-  - **S5, plus the two-shape disjunction as an option.**
-  - **`lore`'s exact cap with an input check `b·tau >= 1`**: rests on a conjecture.
-  - **`main`'s calibration as it is**: unsafe.
-- Options for `main`'s other Gamma code: **the `repeated_increment` and `finite_count` calibrations and the legacy
-  constant-rate route leave the solve path** (recommended; S5 supersedes them, and the legacy route ignores `H2` and the
-  repair law); kept as options.
-- Input names follow `main` (`mu`, `gamma_beta`, `gamma_beta_bound`, `gamma_beta_0`, `gamma_beta_new`): the
-  formulation needs means and rates only.
-- **User's questions (26 Oct 2026)**: *"among the first three options, is there a tighter one? Is there one that adds
-  fewer constraints? Check the safety of lore's option. Than we decide."* and, on `main`'s other code: *"Are we talking
-  about how to reshape all the Gammas to the same beta? Or is something else? If it is the reshaping, are you saying
-  that the calibration is wrong?"*
-- **Claude's answers (26 Oct 2026)**:
-  - Yes: `main`'s calibration is the reshaping of each mission type to the common rate `b*`, with a shape that matches
-    the tail at `tau` of repeated copies of that one type. A schedule mixes types, and the match does not survive the
-    sum: the type with mean 0.1 and rate 200 gets shape 0.3287 at rate 10, a mean of 0.033 instead of 0.1. So the
-    calibration is wrong for mixes (counterexample S2), as its own documentation concedes, and nothing limits a type
-    to its certified count. The legacy route is a different thing: `main`'s old one-rate backend. S5 also reshapes,
-    but it keeps each increment's mean, which is provably an upper bound in convex order.
-  - Constraints: S5 and `lore`'s option have one tracked state and one cap row per cell and day, as `lore` today; the
-    two-shape option adds a state, a binary and rows per day.
-  - Tightness: `lore`'s option, if safe, is the tightest; then the two-shape option; then S5.
-  - A fourth option (Claude's idea): S5's tracking with the sharpest safe cap `A_sharp`, the largest shape whose worst
-    tail over the whole class of true states is at most `eps`. Same constraints as S5; if `lore`'s option is safe for
-    `b*·tau >= 1`, `A_sharp` equals the exact cap there, for any rate mix.
-  - The safety of `lore`'s option is open: unsafe in general (S3), conjectured safe for `b·tau >= 1`. Two agents were
-    started on 26 Oct 2026: one reads the literature on extremal tails of weighted sums of independent Gamma
-    variables (notes: `analysis/gamma_literature.md`), one attempts a proof or a counterexample and computes `A_sharp`
-    (notes: `analysis/gamma_sharp.md`).
-- **Literature result** (an agent, 26 Oct 2026; notes in [`analysis/gamma_literature.md`](analysis/gamma_literature.md)):
-  - Read in full by the agent: Székely and Bakirov (2003); Roosta-Khorasani, Székely and Ascher (2015, arXiv
-    1404.0122); Yu (2017, arXiv 1607.02689); Roosta-Khorasani and Székely (2015, *Metrika*, arXiv 1601.04731); Janson
-    (2018, arXiv 1709.08157). Not read: Diaconis and Perlman (1990), behind a human-verification check (the user may
-    retrieve it: https://doi.org/10.1214/lnms/1215457557); Bock et al. (1987) and Kochar and Xu (2011), no access.
-  - Key theorem, checked by Claude on pages 2-4 of arXiv 1601.04731 (Roosta-Khorasani and Székely 2015, Theorem 1):
-    for `X_i` iid `Gamma(alpha, beta)` and weights with equal sums `s`, if `lambda` majorizes `mu`, then
-    `P(Σ lambda_i X_i > x) >= P(Σ mu_i X_i > x)` for all `x > (2·alpha + 1)·s/(2·beta)`, the mean times
-    `1 + 1/(2·alpha)`. (The paper's `P` is the distribution function `Pr(Σ lambda_i X_i < x)`.)
-  - Mapping to our class (Claude's check of the agent's step): if every shape and `b·m` are multiples of one `alpha`,
-    the single Gamma at the cap majorizes every member, so `lore`'s cap is safe for `b·tau > A + A/(2·alpha)`, with
-    `A` the cap shape. Example: integer shapes (`alpha = 1`), `eps = 0.01`, `b·tau = 10`: `A = 3.97`, threshold
-    5.96 < 10, safe. For arbitrary shapes `alpha` can be tiny and the threshold grows without bound.
-  - So the literature does not settle the whole class. The counterexample's two tails cross at `b·tau = 0.3045`
-    (agent's computation).
-
+- **A consequence of the decided loop row, proved by writer A** (`spec_drafts/fragments_A.tex`, proposition on ARD1 and
+  replacement; checked on 3000 random cycles in `spec_drafts/checks/A_encoding_loop.py`): under ARD1 with `rho < 1`, a
+  cell that gains damage in the operating phase must be replaced in every operating phase. Each ARD1 repair leaves
+  the state at the anchor plus `(1-rho)` times the damage since the anchor, so the anchor rises with every repair and
+  never falls without a replacement; without one, the mean grows without bound over the repetitions. Example:
+  `rho = 0.5`, a mission adds 0.2 between repairs; each repair leaves 0.1 more than the previous one.
+- **Decisions (26 Oct 2026, chosen in the answer menu)**:
+  - Default of `repair_model`: `ardinf` (`main`'s code default is `ard1`). ARD1 stays available per cell.
+  - The inverse Gaussian model accepts ARD1 too. Writer B showed that the CVaR cap is safe for any repair weights in
+    (0, 1] and any dependence: under ARD1 the state `G + (1-rho)·Δ` is again a weighted sum of the increments. Every
+    model now accepts both laws (item "Names and set of repair laws" is updated by this decision).
+  - The early stop of the horizon sweeps uses the case's MIP gap as its gap threshold (`main`'s default 0.05 would
+    never fire with the decided default MIP gap 0.1).
+  - `main`'s tools that serve only code the merge removes are dropped (user: *"Drop"*): `utils/model_registry.py`,
+    `validate_gamma_result` (`gamma_validator.py`), the two validators of the old Gaussian format
+    (`validate_baseline_assignment_feasibility`, the "Gamma synthetic diagnostic"), the formulation-count tools
+    (`formulation_size_sweep.py`, `report_gamma_formulation_counts.py`, `utils/benchmark.py`, and the regression
+    scripts that call them), `csv_to_plotter.py` (it targets the removed older plotter) and `fix_root_gap.py` (it
+    repairs results of the archived studies).
+  - `test_rainflow.py`, the archived rainflow variants (`rainflow_v2.py`, `rainflow_sparse.py`, `legacy/`) and the
+    family-A cluster jobs that run them are dropped; git history keeps them. User: *"I want the rainflow model too.
+    Drop the test as their implementations (if you confirmed correct) have already been tested"*. The rainflow model
+    stays with its five bounds; writer B checked each bound row of `main`'s builder against its formula, with the
+    decided fixes. This replaces the decision "Family A: the jobs are kept" of the item "Cluster jobs and
+    experiments". `test_rainflow.py` was a bound-comparison experiment (the same case solved under each of the five
+    bounds, cost and failure point compared), not a schedule validator.
+- **Settled by Claude** (consequences of decisions or of the mathematics; reported to the user):
+  - Depot compatibility: one row `x^m + x^r <= x_i0k` in place of three; the same binary solutions, a tighter
+    relaxation.
+  - Support widths: `main`'s width semantics make the Bhatia-Davis check `v <= mu·(b - mu)` invalid (it assumes a
+    range starting at 0); the checks use Popoviciu's inequality `v <= w²/4`.
+  - `reliability_impl` at a cell whose reliability row is linear (Markov, Chernoff, inverse Gaussian, Gamma): the row
+    is built in its exact form and the value is ignored; an unknown value is an error everywhere.
+  - Input checks added: every initial value, starting anchor and replacement value lies in the natural range of its
+    state (the big-M rows need it); every replacement state satisfies the cell's reliability row (otherwise a
+    replacement is never feasible); `cgf >= s·mu` for every increment, initial and replacement state (Jensen); at a
+    Bernstein cell with the tangent form, `tangent_ref·tau < tau - c` (otherwise the row is empty).
+  - Gamma: `beta*` is the smallest rate among the terms with a positive mean; `gamma_beta_0` and `gamma_beta_new` may
+    be omitted, which declares a known (constant) initial or replacement damage, as rainflow's default
+    (item "Replacement": known damage by default).
+  - The result carries every tracked state and anchor (`R`, `K`, `g_mu`, `g_v`, `g_R`, `g_K`; NaN in memory and `null`
+    in files where not tracked), so that the validator can check every loop row.
+  - In the objective mode `operating_average`, `z` is not built on transitory days (coefficient 0); the transitory
+    repair cost is computed after the solve.
+- **Corrections to this record**:
+  - Item "Horizon sweep": `main`'s grid sweep ranks by the projected cost `J_init + (E - H1)·J_op/H2` without `C_D·u`
+    (writer D, from `main:src/fleet_management/horizon_sweep.py`); the item wrote the term in. The spec follows
+    `main`'s code, as decided.
+  - Item "Encoding of the dynamics": the claim "with one tracked quantity and the whole-state law, it rejects none"
+    needs the hypothesis that the cell is not replaced on day `H1` (writer A's counterexample).

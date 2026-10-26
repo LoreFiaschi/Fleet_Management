@@ -1,0 +1,30 @@
+(1) ARDinf: max of K_{(1-rho)D}(s) - (1-rho) K_D(s) over 2000 random cases (must be <= 0)
+  1.776e-15
+(2) ARD1: max of K_{G+(1-rho)Delta}(s) - [(1-rho) K_{G+Delta}(s) + rho K_G(s)] over 2000 cases
+  7.105e-15
+  boundary rho=0: lhs - rhs = 0.000e+00 (equality expected)
+  boundary rho=1: lhs - rhs = -2.220e-16 (equality expected)
+  boundary Delta = 0.7 (constant), rho = 0.4: lhs - rhs = -4.441e-16 (equality expected)
+(3) Jensen: min of K_D(s) - s E D over 2000 cases (must be >= 0); constant: difference
+  random laws: 1.236e-06;  constant 0.6 at s = 5: 0.000e+00
+(4) ARD1 maps of v and R
+  variance identity, largest error over 500 cases: 2.220e-16
+  R recursion against sum of squared weighted widths, largest error: 6.661e-16
+(5) Hoeffding: d^2 = (kappa/2) R gives exp(-2 d^2/R) = eps
+  eps=0.001: exp(-2 d^2/R)/eps = 1.000000000000
+  eps=0.01: exp(-2 d^2/R)/eps = 1.000000000000
+  eps=0.1: exp(-2 d^2/R)/eps = 1.000000000000
+(6) Bernstein: equivalence on a random grid, and the forced region d >= 2c
+  mismatches: 0 of 20000
+  points with d >= c, v >= 0, row true and d < 2c: 0
+  tau=1, eps=0.01, b=0.1: max of f_B over [0, tau-2c] = 0.0752402871; tau(tau-2c)/(2 kappa) = 0.0752402871
+(7) Bernstein tangent at mu_r >= tau - c: largest tangent value on mu in [0, tau - c] (must be < 0)
+  -8.856e-06
+(8) natural ranges divided by tau^2
+  eps=0.01: z=2.32635  V_max/tau^2=1/z^2=0.1848  Cantelli eps/(1-eps)=0.0101  Hoeffding 2/kappa=0.4343
+  eps=0.1: z=1.28155  V_max/tau^2=1/z^2=0.6089  Cantelli eps/(1-eps)=0.1111  Hoeffding 2/kappa=0.8686
+  eps=0.3: z=0.52440  V_max/tau^2=1/z^2=3.636  Cantelli eps/(1-eps)=0.4286  Hoeffding 2/kappa=1.661
+  eps=0.49: z=0.02507  V_max/tau^2=1/z^2=1591  Cantelli eps/(1-eps)=0.9608  Hoeffding 2/kappa=2.804
+(9) Chernoff with a known initial damage: tau=1, eps=0.1, s=5, mu_0=0.6, X in {0, 0.5} w.p. 1/2
+  K_X(5) = 1.8857;  row with K_0 = 0: -3.114 <= -2.303 ? True
+  row with K_0 = s mu_0: -0.114 <= -2.303 ? False;  true P(D > tau) = 0.5

@@ -1,0 +1,48 @@
+(1) closed form F(1/q) against quadrature of z f(z) on (q, inf)
+  eta=0.05 eps=0.001: q=1.917896  F(1/q)=0.0020354991  quadrature=0.0020354992  rel.diff=6.6e-08
+  eta=0.05 eps=0.01: q=1.628859  F(1/q)=0.0175547447  quadrature=0.0175547453  rel.diff=3.6e-08
+  eta=0.05 eps=0.1: q=1.296368  F(1/q)=0.1443929121  quadrature=0.1443929137  rel.diff=1.1e-08
+  eta=0.25 eps=0.001: q=3.686611  F(1/q)=0.0041344831  quadrature=0.0041344831  rel.diff=1.5e-08
+  eta=0.25 eps=0.01: q=2.668165  F(1/q)=0.0311016520  quadrature=0.0311016522  rel.diff=6.9e-09
+  eta=0.25 eps=0.1: q=1.653338  F(1/q)=0.2095250609  quadrature=0.2095250612  rel.diff=1.5e-09
+  eta=1 eps=0.001: q=8.354865  F(1/q)=0.0099429668  quadrature=0.0099429668  rel.diff=5.4e-09
+  eta=1 eps=0.01: q=4.984095  F(1/q)=0.0643291357  quadrature=0.0643291358  rel.diff=1.7e-09
+  eta=1 eps=0.1: q=2.143034  F(1/q)=0.3349150690  quadrature=0.3349150691  rel.diff=1.4e-10
+  eta=10 eps=0.001: q=39.189764  F(1/q)=0.0527151923  quadrature=0.0527151924  rel.diff=1.1e-09
+  eta=10 eps=0.01: q=14.655122  F(1/q)=0.2493289421  quadrature=0.2493289422  rel.diff=7.7e-11
+  eta=10 eps=0.1: q=2.114209  F(1/q)=0.7085307472  quadrature=0.7085307472  rel.diff=3.4e-11
+(2) cap table (tau = 1): cap = 1/C, quantile cap = 1/q, ratio q/C
+  eps=0.001: eta=0.05: cap=0.4913 q-cap=0.5214 ratio=0.942; eta=0.25: cap=0.2419 q-cap=0.2713 ratio=0.892; eta=1: cap=0.1006 q-cap=0.1197 ratio=0.840; eta=4: cap=0.0370 q-cap=0.0471 ratio=0.786; eta=10: cap=0.0190 q-cap=0.0255 ratio=0.743
+  eps=0.01: eta=0.05: cap=0.5696 q-cap=0.6139 ratio=0.928; eta=0.25: cap=0.3215 q-cap=0.3748 ratio=0.858; eta=1: cap=0.1555 q-cap=0.2006 ratio=0.775; eta=4: cap=0.0679 q-cap=0.1010 ratio=0.673; eta=10: cap=0.0401 q-cap=0.0682 ratio=0.588
+  eps=0.1: eta=0.05: cap=0.6926 q-cap=0.7714 ratio=0.898; eta=0.25: cap=0.4773 q-cap=0.6048 ratio=0.789; eta=1: cap=0.2986 q-cap=0.4666 ratio=0.640; eta=4: cap=0.1826 q-cap=0.4129 ratio=0.442; eta=10: cap=0.1411 q-cap=0.4730 ratio=0.298
+(3) stop-loss bound at the cap equals eps
+  eta=0.25 eps=0.01: bound/eps = 1.0000000000
+  eta=1 eps=0.1: bound/eps = 1.0000000000
+  eta=10 eps=0.001: bound/eps = 1.0000000000
+(4) boundary case eta -> 0: C -> 1
+  eta=0.1: q=1.948825  C=2.160954
+  eta=0.01: q=1.254689  C=1.298143
+  eta=0.001: q=1.075774  C=1.087405
+  eta=0.0001: q=1.023484  C=1.026963
+(5) convex order, Monte Carlo (10^6 draws): E(a1 Z1 + a2 Z2 - d)_+ against E((a1+a2) Z - d)_+
+  eta=0.25 a=(0.3,0.2) d=0.3: independent 0.203844 <= comonotone MC 0.212522, closed form 0.212863
+  eta=0.25 a=(0.3,0.2) d=0.6: independent 0.036537 <= comonotone MC 0.060947, closed form 0.061041
+  eta=0.25 a=(0.3,0.2) d=1: independent 0.002119 <= comonotone MC 0.010076, closed form 0.010063
+  eta=4 a=(0.1,0.4) d=0.3: independent 0.292291 <= comonotone MC 0.318977, closed form 0.319342
+  eta=4 a=(0.1,0.4) d=0.6: independent 0.201811 <= comonotone MC 0.239104, closed form 0.239552
+  eta=4 a=(0.1,0.4) d=1: independent 0.136643 <= comonotone MC 0.175756, closed form 0.176249
+(6) quantile cap 1/q with three equal independent increments: eta = 10, eps = 0.1
+  1/q = 0.4730; true tail (MC, 2e6 draws) = 0.1181 +- 0.0002; model tail = 0.1
+(7) integral of the density of IG(mu, mu/eta), eta = 0.5
+  mu=0.25: 1.00000000
+  mu=4: 1.00000000
+(8) ARD1 weights: D = G + (1-rho) Delta, G = mu0 Z0 split by the anchor g0, Delta = a Z1 (Monte Carlo)
+    against E(m Z - d)_+, m = E D; tail at the CVaR cap; the cap rescaled so that m = cap
+  eta=1 eps=0.01 rho=0.5 d=0.0466: E(D-d)_+ = 0.109166 <= E(cap Z - d)_+ = 0.111023
+  eta=1 eps=0.01 rho=0.5 d=0.1555: E(D-d)_+ = 0.039633 <= E(cap Z - d)_+ = 0.052263
+  eta=1 eps=0.01 rho=0.5 d=0.3109: E(D-d)_+ = 0.009701 <= E(cap Z - d)_+ = 0.021130
+  eta=1 eps=0.01: P(D > tau) at mean = cap: 0.00031 +- 0.00002 <= eps
+  eta=10 eps=0.1 rho=0.3 d=0.0423: E(D-d)_+ = 0.110033 <= E(cap Z - d)_+ = 0.115654
+  eta=10 eps=0.1 rho=0.3 d=0.1411: E(D-d)_+ = 0.077903 <= E(cap Z - d)_+ = 0.090862
+  eta=10 eps=0.1 rho=0.3 d=0.2823: E(D-d)_+ = 0.054932 <= E(cap Z - d)_+ = 0.071810
+  eta=10 eps=0.1: P(D > tau) at mean = cap: 0.02314 +- 0.00015 <= eps

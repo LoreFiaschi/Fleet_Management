@@ -1,0 +1,8 @@
+1. domination + chaining: loop-feasible trials = 489 ; max (reference - tracked) = 0.0 (must be <= 0)
+2. scalar example: (True, [0.1, 0.3, 0.15, 0.35, 0.175], 0.2, 0.4, [0.15000000000000002, 0.17500000000000002, 0.1875])
+3. two-quantity example: (True, (0.7, 0.009), 0.55, 0.012, 0.003, False, (0.35, 0.00225))
+4. full-state loop example (end of 1st phase, peaks, rise per repetition): ((0.35, 0.3), [0.5, 0.45, 0.525, 0.6], [0.075, 0.075, 0.075])
+5. scalar-bound example: U at H1, T, T+H2 = [0.2, 0.1997, 0.2151] 0.2495
+6. ARD1 replacement: loop fails / trials, rho=1 periodic: (3000, 3000, True)
+7. big-M validity, violations: 0
+8. (M2) with <=: max (true - reference) over 31 repetitions = 0.0 (must be <= 0)

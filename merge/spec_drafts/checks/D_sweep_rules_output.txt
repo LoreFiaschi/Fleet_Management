@@ -1,0 +1,9 @@
+1. day mapping: 9072 (k, H1, H2, H1', H2') cases agree with main's old_step; boundary cases pass
+2. gradient and stop rule: 17933 random prefixes agree with main; stop reasons seen: {'cost_increase': 438, 'flat_gradient': 569, None: 16926, 'default_threshold_trials': 3000}
+3. proof rule: a gap of 0.08 with status 'optimal' is proven (main's 1e-8 rule picked another case); tie rule and error rows pass
+4. Clopper-Pearson upper bound (n, f, level, bound): (100000, 0, 0.95, 2.995687401946553e-05)
+4. Clopper-Pearson upper bound (n, f, level, bound): (50, 0, 0.95, 0.05815507942380915)
+4. Clopper-Pearson upper bound (n, f, level, bound): (50, 3, 0.95, 0.14783717628748133)
+4. Clopper-Pearson upper bound (n, f, level, bound): (200, 20, 0.9, 0.1328160086303855)
+4. Clopper-Pearson upper bound (n, f, level, bound): (30, 29, 0.95, 0.9982916873712064)
+all checks passed

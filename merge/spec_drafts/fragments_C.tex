@@ -1,0 +1,821 @@
+\renewcommand{\_}{\textunderscore\allowbreak{}}
+\providecommand{\keyrow}[5]{{\raggedright #1\par} & {\raggedright #2\par} & {\raggedright #3\par} & {\raggedright #4\par} & {\raggedright #5\par} \\}
+\providecommand{\optrow}[4]{{\raggedright #1\par} & {\raggedright #2\par} & {\raggedright #3\par} & {\raggedright #4\par} \\}
+\providecommand{\rejrow}[2]{{\raggedright #1\par} & {\raggedright #2\par} \\}
+\providecommand{\typerow}[3]{{\raggedright #1\par} & {\raggedright #2\par} & {\raggedright #3\par} \\}
+
+\section{Input Specification}\label{sec:inputs}
+
+An input is one mapping from key names to values.
+This section lists every key, in groups, with its shape, its default and the cells that read it.
+Section~\ref{sec:schema} gives the file formats and the keys that each cell type needs.
+
+\textbf{Cells and abbreviations.}
+A \emph{cell} is a pair $(i,\ell)$ of a train and a component.
+Each cell has its own degradation model, repair law, reliability bound, linear form and encoding.
+The column \emph{Applies to} names the cells that read a key.
+It uses these abbreviations: G (Gaussian), IG (inverse Gaussian), W (Wiener), Ga (Gamma), RF (rainflow).
+For a rainflow cell it names the tail bound: Mk (Markov), Ca (Cantelli), Ho (Hoeffding), Be (Bernstein), Ch (Chernoff).
+The word \emph{all} means every cell.
+
+\textbf{Shapes.}
+A \emph{cell value} is a scalar, a list of $L$ numbers, or an $F \times L$ array.
+A scalar is copied to every cell.
+A list of $L$ numbers holds one value per component and is copied to every train.
+A \emph{selector} has the same three shapes, with strings in place of numbers.
+A \emph{profile} holds one value per cell, mission and day; its shapes are given in Section~\ref{sec:input_increments}.
+A \emph{flag} is \texttt{true} or \texttt{false}.
+No other broadcasting is accepted.
+
+\textbf{Absent entries.}
+At a cell where a key does not apply, the entry of an array may be \texttt{null}, and the key may be omitted.
+At a cell where a key applies, \texttt{null} is an error, also when the key has a default.
+A broadcast value (a scalar, a list, or a profile without the axis $F$) is read only where the key applies; it gives no warning.
+A non-\texttt{null} entry of an array that has one entry per cell (an $F \times L$ array, or a profile with the axes $F$ and $L$), at a cell where the key does not apply, is ignored with a \texttt{UserWarning}.
+
+\textbf{Keys.}
+The names in the tables are the only keys that an input may hold.
+Names are case sensitive.
+Any other key raises an error (Section~\ref{sec:input_rejected}).
+
+\subsection{Sizes and Horizon}\label{sec:input_scalars}
+
+\begingroup\small
+\begin{longtable}{@{}p{3.2cm}p{2.2cm}p{1.8cm}p{1.9cm}p{4.5cm}@{}}
+\toprule
+Key & Shape & Default & Applies to & Meaning \\
+\midrule
+\endhead
+\keyrow{\texttt{F}}{integer}{required}{all}{Number of trains. Must exceed $M$}
+\keyrow{\texttt{M}}{integer}{required}{all}{Number of missions. Every mission is flown by one train on every day}
+\keyrow{\texttt{L}}{integer}{inferred}{all}{Number of components per train. When \texttt{model} is a list or an array, $L$ is the length of its component axis, and a given \texttt{L} must equal it. Required when \texttt{model} is one string and $L > 1$}
+\keyrow{\texttt{H}}{integer or \texttt{[H1, H2]}}{required}{all}{Horizon (below). A scalar $H$ means $H_1 = H_2 = H$}
+\bottomrule
+\end{longtable}
+\endgroup
+
+The horizon has $T = H_1 + H_2$ days.
+Days $1,\ldots,H_1$ form the \emph{transitory phase}.
+Days $H_1+1,\ldots,T$ form the \emph{operating phase}.
+Both $H_1$ and $H_2$ are positive integers.
+The operating phase is meant to repeat without end; the loop constraint of Section~\ref{sec:loop} makes every repetition safe.
+The profiles of Section~\ref{sec:input_increments} have $H_2$ entries for the operating phase and, optionally, $H_1$ entries for the transitory phase.
+Index $k = 0$ holds the initial state.
+
+\subsection{Selectors}\label{sec:input_selectors}
+
+\begingroup\small
+\begin{longtable}{@{}p{3.2cm}p{2.2cm}p{1.8cm}p{1.9cm}p{4.5cm}@{}}
+\toprule
+Key & Shape & Default & Applies to & Meaning \\
+\midrule
+\endhead
+\keyrow{\texttt{model}}{selector}{required}{all}{Degradation model of the cell: \texttt{gaussian}, \texttt{inverse\_gaussian}, \texttt{wiener}, \texttt{gamma} or \texttt{rainflow}}
+\keyrow{\texttt{repair\_model}}{selector}{\texttt{ardinf}}{all}{Repair law of the cell (Section~\ref{sec:repair_laws}): \texttt{ardinf} (the repair reduces the whole level) or \texttt{ard1} (it reduces the level accumulated since the last intervention). Every model accepts both}
+\keyrow{\texttt{bound\_method}}{selector}{\texttt{cantelli}}{RF}{Tail bound of the reliability row (Section~\ref{sec:dyn_rainflow}): \texttt{markov}, \texttt{cantelli}, \texttt{hoeffding}, \texttt{bernstein} or \texttt{chernoff}}
+\keyrow{\texttt{reliability\_impl}}{selector}{\texttt{exact}}{G, W, RF (Ca, Be, Ho)}{Form of the reliability row (Section~\ref{sec:linear_forms}): \texttt{exact}, \texttt{tangent} or \texttt{pwl}. A cell whose row is linear (IG, Ga, Mk, Ch) is built in the form \texttt{exact}, and the value is ignored}
+\keyrow{\texttt{encoding}}{selector}{\texttt{bigm}}{all}{Encoding of the dynamics rows (Section~\ref{sec:encoding}): \texttt{bigm} or \texttt{indicator}}
+\keyrow{\texttt{component\_names}}{list of $L$ strings}{\texttt{Component} $n$ for component $n$}{all}{Name of each component, shown by the plots. A name is not empty after blanks are removed}
+\bottomrule
+\end{longtable}
+\endgroup
+
+\subsection{Reliability}\label{sec:input_reliability}
+
+\begingroup\small
+\begin{longtable}{@{}p{3.2cm}p{2.2cm}p{1.8cm}p{1.9cm}p{4.5cm}@{}}
+\toprule
+Key & Shape & Default & Applies to & Meaning \\
+\midrule
+\endhead
+\keyrow{\texttt{tau}}{cell value}{required}{all}{Degradation threshold $\tau_{i\ell} > 0$}
+\keyrow{\texttt{epsilon}}{cell value}{required}{all}{Reliability level $\varepsilon_{i\ell} \in (0,1)$: the probability that the degradation exceeds $\tau_{i\ell}$ must not exceed it on any day. At G and W cells $\varepsilon_{i\ell} < 0.5$}
+\keyrow{\texttt{tangent\_ref}}{cell value}{$0.5$}{cells with form \texttt{tangent}}{Relative tangent point in $[0,1)$: the tangent is taken at the mean $\mu_r = \texttt{tangent\_ref}\cdot\tau$}
+\keyrow{\texttt{pwl\_points}}{integer}{$8$}{cells with form \texttt{pwl}}{Number of segments of the piecewise linear form}
+\bottomrule
+\end{longtable}
+\endgroup
+
+\emph{Remark (range of $\varepsilon$).}
+The Gaussian and Wiener rows contain $\bigl(\Phi^{-1}(1-\varepsilon)\bigr)^2$.
+This number is positive only for $\varepsilon < 0.5$.
+The variance range $V_{\max} = \tau^2/\bigl(\Phi^{-1}(1-\varepsilon)\bigr)^2$ is the largest variance that the row admits.
+It is the natural range of the variance, and the big-M constant of the variance rows (Section~\ref{sec:encoding}).
+The ratio $V_{\max}/\tau^2$ is $0.18$ at $\varepsilon = 0.01$, $0.61$ at $0.1$, $3.6$ at $0.3$ and about $1600$ at $0.49$.
+The constant is therefore moderate unless $\varepsilon$ is close to $0.5$.
+The other models and bounds have no limit below $\varepsilon = 1$: for example, the variance cap $\tau^2\varepsilon/(1-\varepsilon)$ of the Cantelli row is finite for every $\varepsilon < 1$.
+
+\subsection{Repair and Starting Anchors}\label{sec:input_repair}
+
+\begingroup\small
+\begin{longtable}{@{}p{3.2cm}p{2.2cm}p{1.8cm}p{1.9cm}p{4.5cm}@{}}
+\toprule
+Key & Shape & Default & Applies to & Meaning \\
+\midrule
+\endhead
+\keyrow{\texttt{rho}}{cell value}{required}{all}{Repair efficiency $\rho_{i\ell} \in (0,1]$}
+\keyrow{\texttt{anchor\_mu\_0}}{cell value}{$\mu_0$}{\texttt{ard1} cells}{Starting anchor $g^{\mu}_{i\ell 0}$ of the mean}
+\keyrow{\texttt{anchor\_v\_0}}{cell value}{$v_0$}{\texttt{ard1} cells at G, RF (Ca, Be)}{Starting anchor $g^{v}_{i\ell 0}$ of the variance}
+\keyrow{\texttt{anchor\_R\_0}}{cell value}{$R_0$}{\texttt{ard1} cells at RF (Ho)}{Starting anchor $g^{R}_{i\ell 0}$ of the Hoeffding budget}
+\keyrow{\texttt{anchor\_K\_0}}{cell value}{$K_0$}{\texttt{ard1} cells at RF (Ch)}{Starting anchor $g^{K}_{i\ell 0}$ of the Chernoff quantity}
+\bottomrule
+\end{longtable}
+\endgroup
+
+Under the law \texttt{ard1}, a repair removes the fraction $\rho$ of the level accumulated since the last intervention (Section~\ref{sec:repair_laws}).
+Before the first intervention, the reference level is the starting anchor of the state.
+The default of each starting anchor is the initial value of the same state: $\mu_{0}$, $v_{0}$, $R_{0}$ and $K_{0}$ (Section~\ref{sec:input_initial}).
+The largest allowed value is this default, because damage only grows between interventions (Section~\ref{sec:consistency_checks}).
+A larger anchor gives a weaker repair and a higher state, so the default never overstates what a repair achieves.
+For example, let $\mu_0 = 0.5$ and $\rho = 0.5$, and let a repair take place on day~1 before any mission.
+With the starting anchor $0$ the mean falls to $0.25$; with the default anchor $0.5$ it stays at $0.5$.
+The input is exact when the maintenance history of the component is known.
+
+\subsection{Initial State}\label{sec:input_initial}
+
+\begingroup\small
+\begin{longtable}{@{}p{3.2cm}p{2.2cm}p{1.8cm}p{1.9cm}p{4.5cm}@{}}
+\toprule
+Key & Shape & Default & Applies to & Meaning \\
+\midrule
+\endhead
+\keyrow{\texttt{mu\_0}}{cell value}{required}{all}{Initial mean degradation $\mu_{0,i\ell}$, with $0 \le \mu_{0,i\ell} < \tau_{i\ell}$}
+\keyrow{\texttt{v\_0}}{cell value}{$0$}{G, W, RF (Ca, Be)}{Initial variance $v_{0,i\ell} \ge 0$. The value $0$ means a known initial damage}
+\keyrow{\texttt{support\_0}}{cell value}{$0$}{RF (Be)}{Width $b^{0}_{i\ell}$ of the range of the initial damage. The value $0$ means a known initial damage}
+\keyrow{\texttt{R\_0}}{cell value}{$0$}{RF (Ho)}{Initial value $R_{0,i\ell}$ of the Hoeffding budget: the square of the width of the range of the initial damage}
+\keyrow{\texttt{cgf\_0}}{cell value}{$s\,\mu_0$}{RF (Ch)}{Initial value $K_{0,i\ell}$ of the Chernoff quantity: the cumulant generating function of the initial damage at $s_{i\ell} = \texttt{s\_chernoff}$. It is at least $s\,\mu_0$}
+\bottomrule
+\end{longtable}
+\endgroup
+
+The defaults describe a known initial damage: the mean $\mu_0$ with no spread, so that $v_0 = b^0 = R_0 = 0$ and $K_0 = s\,\mu_0$.
+The optional keys describe a random initial damage.
+Section~\ref{sec:dyn_rainflow} states why these values keep the certificate valid.
+
+\subsection{Replacement}\label{sec:input_replacement}
+
+\begingroup\small
+\begin{longtable}{@{}p{3.2cm}p{2.2cm}p{1.8cm}p{1.9cm}p{4.5cm}@{}}
+\toprule
+Key & Shape & Default & Applies to & Meaning \\
+\midrule
+\endhead
+\keyrow{\texttt{replacement\_mu}}{cell value}{$0$}{all}{Mean degradation $\mu^{\new}_{i\ell}$ after a replacement}
+\keyrow{\texttt{replacement\_v}}{cell value}{$0$}{G, W, RF (Ca, Be)}{Variance $v^{\new}_{i\ell}$ after a replacement}
+\keyrow{\texttt{support\_new}}{cell value}{$0$}{RF (Be)}{Width $b^{\new}_{i\ell}$ of the range of the damage after a replacement}
+\keyrow{\texttt{R\_new}}{cell value}{$0$}{RF (Ho)}{Hoeffding budget $R^{\new}_{i\ell}$ after a replacement}
+\keyrow{\texttt{cgf\_new}}{cell value}{$s\,\mu^{\new}$}{RF (Ch)}{Chernoff quantity $K^{\new}_{i\ell}$ after a replacement; at least $s\,\mu^{\new}$}
+\keyrow{\texttt{replacement\_as\_new}}{flag}{\texttt{false}}{all}{If \texttt{true}, a replacement gives a component in the zero state, and every replacement input of this table must be $0$}
+\keyrow{\texttt{allow\_replacement}}{flag}{\texttt{true}}{all}{If \texttt{false}, no replacement is possible: the variables $x^r$ and their rows are not built}
+\bottomrule
+\end{longtable}
+\endgroup
+
+The state after a replacement comes from these keys for every model.
+The defaults give a part in the zero state.
+Section~\ref{sec:replacement} states the replacement rows; Section~\ref{sec:dyn_rainflow} states the reset of $R$ and $K$.
+For Gamma, the rate of the state after a replacement is \texttt{gamma\_beta\_new} (Section~\ref{sec:input_constants}).
+
+\subsection{Increment Profiles and the Phase Lookup}\label{sec:input_increments}
+
+A \emph{profile} gives the parameters of the damage increment when train $i$ flies mission $j$ on a day, for component $\ell$.
+Its canonical shape is $(F, L, M, H_*)$: train, component, mission, day of the phase.
+The last axis has $H_2$ entries for an operating profile and $H_1$ entries for a transitory profile.
+The parser accepts these shapes and expands each of them to $(F, L, M, H_*)$ before it builds any row (\emph{eager broadcasting}):
+\begin{center}
+scalar, \quad $(M)$, \quad $(L, M)$, \quad $(L, M, H_*)$, \quad $(F, L, M)$, \quad $(F, L, M, H_*)$.
+\end{center}
+A missing axis is repeated along that axis.
+A three-dimensional array whose shape fits both $(L, M, H_*)$ and $(F, L, M)$ is read as $(L, M, H_*)$; this happens only when $F = L = M = H_*$.
+The parser cannot detect an array whose mission axis and component axis are swapped when $M = L$.
+Missions have index $j \in \{1,\ldots,M\}$ in a profile; a depot day or an idle day adds no increment.
+
+\textbf{Phase lookup.}
+Let $p$ be an operating profile and $p^{\tr}$ the transitory profile of the same key, if it is given.
+After the phase lookup, the value used on day $k \in \{1,\ldots,T\}$ is
+\begin{equation}\label{eq:c_phase}
+p^{\inc}_{i\ell jk} =
+\begin{cases}
+p^{\tr}_{i\ell jk} & k \le H_1 \text{ and } p^{\tr} \text{ is given},\\[2pt]
+p_{i\ell j,\,((k-1) \bmod H_2) + 1} & k \le H_1 \text{ and } p^{\tr} \text{ is not given},\\[2pt]
+p_{i\ell j,\,((k-H_1-1) \bmod H_2) + 1} & k > H_1.
+\end{cases}
+\end{equation}
+Every profile key is looked up on its own.
+A transitory profile may be given for some keys of a cell and not for others.
+For a scalar $H$ without transitory profile, both phases read the same $H$ entries, one after the other.
+For $H = [2, 3]$ without transitory profile, days $1,\ldots,5$ read the operating entries $1, 2, 1, 2, 3$.
+With a transitory profile, days $1, 2$ read its entries $1, 2$ and days $3, 4, 5$ read the operating entries $1, 2, 3$.
+The symbols $\mu^{\inc}_{i\ell jk}$, $v^{\inc}_{i\ell jk}$, $b^{\inc}_{i\ell jk}$ and $K^{\inc}_{i\ell jk}$ of the formulation denote the values after this lookup.
+
+\begingroup\small
+\begin{longtable}{@{}p{3.2cm}p{2.2cm}p{1.8cm}p{1.9cm}p{4.5cm}@{}}
+\toprule
+Key & Shape & Default & Applies to & Meaning \\
+\midrule
+\endhead
+\keyrow{\texttt{mu}}{profile}{required}{all}{Mean $\mu^{\inc}_{i\ell jk} \ge 0$ of the increment. For Ga the increment has shape $\mu\,\beta$ and rate $\beta$, so that its mean is $\mu$}
+\keyrow{\texttt{v}}{profile}{required}{G, RF (Ca, Be)}{Variance $v^{\inc}_{i\ell jk} \ge 0$ of the increment}
+\keyrow{\texttt{support}}{profile}{required}{RF (Ho, Be)}{Width $b^{\inc}_{i\ell jk} \ge 0$ of the range of the increment: the increment lies in an interval of this length}
+\keyrow{\texttt{cgf}}{profile}{required}{RF (Ch)}{Cumulant generating function $K^{\inc}_{i\ell jk} = \ln \mathbb{E}\,e^{s X}$ of the increment $X$ at $s = s_{i\ell}$}
+\keyrow{\texttt{s\_chernoff}}{cell value}{required}{RF (Ch)}{Chernoff parameter $s_{i\ell}$, with $s_{i\ell} > \ln(1/\varepsilon_{i\ell})/\tau_{i\ell}$}
+\keyrow{\texttt{gamma\_beta}}{scalar, $(L)$, $(F, L)$, $(F, L, M)$ or $(F, L, M, H_2)$}{required}{Ga}{Rate $\beta_{i\ell jk} > 0$ of the Gamma increment. A shape without a day axis is repeated along the days}
+\keyrow{\texttt{mu\_trans}, \texttt{v\_trans}, \texttt{support\_trans}, \texttt{cgf\_trans}}{transitory profile}{none}{as the key without the suffix}{Increment parameters of the transitory phase. A transitory profile requires its operating profile}
+\keyrow{\texttt{gamma\_beta\_trans}}{scalar, $(L)$, $(F, L)$, $(F, L, M)$ or $(F, L, M, H_1)$}{none}{Ga}{Rates of the transitory phase}
+\bottomrule
+\end{longtable}
+\endgroup
+
+The key \texttt{support} keeps one meaning in every bound: the width of the range of the increment.
+A width of $0$ means that the increment is known.
+
+\subsection{Model Constants}\label{sec:input_constants}
+
+\begingroup\small
+\begin{longtable}{@{}p{3.2cm}p{2.2cm}p{1.8cm}p{1.9cm}p{4.5cm}@{}}
+\toprule
+Key & Shape & Default & Applies to & Meaning \\
+\midrule
+\endhead
+\keyrow{\texttt{sigma}}{cell value}{required}{W}{Diffusion constant $\sigma_{i\ell} > 0$: every mission adds $\sigma_{i\ell}^2$ to the variance}
+\keyrow{\texttt{eta}}{cell value}{required}{IG}{Ratio $\eta_{i\ell} = \mu/\lambda > 0$ of the mean to the shape parameter of the inverse Gaussian law of the state (Section~\ref{sec:dyn_ig})}
+\keyrow{\texttt{v\_max\_user}}{cell value}{none}{G, W, RF (Ca, Be)}{Upper bound $V^{\mathrm{user}}_{\max,i\ell} > 0$ on the variance. If it is given, the row $v_{i\ell k} \le V^{\mathrm{user}}_{\max,i\ell}$ holds on every day. If it is not given, only the reliability row bounds the variance}
+\keyrow{\texttt{gamma\_beta\_0}}{cell value}{none (known damage)}{Ga}{Rate of the initial damage, which is a Gamma variable with mean $\mu_0$. If it is omitted, the initial damage is the known constant $\mu_0$, and it does not enter the smallest rate}
+\keyrow{\texttt{gamma\_beta\_new}}{cell value}{none (known damage)}{Ga}{Rate of the damage after a replacement, which is a Gamma variable with mean $\mu^{\new}$. If it is omitted, the damage after a replacement is the known constant $\mu^{\new}$, and it does not enter the smallest rate}
+\bottomrule
+\end{longtable}
+\endgroup
+
+For Gamma, the formulation computes the smallest rate of each cell from the rates of the terms with a positive mean: the entries of \texttt{gamma\_beta} and \texttt{gamma\_beta\_trans}, and the rates \texttt{gamma\_beta\_0} and \texttt{gamma\_beta\_new} where they are given (Section~\ref{sec:dyn_gamma}).
+No input gives this rate.
+
+\subsection{Costs and Objective}\label{sec:input_costs}
+
+\begingroup\small
+\begin{longtable}{@{}p{3.2cm}p{2.2cm}p{1.8cm}p{1.9cm}p{4.5cm}@{}}
+\toprule
+Key & Shape & Default & Applies to & Meaning \\
+\midrule
+\endhead
+\keyrow{\texttt{C\_M}}{scalar}{required}{all}{Cost $C_M \ge 0$ of one depot day of one train, whatever the number of jobs done on that day}
+\keyrow{\texttt{C\_R}}{cell value}{required}{all}{Repair cost $C_{R,i\ell} \ge 0$ per unit of degradation removed. At a cell with $C_{R,i\ell} = 0$ the variable $z$ and its rows are not built}
+\keyrow{\texttt{C\_rep}}{cell value}{required}{all}{Replacement cost $C_{\mathrm{rep},i\ell} \ge 0$}
+\keyrow{\texttt{C\_D}}{scalar}{required}{all}{Damage regularisation coefficient $C_D \ge 0$. If $C_D = 0$, the variable $u$ and its rows are not built, and \texttt{penalty\_type} is ignored}
+\keyrow{\texttt{penalty\_type}}{string}{\texttt{inf\_norm}}{all}{Form of the damage regularisation (Section~\ref{sec:damage_reg}): \texttt{inf\_norm} or \texttt{quadratic}. The value \texttt{quadratic} requires the form \texttt{exact} at every cell}
+\bottomrule
+\end{longtable}
+\endgroup
+
+All costs are finite.
+The objective and its three modes (\texttt{objective\_mode}, Section~\ref{sec:run_options}) are stated in Section~\ref{sec:objective}.
+
+\subsection{Run Options}\label{sec:run_options}
+
+Run options are keys of the input.
+They do not change the mathematical problem, except \texttt{objective\_mode} and \texttt{evaluation\_horizon}, which choose the objective.
+
+\begingroup\small
+\begin{longtable}{@{}p{3.3cm}p{1.9cm}p{1.6cm}p{6.0cm}@{}}
+\toprule
+Key & Shape & Default & Meaning \\
+\midrule
+\endhead
+\optrow{\texttt{verbose}}{integer}{$1$}{Gurobi output flag: $0$ for no log, $1$ for the log}
+\optrow{\texttt{mip\_gap}}{number $\ge 0$}{$0.1$}{Relative gap between the best solution and the best bound at which Gurobi stops (the MIP gap; MIP means mixed-integer program). With the default, the status \texttt{optimal} means that the best solution is at most $10\,\%$ above the best bound. The gap reached is reported as \texttt{mip\_gap} in the result}
+\optrow{\texttt{time\_limit}}{number $> 0$}{$3600$}{Time limit of Gurobi, in seconds}
+\optrow{\texttt{fast}}{flag}{\texttt{false}}{If \texttt{true}, a preset of Gurobi parameters that favours good solutions found early: \texttt{MIPFocus} $= 1$, \texttt{Heuristics} $= 0.5$, \texttt{ImproveStartGap} $= 0.5$ and \texttt{NoRelHeurTime} $= \max(2,\, 0.15\,\texttt{time\_limit})$}
+\optrow{\texttt{gurobi\_params}}{mapping}{none}{Gurobi parameters, by name. They are set after every other option, and so override it}
+\optrow{\texttt{objective\_mode}}{string}{\texttt{total}}{\texttt{total}: the cost of all $T$ days; \texttt{operating\_average}: the cost per day of the operating phase; \texttt{evaluation\_total}: the projected cost over \texttt{evaluation\_horizon} days. Each mode adds the damage penalty $C_D\,u$ once (Section~\ref{sec:objective})}
+\optrow{\texttt{evaluation\_horizon}}{integer}{none}{Evaluation horizon $E$. Required, and used, only if \texttt{objective\_mode} is \texttt{evaluation\_total}; $E > H_1$. If it is given in another mode, the result reports the projected cost for it (Section~\ref{sec:output})}
+\optrow{\texttt{progress\_interval\_seconds}}{number $> 0$}{$5.0$}{Minimum time in seconds between two records of the progress report (Section~\ref{sec:output}). A record is also made whenever the number of solutions found changes}
+\optrow{\texttt{relaxation\_warm\_start}}{flag}{\texttt{false}}{If \texttt{true}, and no other warm start is applied, a relaxation start is computed before the solve (Section~\ref{sec:warm_starts})}
+\optrow{\texttt{relaxation\_time\_limit}}{number $> 0$}{$60.0$}{Time limit in seconds of the relaxation start}
+\bottomrule
+\end{longtable}
+\endgroup
+
+No input key selects a warm start from a previous result; Section~\ref{sec:warm_starts} defines it.
+A horizon sweep is not an input option; the sweep functions of Section~\ref{sec:sweeps} read the same input and solve it for several horizons.
+
+\subsection{Rejected Keys}\label{sec:input_rejected}
+
+Each key of the table below names a quantity that has another name, or another meaning, in this specification.
+A key of the table raises an error.
+The message names the canonical key and, where the meaning differs, states the meaning of the canonical key.
+Any other key that is not in the tables of this section raises the error ``unknown key'', with the list of the canonical keys.
+The check on keys runs before any array is read.
+
+\begingroup\small
+\begin{longtable}{@{}p{3.3cm}p{11.0cm}@{}}
+\toprule
+Rejected key & Message: canonical key and meaning \\
+\midrule
+\endhead
+\rejrow{\texttt{maintenance\_type}}{Use \texttt{repair\_model}. Its values are \texttt{ardinf} (the repair reduces the whole level) and \texttt{ard1} (it reduces the level accumulated since the last intervention). In a file written with \texttt{maintenance\_type}, the value \texttt{ARD1} corresponds to \texttt{ardinf}, and the value \texttt{ARA1} to \texttt{ard1}}
+\rejrow{\texttt{tail\_bound}, \texttt{method}}{Use \texttt{bound\_method}; its values are \texttt{markov}, \texttt{cantelli}, \texttt{hoeffding}, \texttt{bernstein} and \texttt{chernoff}}
+\rejrow{\texttt{formulation}}{Use \texttt{reliability\_impl}. The value \texttt{exact} keeps its meaning. The value \texttt{lp} corresponds to \texttt{tangent} with \texttt{tangent\_ref} equal to $0$}
+\rejrow{\texttt{beta}}{Use \texttt{gamma\_beta}. It is a rate, and \texttt{beta} is a scale: \texttt{gamma\_beta} equals $1/\texttt{beta}$}
+\rejrow{\texttt{alpha\_inc}}{The Gamma increments are given by the mean \texttt{mu} and the rate \texttt{gamma\_beta}. The shape of an increment is \texttt{mu} times \texttt{gamma\_beta}}
+\rejrow{\texttt{gamma\_beta\_bound}}{Remove it. The formulation computes the smallest rate of each cell from the rates of the cell (Section~\ref{sec:dyn_gamma})}
+\rejrow{\texttt{gamma\_calibration\_method}}{Remove it. The formulation has no calibration step (Section~\ref{sec:dyn_gamma})}
+\rejrow{\texttt{b\_inc}}{Use \texttt{support}: the width of the range of the increment}
+\rejrow{\texttt{b\_0}}{Use \texttt{support\_0}: the width of the range of the initial damage}
+\rejrow{\texttt{b\_new}}{Use \texttt{support\_new}: the width of the range of the damage after a replacement}
+\rejrow{\texttt{n\_workers}, \texttt{warm\_start}}{Remove them. Parallel runs and warm starts between horizons are options of the sweep functions (Sections~\ref{sec:sweeps} and~\ref{sec:warm_starts})}
+\rejrow{\texttt{depot\_capacity}}{Remove it. The availability of the depot is not limited at fleet level (Section~\ref{sec:depot})}
+\rejrow{\texttt{C\_P}}{Remove it. The loop constraint is a hard constraint and has no penalty (Section~\ref{sec:loop})}
+\rejrow{\texttt{C\_S}}{Use \texttt{C\_D}, with the same meaning}
+\rejrow{\texttt{alpha}}{Use \texttt{tau}, with the same meaning}
+\rejrow{\texttt{xi}, \texttt{repair\_rho}}{Use \texttt{rho}, with the same meaning}
+\rejrow{\texttt{mu\_new}}{Use \texttt{replacement\_mu}, with the same meaning}
+\rejrow{\texttt{v\_new}}{Use \texttt{replacement\_v}, with the same meaning}
+\bottomrule
+\end{longtable}
+\endgroup
+
+\subsection{Consistency Checks}\label{sec:consistency_checks}
+
+The solver must validate all of the following before it builds the model.
+A violation raises a \texttt{ValueError}.
+Its message names the key and, for a cell value, the cell $(i,\ell)$.
+A check of one model runs only at the cells of that model, on the entries where the key applies.
+Each item gives the rule and, after the dash, the reason for it.
+
+\textbf{Keys, shapes and entries.}
+\begin{itemize}[leftmargin=1.5em]
+  \item \emph{Keys.} Every key is in the tables of Section~\ref{sec:inputs}. The keys \texttt{F}, \texttt{M}, \texttt{H}, \texttt{model}, \texttt{tau}, \texttt{epsilon}, \texttt{rho}, \texttt{mu\_0}, \texttt{mu}, \texttt{C\_M}, \texttt{C\_R}, \texttt{C\_rep} and \texttt{C\_D} are present, and so are the keys that each cell type requires (Section~\ref{sec:schema}). --- A misspelled or missing key must not change the problem without a message.
+  \item \emph{Shapes.} Each value has one of the shapes of its table row. The last axis of an operating profile has $H_2$ entries, and that of a transitory profile has $H_1$ entries. \texttt{component\_names} has $L$ entries. --- Silent broadcasting by the array library could read a value for another cell.
+  \item \emph{Entries.} At a cell where a key applies, every entry is a finite number, or a string for a selector; \texttt{null} is an error. --- A missing value at a cell must not take a default silently.
+\end{itemize}
+
+\textbf{Sizes and selectors.}
+\begin{itemize}[leftmargin=1.5em]
+  \item $F$, $M$ and $L$ are positive integers, and $F > M$. --- Every mission needs a train on every day; with $F = M$ no train could be in the depot, and no repair could take place.
+  \item $H$ is an integer $\ge 1$, or a pair of integers $H_1, H_2 \ge 1$. --- Each phase has at least one day.
+  \item \texttt{model} entries are \texttt{gaussian}, \texttt{inverse\_gaussian}, \texttt{wiener}, \texttt{gamma} or \texttt{rainflow}. \texttt{repair\_model} entries are \texttt{ard1} or \texttt{ardinf}, for every model. --- Another value names no model or no repair law.
+  \item \texttt{bound\_method} entries at rainflow cells are \texttt{markov}, \texttt{cantelli}, \texttt{hoeffding}, \texttt{bernstein} or \texttt{chernoff}. --- A rainflow cell without one of these bounds has no reliability row.
+  \item \texttt{reliability\_impl} entries are \texttt{exact}, \texttt{tangent} or \texttt{pwl} at every cell; at a cell with a linear row (IG, Ga, Mk, Ch) a valid value is ignored, and the form \texttt{exact} is built. \texttt{encoding} entries are \texttt{bigm} or \texttt{indicator}. --- An unknown value must raise an error at every cell; reading it as \texttt{exact} would turn a linear model into a nonconvex one without a message.
+  \item \texttt{penalty\_type} is \texttt{inf\_norm} or \texttt{quadratic}. If $C_D > 0$ and \texttt{penalty\_type} is \texttt{quadratic}, every cell is built in the form \texttt{exact}; a cell with a linear row always is. --- The quadratic penalty is a quadratic row, and the linear forms exist to give a linear model.
+\end{itemize}
+
+\textbf{Reliability, repair and initial state.}
+\begin{itemize}[leftmargin=1.5em]
+  \item $\tau_{i\ell} > 0$, and finite. --- The threshold is a positive degradation level.
+  \item $\varepsilon_{i\ell} \in (0, 1)$, and $\varepsilon_{i\ell} < 0.5$ at G and W cells. --- A probability lies in $(0,1)$; the squared normal quantile of the Gaussian and Wiener rows is positive only below $0.5$ (Section~\ref{sec:input_reliability}).
+  \item $\rho_{i\ell} \in (0, 1]$. --- A repair removes a positive fraction of the level, at most all of it.
+  \item $0 \le \mu_{0,i\ell} < \tau_{i\ell}$. --- A component at its threshold has failed already.
+  \item $v_0$, \texttt{replacement\_mu}, \texttt{replacement\_v}, \texttt{support\_0}, \texttt{support\_new}, $R_0$ and $R^{\new}$ are $\ge 0$. --- They describe a damage, a variance, a width or a squared width.
+  \item \texttt{tangent\_ref} $\in [0, 1)$ at cells with form \texttt{tangent}, and \texttt{pwl\_points} is an integer $\ge 1$. --- At $\texttt{tangent\_ref} = 1$ the tangent row reduces to $Q \le 0$, and a value outside $[0,1]$ has no tangent point in $[0,\tau]$.
+  \item Starting anchors: $0 \le \texttt{anchor\_mu\_0} \le \mu_0$, $0 \le \texttt{anchor\_v\_0} \le v_0$, $0 \le \texttt{anchor\_R\_0} \le R_0$ and $0 \le \texttt{anchor\_K\_0} \le K_0$, at the cells that read them. --- Damage only grows between interventions, so the level after the last intervention cannot exceed the initial level.
+  \item If \texttt{replacement\_as\_new} is \texttt{true}, then \texttt{replacement\_mu}, \texttt{replacement\_v}, \texttt{support\_new}, \texttt{R\_new} and \texttt{cgf\_new} are $0$ at every cell that reads them. The check does not run when the flag is \texttt{false}. --- The shortcut means a new part, and a non-zero value would be discarded without a message.
+\end{itemize}
+
+\textbf{Natural ranges and replacement states.}
+\begin{itemize}[leftmargin=1.5em]
+  \item Every initial value ($\mu_0$, $v_0$, $R_0$, $K_0$) and every replacement value ($\mu^{\new}$, $v^{\new}$, $R^{\new}$, $K^{\new}$, checked only if \texttt{allow\_replacement} is \texttt{true}) lies in $[0, M_s]$, where $M_s$ is the natural range of its state: $\tau$ for a mean; $V_{\max} = \tau^2/\bigl(\Phi^{-1}(1-\varepsilon)\bigr)^2$ for the variance at G and W cells; $\varepsilon\tau^2/(1-\varepsilon)$ for the variance at Ca cells; $\tau(\tau - 2c)/(2\kappa)$ at Be cells, with $c = \kappa b/3$ and $\kappa = \ln(1/\varepsilon)$; $2\tau^2/\kappa$ for $R$ at Ho cells; $s\tau - \kappa$ for $K$ at Ch cells (Sections~\ref{sec:dyn_gaussian} to~\ref{sec:dyn_rainflow}). A starting anchor lies between $0$ and the initial value of its state, so it lies in the range as well. --- The big-M rows take the natural range as their constant, so a value outside it violates a row at once.
+  \item If \texttt{allow\_replacement} is \texttt{true}, the replacement state of every cell satisfies the reliability row of the cell, with $(\mu^{\new}, v^{\new}, R^{\new}, K^{\new})$ in place of the tracked states (Sections~\ref{sec:dyn_gaussian} to~\ref{sec:dyn_rainflow}). --- The row holds on the day of a replacement; otherwise a replacement is never feasible.
+\end{itemize}
+
+\textbf{Increments.}
+\begin{itemize}[leftmargin=1.5em]
+  \item $0 \le \mu^{\inc}_{i\ell jk} < \tau_{i\ell}$ for every mission $j$ and every day $k \in \{1,\ldots,T\}$. --- A mission with mean $\tau$ or more fails the component in one day; the mean $0$ is allowed, so that a mission that does not wear a component can be written as $0$.
+  \item Where $\mu^{\inc}_{i\ell jk} = 0$, the values $v^{\inc}_{i\ell jk}$, $b^{\inc}_{i\ell jk}$ and $K^{\inc}_{i\ell jk}$ are $0$. --- A non-negative increment with mean $0$ is $0$ almost surely, so it has no variance, no range and a zero cumulant generating function.
+  \item The values $v^{\inc}_{i\ell jk}$, $b^{\inc}_{i\ell jk}$ and $K^{\inc}_{i\ell jk}$ are $\ge 0$. A transitory profile has its operating profile. --- A variance and a width are not negative, and the lookup~\eqref{eq:c_phase} needs the operating entries after the transitory phase.
+\end{itemize}
+
+\textbf{Gaussian cells.}
+\begin{itemize}[leftmargin=1.5em]
+  \item $\mu_0 \ge 3\sqrt{v_0}$ and $\mu^{\inc}_{i\ell jk} \ge 3\sqrt{v^{\inc}_{i\ell jk}}$ for every mission $j$ and day $k$. --- A Gaussian increment is then negative with probability at most about $0.13\,\%$, so the damage stays non-negative in practice.
+\end{itemize}
+
+\textbf{Inverse Gaussian cells.}
+\begin{itemize}[leftmargin=1.5em]
+  \item $\eta_{i\ell} > 0$. --- The dispersion of the inverse Gaussian law must be positive.
+\end{itemize}
+
+\textbf{Wiener cells.}
+\begin{itemize}[leftmargin=1.5em]
+  \item $\sigma_{i\ell} > 0$ and $v_{0,i\ell} \ge 0$. --- The diffusion constant is positive; a known initial damage has variance $0$ and is a valid input.
+\end{itemize}
+
+\textbf{Gamma cells.}
+\begin{itemize}[leftmargin=1.5em]
+  \item Every entry of \texttt{gamma\_beta} and of \texttt{gamma\_beta\_trans} is finite and $> 0$. --- The rate of a Gamma law is positive, and the smallest rate sets the cap (Section~\ref{sec:dyn_gamma}).
+  \item \texttt{gamma\_beta\_0} and \texttt{gamma\_beta\_new}, where they are given, are finite and $> 0$. --- A rate is positive; an omitted rate means a known damage, which has no Gamma law and no rate.
+\end{itemize}
+
+\textbf{Cells with a variance cap.}
+\begin{itemize}[leftmargin=1.5em]
+  \item If \texttt{v\_max\_user} is given at a G, W or RF (Ca, Be) cell, then $V^{\mathrm{user}}_{\max,i\ell} > 0$ and $V^{\mathrm{user}}_{\max,i\ell} \ge v_{0,i\ell}$. --- A cap below the initial variance makes the problem infeasible.
+\end{itemize}
+
+\textbf{Rainflow cells.}
+\begin{itemize}[leftmargin=1.5em]
+  \item Bernstein: $v^{\inc}_{i\ell jk} \le (b^{\inc}_{i\ell jk})^2/4$ for every mission $j$ and day $k$, $v_{0} \le (b^{0})^2/4$ and $v^{\new} \le (b^{\new})^2/4$. --- Popoviciu's inequality (below): a law on a range of width $w$ has variance at most $w^2/4$, so a larger variance contradicts the width.
+  \item Bernstein: $\tau_{i\ell} > 2\kappa\, b_{i\ell}/3$, with $\kappa = \ln(1/\varepsilon_{i\ell})$ and $b_{i\ell}$ the support constant of Section~\ref{sec:dyn_rainflow}. --- Otherwise the certificate admits no positive variance: it is infeasible at zero damage, and at equality only $\mu = v = 0$ survives, so that the big-M rows break.
+  \item Bernstein with the form \texttt{tangent}: $\texttt{tangent\_ref}\cdot\tau_{i\ell} < \tau_{i\ell} - c_{i\ell}$, with $c_{i\ell} = \kappa\, b_{i\ell}/3$. --- Otherwise no point with $v \ge 0$ satisfies the tangent row, so the row is empty (Section~\ref{sec:dyn_rainflow}).
+  \item Chernoff: \texttt{s\_chernoff} is given and $s_{i\ell} > \ln(1/\varepsilon_{i\ell})/\tau_{i\ell}$. --- The quantity $K$ is not negative, so the row $K - s\tau \le \ln\varepsilon$ needs $s\tau \ge \ln(1/\varepsilon)$; with a smaller $s$ every schedule is infeasible, and at equality only a component without damage is feasible.
+  \item Chernoff: $K^{\inc}_{i\ell jk} \ge s_{i\ell}\,\mu^{\inc}_{i\ell jk}$ for every mission $j$ and day $k$, $K_{0} \ge s\,\mu_{0}$ and $K^{\new} \ge s\,\mu^{\new}$. --- Jensen's inequality: the cumulant generating function of a random variable at $s > 0$ is at least $s$ times its mean.
+\end{itemize}
+
+\textbf{Run options.}
+\begin{itemize}[leftmargin=1.5em]
+  \item \texttt{objective\_mode} is \texttt{total}, \texttt{operating\_average} or \texttt{evaluation\_total}. In the last mode, \texttt{evaluation\_horizon} is an integer $E > H_1$. --- The projected cost needs at least one operating day beyond the transitory phase.
+  \item \texttt{mip\_gap} $\ge 0$; \texttt{time\_limit}, \texttt{progress\_interval\_seconds} and \texttt{relaxation\_time\_limit} are $> 0$; \texttt{gurobi\_params} is a mapping; \texttt{fast}, \texttt{relaxation\_warm\_start}, \texttt{allow\_replacement} and \texttt{replacement\_as\_new} are flags. --- A value outside its range must raise an error and must not be changed silently.
+\end{itemize}
+
+\emph{Remark (Popoviciu's inequality).}
+Let $X$ take values in an interval of width $w$, with midpoint $c$.
+Then $\operatorname{Var} X \le \mathbb{E}\,(X - c)^2 \le (w/2)^2$.
+The width is the only information on the range, and the range may start at any point $a \ge 0$.
+The inequality $\operatorname{Var} X \le w^2/4$ holds for every such position, so it is a necessary condition for the pair (variance, width).
+For example, increments in an interval of width $0.2$ have variance at most $0.01$; a two-point law on $\{0, 0.2\}$ with probability $1/2$ each has mean $0.1$ and reaches $0.01$.
+A condition of the form $v \le \mu\,(b - \mu)$ assumes that the range starts at $0$, so it is not necessary for a width.
+
+% ==== BLOCK 2 ====
+
+\section{Output Specification}\label{sec:output}
+
+The function \texttt{solve()} returns one result dictionary.
+If its argument \texttt{results\_path} is not \texttt{None}, the function also writes the same content to a file.
+Every call solves one problem, with the horizon $H$ of the input; a solve for several horizons calls \texttt{solve()} once per horizon (Section~\ref{sec:sweeps}).
+
+\subsection{Result Dictionary}
+
+The array values are \texttt{numpy.ndarray} objects.
+The result holds no Gurobi object.
+In the column \emph{Shape}, a dash marks a scalar or a string.
+
+\begingroup\small
+\begin{longtable}{@{}p{3.3cm}p{2.9cm}p{8.0cm}@{}}
+\toprule
+Key & Shape & Description \\
+\midrule
+\endhead
+\multicolumn{3}{@{}l}{\emph{Status and quality}} \\
+\typerow{\texttt{status}}{---}{Status of the solve: \texttt{optimal}, \texttt{time\_limit}, \texttt{suboptimal}, \texttt{interrupted}, \texttt{solution\_limit}, \texttt{node\_limit}, \texttt{iteration\_limit}, \texttt{infeasible}, \texttt{inf\_or\_unbounded}, \texttt{unbounded}, or \texttt{gurobi\_status\_}$n$ for any other Gurobi status code $n$}
+\typerow{\texttt{objective}}{--- or \texttt{null}}{Objective value of the best solution found; \texttt{null} if there is none}
+\typerow{\texttt{mip\_gap}}{--- or \texttt{null}}{Relative MIP gap of the best solution at the end of the solve; \texttt{null} if there is no solution. The input key \texttt{mip\_gap} is the gap that was requested}
+\typerow{\texttt{bound}}{--- or \texttt{null}}{Best bound of Gurobi, if it is available}
+\midrule
+\multicolumn{3}{@{}l}{\emph{Problem}} \\
+\typerow{\texttt{F}, \texttt{M}, \texttt{L}}{---}{Numbers of trains, missions and components}
+\typerow{\texttt{H}}{integer or $[H_1, H_2]$}{Horizon as written in the input}
+\typerow{\texttt{H1}, \texttt{H2}, \texttt{T}}{---}{Lengths $H_1$ and $H_2$ of the two phases, and $T = H_1 + H_2$}
+\typerow{\texttt{model}}{$F \times L$ list of strings}{Degradation model of each cell, as in the input}
+\typerow{\texttt{component\_names}}{list of $L$ strings}{Names of the components}
+\typerow{\texttt{tau}, \texttt{mu\_0}, \texttt{v\_0}}{$F \times L$}{Threshold, initial mean and initial variance of each cell, after broadcasting}
+\typerow{\texttt{bound\_method}, \texttt{repair\_model}, \texttt{reliability\_impl}, \texttt{encoding}}{string, or $F \times L$ list of strings}{The selector of each cell after broadcasting: one string if all cells agree, else a list. \texttt{bound\_method} is \texttt{null} at a cell that is not rainflow}
+\typerow{\texttt{objective\_mode}, \texttt{evaluation\_horizon}}{---}{The objective mode, and $E$ if it was given}
+\midrule
+\multicolumn{3}{@{}l}{\emph{Solution (\texttt{null} if no solution was found)}} \\
+\typerow{\texttt{x}}{$F \times (M{+}1) \times T$}{Assignment: $x_{ijk} = 1$ if train $i$ flies mission $j \ge 1$ on day $k$, and $x_{i0k} = 1$ if it is in the depot. A train with $x_{ijk} = 0$ for every $j \in \{0,\ldots,M\}$ is idle}
+\typerow{\texttt{m}}{$F \times L \times T$}{Repair: $x^m_{i\ell k}$}
+\typerow{\texttt{r}}{$F \times L \times T$}{Replacement: $x^r_{i\ell k}$; zero if \texttt{allow\_replacement} is \texttt{false}}
+\typerow{\texttt{idle}}{$F \times L \times T$}{$\text{idle}_{i\ell k} = x_{i0k} - x^m_{i\ell k} - x^r_{i\ell k}$: component $\ell$ is in the depot without an intervention}
+\typerow{\texttt{mu}}{$F \times L \times T$}{Tracked mean degradation}
+\typerow{\texttt{v}}{$F \times L \times T$}{Tracked variance. \texttt{NaN} in memory and \texttt{null} in a file at cells that track no variance (IG, Ga, RF with Mk, Ho or Ch)}
+\typerow{\texttt{z}}{$F \times L \times T$}{Repair-cost variable. \texttt{NaN} in memory and \texttt{null} in a file at cells with $C_{R,i\ell} = 0$, where the variable is not built. On the transitory days of the mode \texttt{operating\_average} the value is computed after the solve (below)}
+\typerow{\texttt{R}, \texttt{K}}{$F \times L \times T$}{Tracked Hoeffding budget $R$ and Chernoff quantity $K$. \texttt{NaN} in memory and \texttt{null} in a file at the cells that do not track the quantity: $R$ is tracked at RF (Ho) cells, $K$ at RF (Ch) cells}
+\typerow{\texttt{g\_mu}, \texttt{g\_v}, \texttt{g\_R}, \texttt{g\_K}}{$F \times L \times T$}{Tracked anchors $g^{\mu}_{i\ell k}$, $g^{v}_{i\ell k}$, $g^{R}_{i\ell k}$ and $g^{K}_{i\ell k}$: the value of the state after the last intervention up to day $k$. \texttt{NaN} in memory and \texttt{null} in a file at the cells that do not track the anchor: only cells with \texttt{repair\_model} \texttt{ard1} track one, \texttt{g\_mu} for every model, \texttt{g\_v} at G and RF (Ca, Be) cells, \texttt{g\_R} at RF (Ho) cells, \texttt{g\_K} at RF (Ch) cells}
+\typerow{\texttt{u}}{---}{Damage regularisation value (below)}
+\midrule
+\multicolumn{3}{@{}l}{\emph{Cost report (\texttt{null} if no solution was found)}} \\
+\typerow{\texttt{step\_costs}}{$T$}{Cost $c_k$ of each day, Equation~\eqref{eq:c_step}}
+\typerow{\texttt{J\_initialization}, \texttt{J\_op}, \texttt{J\_op\_average}}{---}{$J_{\mathrm{init}}$, $J_{\mathrm{op}}$ and $J_{\mathrm{op}}/H_2$, Equation~\eqref{eq:c_phases}}
+\typerow{\texttt{peak\_damage}, \texttt{damage\_penalty}}{---}{$u$ and $C_D\,u$}
+\typerow{\texttt{operating\_objective}, \texttt{J\_total}}{---}{$J_{\mathrm{op}}/H_2 + C_D\,u$ and $J_{\mathrm{init}} + J_{\mathrm{op}} + C_D\,u$}
+\typerow{\texttt{projected\_evaluation\_cost}, \texttt{evaluation\_objective}}{--- or \texttt{null}}{$J_{\mathrm{init}} + (E - H_1)\,J_{\mathrm{op}}/H_2$ and the same plus $C_D\,u$; \texttt{null} if \texttt{evaluation\_horizon} is not given}
+\typerow{\texttt{component\_costs}}{mapping}{Cost coefficients used: \texttt{C\_M} and \texttt{C\_D} (scalars), \texttt{C\_R} and \texttt{C\_rep} ($F \times L$)}
+\midrule
+\multicolumn{3}{@{}l}{\emph{Reports}} \\
+\typerow{\texttt{performance}}{mapping}{Sizes and times of the solve (Section~\ref{sec:output_reports})}
+\typerow{\texttt{optimization\_progress}}{list of mappings}{Progress of the incumbent and the bound (Section~\ref{sec:output_reports})}
+\typerow{\texttt{warm\_start}, \texttt{relaxation\_warm\_start}}{mappings}{What each warm start did (Section~\ref{sec:output_reports})}
+\bottomrule
+\end{longtable}
+\endgroup
+
+\subsection{Rules for the Values}
+
+\textbf{Solutions and status.}
+The solution arrays are present whenever Gurobi has found at least one solution, and then \texttt{status} tells how the solve ended.
+For example, a solution found before the time limit is reported with the status \texttt{time\_limit}.
+If no solution was found, the solution arrays and the cost report are \texttt{null}, and \texttt{objective} and \texttt{mip\_gap} are \texttt{null}.
+The four reports of the last block of the table are present in both cases.
+
+\textbf{Tracked values.}
+The arrays \texttt{mu}, \texttt{v}, \texttt{R}, \texttt{K}, \texttt{g\_mu}, \texttt{g\_v}, \texttt{g\_R} and \texttt{g\_K} hold the values of the tracked variables of the model, and \texttt{z} holds the repair-cost variable.
+The result carries every tracked state and anchor, so that a validator can check every loop row of Section~\ref{sec:loop}.
+The dynamics rows are one-sided (Section~\ref{sec:encoding}), so these values, and the costs computed from them, are upper bounds, not exact values.
+
+\textbf{Repair cost on transitory days.}
+In the mode \texttt{operating\_average}, the variable $z$ is not built on the days of the transitory phase, because their cost does not enter the objective (Section~\ref{sec:repair_cost}).
+For these days, at a cell with $C_{R,i\ell} > 0$, the result holds the value computed after the solve from the arrays \texttt{mu} and \texttt{g\_mu}:
+\begin{equation}\label{eq:c_zpost}
+  z_{i\ell k} = \begin{cases}
+    \rho_{i\ell}\,\bigl(\mu_{i\ell,k-1} - g^{\mu}_{i\ell,k-1}\bigr) & \text{if } x^m_{i\ell k} = 1,\\
+    0 & \text{otherwise,}
+  \end{cases}
+  \qquad k = 1, \ldots, H_1,
+\end{equation}
+with $\mu_{i\ell 0} = \mu_{0,i\ell}$, $g^{\mu}_{i\ell 0}$ the starting anchor, and $g^{\mu} \equiv 0$ under \texttt{ardinf}.
+It is the amount that the repair removes, in mean units, computed on the tracked values.
+The cost report uses these values.
+
+\textbf{Damage regularisation.}
+The value $u$ is recomputed from the arrays \texttt{mu},
+\begin{equation}\label{eq:c_u}
+  u = \max_{i,k} \sum_{\ell=1}^{L} \mu_{i\ell k} \quad (\texttt{inf\_norm}),
+  \qquad
+  u = \max_{i,k} \sum_{\ell=1}^{L} \mu_{i\ell k}^2 \quad (\texttt{quadratic}).
+\end{equation}
+It is reported also when $C_D = 0$, where the variable $u$ is not built.
+
+\textbf{Depot, idle and intervention.}
+A row of zeros $x_{i1k} = \cdots = x_{iMk} = x_{i0k} = 0$ is an idle day of train $i$: no mission and no depot.
+On a depot day ($x_{i0k} = 1$) each component is repaired, replaced or in the depot without an intervention; the last case is \texttt{idle}.
+Hence $x^m_{i\ell k} + x^r_{i\ell k} + \text{idle}_{i\ell k} = x_{i0k}$.
+
+\textbf{Cost report.}
+The cost of day $k$ and the phase costs are
+\begin{align}
+  c_k &= C_M \sum_{i=1}^{F} x_{i0k}
+       + \sum_{i=1}^{F}\sum_{\ell=1}^{L} C_{R,i\ell}\, z_{i\ell k}
+       + \sum_{i=1}^{F}\sum_{\ell=1}^{L} C_{\mathrm{rep},i\ell}\, x^r_{i\ell k}, \label{eq:c_step}\\
+  J_{\mathrm{init}} &= \sum_{k=1}^{H_1} c_k, \qquad
+  J_{\mathrm{op}} = \sum_{k=H_1+1}^{T} c_k. \label{eq:c_phases}
+\end{align}
+The value \texttt{objective} is the value of the model objective.
+Up to the tolerance of the solver, it equals \texttt{J\_total} if \texttt{objective\_mode} is \texttt{total}, \texttt{operating\_objective} if it is \texttt{operating\_average}, and \texttt{evaluation\_objective} if it is \texttt{evaluation\_total}.
+
+\subsection{Reports}\label{sec:output_reports}
+
+\textbf{\texttt{performance}.}
+The mapping has these entries; an entry that Gurobi does not give is \texttt{null}.
+
+\begingroup\small
+\begin{longtable}{@{}p{3.4cm}p{10.7cm}@{}}
+\toprule
+Group & Entries \\
+\midrule
+\endhead
+\rejrow{Size of the model}{\texttt{gurobi\_version}, \texttt{variables}, \texttt{continuous\_variables}, \texttt{integer\_variables}, \texttt{binary\_variables}, \texttt{linear\_constraints}, \texttt{general\_constraints}, \texttt{indicator\_constraints}, \texttt{quadratic\_constraints}, \texttt{nonzeros}}
+\rejrow{Work of Gurobi}{\texttt{solutions\_found}, \texttt{gurobi\_runtime\_seconds}, \texttt{branch\_and\_bound\_nodes}, \texttt{simplex\_iterations}, \texttt{barrier\_iterations}, \texttt{work\_units}}
+\rejrow{Wall-clock times, in seconds}{\texttt{model\_construction\_seconds}, \texttt{optimizer\_call\_seconds}, \texttt{solution\_extraction\_seconds}, \texttt{backend\_wall\_seconds}}
+\rejrow{Settings}{\texttt{requested\_time\_limit\_seconds}, \texttt{requested\_mip\_gap}, \texttt{threads}, \texttt{seed}}
+\bottomrule
+\end{longtable}
+\endgroup
+
+\textbf{\texttt{optimization\_progress}.}
+A list of records with the entries \texttt{runtime\_seconds}, \texttt{incumbent}, \texttt{best\_bound}, \texttt{relative\_gap}, \texttt{nodes} and \texttt{solutions}.
+The incumbent, the bound and the gap are \texttt{null} while Gurobi has none.
+A record is made at the first progress report of Gurobi, then at least \texttt{progress\_interval\_seconds} after the previous record, and whenever the number of solutions changes; the last record is the final state of the solve.
+
+\textbf{\texttt{warm\_start}.}
+A mapping with the entries \texttt{applied} (\texttt{true} when at least one value was set), \texttt{values} (the number of values set), \texttt{mode} (\texttt{"start"}, \texttt{"hint"} or \texttt{"both"}, and \texttt{null} without a source), \texttt{source\_horizon} (the pair $H_1$, $H_2$ of the source, or \texttt{null}) and \texttt{completion}.
+The entry \texttt{completion} is a mapping with \texttt{requested}, \texttt{status}, \texttt{fixed\_integer\_variables}, \texttt{values\_copied}, \texttt{runtime\_seconds} and \texttt{iis\_constraints}.
+The value of \texttt{status} is \texttt{"not\_requested"}, \texttt{"completed"}, \texttt{"infeasible"}, \texttt{"infeasible\_or\_unbounded"}, \texttt{"time\_limit"}, or \texttt{"status\_}$q$\texttt{"} with the Gurobi status code $q$.
+The entry \texttt{iis\_constraints} is a list of at most $50$ names of rows of an irreducible infeasible subset; it is empty unless the status is \texttt{"infeasible"}.
+Section~\ref{sec:warm_starts} defines the mechanisms.
+
+\textbf{\texttt{relaxation\_warm\_start}.}
+A mapping with the entries \texttt{enabled}; \texttt{status} (\texttt{"disabled"} when the option is false, \texttt{"skipped"} when it is true and a start or a hint was applied, otherwise the Gurobi status of the relaxed copy as a string); \texttt{relaxation\_objective}; \texttt{values\_copied}; and \texttt{runtime\_seconds}.
+
+\subsection{Result Files}
+
+The function \texttt{solve} writes the result to the file \texttt{results\_path}.
+\begin{itemize}[leftmargin=1.5em]
+  \item The default value of \texttt{results\_path} is \texttt{"output.yaml"}. The value \texttt{None} writes no file and only returns the dictionary.
+  \item A path without extension gets the extension \texttt{.yaml}. The extensions \texttt{.yaml} and \texttt{.yml} give YAML, \texttt{.json} gives JSON, and \texttt{.h5} and \texttt{.hdf5} give HDF5. A path with any other extension raises a \texttt{ValueError}.
+  \item The extension, and the directory of the path, are checked before the model is solved, so that a long solve is not lost. The directory must exist and be writable.
+  \item YAML and JSON files hold plain data: lists, numbers, strings and \texttt{null}. \texttt{NaN} is written as \texttt{null}. The files load with \texttt{yaml.safe\_load} and \texttt{json.load}.
+  \item A key whose value is \texttt{None} is not written, except \texttt{objective}, which is written as \texttt{null}.
+  \item The layout of an HDF5 file is that of Section~\ref{sec:schema_hdf5}.
+\end{itemize}
+
+% ==== BLOCK 3 ====
+
+\section{Input File Schema}\label{sec:schema}
+
+\subsection{Format Rules}
+
+The supported formats are \textbf{YAML} (\texttt{.yaml}, \texttt{.yml}), \textbf{JSON} (\texttt{.json}) and \textbf{HDF5} (\texttt{.h5}, \texttt{.hdf5}).
+The format follows the extension of the path, in lower case.
+Any other extension raises an error.
+One reader serves every function that takes an input path.
+
+\begin{itemize}[leftmargin=1.5em]
+  \item A file holds one mapping from the keys of Section~\ref{sec:inputs} to values. The three formats hold the same keys with the same meaning.
+  \item An array is a nested list in YAML and JSON. The outermost list runs over the first axis of the shape, in the order of Section~\ref{sec:inputs}: train, component, mission, day.
+  \item A key that some cell reads is required if it has no default. A key that no cell reads may be omitted. For a key that only some cells read, the entries of the other cells are \texttt{null}.
+  \item YAML is read in the safe mode: a file cannot create program objects.
+\end{itemize}
+
+\subsection{HDF5 Layout}\label{sec:schema_hdf5}
+
+An HDF5 file has a flat layout: every key is stored at the root of the file, as an attribute or as a dataset.
+The reader makes one entry of every root attribute and of every root dataset, so every key of Section~\ref{sec:inputs} can be read from HDF5.
+A byte string is decoded as UTF-8.
+A text attribute that begins with \texttt{\symbol{123}} or \texttt{[} is parsed as JSON.
+
+\textbf{Input file.}
+\begin{itemize}[leftmargin=1.5em]
+  \item A scalar number, a flag or a single string is an attribute, or a dataset of shape~$()$.
+  \item \texttt{H} is an integer, or two integers, as an attribute or as a dataset.
+  \item An array of numbers is a dataset of type \texttt{float64} with the shape of the key. A \texttt{null} entry is \texttt{NaN}.
+  \item A selector array and \texttt{component\_names} are datasets of strings, or JSON text. A \texttt{null} entry of a selector is the empty string.
+  \item \texttt{gurobi\_params} is JSON text.
+\end{itemize}
+
+\textbf{Output file.}
+The result keys of Section~\ref{sec:output} are stored by this rule: a number or a string is an attribute; an array of numbers is a dataset of type \texttt{float64}; a list of strings, a mapping or a list of records is JSON text in an attribute.
+A key whose value is absent is not stored.
+The table below lists the placement of every key.
+The arrays \texttt{v}, \texttt{R}, \texttt{K}, \texttt{g\_mu}, \texttt{g\_v}, \texttt{g\_R}, \texttt{g\_K} and \texttt{z} hold \texttt{NaN} where the quantity is not tracked, because a \texttt{float64} dataset has no \texttt{null}.
+
+\begingroup\small
+\begin{longtable}{@{}p{4.2cm}p{10.0cm}@{}}
+\toprule
+Placement & Keys \\
+\midrule
+\endhead
+\rejrow{Attribute: number or string}{\texttt{status}, \texttt{objective}, \texttt{mip\_gap}, \texttt{bound}, \texttt{F}, \texttt{M}, \texttt{L}, \texttt{H} (one or two integers), \texttt{H1}, \texttt{H2}, \texttt{T}, \texttt{objective\_mode}, \texttt{evaluation\_horizon}, \texttt{u}, \texttt{J\_initialization}, \texttt{J\_op}, \texttt{J\_op\_average}, \texttt{peak\_damage}, \texttt{damage\_penalty}, \texttt{operating\_objective}, \texttt{J\_total}, \texttt{projected\_evaluation\_cost}, \texttt{evaluation\_objective}; the selectors \texttt{bound\_method}, \texttt{repair\_model}, \texttt{reliability\_impl} and \texttt{encoding} when they are one string}
+\rejrow{Dataset (\texttt{float64})}{\texttt{x}, \texttt{mu}, \texttt{v}, \texttt{R}, \texttt{K}, \texttt{g\_mu}, \texttt{g\_v}, \texttt{g\_R}, \texttt{g\_K}, \texttt{z}, \texttt{m}, \texttt{r}, \texttt{idle}, \texttt{step\_costs}, \texttt{tau}, \texttt{mu\_0}, \texttt{v\_0}}
+\rejrow{JSON text in an attribute}{\texttt{model}, \texttt{component\_names}, \texttt{component\_costs}, \texttt{performance}, \texttt{optimization\_progress}, \texttt{warm\_start}, \texttt{relaxation\_warm\_start}; the selectors \texttt{bound\_method}, \texttt{repair\_model}, \texttt{reliability\_impl} and \texttt{encoding} when they differ between cells}
+\bottomrule
+\end{longtable}
+\endgroup
+
+\subsection{Keys by Cell Type}\label{sec:schema_fields}
+
+The table below lists, for each cell type, the keys that the cell requires and the optional keys that it reads in addition to those of the first row.
+A transitory profile (\texttt{*\_trans}) is optional for every profile key.
+The optional keys of the first row are read at every cell; the others only at cells of the type.
+
+\begingroup\small
+\begin{longtable}{@{}p{2.6cm}p{4.7cm}p{6.9cm}@{}}
+\toprule
+Cell type & Required & Optional (default in Section~\ref{sec:inputs}) \\
+\midrule
+\endhead
+\typerow{Every cell}{\texttt{F}, \texttt{M}, \texttt{H}, \texttt{model}, \texttt{tau}, \texttt{epsilon}, \texttt{rho}, \texttt{mu\_0}, \texttt{mu}, \texttt{C\_M}, \texttt{C\_R}, \texttt{C\_rep}, \texttt{C\_D}}{\texttt{L}, \texttt{repair\_model}, \texttt{reliability\_impl}, \texttt{encoding}, \texttt{tangent\_ref}, \texttt{pwl\_points}, \texttt{anchor\_mu\_0}, \texttt{replacement\_mu}, \texttt{replacement\_as\_new}, \texttt{allow\_replacement}, \texttt{penalty\_type}, \texttt{component\_names}, \texttt{mu\_trans}, the run options}
+\typerow{G}{\texttt{v}}{\texttt{v\_0}, \texttt{replacement\_v}, \texttt{anchor\_v\_0}, \texttt{v\_max\_user}, \texttt{v\_trans}}
+\typerow{IG}{\texttt{eta}}{none}
+\typerow{W}{\texttt{sigma}}{\texttt{v\_0}, \texttt{replacement\_v}, \texttt{v\_max\_user}}
+\typerow{Ga}{\texttt{gamma\_beta}}{\texttt{gamma\_beta\_0}, \texttt{gamma\_beta\_new}, \texttt{gamma\_beta\_trans}}
+\typerow{RF, Mk}{\texttt{bound\_method} with the value \texttt{markov}}{none}
+\typerow{RF, Ca}{\texttt{v}}{\texttt{v\_0}, \texttt{replacement\_v}, \texttt{anchor\_v\_0}, \texttt{v\_max\_user}, \texttt{v\_trans}}
+\typerow{RF, Ho}{\texttt{support}}{\texttt{R\_0}, \texttt{R\_new}, \texttt{anchor\_R\_0}, \texttt{support\_trans}}
+\typerow{RF, Be}{\texttt{v}, \texttt{support}}{\texttt{v\_0}, \texttt{support\_0}, \texttt{replacement\_v}, \texttt{support\_new}, \texttt{anchor\_v\_0}, \texttt{v\_max\_user}, \texttt{v\_trans}, \texttt{support\_trans}}
+\typerow{RF, Ch}{\texttt{cgf}, \texttt{s\_chernoff}}{\texttt{cgf\_0}, \texttt{cgf\_new}, \texttt{anchor\_K\_0}, \texttt{cgf\_trans}}
+\bottomrule
+\end{longtable}
+\endgroup
+
+Every rainflow cell also needs the key \texttt{bound\_method} when its bound is not Cantelli.
+\texttt{anchor\_mu\_0} and the other starting anchors are read only at cells with \texttt{repair\_model} equal to \texttt{ard1}.
+
+\subsection{YAML Example (Mixed Models)}\label{sec:schema_example}
+
+The example has $F = 3$ trains, $M = 2$ missions and $L = 2$ components.
+The six cells use Gaussian, inverse Gaussian, Wiener, Gamma, rainflow with Bernstein, and rainflow with Chernoff.
+It uses an array, a list and a scalar for cell values, a profile of shape $(L, M)$ and a transitory profile of shape $(L, M, H_1)$.
+It passes every check of Section~\ref{sec:consistency_checks}.
+
+\begin{lstlisting}
+F: 3
+M: 2
+L: 2
+H: [2, 3]               # H1 = 2, H2 = 3, so T = 5
+component_names: [Wheelset, Brake pad]
+
+model:
+  - [gaussian, inverse_gaussian]
+  - [wiener,   gamma]
+  - [rainflow, rainflow]
+repair_model:
+  - [ard1,   ard1]
+  - [ardinf, ard1]      # the default is ardinf
+  - [ard1,   ard1]
+bound_method:           # read at rainflow cells only
+  - [null,      null]
+  - [null,      null]
+  - [bernstein, chernoff]
+reliability_impl:       # linear-row cells (IG, Gamma, Chernoff): null
+  - [tangent, null]
+  - [pwl,     null]
+  - [exact,   null]
+encoding:
+  - [bigm, bigm]
+  - [bigm, bigm]
+  - [bigm, indicator]
+
+tau: 1.0
+epsilon:
+  - [0.05, 0.05]
+  - [0.05, 0.05]
+  - [0.10, 0.10]
+tangent_ref: 0.4        # read at the tangent cell only
+pwl_points: 6           # read at the pwl cell only
+rho: [0.8, 0.7]         # per component, the same for every train
+
+mu_0:
+  - [0.12, 0.10]
+  - [0.15, 0.08]
+  - [0.09, 0.14]
+v_0:
+  - [0.0004, null]
+  - [0.0005, null]
+  - [0.0004, null]
+support_0:              # Bernstein: width of the initial range
+  - [null, null]
+  - [null, null]
+  - [0.05, null]
+anchor_mu_0:            # ard1 cells only; at most mu_0
+  - [0.10, 0.06]
+  - [null, 0.05]
+  - [0.00, 0.10]
+anchor_v_0:             # ard1 cells with a variance state
+  - [0.0002, null]
+  - [null,   null]
+  - [0.0002, null]
+anchor_K_0:             # ard1 cell with Chernoff; K_0 = s * mu_0 = 0.70
+  - [null, null]
+  - [null, null]
+  - [null, 0.50]
+
+replacement_mu: 0.02
+replacement_v:
+  - [0.00004, null]
+  - [0.00004, null]
+  - [0.00004, null]
+support_new:
+  - [null, null]
+  - [null, null]
+  - [0.03, null]
+replacement_as_new: false
+allow_replacement: true
+
+# profiles, axes (L, M): one row per component, one column per mission
+mu:
+  - [0.06, 0.05]
+  - [0.04, 0.07]
+mu_trans:               # axes (L, M, H1): days 1 and 2
+  - [[0.07, 0.06], [0.06, 0.05]]
+  - [[0.04, 0.04], [0.07, 0.07]]
+v:
+  - [0.0001, 0.0001]
+  - [null,   null]
+support:
+  - [0.05, 0.04]
+  - [null, null]
+cgf:                    # at s_chernoff = 5; at least s * mu
+  - [null, null]
+  - [0.22, 0.38]
+s_chernoff:
+  - [null, null]
+  - [null, null]
+  - [null, 5.0]
+
+sigma:
+  - [null, null]
+  - [0.03, null]
+  - [null, null]
+eta:
+  - [null, 0.15]
+  - [null, null]
+  - [null, null]
+v_max_user:
+  - [null, null]
+  - [0.05, null]
+  - [null, null]
+gamma_beta:
+  - [null, null]
+  - [null, 20.0]
+  - [null, null]
+gamma_beta_new:         # gamma_beta_0 is omitted: the initial damage is known
+  - [null, null]
+  - [null, 20.0]
+  - [null, null]
+
+C_M: 1.0
+C_R: [2.0, 1.5]
+C_rep: [10.0, 8.0]
+C_D: 1.5
+penalty_type: inf_norm
+objective_mode: evaluation_total
+evaluation_horizon: 30
+
+verbose: 0
+mip_gap: 0.05
+time_limit: 600
+fast: false
+gurobi_params: {Threads: 4}
+progress_interval_seconds: 10
+relaxation_warm_start: false
+\end{lstlisting}
+
+In the example, the inverse Gaussian cell uses the law \texttt{ard1} with the starting anchor $0.06 \le \mu_0 = 0.10$. The Gamma cell has the starting anchor $0.05 \le \mu_0 = 0.08$ and no \texttt{gamma\_beta\_0}, so that its initial damage is known. The Chernoff cell has $K_0 = 5 \cdot 0.14 = 0.70$ by default, so that its starting anchor $0.50$ is allowed.
+The Bernstein cell has the support constant $b = \max(0.05, 0.03, 0.05) = 0.05$, so that $2\kappa b/3 = 0.077 < \tau = 1$ with $\kappa = \ln 10$.

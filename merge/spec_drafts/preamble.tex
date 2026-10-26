@@ -1,0 +1,61 @@
+\documentclass[11pt,a4paper]{article}
+
+% --- Packages ---
+\usepackage[margin=2.5cm]{geometry}
+\setlength{\headheight}{14pt}
+\usepackage{hyperref}
+\usepackage{titlesec}
+\usepackage{enumitem}
+\usepackage{booktabs}
+\usepackage{longtable}
+\usepackage{xcolor}
+\usepackage{fancyhdr}
+\usepackage{tikz}
+\usetikzlibrary{shapes.geometric, arrows.meta, positioning, fit, backgrounds}
+\usepackage{listings}
+\usepackage{parskip}
+\usepackage{microtype}
+\usepackage{amsmath}
+\usepackage{amssymb}
+\usepackage{mathtools}
+\usepackage{amsthm}
+\usepackage{array}
+\newcolumntype{L}[1]{>{\raggedright\arraybackslash}p{#1}}
+
+% --- Style ---
+\hypersetup{colorlinks=true, linkcolor=blue!60!black, urlcolor=blue!60!black, citecolor=blue!60!black}
+\titleformat{\section}{\large\bfseries}{}{0em}{}[\titlerule]
+\titleformat{\subsection}{\normalsize\bfseries}{}{0em}{}
+\titleformat{\subsubsection}{\normalsize\itshape}{}{0em}{}
+\pagestyle{fancy}
+\fancyhf{}
+\rhead{\textit{Fleet Management --- SRS}}
+\lhead{\textit{v1.0 $\cdot$ \today}}
+\cfoot{\thepage}
+
+\definecolor{todo}{RGB}{180,0,0}
+\newcommand{\TODO}[1]{\textcolor{todo}{\textbf{[TO DO: #1]}}}
+
+\lstset{
+  basicstyle=\ttfamily\small,
+  breaklines=true,
+  frame=single,
+  backgroundcolor=\color{gray!8},
+  rulecolor=\color{gray!40}
+}
+
+% --- Statements ---
+\theoremstyle{plain}
+\newtheorem{theorem}{Theorem}[section]
+\newtheorem{proposition}[theorem]{Proposition}
+\newtheorem{lemma}[theorem]{Lemma}
+\newtheorem{corollary}[theorem]{Corollary}
+\theoremstyle{definition}
+\newtheorem{definition}[theorem]{Definition}
+
+% --- Notation shared by every section ---
+\newcommand{\ARDinf}{\mathrm{ARD}_{\infty}}
+\newcommand{\ARDone}{\mathrm{ARD}_{1}}
+\newcommand{\inc}{\mathrm{inc}}
+\newcommand{\new}{\mathrm{new}}
+\newcommand{\tr}{\mathrm{tr}}

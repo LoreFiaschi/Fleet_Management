@@ -1,0 +1,1173 @@
+% ================================================================
+\section{Project Overview \& Goals}
+\label{sec:overview}
+% ================================================================
+
+The Python package \texttt{fleet\_management} schedules a fleet of $F$ trains over a
+horizon of $T$ days. Every day, $M$ missions must be flown. Each train flies at most
+one mission, spends the day in the depot, or stays idle. Each train has $L$
+components, and each component degrades stochastically. On a depot day a component
+may be repaired (imperfect repair) or replaced. The schedule is a mixed-integer
+program solved with Gurobi.
+
+\textbf{Goal.} Minimise the cost of depot days, repairs and replacements, plus a
+penalty on the largest train damage (Section~\ref{sec:objective}), under a
+reliability requirement: for every component and every day,
+$\Pr(D_{i\ell k} > \tau_{i\ell}) \leq \varepsilon_{i\ell}$, with $D_{i\ell k}$ the
+degradation and $\tau_{i\ell}$ the failure threshold. The horizon has two phases. The
+transitory phase ($H_1$ days) starts from the current state of the fleet. The
+operating phase ($H_2$ days) is the schedule to repeat. The requirement holds on every
+day of the horizon and of every later repetition of the operating phase
+(Section~\ref{sec:loop}).
+
+\textbf{Degradation models.} Each cell (component $\ell$ of train $i$) has its own
+model, chosen by the input \texttt{model}:
+\begin{itemize}[nosep,leftmargin=1.5em]
+  \item \textbf{Gaussian}: a Gaussian random walk; tracks the mean and the variance,
+        and a repair reduces both (Section~\ref{sec:dyn_gaussian}).
+  \item \textbf{Inverse Gaussian (IG)}: tracks the mean; reliability by a cap on the
+        mean (Section~\ref{sec:dyn_ig}).
+  \item \textbf{Wiener}: Brownian motion with drift; tracks the mean and the
+        variance. The variance grows by $\sigma^2$ per mission day; a repair acts
+        on the mean only, and only a replacement lowers the variance
+        (Section~\ref{sec:dyn_wiener}).
+  \item \textbf{Gamma}: Gamma increments with mission-dependent rates; tracks the
+        mean; reliability by a cap that is safe for every mix of rates
+        (Section~\ref{sec:dyn_gamma}).
+  \item \textbf{Rainflow}: distribution-free. The increment law is measured by
+        rainflow counting of load histories and enters only through summaries
+        (mean, variance, support width, cumulant generating function). Reliability
+        is certified by one of five tail bounds: Markov, Cantelli, Hoeffding,
+        Bernstein or Chernoff (Section~\ref{sec:dyn_rainflow}).
+\end{itemize}
+Both the Gaussian and the Wiener model use Gaussian increments. The Gaussian model
+tracks a variance that a repair reduces. The Wiener model fits components whose
+uncertainty does not depend on the route and is not reduced by a repair. When in
+doubt, use the Gaussian model. The rainflow model makes no distributional
+assumption: its certificate holds for every increment law with the measured
+summaries, at the price of a looser bound than an exact distribution function.
+
+\textbf{Repair and replacement.} Each cell has a repair law, $\ARDinf$ (the default)
+or $\ARDone$ (Section~\ref{sec:repair_laws}); every model accepts both. Each cell may
+be replaced (Section~\ref{sec:replacement}).
+The loop row forces at least one replacement in the operating phase in two cases.
+This is not an input check; a schedule without the replacement is infeasible.
+\begin{itemize}[nosep,leftmargin=1.5em]
+  \item A Wiener cell whose train flies at least one mission in the operating phase:
+        its variance falls only by replacement.
+  \item An $\ARDone$ cell with $\rho_{i\ell} < 1$ that accumulates mean damage in the
+        operating phase: a repair never removes the share $1 - \rho$ of the damage
+        since the last intervention (Proposition~\ref{prop:a_ard1_replacement}).
+\end{itemize}
+
+\textbf{Problem class.} The problem is a mixed-integer linear program (MILP) when every
+reliability row is linear and the damage penalty is \texttt{inf\_norm}. Otherwise it
+is a mixed-integer quadratically constrained program (MIQCP). It is nonconvex when a
+quadratic reliability row uses the \texttt{exact} form
+(Section~\ref{sec:linear_forms}); it is convex when the only quadratic row is the
+\texttt{quadratic} damage penalty (Section~\ref{sec:damage_reg}).
+
+\textbf{Scope of the package.} The package solves one schedule (\texttt{solve}),
+sweeps the horizon lengths (Section~\ref{sec:sweeps}), starts a solve from a
+previous solution or a heuristic (Section~\ref{sec:warm_starts}), plots a schedule
+(Section~\ref{sec:plotting}), and checks a result against its input
+(Section~\ref{sec:validation}). It reads inputs in YAML, JSON or HDF5
+(Section~\ref{sec:schema}) and writes the outputs of Section~\ref{sec:output}.
+
+\textbf{Authority.} This specification is authoritative for the formulation and for
+the tools. The code follows it: every change is written here first.
+
+\textbf{Non-goals.}
+\begin{itemize}[nosep,leftmargin=1.5em]
+  \item Routing decisions are not optimised: the missions are inputs.
+  \item Continuous-time formulations are out of scope: all dynamics are
+        discrete-time, with a step of one day.
+\end{itemize}
+
+% ================================================================
+\section{Index Sets and Notation}
+\label{sec:notation}
+% ================================================================
+
+\begingroup\small
+\begin{longtable}{@{}p{4.6cm}p{8.2cm}p{2.2cm}@{}}
+\toprule
+Symbol & Meaning & Defined in \\
+\midrule
+\endhead
+\multicolumn{3}{@{}l}{\emph{Indices and horizon}} \\
+$i \in \{1, \ldots, F\}$ & train & \\
+$\ell \in \{1, \ldots, L\}$ & component of a train & \\
+$(i, \ell)$ & a \emph{cell}: component $\ell$ of train $i$ & \\
+$j \in \{0, 1, \ldots, M\}$ & activity: $j = 0$ is a depot day, $j \geq 1$ a mission & \\
+$k \in \{1, \ldots, T\}$ & day; index $k = 0$ holds the initial state & \\
+$H = [H_1, H_2]$, $T = H_1 + H_2$ & horizon input; a scalar $H$ means $H_1 = H_2 = H$ &
+  \ref{sec:input_scalars} \\
+days $1, \ldots, H_1$ & transitory phase & \\
+days $H_1 + 1, \ldots, T$ & operating phase, repeated without end in the endless
+  schedule & \ref{sec:loop} \\
+$p \in \{1, \ldots, P\}$ & segment of the \texttt{pwl} form, $P = \texttt{pwl\_points}$ &
+  \ref{sec:linear_forms} \\
+\midrule
+\multicolumn{3}{@{}l}{\emph{Parameters, increments and states}} \\
+$\tau_{i\ell}$, $\varepsilon_{i\ell}$, $\rho_{i\ell}$ & failure threshold,
+  reliability level, repair efficiency of a cell; a model section may drop the
+  subscript $i\ell$ after saying so & \ref{sec:inputs} \\
+$C_M$; $C_{R,i\ell}$, $C_{\mathrm{rep},i\ell}$; $C_D$ & costs: depot day; repair,
+  replacement; damage penalty & \ref{sec:objective} \\
+$\mu^{\inc}_{i\ell jk}$, $v^{\inc}_{i\ell jk}$, $b^{\inc}_{i\ell jk}$,
+  $K^{\inc}_{i\ell jk}$, $\beta_{i\ell jk}$ & mean, variance, support width and
+  cumulant generating function (CGF) of the increment of cell $(i,\ell)$ when train $i$
+  flies mission $j$ on day $k$, after the phase lookup; Gamma rate &
+  \ref{sec:input_increments} \\
+$\delta\mu_{i\ell k} = \sum_{j=1}^{M} x_{ijk}\, \mu^{\inc}_{i\ell jk}$ & day increment
+  of the mean; $\delta v$, $\delta R$ (from $(b^{\inc})^2$) and $\delta K$ likewise; $0$
+  on depot and idle days & \\
+$\mu_{i\ell k}$, $v_{i\ell k}$, $R_{i\ell k}$, $K_{i\ell k}$ & tracked mean,
+  variance, Hoeffding budget, Chernoff quantity & \ref{sec:variables} \\
+$g^{\mu}_{i\ell k}$, $g^{v}_{i\ell k}$, $g^{R}_{i\ell k}$, $g^{K}_{i\ell k}$ &
+  anchors (law $\ARDone$) & \ref{sec:repair_laws} \\
+$\mu_{0,i\ell}$, $v_{0,i\ell}$, $R_{0,i\ell}$, $K_{0,i\ell}$ & initial values &
+  \ref{sec:inputs} \\
+$\mu^{\new}_{i\ell}$, $v^{\new}_{i\ell}$, $R^{\new}_{i\ell}$, $K^{\new}_{i\ell}$ &
+  replacement values & \ref{sec:replacement} \\
+$b^{0}_{i\ell}$, $b^{\new}_{i\ell}$ & support widths of the initial and replacement
+  damage & \ref{sec:dyn_rainflow} \\
+$\ARDinf$, $\ARDone$; $a$; $\psi$ & repair laws; repair factor; repair map &
+  \ref{sec:repair_laws} \\
+$\xi_k$, $\zeta_k$, $\varphi_k$, $\Phi$, $\mathcal{C}_{i\ell}$ & full tracked state,
+  reference trajectory, day map, map of the operating phase, certificate set &
+  \ref{sec:encoding}, \ref{sec:loop} \\
+\midrule
+\multicolumn{3}{@{}l}{\emph{Derived constants}} \\
+$M_s$ & natural range of a tracked quantity $s$ (big-M constant) &
+  \ref{sec:encoding} \\
+$\kappa_G = \Phi^{-1}(1 - \varepsilon)$ & standard normal quantile & \ref{sec:dyn_gaussian} \\
+$V_{\max} = \tau^2 / \kappa_G^2$ & variance range, Gaussian and
+  Wiener & \ref{sec:dyn_gaussian} \\
+$\eta_{i\ell}$; $Z \sim \mathrm{IG}(1, 1/\eta)$; $q$; $\bar\mu = \tau /
+  \mathbb{E}[Z \mid Z > q]$ & inverse Gaussian dispersion; unit law; its
+  $(1-\varepsilon)$-quantile; mean cap & \ref{sec:dyn_ig} \\
+$\beta^*_{i\ell}$; $t = \beta^*\tau$; $A_1(t, \varepsilon)$; $Q(a, x)$ & smallest
+  Gamma rate among the terms of the cell with a positive mean; scaled threshold;
+  shape cap; regularised upper incomplete gamma function & \ref{sec:dyn_gamma} \\
+$\kappa_C = \sqrt{(1-\varepsilon)/\varepsilon}$ & Cantelli coefficient &
+  \ref{sec:dyn_rainflow} \\
+$\kappa = \ln(1/\varepsilon)$ & exponent constant (Hoeffding, Bernstein) &
+  \ref{sec:dyn_rainflow} \\
+$b_{i\ell}$, $c_{i\ell} = \kappa\, b_{i\ell}/3$ & Bernstein support constant and margin &
+  \ref{sec:dyn_rainflow} \\
+$s_{i\ell}$ & Chernoff parameter (input \texttt{s\_chernoff}) & \ref{sec:dyn_rainflow} \\
+$V^{\mathrm{C}}$, $V^{\mathrm{B}}$ & variance ranges, rainflow Cantelli and Bernstein &
+  \ref{sec:dyn_rainflow} \\
+$\mu_r = \texttt{tangent\_ref}\cdot\tau$; $c_2$, $c_1$ & tangent point; constants of a
+  quadratic row & \ref{sec:linear_forms} \\
+$E$ & evaluation horizon (input \texttt{evaluation\_horizon}) & \ref{sec:objective} \\
+\bottomrule
+\end{longtable}
+\endgroup
+
+% ==== BLOCK 1B ====
+
+% ================================================================
+\section{Decision Variables}
+\label{sec:variables}
+% ================================================================
+
+A variable, and the rows that define it, are built only where a row or an objective
+term with a non-zero coefficient uses them. Example: $u$ and its rows are not built
+when $C_D = 0$; $z_{i\ell k}$ and its rows are not built at a cell with
+$C_{R,i\ell} = 0$. The day index runs over $k = 1, \ldots, T$; index $k = 0$ holds
+constants (initial values and starting anchors), not variables.
+
+\begingroup\small
+\begin{longtable}{@{}L{2.3cm}L{2.6cm}L{4.2cm}L{5.4cm}@{}}
+\toprule
+Variable & Shape, type & Built when & Meaning \\
+\midrule
+\endhead
+$x_{ijk}$ & $F \times (M{+}1) \times T$, binary & always &
+  1 if train $i$ flies mission $j$ on day $k$; $j = 0$: depot day \\
+$x^m_{i\ell k}$ & $F \times L \times T$, binary & always &
+  1 if component $\ell$ of train $i$ is repaired on day $k$ \\
+$x^r_{i\ell k}$ & $F \times L \times T$, binary & \texttt{allow\_replacement = true} &
+  1 if component $\ell$ of train $i$ is replaced on day $k$ \\
+$n_{i\ell k}$ & binary & cells with \texttt{encoding = "indicator"} &
+  1 on a day without intervention, Eq.~\eqref{eq:a_ind_sum} \\
+$\mu_{i\ell k}$ & continuous, $[0, \tau_{i\ell}]$ & every cell &
+  tracked mean degradation \\
+$v_{i\ell k}$ & continuous, $[0, M_v]$ & cells whose model or bound tracks a variance &
+  tracked variance \\
+$R_{i\ell k}$ & continuous, $[0, M_R]$ & rainflow cells with the Hoeffding bound &
+  tracked Hoeffding budget \\
+$K_{i\ell k}$ & continuous, $[0, M_K]$ & rainflow cells with the Chernoff bound &
+  tracked Chernoff quantity \\
+$g^{\mu}_{i\ell k}$, $g^{v}_{i\ell k}$, $g^{R}_{i\ell k}$, $g^{K}_{i\ell k}$ &
+  continuous, range of the quantity & $\ARDone$ cells, one per tracked quantity
+  except the Wiener variance & anchors, Eq.~\eqref{eq:a_anchor} \\
+$w_{i\ell kp}$ & binary, $p = 1, \ldots, P$ & cells with a quadratic row in the
+  \texttt{pwl} form, $P \geq 2$ & segment of the mean, Eq.~\eqref{eq:a_pwl_sum} \\
+$z_{i\ell k}$ & continuous, $\geq 0$ & cells with $C_{R,i\ell} > 0$, on days whose cost
+  enters the objective & degradation removed by a repair,
+  Section~\ref{sec:repair_cost} \\
+$u$ & scalar, $\geq 0$ & $C_D > 0$ & damage regularisation,
+  Section~\ref{sec:damage_reg} \\
+\bottomrule
+\end{longtable}
+\endgroup
+
+The ranges $M_v$, $M_R$, $M_K$ are the natural ranges of Section~\ref{sec:encoding};
+each model section states which quantities it tracks. The output reports the values
+of the tracked quantities; they are upper bounds on the reference values
+(Section~\ref{sec:encoding}).
+
+% ================================================================
+\section{Objective Function}
+\label{sec:objective}
+% ================================================================
+
+The cost of day $k$ is
+\begin{equation}
+  c_k = C_M \sum_{i=1}^{F} x_{i0k}
+      + \sum_{i=1}^{F}\sum_{\ell=1}^{L} C_{R,i\ell}\, z_{i\ell k}
+      + \sum_{i=1}^{F}\sum_{\ell=1}^{L} C_{\mathrm{rep},i\ell}\, x^r_{i\ell k},
+  \label{eq:a_daycost}
+\end{equation}
+where $z_{i\ell k}$ reads $0$ where it is not built, and the last sum is absent when
+\texttt{allow\_replacement = false}. The costs of the two phases are
+\begin{equation}
+  J_{\mathrm{init}} = \sum_{k=1}^{H_1} c_k, \qquad
+  J_{\mathrm{op}} = \sum_{k=H_1+1}^{T} c_k .
+  \label{eq:a_phases}
+\end{equation}
+The input \texttt{objective\_mode} (default \texttt{total}) selects the objective:
+\begin{equation}
+  \min\;
+  \begin{cases}
+    J_{\mathrm{init}} + J_{\mathrm{op}} + C_D\, u & \texttt{total}, \\[2pt]
+    J_{\mathrm{op}} / H_2 + C_D\, u & \texttt{operating\_average}, \\[2pt]
+    J_{\mathrm{init}} + \dfrac{E - H_1}{H_2}\, J_{\mathrm{op}} + C_D\, u
+      & \texttt{evaluation\_total},
+  \end{cases}
+  \label{eq:a_objective}
+\end{equation}
+where $E$ is the input \texttt{evaluation\_horizon}, required in the mode
+\texttt{evaluation\_total}, with $E > H_1$. The term $C_D\,u$ is present only when
+$C_D > 0$ (Section~\ref{sec:damage_reg}).
+
+\textbf{Cost terms.}
+\begin{itemize}[nosep,leftmargin=1.5em]
+  \item $C_M \geq 0$, a scalar, is paid once per train per depot day ($x_{i0k} = 1$),
+        whatever the number of components repaired or replaced on that day. It
+        prices the visit to the depot, for example the train out of service and the
+        set-up. An idle day (Section~\ref{sec:assignment}) costs nothing, so the
+        number of depot days is a costed decision.
+  \item $C_{R,i\ell} \geq 0$ is paid per unit of mean degradation removed by a
+        repair (Section~\ref{sec:repair_cost}).
+  \item $C_{\mathrm{rep},i\ell} \geq 0$ is paid per replacement. The input is
+        required; it has no default.
+  \item $C_D \geq 0$ weights the damage penalty $u$
+        (Section~\ref{sec:damage_reg}). The term is added once in every mode,
+        because $u$ is the maximum over the whole horizon.
+\end{itemize}
+The shapes of the cost inputs are given in Section~\ref{sec:inputs}.
+
+\textbf{Meaning of the modes.}
+\begin{itemize}[nosep,leftmargin=1.5em]
+  \item \texttt{total}: the cost of the $T$ modelled days.
+  \item \texttt{operating\_average}: the cost per day of the operating phase. It is
+        the long-run cost per day of the endless schedule
+        (Section~\ref{sec:loop}), in which the cost of the transitory phase spreads
+        over infinitely many days. It compares solves with different $H_2$
+        (Section~\ref{sec:sweeps}). The transitory costs do not enter the
+        objective in this mode: the solver chooses the transitory schedule for
+        feasibility only.
+  \item \texttt{evaluation\_total}: the projected cost over $E$ days: the transitory
+        phase once, then $(E - H_1)/H_2$ repetitions of the operating phase, a
+        fraction of a repetition counted pro rata. It also prices the transitory
+        phase, so it compares solves with different $H_1$.
+\end{itemize}
+Example: $H_1 = 5$, $H_2 = 10$, $E = 365$. Then \texttt{evaluation\_total} weights
+the operating cost by $36$, and \texttt{operating\_average} by $1/10$.
+
+The objective value is computed from the tracked values. It is therefore an upper
+bound on the cost of the schedule computed from the reference values
+(Section~\ref{sec:encoding}).
+
+% ================================================================
+\section{Constraints}
+\label{sec:constraints}
+% ================================================================
+
+The constraints have three groups. The fleet rows (assignment and depot days) do not
+depend on the degradation models. The common rules of the dynamics (repair laws,
+encoding, replacement, linear forms of the reliability rows) hold for every model;
+the five model sections apply them and add each model's tracked quantities, day
+maps and reliability row. The repair cost, the damage regularisation and the loop
+constraint close the problem. All rows hold for every day $k = 1, \ldots, T$ unless a
+section says otherwise.
+
+\subsection{Assignment Constraints}
+\label{sec:assignment}
+
+Each train performs at most one activity per day:
+\begin{equation}
+  \sum_{j=0}^{M} x_{ijk} \leq 1 \qquad \forall\, i, k .
+  \label{eq:a_one_activity}
+\end{equation}
+Each mission is flown by exactly one train every day:
+\begin{equation}
+  \sum_{i=1}^{F} x_{ijk} = 1 \qquad \forall\, j \in \{1, \ldots, M\},\; k .
+  \label{eq:a_coverage}
+\end{equation}
+Together these rows put exactly $M$ trains on missions every day. The other $F - M$
+trains are in the depot or idle. No other fleet-availability row is needed.
+
+\emph{Idle days.} A train is idle on day $k$ when its assignment row is all zeros:
+$x_{ijk} = 0$ for every $j \in \{0, 1, \ldots, M\}$. An idle train flies no mission
+and is not in the depot. Idle days and depot days add no increment, because every
+day aggregate $\delta\mu_{i\ell k}$, $\delta v_{i\ell k}$, $\delta R_{i\ell k}$,
+$\delta K_{i\ell k}$ sums over missions $j \geq 1$ only. A depot day must be chosen
+explicitly ($x_{i0k} = 1$), and repairs and replacements need one
+(Section~\ref{sec:depot}). Because Eq.~\eqref{eq:a_one_activity} is an inequality,
+the choice between a depot day and an idle day is free, and the term $C_M \sum
+x_{i0k}$ of the objective prices it.
+
+\subsection{Depot-Day Compatibility}
+\label{sec:depot}
+
+A component may be repaired or replaced only on a depot day of its train, and at most
+one of the two on the same day:
+\begin{equation}
+  x^m_{i\ell k} + x^r_{i\ell k} \leq x_{i0k} \qquad \forall\, i, \ell, k .
+  \label{eq:a_depot}
+\end{equation}
+With \texttt{allow\_replacement = false} the row reads $x^m_{i\ell k} \leq x_{i0k}$.
+Several components of one train may receive interventions on the same depot day. A
+depot day without an intervention on a component leaves that component unchanged.
+
+\emph{Remark (one row instead of three).} Eq.~\eqref{eq:a_depot} has the same binary
+solutions as the three rows $x^m \leq x_{i0k}$, $x^r \leq x_{i0k}$, $x^m + x^r \leq 1$.
+Its linear relaxation is tighter: the point $x_{i0k} = x^m = x^r = 0.5$ satisfies the
+three rows but not Eq.~\eqref{eq:a_depot}. With $0 \leq x^m, x^r$ and $x_{i0k} \leq 1$,
+Eq.~\eqref{eq:a_depot} describes the convex hull of the four binary solutions
+$(x_{i0k}, x^m, x^r) \in \{(0,0,0), (1,0,0), (1,1,0), (1,0,1)\}$.
+
+\subsection{Repair Laws}
+\label{sec:repair_laws}
+
+An imperfect repair (in short, a repair) of a component on a depot day removes part
+of its degradation. The repair efficiency $\rho_{i\ell} \in (0, 1]$ is the fraction
+removed. Let $D^-$ be the degradation level before the repair (at the end of day
+$k-1$; a depot day adds no increment) and $D^+$ the level after it (day $k$). The
+input \texttt{repair\_model} selects one of two laws per cell; the default is
+\texttt{ardinf}.
+
+\begin{definition}[Repair laws]
+\label{def:a_laws}
+Let $\rho = \rho_{i\ell}$. The two repair laws are:
+\begin{itemize}[nosep,leftmargin=1.5em]
+  \item $\ARDinf$ (input value \texttt{ardinf}) removes the fraction $\rho$ of the
+        whole level:
+        \begin{equation}
+          D^+ = (1-\rho)\, D^- .
+          \label{eq:a_ardinf}
+        \end{equation}
+  \item $\ARDone$ (input value \texttt{ard1}) removes the fraction $\rho$ of the
+        degradation accumulated since the last intervention (repair or
+        replacement):
+        \begin{equation}
+          D^+ = D^- - \rho\,\bigl(D^- - D^{\mathrm{last}}\bigr),
+          \label{eq:a_ard1}
+        \end{equation}
+        where $D^{\mathrm{last}}$ is the level just after the last intervention.
+        Before the first intervention of the horizon, $D^{\mathrm{last}}$ is the
+        level just after the last intervention before the horizon.
+\end{itemize}
+\end{definition}
+
+\emph{Names and sources.} $\ARDone$, ``arithmetic reduction of deterioration of
+order 1'', is the law of \cite[$\S$3.1, eq.~(4)]{mercier2019}. That source measures the
+removed degradation from the level just after the last maintenance, as
+Eq.~\eqref{eq:a_ard1} does. The name $\ARDinf$ is an analogy, not a citation.
+Doyen and Gaudoin define the classes ARA$_\infty$ \cite[eq.~(20), p.~11]{doyen2004}
+and ARA$_1$ \cite[eq.~(22), p.~12]{doyen2004}, which reduce a virtual age, not a
+degradation level. ARA$_\infty$ reduces the whole virtual age; ARA$_1$ reduces only
+the age accumulated since the previous repair. The subscript is the memory of the
+class: the largest number of previous failure times that enter the failure
+intensity \cite[p.~8]{doyen2004}. $\ARDinf$ applies the rule of ARA$_\infty$ to the
+whole degradation level. No law of this specification acts on a virtual age.
+
+\textbf{Repair maps of the tracked quantities.} A model tracks moments or other
+summaries of $D$, not $D$ itself. For a tracked quantity $s$ with anchor $g$, a
+repair on day $k$ applies the repair map
+\begin{equation}
+  \psi(s_{k-1}, g_{k-1}) =
+  \begin{cases}
+    a\, s_{k-1} & \ARDinf, \\
+    a\, s_{k-1} + (1-a)\, g_{k-1} & \ARDone,
+  \end{cases}
+  \label{eq:a_psi}
+\end{equation}
+with a repair factor $a \in [0, 1]$. For the mean, $a = 1 - \rho_{i\ell}$, because
+expectation is linear: Eq.~\eqref{eq:a_ard1} gives $\mathbb{E}[D^+] =
+(1-\rho)\,\mathbb{E}[D^-] + \rho\,\mathbb{E}[D^{\mathrm{last}}]$. For a variance and
+for $R$ the factor is $(1-\rho_{i\ell})^2$, and for $K$ it is $1-\rho_{i\ell}$; the
+model sections derive each factor. The Wiener variance has the factor $a = 1$
+under both laws: a repair acts on the Wiener mean only and leaves the variance
+unchanged.
+
+\textbf{Anchors.} Under $\ARDone$ each tracked quantity has an anchor $g$: the value
+of the quantity just after the last intervention. The Wiener variance is the
+exception: with $a = 1$ its map does not use an anchor, and none is built. The
+anchor recursion is
+\begin{equation}
+  g_0 = \text{starting anchor}, \qquad
+  g_k = \begin{cases}
+    s_k & \text{on a repair or replacement day}, \\
+    g_{k-1} & \text{otherwise},
+  \end{cases}
+  \label{eq:a_anchor}
+\end{equation}
+built by the rows Eq.~\eqref{eq:a_bigm_anchor} or Eq.~\eqref{eq:a_ind_anchor}. The
+starting anchors $g^{\mu}_{i\ell 0}$, $g^{v}_{i\ell 0}$, $g^{R}_{i\ell 0}$,
+$g^{K}_{i\ell 0}$ come from the optional inputs \texttt{anchor\_mu\_0},
+\texttt{anchor\_v\_0}, \texttt{anchor\_R\_0}, \texttt{anchor\_K\_0}. The default of
+each is the initial value of its quantity. Each must satisfy $0 \leq g_0 \leq s_0$
+(Section~\ref{sec:consistency_checks}). Example: $\mu_{k-1} = 0.6$, $g_{k-1} = 0.2$,
+$\rho = 0.5$. A repair gives $\mu_k = 0.6 - 0.5\,(0.6 - 0.2) = 0.4$ and $g_k = 0.4$.
+On the next day the gap $\mu - g$ is $0$, and it grows again with each mission.
+
+\emph{Remark (default of the starting anchor).} Damage only grows between
+interventions. So the true level after the last intervention before the horizon lies
+between the level of a new part and the initial level. A larger anchor gives a
+weaker repair and a higher state, because $\psi$ is non-decreasing in $g$. The
+default $g_0 = s_0$ therefore never overstates what a repair achieves; the input
+gives the exact value when the maintenance history is known. Example: $\mu_0 =
+0.5$, $\rho = 0.5$, and a repair on day~1 before any mission. With the starting
+anchor $0$ the mean drops to $0.25$; with the default $\mu_0$ it stays at $0.5$, and
+the repair removes only damage accumulated within the horizon.
+
+\textbf{Laws per model.} Every model accepts both laws. The table below gives the
+reason for each model.
+
+\begingroup\small
+\begin{longtable}{@{}lllp{7.4cm}@{}}
+\toprule
+Model & $\ARDinf$ & $\ARDone$ & Reason or note \\
+\midrule
+Gaussian & yes & yes & both laws keep the state Gaussian, with exact moments \\
+Inverse Gaussian & yes & yes & the cap holds for any repair weights and any
+  dependence between the terms (Section~\ref{sec:dyn_ig}) \\
+Wiener & yes & yes & on the mean only; the variance changes only by replacement \\
+Gamma & yes & yes & Section~\ref{sec:dyn_gamma} \\
+Rainflow, every bound & yes & yes & Chernoff under $\ARDone$ uses a conservative
+  recursion for $K$ (Section~\ref{sec:dyn_rainflow}) \\
+\bottomrule
+\end{longtable}
+\endgroup
+
+\subsection{Encoding of the Dynamics}
+\label{sec:encoding}
+
+Each day, every tracked quantity of a cell follows one rule: a mission adds an
+increment, a repair applies the repair map of Section~\ref{sec:repair_laws}, and a
+replacement resets the quantity (Section~\ref{sec:replacement}). This subsection
+states these rules once, for every model and both repair laws. The model sections
+give, for each tracked quantity, its increment, its repair factor and its natural
+range.
+
+\textbf{One-sided rows.} Every dynamics row is an inequality ($\geq$), not an
+equality. The solver may choose a value above the result of the rule, never a
+value below it. So a tracked quantity is an upper bound on the value that the rule
+gives. Example: with $\mu_{i\ell,k-1} = 0.3$ and a mission increment of $0.2$, the
+rule gives $0.5$; the rows accept $\mu_{i\ell k} = 0.5$ and also $\mu_{i\ell k} =
+0.6$. Replacement rows and anchor updates are equalities.
+
+\textbf{Generic rows.} Let $s$ be one tracked quantity of a cell (a mean, a
+variance, $R$ or $K$), with day increment $\delta s_k$, natural range $M_s$,
+replacement value $s^{\new}$, anchor $g$ (law $\ARDone$ only) and repair map
+$\psi$ (Section~\ref{sec:repair_laws}). Write $x^m_k$, $x^r_k$ for the binaries of
+the cell and $e_k = x^m_k + x^r_k$. The input \texttt{encoding} selects one of two
+forms per cell. Both forms are built for $k = 1, \ldots, T$; index $k = 0$ holds the
+initial value and the starting anchor.
+
+\emph{Big-M form} (\texttt{encoding = "bigm"}, the default):
+\begin{align}
+  &\text{no intervention:} & s_k &\geq s_{k-1} + \delta s_k - M_s\,(x^m_k + x^r_k),
+    \label{eq:a_bigm_carry} \\
+  &\text{repair:} & s_k &\geq \psi(s_{k-1}, g_{k-1}) - M_s\,(1 - x^m_k),
+    \label{eq:a_bigm_repair} \\
+  &\text{replacement:} & |s_k - s^{\new}| &\leq M_s\,(1 - x^r_k),
+    \label{eq:a_bigm_repl} \\
+  &\text{anchor } (\ARDone)\text{:} & |g_k - s_k| &\leq M_s\,(1 - e_k), \qquad
+    |g_k - g_{k-1}| \leq M_s\, e_k .
+    \label{eq:a_bigm_anchor}
+\end{align}
+Each row with an absolute value is built as two linear rows.
+
+\emph{Indicator form} (\texttt{encoding = "indicator"}). One extra binary
+$n_{i\ell k}$ per cell and day marks a day without intervention:
+\begin{equation}
+  n_{i\ell k} + x^m_{i\ell k} + x^r_{i\ell k} = 1 .
+  \label{eq:a_ind_sum}
+\end{equation}
+The rows are Gurobi indicator constraints:
+\begin{align}
+  n_k = 1 &\;\Rightarrow\; s_k \geq s_{k-1} + \delta s_k, &
+  x^m_k = 1 &\;\Rightarrow\; s_k \geq \psi(s_{k-1}, g_{k-1}), &
+  x^r_k = 1 &\;\Rightarrow\; s_k = s^{\new}, \label{eq:a_ind_state} \\
+  n_k = 1 &\;\Rightarrow\; g_k = g_{k-1}, &
+  x^m_k = 1 &\;\Rightarrow\; g_k = s_k, &
+  x^r_k = 1 &\;\Rightarrow\; g_k = s_k. \label{eq:a_ind_anchor}
+\end{align}
+The binary $n_{i\ell k}$ is built only at cells in this form.
+
+\emph{Common rules for both forms.}
+\begin{itemize}[nosep,leftmargin=1.5em]
+  \item The anchor rows are built only under $\ARDone$, one anchor per tracked
+        quantity, except the Wiener variance.
+  \item The Wiener variance takes the repair map $\psi = s_{k-1}$ (factor $a = 1$)
+        under both laws, and has no anchor. A repair day adds no increment, so in the
+        big-M form its no-intervention and repair rows together equal the single row
+        $s_k \geq s_{k-1} + \delta s_k - M_s\, x^r_k$ (Eq.~\eqref{eq:w_vrow}), which
+        may replace them. The variance is never left free below on a repair day.
+  \item With \texttt{allow\_replacement = false} the binaries $x^r$ are not built:
+        read $x^r_k = 0$ in every row, and drop the replacement rows.
+  \item At binary points the two forms have the same feasible set. Every statement
+        below holds for both.
+\end{itemize}
+
+\textbf{Natural ranges.} The big-M constant $M_s$ is the natural range of $s$: an
+upper bound of $s$ at every point that satisfies the reliability row of the cell.
+It is $\tau_{i\ell}$ for a mean and for its anchor, $V_{\max}$ for a Gaussian or
+Wiener variance, $V^{\mathrm{C}}$ or $V^{\mathrm{B}}$ for a rainflow variance
+(Cantelli or Bernstein), $2\tau^2/\kappa$ for $R$ and $s_{i\ell}\tau - \kappa$ for
+$K$ (Section~\ref{sec:dyn_rainflow}). An anchor has the range of its quantity.
+
+\emph{Remark (validity of the big-M constants).} Every tracked quantity and every
+anchor lies in $[0, M_s]$. The initial values, the starting anchors and the
+replacement values lie in $[0, M_s]$ too, by the input checks of
+Section~\ref{sec:consistency_checks}. An intervention day is a depot day
+(Section~\ref{sec:depot}), so $\delta s_k = 0$ on it. A relaxed row then cuts no
+point: Eq.~\eqref{eq:a_bigm_carry} with $e_k = 1$ reads
+$s_k \geq s_{k-1} - M_s$, whose right-hand side is at most $0$;
+Eq.~\eqref{eq:a_bigm_repair} with $x^m_k = 0$ has a right-hand side
+$\psi - M_s \leq 0$, because $\psi$ is a convex combination of values in
+$[0, M_s]$; Eq.~\eqref{eq:a_bigm_repl} with $x^r_k = 0$ allows
+$s_k \in [s^{\new} - M_s,\, s^{\new} + M_s] \supseteq [0, M_s]$; the relaxed anchor
+rows allow every difference in $[-M_s, M_s]$.
+
+\emph{Remark (choice of the default form).} Gurobi accepts a binary as integral
+within its integrality tolerance \texttt{IntFeasTol} (default $10^{-5}$). A big-M
+row can therefore leak by at most $10^{-5} M_s$. Because $M_s$ is the quantity's own
+range, this is a relative error of $10^{-5}$. Indicator constraints have no such
+leak, and Gurobi usually needs more time to solve them. Which form solves this
+model faster has not been measured.
+
+\subsubsection{Safety of the one-sided rows}
+
+Fix a schedule, that is, values of every binary, and one cell. The following
+objects are used here and in Section~\ref{sec:loop}.
+\begin{itemize}[nosep,leftmargin=1.5em]
+  \item The \emph{full tracked state} $\xi_k$ collects the values on day $k$ of every
+        tracked quantity of the cell and of every anchor. $\xi_0$ holds the initial
+        values and the starting anchors.
+  \item The \emph{day map} $\varphi_k$ gives, for each coordinate, the value that the
+        rule of day $k$ assigns: $s + \delta s_k$ and $g$ on a day without
+        intervention; $\psi(s, g)$ for both $s$ and $g$ on a repair day; $s^{\new}$
+        for both on a replacement day.
+  \item The \emph{reference trajectory} is $\zeta_0 = \xi_0$,
+        $\zeta_k = \varphi_k(\zeta_{k-1})$: the rows with every inequality replaced
+        by an equality.
+  \item The \emph{true statistics} $\theta_k$ are the true values on day $k$ of the
+        tracked quantities (the mean, the variance, $R$ or the CGF of the damage
+        $D_{i\ell k}$) and of their anchors (their values just after the last
+        intervention).
+  \item The \emph{certificate set} $\mathcal{C}_{i\ell}$ is the set of values of the
+        tracked quantities at which the reliability row of the cell holds in its
+        exact form, side rows included. Anchors do not enter it.
+\end{itemize}
+
+Every model section states three facts, labelled (M1)--(M3) there:
+\begin{enumerate}[nosep,leftmargin=2em,label=(M\arabic*)]
+  \item Each repair factor $a$ lies in $[0,1]$ and each increment
+        $\delta s_k$ is non-negative.
+  \item On day $0$ the true statistics are at most the initial values and starting
+        anchors, $\theta_0 \leq \xi_0$. On every later day the true statistic is at
+        most the day map applied to the true statistics of the day before:
+        $\theta_k \leq \varphi_k(\theta_{k-1})$. Every map holds with equality
+        except the map of the Chernoff quantity $K$, which is an upper bound
+        (Section~\ref{sec:dyn_rainflow}).
+  \item If values $s \in \mathcal{C}_{i\ell}$ are at least the true statistics of
+        day $k$, then $\Pr(D_{i\ell k} > \tau_{i\ell}) \leq \varepsilon_{i\ell}$.
+\end{enumerate}
+The set $\mathcal{C}_{i\ell}$ is closed, and it is a down-set: if $s \in
+\mathcal{C}_{i\ell}$ and $0 \leq s' \leq s$ componentwise, then $s' \in
+\mathcal{C}_{i\ell}$. The reason is that every reliability row, written in
+chance-bound form, reads ``a continuous function of the tracked quantities,
+non-decreasing in each of them, is at most a constant'':
+
+\begingroup\small
+\begin{longtable}{@{}lll@{}}
+\toprule
+Model or bound & Row in chance-bound form & Section \\
+\midrule
+Gaussian, Wiener & $\mu + \Phi^{-1}(1-\varepsilon)\sqrt{v} \leq \tau$ &
+  \ref{sec:dyn_gaussian}, \ref{sec:dyn_wiener} \\
+Inverse Gaussian; Gamma & $\mu \leq \bar\mu$; $\mu \leq A_1(\beta^*\tau,\varepsilon)/\beta^*$ &
+  \ref{sec:dyn_ig}, \ref{sec:dyn_gamma} \\
+Rainflow, Markov & $\mu \leq \varepsilon\,\tau$ & \ref{sec:dyn_rainflow} \\
+Rainflow, Cantelli & $\mu + \kappa_C\sqrt{v} \leq \tau$ & \ref{sec:dyn_rainflow} \\
+Rainflow, Hoeffding & $\mu + \sqrt{\kappa R/2} \leq \tau$ & \ref{sec:dyn_rainflow} \\
+Rainflow, Bernstein & $\mu + c + \sqrt{c^2 + 2\kappa v} \leq \tau$ & \ref{sec:dyn_rainflow} \\
+Rainflow, Chernoff & $K \leq s_{i\ell}\,\tau + \ln\varepsilon$ & \ref{sec:dyn_rainflow} \\
+\bottomrule
+\end{longtable}
+\endgroup
+
+\begin{lemma}[Monotone day maps]
+\label{lem:a_monotone}
+Each day map $\varphi_k$ is non-decreasing in each coordinate of the full tracked
+state, anchors included.
+\end{lemma}
+\begin{proof}
+Let $\xi \leq \xi'$ componentwise. Each coordinate of $\varphi_k$ has one of the
+forms $s + \delta s_k$, $g$, $s$, $a\,s$, $a\,s + (1-a)\,g$ or $s^{\new}$. By (M1),
+$a \geq 0$ and $1 - a \geq 0$. Therefore each coordinate of $\varphi_k(\xi)$ is at
+most the same coordinate of $\varphi_k(\xi')$.
+\end{proof}
+
+\begin{proposition}[Domination]
+\label{prop:a_domination}
+Every feasible solution satisfies $\xi_k \geq \varphi_k(\xi_{k-1})$ and
+$\theta_k \leq \zeta_k \leq \xi_k$ for $k = 1, \ldots, T$.
+\end{proposition}
+\begin{proof}
+At binary points the rows of day $k$ read: $s_k \geq \varphi_k(\xi_{k-1})_s$ for
+every tracked quantity $s$, with equality on a replacement day; $g_k = s_k \geq
+\varphi_k(\xi_{k-1})_g$ on an intervention day; $g_k = g_{k-1} =
+\varphi_k(\xi_{k-1})_g$ on any other day. So $\xi_k \geq \varphi_k(\xi_{k-1})$.
+Let $\theta_{k-1} \leq \zeta_{k-1} \leq \xi_{k-1}$ (true for $k = 1$ by (M2), since
+$\zeta_0 = \xi_0$). Then, by (M2) and Lemma~\ref{lem:a_monotone},
+\[
+  \theta_k \leq \varphi_k(\theta_{k-1}) \leq \varphi_k(\zeta_{k-1}) = \zeta_k
+  \leq \varphi_k(\xi_{k-1}) \leq \xi_k .
+\]
+Therefore $\theta_k \leq \zeta_k \leq \xi_k$ for every $k$ by induction.
+\end{proof}
+
+\emph{Consequence on the horizon.} On every day $k = 1, \ldots, T$ the tracked
+values satisfy the reliability row in the form chosen for the cell. Every form lies
+inside $\mathcal{C}_{i\ell}$ (Section~\ref{sec:linear_forms}), so $\xi_k \in
+\mathcal{C}_{i\ell}$. By Proposition~\ref{prop:a_domination}, $\theta_k \leq \xi_k$,
+so (M3) gives $\Pr(D_{i\ell k} > \tau_{i\ell}) \leq \varepsilon_{i\ell}$.
+Theorem~\ref{thm:a_loop} (Section~\ref{sec:loop}) extends this to every day of
+every later repetition of the operating phase.
+
+\textbf{What the one-sided rows accept.} Call a schedule \emph{safe} for a cell when
+the reference trajectory of the endless schedule (the transitory phase once, then
+the operating phase repeated without end, Section~\ref{sec:loop}) lies in
+$\mathcal{C}_{i\ell}$ and in the natural ranges on every day. The one-sided rows
+relate to this property as follows.
+\begin{itemize}[nosep,leftmargin=1.5em]
+  \item \emph{They never accept an unsafe schedule} (Theorem~\ref{thm:a_loop}).
+  \item \emph{They accept every schedule that equality rows accept}, and more.
+        Equality rows force $\xi_k = \zeta_k$; Proposition~\ref{prop:a_accept}~(a)
+        shows that such a schedule satisfies the one-sided rows too.
+        The first example below shows a safe schedule that only the one-sided
+        rows accept.
+  \item \emph{They may reject a safe schedule}, as equality rows may, but only when
+        tracked quantities move in opposite directions over the first repetition
+        (Proposition~\ref{prop:a_accept}~(b) and the second example below).
+\end{itemize}
+
+\begin{proposition}[Acceptance]
+\label{prop:a_accept}
+Fix a schedule and a cell, use the exact reliability form, and let the schedule be
+safe for the cell. Let $\bar\zeta = \zeta_{H_1}$ and let $\Phi$ be the composition
+of the day maps of the operating phase (Section~\ref{sec:loop}).
+\begin{enumerate}[nosep,label=(\alph*)]
+  \item If $\Phi(\bar\zeta) \leq \bar\zeta$, the rows of the cell, the loop row
+        included, accept the schedule with $\xi_k = \zeta_k$ for every $k$.
+  \item If $\Phi(\bar\zeta) \geq \bar\zeta$, the cell has no anchor (law
+        $\ARDinf$), and the cell is not replaced on day $H_1$, the rows of the cell
+        accept the schedule.
+\end{enumerate}
+\end{proposition}
+\begin{proof}
+(a) The values $\xi_k = \zeta_k$ satisfy every row of day $k$ with equality at
+binary points. They lie in $\mathcal{C}_{i\ell}$ because the schedule is safe. The
+loop row reads $\zeta_T = \Phi(\bar\zeta) \leq \bar\zeta = \zeta_{H_1}$.
+
+(b) Let $y_n = \Phi^n(\bar\zeta)$, the reference state at the end of the $n$-th
+repetition. By Lemma~\ref{lem:a_monotone} and $\Phi(\bar\zeta) \geq \bar\zeta$,
+$y_{n+1} = \Phi(y_n) \geq \Phi(y_{n-1}) = y_n$. The sequence is non-decreasing and
+lies in the natural ranges, so it converges to some $y^*$ with $y^* \geq
+\bar\zeta$. Each day map is affine or constant, so $\Phi$ and its prefixes
+$\Phi_h$ are continuous: $\Phi(y^*) = \lim_n y_{n+1} = y^*$ and
+$\Phi_h(y^*) = \lim_n \Phi_h(y_n)$. Each $\Phi_h(y_n)$ is a reference value of a
+later day, so it lies in the closed set $\mathcal{C}_{i\ell}$; hence
+$\Phi_h(y^*) \in \mathcal{C}_{i\ell}$ for $h = 1, \ldots, H_2$, and
+$y^* = \Phi_{H_2}(y^*) \in \mathcal{C}_{i\ell}$. Take $\xi_k =
+\zeta_k$ for $k < H_1$, $\xi_{H_1} = y^*$ and $\xi_{H_1+h} = \Phi_h(y^*)$. Day $H_1$
+is not a replacement day and the cell has no anchor, so $\xi_{H_1} = y^* \geq
+\varphi_{H_1}(\xi_{H_1-1})$ satisfies the rows of day $H_1$. The later days satisfy
+their rows with equality, and the loop row reads $\xi_T = \Phi(y^*) = y^* =
+\xi_{H_1}$.
+\end{proof}
+
+A scalar state is always comparable with its image. So a cell with one tracked
+quantity under $\ARDinf$, not replaced on day $H_1$, accepts every safe schedule.
+Under $\ARDone$ the anchor is a second tracked quantity, and its value on day $H_1$
+is fixed by the anchor rows; part (b) does not apply, and acceptance of every safe
+schedule is not proven.
+
+\emph{Example (one quantity, accepted only by the one-sided rows).}
+One tracked mean, law $\ARDinf$, $\rho = 0.5$. The operating phase is a mission
+($\delta\mu = 0.2$) followed by a repair, so $\Phi(y) = 0.5\,(y + 0.2) = 0.5\,y +
+0.1$, and $\Phi(y) \leq y$ if and only if $y \geq 0.2$. Let $\bar\zeta = 0.1$. Then
+$\Phi(0.1) = 0.15 > 0.1$, so equality rows reject the schedule. The one-sided rows
+accept it with $\xi_{H_1} = 0.2$: the tracked cycle is $0.2, 0.4, 0.2$, and the
+reliability row is checked at $0.4$. The reference trajectory is $0.1, 0.3, 0.15,
+0.35, 0.175, \ldots$; its start-of-cycle values rise to $0.2$ and its peaks rise to
+$0.4$. So the schedule is safe whenever $0.4 \in \mathcal{C}_{i\ell}$. The price
+is in the reported cost: each repair is charged $\rho \cdot 0.4 = 0.2$, while the
+reference removal rises from $0.15$ toward $0.2$.
+
+\emph{Example (two quantities that move in opposite directions, rejected).}
+Cantelli bound, $\varepsilon = 0.1$ ($\kappa_C^2 = 9$), $\tau = 1$, $\rho = 0.5$,
+law $\ARDinf$. The operating phase is a mission, which adds $0.2$ to the mean and
+$0.009$ to the variance, followed by a repair. So $\Phi(\mu, v) = (0.5\,\mu + 0.1,\;
+0.25\,v + 0.00225)$, with fixed point $(0.2, 0.003)$. Let $\bar\zeta = (0.5, 0)$.
+\begin{itemize}[nosep,leftmargin=1.5em]
+  \item Reference: over the repetitions the mean falls to $0.2$ and the variance
+        rises to $0.003$. The first peak is $(0.7, 0.009)$, with $9 \cdot 0.009 =
+        0.081 \leq 0.3^2 = 0.09$. Every later peak has a mean of at most $0.55$ and a
+        variance below $0.012$, with $9 \cdot 0.012 = 0.108 \leq 0.45^2 = 0.2025$.
+        The schedule is safe.
+  \item One-sided rows: the loop row needs $\xi_{H_1} = y \geq (0.5, 0)$ with
+        $\Phi(y) \leq y$, so $y_v \geq 0.003$. The tracked peak is then at least
+        $(0.7, 0.012)$, where $9 \cdot 0.012 = 0.108 > 0.09$. Rejected.
+  \item Equality rows: $\Phi(\bar\zeta) = (0.35, 0.00225)$ has a larger variance
+        than $\bar\zeta$. Rejected as well.
+\end{itemize}
+
+\textbf{Meaning of the reported values.} The output reports the tracked values
+$\xi_k$, not the reference values. By Proposition~\ref{prop:a_domination} each
+reported state and anchor is an upper bound on its reference value, and so on its
+true statistic. The costs
+computed from them are upper bounds too: the repair cost
+(Proposition~\ref{prop:a_repair_cost}) and the damage penalty
+(Section~\ref{sec:damage_reg}).
+
+\emph{Remark (slack in the reported values).} The minimisation removes slack only
+where slack costs something: a larger mean raises the damage penalty $C_D\,u$ where
+$u$ is binding, and raises the repair cost $C_R\,z$ of every later repair. A larger
+variance, $R$ or $K$ tightens the reliability row and so restricts the schedule.
+Elsewhere the solver may return any value above the reference value. With $C_D = 0$
+the damage penalty is absent (Section~\ref{sec:damage_reg}), and the reported states
+may carry more slack. Slack never affects safety (Theorem~\ref{thm:a_loop}).
+
+\subsection{Replacement}
+\label{sec:replacement}
+
+A replacement installs a new part on a depot day. The input
+\texttt{allow\_replacement} (default \texttt{true}) makes replacements available. When
+it is \texttt{false}, the binaries $x^r_{i\ell k}$, the replacement rows and the
+replacement cost are not built.
+
+\textbf{State after a replacement.} On a replacement day every tracked quantity of
+the cell takes its replacement value, and every anchor takes the same value
+(Eq.~\eqref{eq:a_anchor}). The values come from the input, for every model:
+\begin{itemize}[nosep,leftmargin=1.5em]
+  \item mean $\mu^{\new}_{i\ell}$, input \texttt{replacement\_mu}, default $0$;
+  \item variance $v^{\new}_{i\ell}$, input \texttt{replacement\_v}, default $0$, where
+        the model tracks a variance;
+  \item $R^{\new}_{i\ell}$ and $K^{\new}_{i\ell}$ for the rainflow Hoeffding and
+        Chernoff bounds, with their defaults and their derivation in
+        Section~\ref{sec:dyn_rainflow}.
+\end{itemize}
+A replacement value describes the damage of the new part: a known damage when its
+variance is $0$, a random one otherwise. The rows are the equalities
+Eq.~\eqref{eq:a_bigm_repl} or the indicator rows Eq.~\eqref{eq:a_ind_state}. The
+input checks of Section~\ref{sec:consistency_checks} require each replacement value
+to lie in the natural range of its quantity, and the replacement state to satisfy the
+reliability row of the cell; otherwise no replacement of that cell would be
+feasible.
+
+\textbf{Shortcut for a new part.} The input \texttt{replacement\_as\_new} (default
+\texttt{false}) states that a replaced part is new, with no damage: every
+replacement value of the cell is $0$. A non-zero replacement input together with
+\texttt{replacement\_as\_new = true} is an input error
+(Section~\ref{sec:consistency_checks}).
+
+\textbf{Cost.} A replacement costs $C_{\mathrm{rep},i\ell}$ and nothing else: the
+repair cost $z_{i\ell k}$ is $0$ on a replacement day
+(Section~\ref{sec:repair_cost}). A cell may be replaced on any depot day of its
+train, any number of times. The loop row can require at least one replacement in
+the operating phase: for every $\ARDone$ cell with $\rho < 1$ that accumulates damage
+(Proposition~\ref{prop:a_ard1_replacement}), and for the Wiener variance
+(Section~\ref{sec:dyn_wiener}).
+
+\subsection{Linear Forms of the Reliability Rows}
+\label{sec:linear_forms}
+
+Five reliability rows are quadratic: the Gaussian and Wiener rows, and the rainflow
+Cantelli, Hoeffding and Bernstein rows. Each has the form
+\begin{equation}
+  \chi_{i\ell k} \;\leq\; f(\mu_{i\ell k}),
+  \qquad f(\mu) = c_2\,(\tau - \mu)^2 + c_1\,(\tau - \mu),
+  \qquad \mu_{i\ell k} \leq \bar\mu_{\mathrm{side}},
+  \label{eq:a_quad}
+\end{equation}
+with the constants of the table below; the model sections derive each row. The
+third relation is the side row; it
+selects the branch of the parabola on which the row is a valid certificate. Since
+$c_2 > 0$, $f$ is convex in $\mu$, with $f'(\mu) = -2c_2(\tau - \mu) - c_1$.
+
+\begingroup\small
+\begin{longtable}{@{}lllll@{}}
+\toprule
+Row & $\chi$ & $c_2$ & $c_1$ & $\bar\mu_{\mathrm{side}}$ \\
+\midrule
+Gaussian, Wiener & $v$ & $1/(\Phi^{-1}(1-\varepsilon))^2$ & $0$ & $\tau$ \\
+Rainflow, Cantelli & $v$ & $1/\kappa_C^2 = \varepsilon/(1-\varepsilon)$ & $0$ & $\tau$ \\
+Rainflow, Hoeffding & $R$ & $2/\kappa$ & $0$ & $\tau$ \\
+Rainflow, Bernstein & $v$ & $1/(2\kappa)$ & $-b_{i\ell}/3$ & $\tau - c_{i\ell}$ \\
+\bottomrule
+\end{longtable}
+\endgroup
+
+The input \texttt{reliability\_impl} selects one of three forms per cell. Every form
+keeps the side row.
+\begin{itemize}[leftmargin=1.5em]
+  \item \texttt{exact}: Eq.~\eqref{eq:a_quad} as written. The feasible set
+        $\{(\mu, \chi) : \chi \leq f(\mu)\}$ lies below a convex function, so it is not
+        convex: the row is a nonconvex quadratic constraint. Gurobi's parameter
+        \texttt{NonConvex} is set to $2$ whenever at least one cell has a quadratic
+        row in this form.
+  \item \texttt{tangent}: one linear row per day, the tangent of $f$ at the point
+        $\mu_r = \texttt{tangent\_ref}_{i\ell}\cdot\tau_{i\ell}$:
+        \begin{equation}
+          \chi_{i\ell k} \;\leq\; f(\mu_r) + f'(\mu_r)\,(\mu_{i\ell k} - \mu_r).
+          \label{eq:a_tangent}
+        \end{equation}
+        The input \texttt{tangent\_ref} is per cell, in $[0, 1)$, default $0.5$.
+        At \texttt{tangent\_ref} $= 0$ the Gaussian row becomes
+        $(\Phi^{-1}(1-\varepsilon))^2\, v + 2\tau\mu \leq \tau^2$.
+        The value $1$ is excluded: for $c_1 = 0$ the tangent at $\tau$ is
+        $\chi \leq 0$. At a Bernstein cell the tangent point must also satisfy
+        $\mu_r < \tau - c_{i\ell}$ (Section~\ref{sec:consistency_checks}); otherwise
+        no point with $v \geq 0$ satisfies the row (Section~\ref{sec:dyn_rainflow}).
+  \item \texttt{pwl}: a piecewise tangent with $P = \texttt{pwl\_points}$ segments
+        (default $8$). The breakpoints split $[0, \tau]$ into equal segments
+        $[(p-1)\tau/P,\; p\tau/P]$ with midpoints $\hat\mu_p = (p - \tfrac12)\tau/P$,
+        $p = 1, \ldots, P$. One binary $w_{i\ell kp}$ per cell, day and segment
+        selects the segment that contains the mean:
+        \begin{align}
+          \textstyle\sum_{p=1}^{P} w_{i\ell kp} &= 1, \label{eq:a_pwl_sum} \\
+          w_{i\ell kp} = 1 &\;\Rightarrow\;
+            (p-1)\,\tau/P \leq \mu_{i\ell k} \leq p\,\tau/P, \label{eq:a_pwl_seg} \\
+          w_{i\ell kp} = 1 &\;\Rightarrow\;
+            \chi_{i\ell k} \leq f(\hat\mu_p) + f'(\hat\mu_p)\,(\mu_{i\ell k} - \hat\mu_p).
+            \label{eq:a_pwl_cap}
+        \end{align}
+        The implications are Gurobi indicator constraints, whatever the value of
+        \texttt{encoding}. With $P = 1$ the form is the single tangent at $\tau/2$,
+        with no binaries.
+\end{itemize}
+At a cell whose reliability row is linear (Markov, Chernoff, inverse Gaussian, Gamma)
+the row is built in its exact form, and the value of \texttt{reliability\_impl} is
+ignored. An unknown value of \texttt{reliability\_impl} is an input error at every
+cell (Section~\ref{sec:consistency_checks}).
+
+\begin{proposition}[Safety of the linear forms]
+\label{prop:a_tangent}
+For every $\mu_r$ and every $\mu$,
+$f(\mu_r) + f'(\mu_r)\,(\mu - \mu_r) = f(\mu) - c_2\,(\mu - \mu_r)^2 \leq f(\mu)$.
+Therefore every point that satisfies the \texttt{tangent} or the \texttt{pwl} form
+satisfies the \texttt{exact} form, and both linear forms lie inside the certificate
+set $\mathcal{C}_{i\ell}$.
+\end{proposition}
+\begin{proof}
+$f$ is a polynomial of degree $2$ in $\mu$ with leading coefficient $c_2$, so its
+Taylor expansion at $\mu_r$ is exact: $f(\mu) = f(\mu_r) + f'(\mu_r)(\mu - \mu_r) +
+c_2(\mu - \mu_r)^2$. Since $c_2 > 0$, the tangent lies below $f$. Each linear form
+caps $\chi$ by one such tangent and keeps the side row. Therefore it implies
+Eq.~\eqref{eq:a_quad}.
+\end{proof}
+
+\emph{Remark (accuracy).} The \texttt{tangent} form loses $c_2(\mu - \mu_r)^2$ in
+$\chi$: it is exact at $\mu = \mu_r$ and loosest far from it. A tangent point near the
+operating mean of the cell is the best choice. In the \texttt{pwl} form the loss is
+$c_2(\mu - \hat\mu_p)^2 \leq c_2\,\tau^2/(4P^2)$. The midpoint of the segment that
+contains $\mu$ is the nearest tangent point to $\mu$. So the \texttt{pwl} form
+accepts exactly the points with $\chi \leq \max_p\, [f(\hat\mu_p) + f'(\hat\mu_p)(\mu -
+\hat\mu_p)]$, the largest set that the $P$ tangents allow. The price is $P$ binaries
+per cell and day.
+
+\emph{Example (Cantelli, $\varepsilon = 0.1$, $\kappa_C^2 = 9$, $\tau = 1$, $v =
+0.004$).} The largest admissible mean is $1 - \sqrt{9 \cdot 0.004} \approx 0.810$
+with \texttt{exact}; $0.482$ with \texttt{tangent} at $0$ ($9v + 2\mu \leq 1$);
+$0.714$ with \texttt{tangent} at $0.5\,\tau$ ($9v \leq 0.75 - \mu$); and $0.810$
+with \texttt{pwl} and $P = 8$. The tangent at $0$ never admits a mean above
+$\tau/2$, even with zero variance.
+
+% ==== BLOCK 2 ====
+
+% ----------------------------------------------------------------
+\subsection{Repair Cost Variable}
+\label{sec:repair_cost}
+% ----------------------------------------------------------------
+
+The variable $z_{i\ell k} \geq 0$ is the degradation removed by a repair of cell
+$(i,\ell)$ on day $k$, in mean units, for every model and both laws. The objective
+charges $C_{R,i\ell}\, z_{i\ell k}$ (Section~\ref{sec:objective}). The variable and
+its rows are built only at cells with $C_{R,i\ell} > 0$, and only on the days whose
+cost enters the objective: every day $k = 1, \ldots, T$, except the days of the
+transitory phase in the mode \texttt{operating\_average}. The rows are
+\begin{equation}
+  z_{i\ell k} \;\geq\; \rho_{i\ell}\,\bigl(\mu_{i\ell,k-1} - g^{\mu}_{i\ell,k-1}\bigr)
+    - \rho_{i\ell}\,\tau_{i\ell}\,\bigl(1 - x^m_{i\ell k}\bigr),
+  \qquad z_{i\ell k} \geq 0,
+  \label{eq:a_z}
+\end{equation}
+with $g^{\mu} \equiv 0$ under $\ARDinf$. On a repair day the first row reads $z_{i\ell
+k} \geq \rho\,(\mu_{i\ell,k-1} - g^{\mu}_{i\ell,k-1})$, the removed amount of
+Eq.~\eqref{eq:a_psi}. On any other day its right-hand side is at most $0$, because
+$0 \leq \mu_{i\ell,k-1} - g^{\mu}_{i\ell,k-1} \leq \mu_{i\ell,k-1} \leq \tau$.
+
+\emph{Replacement days.} A replacement day has $x^m_{i\ell k} = 0$, so $z_{i\ell k} =
+0$ at the optimum. A replacement costs $C_{\mathrm{rep},i\ell}$ only. The replaced
+part is discarded, so its damage does not change the price of the new part.
+
+\emph{Remark (no upper rows).} The variable $z_{i\ell k}$ appears in no row other
+than Eq.~\eqref{eq:a_z}, and in the objective with a positive coefficient. The
+minimisation therefore drives it to the largest of its lower bounds:
+$z_{i\ell k} = \rho\,(\mu_{i\ell,k-1} - g^{\mu}_{i\ell,k-1})$ on a repair day and
+$z_{i\ell k} = 0$ on any other day. The upper rows of a McCormick envelope,
+$z \leq \rho\,(\mu - g^{\mu})$ and $z \leq \rho\,\tau\,x^m$, would only remove points
+that are never optimal, so they are not built. A solution that is not optimal (for
+example, the best one found at the time limit) may carry a larger $z$; its reported
+cost is then larger, never smaller.
+
+\begin{proposition}[What $z$ measures]
+\label{prop:a_repair_cost}
+In every feasible solution, on every repair day $k$ of a cell, under both laws,
+\[
+  z_{i\ell k} \;\geq\; \rho\,\bigl(\mu_{k-1} - g^{\mu}_{k-1}\bigr)
+  \;\geq\; \rho\,\bigl(\zeta^{\mu}_{k-1} - \zeta^{g}_{k-1}\bigr),
+\]
+where $\zeta^{\mu}$ and $\zeta^{g}$ are the mean and its anchor on the reference
+trajectory (Section~\ref{sec:encoding}). When the starting anchor equals the true
+mean level after the last intervention before the horizon, the right-hand side is
+the expected degradation that the repair removes.
+\end{proposition}
+\begin{proof}
+The first inequality is Eq.~\eqref{eq:a_z} with $x^m_{i\ell k} = 1$. Under $\ARDinf$,
+$g^{\mu} = \zeta^{g} = 0$, and $\mu_{k-1} \geq \zeta^{\mu}_{k-1}$ by
+Proposition~\ref{prop:a_domination}. Under $\ARDone$, let $t < k$ be the last
+intervention day before $k$, or $t = 0$ if there is none. Then $g^{\mu}_{k-1} =
+g^{\mu}_t$ and $\zeta^{g}_{k-1} = \zeta^{g}_t$.
+\begin{itemize}[nosep,leftmargin=1.5em]
+  \item If $t = 0$: $g^{\mu}_0 = \zeta^{g}_0$ (the starting anchor), so
+        $g^{\mu}_{k-1} - \zeta^{g}_{k-1} = 0 \leq \mu_{k-1} - \zeta^{\mu}_{k-1}$.
+  \item If $t \geq 1$: $g^{\mu}_t = \mu_t$ and $\zeta^{g}_t = \zeta^{\mu}_t$
+        (Eq.~\eqref{eq:a_anchor}). On the days $j = t+1, \ldots, k-1$ there is no
+        intervention: $\mu_j \geq \mu_{j-1} + \delta\mu_j$ and $\zeta^{\mu}_j =
+        \zeta^{\mu}_{j-1} + \delta\mu_j$. So $\mu_j - \zeta^{\mu}_j$ does not
+        decrease, and $\mu_{k-1} - \zeta^{\mu}_{k-1} \geq \mu_t - \zeta^{\mu}_t =
+        g^{\mu}_{k-1} - \zeta^{g}_{k-1}$.
+\end{itemize}
+Rearranging gives $\mu_{k-1} - g^{\mu}_{k-1} \geq \zeta^{\mu}_{k-1} -
+\zeta^{g}_{k-1}$. The mean recursion is linear (Section~\ref{sec:repair_laws}); with
+an exact starting anchor, $\zeta^{\mu}$ and $\zeta^{g}$ are the true means, so
+$\rho\,(\zeta^{\mu}_{k-1} - \zeta^{g}_{k-1}) = \mathbb{E}[D^- - D^+]$.
+\end{proof}
+
+A starting anchor above the true one, which the default may be
+(Section~\ref{sec:repair_laws}), models a weaker repair. For the first repair before
+any intervention of the horizon, the charged removal then follows the starting
+anchor and may be below the true removal. From the first intervention on, the
+reference gap $\zeta^{\mu} - \zeta^{g}$ equals the true gap, the sum of the mean
+increments since that intervention, so the bound holds again.
+
+Under both laws, then, the reported repair cost $\sum C_R\, z$ is an upper bound on
+the expected repair cost of the schedule, with the exception above for a starting
+anchor above the true one. Under $\ARDone$ the tracked mean and the
+tracked anchor are both upper bounds, and their difference is still an upper bound
+on the reference difference: the anchor carries the slack that the mean had at the
+last intervention, and the slack of the mean does not decrease until the next one.
+The bound is exact when the tracked mean has no slack.
+
+% ----------------------------------------------------------------
+\subsection{Damage Regularisation}
+\label{sec:damage_reg}
+% ----------------------------------------------------------------
+
+The scalar $u \geq 0$ measures the largest damage of one train on one day, over the
+whole horizon. The objective charges $C_D\,u$ (Section~\ref{sec:objective}). The
+variable $u$ and its rows are built only when $C_D > 0$. With $C_D = 0$ they are not
+built, and the input \texttt{penalty\_type} is ignored. The input check requires
+$C_D \geq 0$ (Section~\ref{sec:consistency_checks}): a negative $C_D$ would reward
+damage.
+
+The input \texttt{penalty\_type} selects one of two forms. Both have one row per train
+and day.
+\begin{itemize}[leftmargin=1.5em]
+  \item \texttt{inf\_norm} (default), a linear row:
+        \begin{equation}
+          u \;\geq\; \sum_{\ell=1}^{L} \mu_{i\ell k} \qquad \forall\, i, k .
+          \label{eq:a_u_inf}
+        \end{equation}
+        At the optimum, $u = \max_{i,k} \sum_{\ell} \mu_{i\ell k}$.
+  \item \texttt{quadratic}, a convex quadratic row:
+        \begin{equation}
+          u \;\geq\; \sum_{\ell=1}^{L} \mu_{i\ell k}^2 \qquad \forall\, i, k .
+          \label{eq:a_u_quad}
+        \end{equation}
+        The row is a rotated second-order cone, $u \cdot 1 \geq \|\mu_{i\cdot k}\|_2^2$,
+        which Gurobi solves without the parameter \texttt{NonConvex}. It requires
+        \texttt{reliability\_impl = "exact"} at every cell
+        (Section~\ref{sec:consistency_checks}): the linear forms are chosen for a
+        model without quadratic rows, and this row is quadratic.
+\end{itemize}
+
+\emph{Role.} The term prices the worst train-level damage, so the minimisation
+spreads damage across the fleet. It also removes slack from the tracked means where
+$u$ is binding (Section~\ref{sec:encoding}). Since $\mu_{i\ell k} \geq
+\zeta^{\mu}_{i\ell k} \geq 0$ (Proposition~\ref{prop:a_domination}), both forms of $u$
+are upper bounds on the same quantity computed from the reference values.
+
+% ----------------------------------------------------------------
+\subsection{Loop Constraint}
+\label{sec:loop}
+% ----------------------------------------------------------------
+
+The schedule of the operating phase is meant to repeat without end. One hard row per
+tracked quantity and per anchor makes every repetition safe:
+\begin{equation}
+  s_{i\ell T} \;\leq\; s_{i\ell H_1}
+  \qquad \text{for every cell } (i,\ell) \text{ and every coordinate } s
+  \text{ of its full tracked state.}
+  \label{eq:a_loop}
+\end{equation}
+The rows cover every tracked quantity of the cell (the mean, and the variance, $R$
+or $K$ where the model tracks them) and, under $\ARDone$, every anchor. There is no
+soft loop penalty in the objective.
+
+\textbf{Endless schedule.} Repeat the operating phase without end: day $T + n H_2 +
+h$, for $n \geq 0$ and $1 \leq h \leq H_2$, carries the binaries of day $H_1 + h$.
+It also carries the increments of day $H_1 + h$, because the operating profile is
+read cyclically with period $H_2$ (Section~\ref{sec:input_increments}). So every
+repetition applies the same day maps $\varphi_{H_1+1}, \ldots, \varphi_T$. Write
+$\Phi_h = \varphi_{H_1+h} \circ \cdots \circ \varphi_{H_1+1}$ for the first $h$
+days of the operating phase and $\Phi = \Phi_{H_2}$ for the whole phase.
+
+\begin{theorem}[Perpetual safety]
+\label{thm:a_loop}
+Let a solution satisfy every row of the problem. Then, for every cell and every day
+$k \geq 1$ of the endless schedule, the true statistics $\theta_k$ and the reference
+values $\zeta_k$ are at most a tracked value of the horizon that lies in
+$\mathcal{C}_{i\ell}$. Therefore $\zeta_k \in \mathcal{C}_{i\ell}$ and
+$\Pr(D_{i\ell k} > \tau_{i\ell}) \leq \varepsilon_{i\ell}$ on every day $k \geq 1$.
+\end{theorem}
+\begin{proof}
+Fix a cell. Let $\xi_k$ be its tracked full state, and $\theta_k$ and $\zeta_k$ the
+true statistics and the reference trajectory of the endless schedule. By (M2) and
+Lemma~\ref{lem:a_monotone}, the induction of Proposition~\ref{prop:a_domination}
+gives $\theta_k \leq \zeta_k$ on every day $k \geq 1$.
+\begin{itemize}[nosep,leftmargin=1.5em]
+  \item Days $k \leq T$: $\zeta_k \leq \xi_k$ (Proposition~\ref{prop:a_domination})
+        and $\xi_k \in \mathcal{C}_{i\ell}$ (consequence on the horizon,
+        Section~\ref{sec:encoding}).
+  \item By Proposition~\ref{prop:a_domination} and Lemma~\ref{lem:a_monotone},
+        $\xi_{H_1+h} \geq \varphi_{H_1+h}(\xi_{H_1+h-1}) \geq \cdots \geq
+        \Phi_h(\xi_{H_1})$ for $h = 1, \ldots, H_2$. With Eq.~\eqref{eq:a_loop},
+        $\Phi(\xi_{H_1}) \leq \xi_T \leq \xi_{H_1}$.
+  \item Let $\Phi^n(\xi_{H_1}) \leq \xi_{H_1}$ (true for $n = 0$). Then
+        $\Phi^{n+1}(\xi_{H_1}) = \Phi(\Phi^n(\xi_{H_1})) \leq \Phi(\xi_{H_1}) \leq
+        \xi_{H_1}$ by Lemma~\ref{lem:a_monotone}. So $\Phi^n(\xi_{H_1}) \leq
+        \xi_{H_1}$ for every $n \geq 0$.
+  \item Day $k = H_1 + n H_2 + h$ with $n \geq 0$, $1 \leq h \leq H_2$:
+        \[
+          \zeta_k = \Phi_h\bigl(\Phi^n(\zeta_{H_1})\bigr)
+          \leq \Phi_h\bigl(\Phi^n(\xi_{H_1})\bigr)
+          \leq \Phi_h(\xi_{H_1})
+          \leq \xi_{H_1+h} \in \mathcal{C}_{i\ell}.
+        \]
+\end{itemize}
+Therefore, on every day $k \geq 1$, $\theta_k \leq \zeta_k \leq s$ for a tracked value
+$s \in \mathcal{C}_{i\ell}$. Since $\mathcal{C}_{i\ell}$ is a down-set,
+$\zeta_k \in \mathcal{C}_{i\ell}$, and (M3) gives $\Pr(D_{i\ell k} > \tau_{i\ell})
+\leq \varepsilon_{i\ell}$.
+\end{proof}
+
+The theorem holds for every model and both repair laws, because it uses only
+the facts (M1)--(M3) and Lemma~\ref{lem:a_monotone}. It holds in both encodings and
+in every reliability form. It needs no relation between $H_1$ and $H_2$: the
+transitory phase may be shorter or longer than the operating phase, because
+$H_1$ only marks the day at which the repeated block starts. Slack in the tracked
+values does not weaken it: the proof compares the reference trajectory with the
+tracked values, whatever slack they carry.
+
+\emph{Remark (why the loop row covers the full state).} The third step of the proof
+needs $\Phi(\xi_{H_1}) \leq \xi_{H_1}$ in every coordinate, anchors included.
+Example: law $\ARDone$, $\rho = 0.5$, the first phase ends at $(\mu, g) = (0.4,
+0.1)$, and the operating phase is a mission ($+0.1$), a repair, a mission
+($+0.05$). The phase ends at $(0.35, 0.3)$, since the repair gives $0.5 \cdot 0.5 +
+0.5 \cdot 0.1 = 0.3$. The row on the mean holds ($0.35 \leq 0.4$); the row on the
+anchor fails ($0.3 > 0.1$). Each repetition raises the state after the repair by
+$0.075$, so the mean grows without bound: the third repetition already peaks at
+$0.525$, above the checked peak $0.5$. A loop row on the mean alone would accept
+this unsafe schedule.
+
+\emph{Remark (no loop row on a scalar bound).} The loop row must compare the tracked
+quantities one by one. A single comparison of a scalar function of them, such as the
+failure-probability bound $U(\mu, v)$, does not chain: $U$ takes the same value at
+many states, and its level sets are not invariant under the day maps. Example
+(Cantelli, $U = v / (v + (\tau - \mu)^2)$, $\tau = 10$, $\rho = 0.5$, law
+$\ARDinf$; the operating phase is one repair day followed by mission days that add
+$3$ to the mean and $3.99$ to the variance in total): from $(\mu, v) = (4, 9)$,
+$U = 0.2000$ at the end of the first phase and $U = 0.1997$ at the end of the
+operating phase, so a scalar row would accept. The next repetition gives $U =
+0.2151 > 0.2$, and $U$ tends to $0.2495$. Eq.~\eqref{eq:a_loop} rejects the
+schedule, since the mean rises from $4$ to $5$. The loop row states an order between
+tracked quantities; it is not a stochastic order between damage laws.
+
+\begin{proposition}[Replacement under $\ARDone$]
+\label{prop:a_ard1_replacement}
+Let a cell follow $\ARDone$ with $\rho_{i\ell} < 1$, and let its train fly, in the
+operating phase, at least one mission with a positive mean increment for the cell.
+Then every feasible solution has at least one replacement of the cell in the
+operating phase.
+\end{proposition}
+\begin{proof}
+Let the cell have no replacement in the operating phase. By the anchor rows,
+$g_k = g_{k-1}$ on a day without intervention and $g_k = \mu_k$ on a repair day.
+Every day satisfies $\mu_k \geq g_k$: on an intervention day with equality, and on
+other days because $\mu$ does not decrease and $g$ stays constant (with $g_0 \leq
+\mu_0$, Section~\ref{sec:repair_laws}). On a repair day $k$ of the operating phase,
+\[
+  g_k = \mu_k \geq (1-\rho)\,\mu_{k-1} + \rho\, g_{k-1}
+  = g_{k-1} + (1-\rho)\,(\mu_{k-1} - g_{k-1}).
+\]
+So $g_T \geq g_{H_1} + (1-\rho) \sum (\mu_{k-1} - g_{k-1})$, the sum over the
+repair days of the operating phase, each term non-negative. The anchor row $g_T
+\leq g_{H_1}$ and $\rho < 1$ force every term to $0$. Then every repair day gives
+$\mu_k \geq \mu_{k-1}$, every other day gives $\mu_k \geq \mu_{k-1} + \delta\mu_k$,
+and
+\[
+  \mu_T \geq \mu_{H_1} + \textstyle\sum_{k = H_1+1}^{T} \delta\mu_k > \mu_{H_1},
+\]
+which violates the row $\mu_T \leq \mu_{H_1}$. Therefore the cell is replaced at
+least once in the operating phase.
+\end{proof}
+
+The requirement is not an artefact of the rows. Without a replacement, each repair
+leaves the share $1-\rho$ of the damage since the last intervention in place, so the
+reference mean grows without bound over the repetitions, as in the first remark
+above. With $\rho = 1$ a repair returns the state to the anchor, and no replacement
+is needed. The Wiener model needs a replacement in the operating phase for another
+reason, its variance (Section~\ref{sec:dyn_wiener}).

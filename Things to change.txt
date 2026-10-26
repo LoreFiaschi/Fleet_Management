@@ -8,9 +8,13 @@
 
 - Schedule-dependent Bernstein support
 
-- Merge the branches lore and main: implement the choices recorded in merge/decisions.md, then update scoping.tex and spec/spec.tex.
+- Merge the branches lore and main: write the choices recorded in merge/decisions.md into spec/spec.tex first, then into the code, then into scoping.tex and the README (plan: merge/documents_plan.md).
 
 - Extend the Monte Carlo replay validator (main's Gamma stochastic validator) to every degradation model.
+
+- Gamma: per-rate weights for cells whose missions have different Gamma rates, tighter than the sharp cap and still safe. First extend the sharp-cap theorem to several rate groups, then compute the weights offline (merge/decisions.md, item "Gamma formulation").
+
+- Redesign the greedy warm-start heuristic so that it gives a good starting point, not only a feasible one (merge/decisions.md, item "Warm starts").
 
 Research directions (from ASSESSMENT.md, 7 Jul 2026):
 

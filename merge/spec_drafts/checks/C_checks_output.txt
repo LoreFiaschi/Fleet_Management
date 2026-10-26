@@ -1,0 +1,94 @@
+[PASS] every key of the input tables appears exactly once  ([])
+[PASS] keys of the input tables equal the canonical set of the checker  (only in tables: []; only in checker: [])
+[PASS] keys of the rejected table equal the rejected set of the checker  (only in table: []; only in checker: [])
+input keys: 62  rejected keys: 21
+example read: 51 keys
+[PASS] example: every key is canonical  ([])
+[PASS] example: every canonical key of the key tables except the rejected ones appears or has a default
+[PASS] example passes every check
+canonical keys not used by the example: ['R_0', 'R_new', 'anchor_R_0', 'cgf_0', 'cgf_new', 'cgf_trans', 'gamma_beta_0', 'gamma_beta_trans', 'relaxation_time_limit', 'support_trans', 'v_trans']
+[PASS] negative: old key maintenance_type  (expected 'rejected key maintenance_type'; got ['rejected key maintenance_type'])
+[PASS] negative: unknown key  (expected 'unknown key foo'; got ['unknown key foo'])
+[PASS] negative: F = M  (expected 'F > M'; got ['F > M violated'])
+[PASS] negative: H1 = 0  (expected 'H must be >= 1'; got ['H must be >= 1'])
+[PASS] negative: epsilon 0.5 at Gaussian  (expected 'epsilon < 0.5'; got ['cell (1,1) gaussian: epsilon < 0.5 at gaussian/wiener'])
+[PASS] negative: epsilon = 1  (expected 'epsilon'; got ['cell (3,1) rainflow: epsilon'])
+[PASS] negative: mu_0 = tau  (expected '0 <= mu_0 < tau'; got ['cell (1,1) gaussian: 0 <= mu_0 < tau'])
+[PASS] negative: anchor above mu_0  (expected 'anchor_mu_0'; got ['cell (1,1) gaussian: anchor_mu_0 in [0, initial value]'])
+[PASS] negative: anchor_K_0 above K_0 (0.70)  (expected 'anchor_K_0'; got ['cell (3,2) rainflow: anchor_K_0 in [0, initial value]'])
+[PASS] negative: anchor above mu_0 at an IG ard1 cell  (expected 'anchor_mu_0'; got ['cell (1,2) inverse_gaussian: anchor_mu_0 in [0, initial value]'])
+[PASS] negative: tangent_ref = 1  (expected 'tangent_ref'; got ['cell (1,1) gaussian: tangent_ref in [0,1)'])
+[PASS] negative: unknown reliability_impl value at an IG cell (the value is ignored, but must be valid)  (expected 'reliability_impl value'; got ['cell (1,2) inverse_gaussian: reliability_impl value'])
+[PASS] negative: unknown reliability_impl value  (expected 'reliability_impl value'; got ['cell (2,1) wiener: reliability_impl value'])
+[PASS] negative: Popoviciu violated (support 0.01, v 1e-4 > 0.01^2/4)  (expected 'Popoviciu'; got ['cell (3,1) rainflow: Popoviciu v <= b^2/4 (j=1, k=1)', 'cell (3,1) rainflow: Popoviciu v <= b^2/4 (j=1, k=2)'])
+[PASS] negative: Bernstein precondition (support 1.5)  (expected 'Bernstein precondition'; got ['cell (3,1) rainflow: Bernstein precondition tau > 2 kappa b / 3', 'cell (3,1) rainflow: natural range of v_0'])
+[PASS] negative: Gaussian 3 sigma (v = 0.01)  (expected '3-sigma'; got ['cell (1,1) gaussian: Gaussian 3-sigma (j=1, k=1)', 'cell (1,1) gaussian: Gaussian 3-sigma (j=1, k=2)'])
+[PASS] negative: Jensen: cgf below s*mu  (expected 'Jensen'; got ['cell (3,2) rainflow: Jensen cgf >= s*mu (j=1, k=1)', 'cell (3,2) rainflow: Jensen cgf >= s*mu (j=1, k=2)'])
+[PASS] negative: s_chernoff = ln(10)  (expected 's_chernoff'; got ['cell (3,2) rainflow: anchor_K_0 in [0, initial value]', 'cell (3,2) rainflow: s_chernoff > ln(1/eps)/tau'])
+[PASS] negative: gamma_beta_0 given and not positive  (expected 'gamma_beta_0 > 0 where given'; got ['cell (2,2) gamma: gamma_beta_0 > 0 where given'])
+[PASS] negative: gamma rate zero  (expected 'gamma rate'; got ['cell (2,2) gamma: gamma rate > 0', 'cell (2,2) gamma: gamma rate > 0'])
+[PASS] negative: replacement_as_new with replacement_mu 0.02  (expected 'replacement_as_new'; got ['cell (1,1) gaussian: replacement_as_new with a non-zero replacement value', 'cell (1,2) inverse_gaussian: replacement_as_new with a non-zero replacement value'])
+[PASS] negative: transitory profile without operating profile  (expected 'needs v'; got ['v_trans needs v', 'cell (1,1) gaussian: v >= 0 and present'])
+[PASS] negative: mu = tau in a mission  (expected 'mu_inc < tau'; got ['cell (1,1) gaussian: 0 <= mu_inc < tau (j=1, k=3)', 'cell (1,1) gaussian: 0 <= mu_inc < tau (j=1, k=4)'])
+[PASS] negative: mu = 0 with v > 0  (expected 'must be 0 where mu = 0'; got ['cell (1,1) gaussian: v must be 0 where mu = 0', 'cell (1,1) gaussian: Gaussian 3-sigma (j=1, k=1)'])
+[PASS] negative: v_max_user below v_0  (expected 'v_max_user'; got ['cell (2,1) wiener: v_max_user > 0 and >= v_0'])
+[PASS] negative: quadratic penalty with tangent form  (expected 'quadratic penalty'; got ['quadratic penalty needs exact at every cell'])
+[PASS] negative: evaluation_horizon = H1  (expected 'evaluation_horizon'; got ['evaluation_horizon must exceed H1'])
+[PASS] negative: negative cost  (expected 'costs'; got ['costs must be >= 0'])
+[PASS] negative: sigma = 0  (expected 'sigma'; got ['cell (2,1) wiener: sigma > 0'])
+[PASS] negative: shape (F, M, L, H)-like mu of wrong shape  (expected 'profile shape'; got ["'mu' profile shape (2, 1) not accepted"])
+[PASS] negative: L disagrees with model  (expected 'L disagrees'; got ['L disagrees with model'])
+[PASS] negative: v_0 of the Wiener cell above V_max (0.3695 at eps 0.05)  (expected 'natural range of v_0'; got ['cell (2,1) wiener: v_max_user > 0 and >= v_0', 'cell (2,1) wiener: natural range of v_0'])
+[PASS] negative: cgf_0 above s*tau - kappa = 2.697  (expected 'natural range of cgf_0'; got ['cell (3,2) rainflow: natural range of cgf_0'])
+[PASS] negative: R_0 above 2 tau^2/kappa (Hoeffding cell)  (expected 'natural range of R_0'; got ['cell (3,1) rainflow: natural range of R_0'])
+[PASS] negative: replacement_mu above tau  (expected 'natural range of replacement_mu'; got ['cell (1,1) gaussian: natural range of replacement_mu', 'cell (1,1) gaussian: replacement state violates the reliability row'])
+[PASS] negative: Markov cell: replacement_mu 0.2 > eps*tau = 0.1  (expected 'replacement state violates'; got ['cell (3,2) rainflow: replacement state violates the reliability row'])
+[PASS] negative: Gaussian cell: replacement (0.5, 0.33) breaks (tau - mu)^2 >= z^2 v  (expected 'replacement state violates'; got ['cell (1,1) gaussian: replacement state violates the reliability row', 'cell (1,2) inverse_gaussian: replacement state violates the reliability row'])
+[PASS] negative: IG and Gamma cells: replacement_mu 0.95 above their caps  (expected 'replacement state violates'; got ['cell (1,2) inverse_gaussian: replacement state violates the reliability row', 'cell (2,2) gamma: replacement state violates the reliability row'])
+[PASS] negative: Bernstein tangent: tangent_ref 0.97 >= (tau - c)/tau = 0.9616  (expected 'Bernstein tangent'; got ['cell (3,1) rainflow: Bernstein tangent: tangent_ref * tau < tau - c'])
+[PASS] boundary accepted: Popoviciu equality: support 0.02 with v = 1e-4
+[PASS] boundary accepted: anchor_mu_0 equal to mu_0
+[PASS] boundary accepted: Chernoff and IG and Gamma cells with form tangent: the value is ignored
+[PASS] boundary accepted: quadratic penalty with tangent at linear-row cells only
+[PASS] boundary accepted: Markov cell, replacement_mu 0.05 <= eps*tau
+[PASS] boundary accepted: Bernstein tangent: tangent_ref 0.95 < 0.9616
+[PASS] boundary accepted: replacement checks skipped when allow_replacement is false
+[PASS] boundary accepted: IG cell with repair_model ardinf (the default) and no repair_model key at all
+[PASS] boundary accepted: gamma_beta_new omitted: known replacement damage
+[PASS] boundary accepted: initial values at their natural ranges: Wiener v_0 = 0.3695 (v_max_user raised)
+[PASS] boundary accepted: anchor_mu_0 = 0
+[PASS] boundary accepted: replacement_as_new with zeros
+[PASS] boundary accepted: epsilon just below 0.5 at Gaussian
+[PASS] boundary accepted: scalar H
+[PASS] boundary accepted: C_D = 0 with quadratic penalty and tangent cell (penalty ignored)
+V_max / tau^2: {0.01: 0.1848, 0.1: 0.6089, 0.3: 3.6364, 0.49: 1591.2161}
+[PASS] V_max/tau^2 = 0.18 at eps 0.01
+[PASS] V_max/tau^2 = 0.61 at eps 0.1
+[PASS] V_max/tau^2 = 3.6 at eps 0.3
+[PASS] V_max/tau^2 about 1600 at eps 0.49  (1591.2)
+[PASS] Cantelli variance cap tau^2 eps/(1-eps) is finite for eps < 1 (eps = 0.99)
+[PASS] Gaussian 3-sigma: P(X < 0) with mu = 3 sigma is about 0.13 %  (0.001350)
+[PASS] lookup H=[2,3], no transitory profile: operating entries 1,2,1,2,3  ([('op', 1), ('op', 2), ('op', 1), ('op', 2), ('op', 3)])
+[PASS] lookup H=[2,3], with transitory profile: tr 1, tr 2, op 1, 2, 3  ([('tr', 1), ('tr', 2), ('op', 1), ('op', 2), ('op', 3)])
+[PASS] lookup scalar H=3: entries 1,2,3,1,2,3  ([1, 2, 3, 1, 2, 3])
+[PASS] phase lookup equals main's make_accessor for H1, H2 in 1..6 (with and without transitory profile)
+[PASS] shape rule: a (2,2,2) array with F=L=M=H=2 is read as (L, M, H)
+[PASS] anchor example: mu_0=0.5, rho=0.5, anchor 0 -> 0.25
+[PASS] anchor example: anchor 0.5 -> state stays 0.5
+[PASS] Popoviciu: Var <= w^2/4 for 20000 random laws (largest ratio 1.0000)
+[PASS] Popoviciu boundary: two-point law on {0, 0.2}: mean 0.1, variance 0.01 = 0.2^2/4
+[PASS] a width w with range starting at 0.5: mean 0.6 > w, v = 0.01 > mu (w - mu) < 0 (so v <= mu(b - mu) is not necessary)
+[PASS] Jensen: CGF(5) of the two-point law is 1.886 and >= s*mean = 1.25
+[PASS] example Bernstein cell: 2 kappa b / 3 = 0.0768 < tau = 1 (b = 0.05)
+[PASS] example Chernoff cell: s = 5 > ln(10)/1 = 2.303
+[PASS] example Chernoff cell: K_0 = 5 * 0.14 = 0.70 and anchor 0.50 <= 0.70
+[PASS] cost report: evaluation_total objective = projected_evaluation_cost + damage_penalty
+[PASS] cost report: E = T gives projected = J_init + J_op when H2 = T - H1
+[PASS] IG cap tau/E[Z | Z > q] (eta 0.15, eps 0.05): quadrature 0.4923, Monte Carlo 0.4925
+[PASS] Gamma exact one-rate cap (beta* tau = 20, eps 0.05): shape A = 13.454, P(Gamma(A,1) > 20) = 0.0500
+[PASS] example: replacement_mu 0.02 below the IG cap 0.492 and the Gamma cap 0.673
+natural ranges in the example: V_max (eps 0.05) = 0.3696, V^B = 0.2005, K range = 2.6974
+[PASS] z after the solve, ard1: rho (mu - g) = mu - mu_after
+[PASS] z after the solve, ardinf (g = 0): rho mu = mu - (1 - rho) mu
+
+FAILURES: none

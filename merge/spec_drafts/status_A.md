@@ -1,0 +1,209 @@
+# Writer A: status
+
+Status: done, corrections of the coordinator applied (26 Oct 2026). `fragments_A.tex` has 1177 lines. Build: 0 errors,
+0 overfull boxes, 0 duplicate labels, no `Float too large`; every own label resolves; the only undefined references
+are labels of writers B, C and D (now including B's `eq:w_vrow`). Checks `A_encoding_loop.py` (now 8 checks),
+`A_linear_forms.py`, `A_repair_cost.py` pass. Next (for Claude): the open questions below.
+
+## Corrections applied (coordinator's message, 26 Oct 2026; `decisions.md`, "Follow-up decisions")
+
+1. IG accepts ARD1: `tab:a_laws` row changed (reason: the cap holds for any repair weights and any dependence);
+   "Every model accepts both laws" in `sec:repair_laws` and in the overview; no other sentence said "ARD∞ only".
+2. Default `repair_model = ardinf`: stated in `sec:repair_laws` and the overview. Proposition
+   `prop:a_ard1_replacement` kept.
+3. `reliability_impl` at a linear row: built in exact form, value ignored; unknown value an error at every cell
+   (`sec:linear_forms`). Also added: the Bernstein tangent point must satisfy `mu_r < tau - c` (input check).
+4. Wiener variance: repair map `psi = s_{k-1}` (factor a = 1), no anchor; in the big-M form the single row
+   `eq:w_vrow` may replace the two rows (`sec:encoding`, common rules; `sec:repair_laws`, anchors; variables table).
+   The phrase "no repair map" is gone everywhere.
+5. Premise of domination: the conditions are now named (M1)-(M3), as in B's sections. (M2) reads "on day 0 the true
+   statistics are at most the initial values and starting anchors; on every later day the true statistic is at most
+   the day map applied to the true statistics of the day before" (equality except K). `prop:a_domination` now proves
+   `theta_k <= zeta_k <= xi_k`; `thm:a_loop` and the consequence on the horizon use (M3) on the true statistics.
+   Checked by check 8 of `A_encoding_loop.py` (3000 random schedules, 31 repetitions, true statistics reduced at
+   random below the map). This also covers a starting anchor above the true one.
+6. Natural ranges: the validity remark and `sec:replacement` cite `sec:consistency_checks` for the range checks
+   (initial values, starting anchors, replacement values) and for the replacement state satisfying the row. The
+   natural ranges of rainflow quantities are now named as in B: `V^C`, `V^B`, `2 tau²/kappa` for R, `s tau - kappa`
+   for K (also in the notation table).
+7. A consequence of (M2) found while revising `prop:a_repair_cost`: with a starting anchor above the true one (the
+   default may be), the first repair before any intervention is charged for less than the true removal; from the
+   first intervention on, the reference gap equals the true gap and the bound holds. The text says so; the
+   proposition now assumes an exact starting anchor for its last sentence. My earlier status claim "z is an upper
+   bound under both laws" holds with this exception.
+8. Table of B's rows checked against `fragments_B.tex` (as of this revision): Gaussian/Wiener, IG cap, Gamma cap,
+   Markov, Cantelli, Hoeffding, Bernstein, Chernoff rows all match my chance-bound table; the constants of
+   `tab:a_quad` match B's `f` (Cantelli `eps/(1-eps)`, Hoeffding `2/kappa`, Bernstein `1/(2 kappa)` and `-b/3`). Gamma
+   `beta*` aligned to B's definition (smallest rate among the terms with a positive mean).
+
+## Mismatches in writer B's text (for Claude; my text is unchanged on these)
+
+- B writes the capped quantity of a quadratic row as `Q_k` (rainflow "Linear forms" paragraph and table header
+  `Q`); I use `chi`, because `Q(a, x)` is the regularised gamma function of the Gamma section (conventions.md). One
+  symbol should be chosen; I suggest `chi` in B's rainflow paragraph and table.
+- B uses `z = Phi^{-1}(1-eps)` in the Gaussian and Wiener sections, while `z_{ilk}` is the repair-cost variable of
+  `sec:repair_cost`. Inside B's sections the meaning is clear, but the full problem (Claude's section) contains both.
+- B's IG section names the conditional tail mean `C = E[Z | Z > q]`; I use calligraphic `\mathcal{C}_{il}` for the
+  certificate set and `C_M`, `C_R`, `C_D` for costs. No clash in the formulas, only in reading.
+
+## Blocks of `fragments_A.tex`
+
+- Block 1 (start of file): Project Overview & Goals; Index Sets and Notation.
+- `% ==== BLOCK 1B ====`: Decision Variables; Objective Function; Constraints with Assignment, Depot-Day
+  Compatibility, Repair Laws, Encoding of the Dynamics, Replacement, Linear Forms. Placed after writer C's Input
+  Specification (conventions.md, order table). The brief calls Block 1 everything up to Linear Forms; the input
+  section lies in between, so a separator is needed.
+- `% ==== BLOCK 2 ====`: Repair Cost Variable; Damage Regularisation; Loop Constraint. Placed after the model sections.
+- Own labels: sections as in conventions.md; equations `eq:a_*`; also `def:a_laws`, `lem:a_monotone`,
+  `prop:a_domination`, `prop:a_accept`, `prop:a_tangent`, `prop:a_repair_cost`, `prop:a_ard1_replacement`,
+  `thm:a_loop`, `tab:a_laws`, `tab:a_quad`. Writer B can cite the generic rows `eq:a_bigm_carry`,
+  `eq:a_bigm_repair`, `eq:a_bigm_repl`, `eq:a_bigm_anchor`, `eq:a_ind_state`, `eq:a_ind_anchor`, the repair map
+  `eq:a_psi`, the anchor recursion `eq:a_anchor`, the quadratic form `eq:a_quad`, `eq:a_tangent`, the loop row
+  `eq:a_loop`, and the conditions (S1)-(S3) of `sec:encoding`.
+
+## Checklist of decision bullets (items of `merge/decisions.md` owned by writer A)
+
+- [x] General rules for the merge: no useless variables or rows (`sec:variables` first paragraph; `u` in
+      `sec:damage_reg`; `z` in `sec:repair_cost`); spec authoritative (`sec:overview`, "Authority").
+- [x] Anchor of the repair law: anchor = value just after the last intervention (`sec:repair_laws`, Eq.
+      `eq:a_anchor`, example 0.6/0.2/0.5); repair-cost row with the anchor of day k-1 (`eq:a_z`). The open item is
+      Claude's section.
+- [x] Starting value of the anchor: `g_0` from `anchor_*_0`, default the initial value, `0 <= g_0 <= s_0`, remark with
+      the reason and the example `mu_0 = 0.5` (`sec:repair_laws`).
+- [x] Source of truth: `sec:overview`, "Authority".
+- [x] Code base of the merge: `sec:overview`, "Scope of the package" (solve, sweeps, warm starts, plot, validation,
+      formats).
+- [x] Meaning of `H: [a, b]`: notation table (H, H1, H2, T, phases); loop row `eq:a_loop`; endless schedule and the
+      paragraph after Theorem `thm:a_loop` (no relation between H1 and H2 needed).
+- [x] Set of degradation models: `sec:overview` list of five models, rainflow with five bounds.
+- [x] Names and set of repair laws: Definition `def:a_laws` with the citations and the analogy; Table `tab:a_laws`.
+- [x] Encoding of the dynamics: both forms (`eq:a_bigm_*`, `eq:a_ind_*`), natural ranges, big-M validity, default
+      choice; safety for every model and both laws (Lemma, Proposition domination, Theorem `thm:a_loop`); the answer
+      to the user's condition (list "What the one-sided rows accept", Proposition `prop:a_accept`, both worked
+      examples); the meaning of reported states and costs.
+- [x] States covered by the loop constraint: `eq:a_loop`, every quantity and every anchor; remark with the
+      full-state example; warning against a scalar-bound loop row.
+- [x] Replacement (common part): `sec:replacement` (`allow_replacement`, input values default 0,
+      `replacement_as_new`).
+- [x] Repair cost on replacement days: `sec:repair_cost`, "Replacement days".
+- [x] Depot days, idle days, meaning of `C_M`: `sec:assignment` (idle days), `sec:depot`, `sec:objective`
+      (cost terms).
+- [x] Cost shapes and objective terms: objective with the three modes (`eq:a_objective`), both penalty types
+      (`sec:damage_reg`); the shapes are writer C's (referenced as `sec:inputs`).
+- [x] Linear forms of the reliability rows: three forms, tangent formula, Proposition `prop:a_tangent`, pwl encoding
+      (`eq:a_pwl_*`), accuracy remark, worked example.
+- [x] Input checks: `C_D >= 0` and the conditional construction of `u` (`sec:damage_reg`).
+
+## Facts from the code (file and line)
+
+- Objective modes: main:src/fleet_management/degradation_model/base.py:1735-1811 (`build_objective`). Per-day cost
+  summed over all steps (`J_additive`); operating cost over steps `k >= H1` (0-based), line 1762; `total` line 1768;
+  `operating_average = J_op/H2 + C_D·u` lines 1770-1771; `evaluation_total = J_init + ((E - H1)/H2)·J_op + C_D·u`,
+  lines 1772-1788, error if `E` missing or `E <= H1` (lines 1774-1780). `C_D·u` added once, not scaled.
+- pwl encoding: main:src/fleet_management/degradation_model/rainflow.py:485-523 (`_rel_quadratic_pwl`): breakpoints
+  `linspace(0, tau, K+1)`; one binary per segment and step, sum 1; indicator rows for segment membership and for the
+  tangent at the segment midpoint; `pwl_points == 1` gives one midpoint tangent with no binaries. Tangent helper
+  lines 399-412; cap coefficients lines 385-396 (`Q <= c2·d² + c1·d`, `d = tau - mu`: Cantelli `eps/(1-eps)`, 0;
+  Hoeffding `2/Le`, 0; Bernstein `1/(2·Le)`, `-b/3`). Tangent point `clip(tangent_ref, 0, 1)·tau`, line 478.
+- Shared mean variable `mu` in `[0, tau]` for every cell, and `z` in `[0, tau]`: main:.../base.py:1636-1659.
+- Operating profile read at `(k - H1) mod H2` (0-based k): main:.../base.py:1291-1304 (`make_accessor`). So every
+  repetition of the operating phase reads the same entries (used in Theorem `thm:a_loop`).
+- Horizon parser: main:src/fleet_management/config.py:149-160 (scalar `H` gives `H1 = H2 = H`).
+- Public functions on main: main:src/fleet_management/__init__.py (solve, sweeps, plotters, validators); the
+  overview names only `solve` and points to D's sections for the rest.
+- lore's shared rows (assignment, depot gating, McCormick `z`, loop helper, damage rows):
+  lore:src/fleet_management/models/base.py:34-118.
+
+## Spot checks
+
+- `checks/A_encoding_loop.py` (output `A_encoding_loop_output.txt`), all pass:
+  1. Domination (`prop:a_domination`) and chaining (`thm:a_loop`): 3000 random schedules, both laws, random slack;
+     489 satisfy the loop row; over 30 repetitions the reference never exceeds the tracked operating values.
+  2. Example "one quantity": trajectory 0.1, 0.3, 0.15, 0.35, 0.175; fixed point 0.2, peak 0.4; removals
+     0.15, 0.175, 0.1875 toward 0.2.
+  3. Example "two quantities": safe (all peaks pass Cantelli); later peaks: mean <= 0.55, variance < 0.012;
+     `y_v >= 0.003`; tracked peak fails; exact image (0.35, 0.00225).
+  4. Full-state loop remark: phase ends at (0.35, 0.3); peaks 0.5, 0.45, 0.525, 0.6; +0.075 per repetition.
+  5. Scalar-bound remark: U = 0.2, 0.1997, 0.2151; limit 0.2495.
+  6. `prop:a_ard1_replacement`: 3000 random ARD1 cycles without replacement, random slack: the loop rows fail in
+     all 3000; boundary case `rho = 1` gives a periodic cycle without replacement.
+  7. Big-M validity: relaxed rows cut no point of `[0, M]` (20000 random points).
+- `checks/A_linear_forms.py` (output `A_linear_forms_output.txt`), all pass: `prop:a_tangent` identity and sign for
+  the four rows (random points; boundary `mu_r = 0`); pwl loss at most `c2·tau²/(4P²)` and the segment tangent equal
+  to the best tangent; Cantelli example 0.8103 / 0.4820 / 0.7140 / 0.8102 (pwl, P = 8) and 0.5 at `v = 0`;
+  boundary `tangent_ref = 1` gives `chi <= 0`.
+- `checks/A_repair_cost.py` (output `A_repair_cost_output.txt`), all pass: `prop:a_repair_cost` on 13570 repair days
+  with random slack, both laws (max excess of the reference over `z` is 3e-17, rounding); boundary zero slack gives
+  equality; anchor example (0.4, 0.4); starting-anchor example 0.25 / 0.5.
+- Not a proposition, no script: the depot-row remark (convex hull of four binary points; a tetrahedron with integer
+  vertices) and the objective example (weights 36 and 1/10).
+
+## Questions for Claude
+
+State after the coordinator's message (26 Oct 2026): 1 told to the user (default `ardinf` decided); 2, 5, 7, 8, 9,
+10 and 14 confirmed as written; 3 settled (writer C checks the ranges and the replacement state); 4 answered by
+B's (M1)-(M3); 6 settled and applied. No question is open on my side.
+
+1. **New consequence of the decided loop row: every ARD1 cell with `rho < 1` needs a replacement in the operating
+   phase** (Proposition `prop:a_ard1_replacement`, proved and checked). Reason: under ARD1 the anchor never falls
+   without a replacement, and every repair with a positive gap raises it; the loop row on the anchor then forbids
+   any mean damage in the operating phase. This is not an artefact: without a replacement the reference mean grows
+   without bound over the repetitions. It holds for Gaussian, Wiener, Gamma and rainflow cells under ARD1, like the
+   Wiener variance restriction. The user may want to know this before the code is written. Writer B's model notes
+   should not contradict it. I added it to the overview and to `sec:replacement`.
+2. **Proposition `prop:a_accept` (b) needs the hypothesis "not replaced on day H1"**. The decisions' claim "with one
+   tracked quantity and the whole-state law, it rejects none" is false when day `H1` is a replacement day of the
+   cell: the replacement row pins the tracked state to `s_new`, so no slack `y > s̄` is available, and a safe
+   schedule with `Phi(s̄) > s̄` is rejected (by equality rows too). The spec states the claim with this hypothesis.
+3. **Requirement on the consistency checks (writer C)**: the big-M rows are valid only if every initial value,
+   starting anchor and replacement value lies in `[0, M_s]` (`M_s` the natural range: `tau`, `V_max`, the rainflow
+   variance cap, the ranges of `R` and `K`). For the mean `mu_0 < tau` exists; please make sure C's checks also
+   bound `v_0`, `replacement_v`, `R_0`, `R_new`, `cgf_0`, `cgf_new`, `replacement_mu` by their ranges. A value above
+   its range makes the relaxed replacement row `s >= s_new - M_s` cut feasible points. My text cites
+   `sec:consistency_checks` for this (`sec:encoding`, validity remark; `sec:replacement`).
+4. **Obligations on writer B** stated in `sec:encoding`: each model section must show condition (S3) (the
+   certificate at the reference values bounds the failure probability), give the repair factor and the natural
+   range of each tracked quantity, and keep its reliability row in the chance-bound form listed in my table
+   (non-decreasing in each tracked quantity). The table also restates B's rows (Gaussian, IG cap, Gamma cap, the five
+   bounds); please check them against B's text, in particular Hoeffding `mu + sqrt(kappa·R/2) <= tau` and the Gamma
+   cap `mu <= A_1(beta*·tau, eps)/beta*`.
+5. **`z` in the mode `operating_average`.** In that mode the transitory costs have coefficient 0 in the objective.
+   By the decided general rule ("no useless variables or rows"), `z` and its rows are then not built on transitory
+   days; I wrote the spec this way (`sec:repair_cost`, `sec:variables`). Consequence for writer C's output: the
+   transitory repair cost cannot be read from `z` in that mode; it can be computed after the solve as
+   `rho·(mu[k-1] - g[k-1])` on repair days, which is the optimal value of `z`. Please confirm, or ask the user.
+6. **`reliability_impl` at linear rows.** Settled by Claude (26 Oct 2026): built in exact form, value ignored;
+   unknown value an error everywhere. Applied.
+7. **pwl rows are indicator constraints in both encodings** (as on main). The `encoding` flag is decided for the
+   dynamics rows only; I did not extend it to the pwl rows, where a big-M form would need a bound on the tangent
+   values. Confirm.
+8. **`replacement_as_new` for every model.** On main it applies to rainflow cells. The decision keeps it as a
+   shortcut for "new part, all zeros" and puts the replacement state "for every model"; I wrote it for every model.
+9. **LaTeX: a text-mode section sign `\S` breaks the build** with this preamble ("pdfTeX error (font expansion):
+   auto expansion is only possible with scalable fonts"), whenever microtype stretches its line. The conventions
+   prescribe `\cite[\S3.1, eq.~(4)]{mercier2019}`. I wrote `\cite[$\S$3.1, eq.~(4)]{mercier2019}`, which builds and
+   prints the same. Other writers may hit the same error.
+10. **Uncited facts about Gurobi.** The remark "choice of the default form" (`sec:encoding`) states Gurobi's default
+    `IntFeasTol = 1e-5` and that indicator constraints usually take more solve time, from the Gurobi manual as
+    recorded in `decisions.md` (item "Encoding of the dynamics"). The conventions forbid other citations, so the
+    remark has none.
+11. **Repair cost: it is an upper bound under both laws** (Proposition `prop:a_repair_cost`; the brief asked to say
+    so plainly if it were not). Under ARD1 the difference of the two upper bounds is still an upper bound, because
+    the anchor carries the slack that the mean had at the last intervention, and the slack of the mean does not
+    decrease between interventions.
+12. **pwl and the union of tangents (a finding, no action).** Main's segment-membership rows lose nothing: with equal
+    segments and tangent points at the midpoints, the active tangent is the one nearest to `mu`, so the pwl set
+    equals `chi <= max_p t_p(mu)`, the largest set the P tangents allow (checked in `A_linear_forms.py`).
+13. **Size.** 1140 lines against the brief's estimate of about 900. The excess is the proofs and examples that the
+    brief asks for (Lemma, three propositions, the theorem, the ARD1 replacement proposition, four worked examples).
+    No content is duplicated across my sections; the overview and the notation table could be shortened if needed.
+14. **Symbol choices** (not fixed by conventions.md): `chi` for the quantity capped by a quadratic row (`v` or `R`;
+    `Q` is the Gamma function), `w_{ilkp}` and `P` for the pwl segments, `xi`/`zeta` for the tracked and reference
+    full states, `phi_k`/`Phi`/`Phi_h` for day maps, `\mathcal{C}_{il}` for the certificate set, `E` for the
+    evaluation horizon.
+
+## Note on working rules
+
+- During the layout check I removed my own rendered page images in the scratchpad with `rm` before re-rendering
+  (scratchpad only, files I had just written). No file of the repository was deleted or modified outside
+  `merge/spec_drafts/`.

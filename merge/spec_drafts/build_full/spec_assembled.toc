@@ -1,0 +1,81 @@
+\contentsline {section}{\numberline {1}Project Overview \& Goals}{3}{section.1}%
+\contentsline {section}{\numberline {2}Index Sets and Notation}{4}{section.2}%
+\contentsline {section}{\numberline {3}Input Specification}{5}{section.3}%
+\contentsline {subsection}{\numberline {3.1}Sizes and Horizon}{5}{subsection.3.1}%
+\contentsline {subsection}{\numberline {3.2}Selectors}{6}{subsection.3.2}%
+\contentsline {subsection}{\numberline {3.3}Reliability}{6}{subsection.3.3}%
+\contentsline {subsection}{\numberline {3.4}Repair and Starting Anchors}{7}{subsection.3.4}%
+\contentsline {subsection}{\numberline {3.5}Initial State}{7}{subsection.3.5}%
+\contentsline {subsection}{\numberline {3.6}Replacement}{8}{subsection.3.6}%
+\contentsline {subsection}{\numberline {3.7}Increment Profiles and the Phase Lookup}{8}{subsection.3.7}%
+\contentsline {subsection}{\numberline {3.8}Model Constants}{9}{subsection.3.8}%
+\contentsline {subsection}{\numberline {3.9}Costs and Objective}{10}{subsection.3.9}%
+\contentsline {subsection}{\numberline {3.10}Run Options}{11}{subsection.3.10}%
+\contentsline {subsection}{\numberline {3.11}Rejected Keys}{12}{subsection.3.11}%
+\contentsline {subsection}{\numberline {3.12}Consistency Checks}{12}{subsection.3.12}%
+\contentsline {section}{\numberline {4}Decision Variables}{15}{section.4}%
+\contentsline {section}{\numberline {5}Objective Function}{16}{section.5}%
+\contentsline {section}{\numberline {6}Constraints}{17}{section.6}%
+\contentsline {subsection}{\numberline {6.1}Assignment Constraints}{17}{subsection.6.1}%
+\contentsline {subsection}{\numberline {6.2}Depot-Day Compatibility}{17}{subsection.6.2}%
+\contentsline {subsection}{\numberline {6.3}Repair Laws}{18}{subsection.6.3}%
+\contentsline {subsection}{\numberline {6.4}Encoding of the Dynamics}{19}{subsection.6.4}%
+\contentsline {subsubsection}{\numberline {6.4.1}Safety of the one-sided rows}{20}{subsubsection.6.4.1}%
+\contentsline {subsection}{\numberline {6.5}Replacement}{23}{subsection.6.5}%
+\contentsline {subsection}{\numberline {6.6}Linear Forms of the Reliability Rows}{23}{subsection.6.6}%
+\contentsline {subsection}{\numberline {6.7}Gaussian Model}{25}{subsection.6.7}%
+\contentsline {subsubsection}{\numberline {6.7.1}Reliability row}{26}{subsubsection.6.7.1}%
+\contentsline {subsection}{\numberline {6.8}Inverse Gaussian Model}{26}{subsection.6.8}%
+\contentsline {subsubsection}{\numberline {6.8.1}Reliability row}{27}{subsubsection.6.8.1}%
+\contentsline {subsection}{\numberline {6.9}Wiener Model}{28}{subsection.6.9}%
+\contentsline {subsubsection}{\numberline {6.9.1}Reliability row}{29}{subsubsection.6.9.1}%
+\contentsline {subsection}{\numberline {6.10}Gamma Model}{30}{subsection.6.10}%
+\contentsline {subsubsection}{\numberline {6.10.1}Class of true states}{30}{subsubsection.6.10.1}%
+\contentsline {subsubsection}{\numberline {6.10.2}The largest tail at a given mean}{31}{subsubsection.6.10.2}%
+\contentsline {subsubsection}{\numberline {6.10.3}Reliability row}{32}{subsubsection.6.10.3}%
+\contentsline {subsection}{\numberline {6.11}Rainflow Model}{34}{subsection.6.11}%
+\contentsline {subsubsection}{\numberline {6.11.1}Day maps}{35}{subsubsection.6.11.1}%
+\contentsline {subsubsection}{\numberline {6.11.2}Starting and replacement values}{35}{subsubsection.6.11.2}%
+\contentsline {subsubsection}{\numberline {6.11.3}Rows of the dynamics}{36}{subsubsection.6.11.3}%
+\contentsline {subsubsection}{\numberline {6.11.4}Reliability rows}{36}{subsubsection.6.11.4}%
+\contentsline {subsection}{\numberline {6.12}Repair Cost Variable}{38}{subsection.6.12}%
+\contentsline {subsection}{\numberline {6.13}Damage Regularisation}{39}{subsection.6.13}%
+\contentsline {subsection}{\numberline {6.14}Loop Constraint}{39}{subsection.6.14}%
+\contentsline {section}{\numberline {7}Full Optimization Problem}{41}{section.7}%
+\contentsline {section}{\numberline {8}Output Specification}{42}{section.8}%
+\contentsline {subsection}{\numberline {8.1}Result Dictionary}{42}{subsection.8.1}%
+\contentsline {subsection}{\numberline {8.2}Rules for the Values}{43}{subsection.8.2}%
+\contentsline {subsection}{\numberline {8.3}Reports}{44}{subsection.8.3}%
+\contentsline {subsection}{\numberline {8.4}Result Files}{45}{subsection.8.4}%
+\contentsline {section}{\numberline {9}Horizon Sweeps}{45}{section.9}%
+\contentsline {subsection}{\numberline {9.1}Cost Measures and the Ranking Criteria}{45}{subsection.9.1}%
+\contentsline {subsection}{\numberline {9.2}\texttt {sweep\textunderscore \allowbreak {}operating\textunderscore \allowbreak {}horizons}}{46}{subsection.9.2}%
+\contentsline {subsection}{\numberline {9.3}Early Stop}{47}{subsection.9.3}%
+\contentsline {subsection}{\numberline {9.4}Report, Checkpoint and Errors}{48}{subsection.9.4}%
+\contentsline {subsection}{\numberline {9.5}Parallel Cases}{49}{subsection.9.5}%
+\contentsline {subsection}{\numberline {9.6}\texttt {sweep\textunderscore \allowbreak {}horizon\textunderscore \allowbreak {}grid}}{49}{subsection.9.6}%
+\contentsline {section}{\numberline {10}Warm Starts}{50}{section.10}%
+\contentsline {subsection}{\numberline {10.1}Interface}{50}{subsection.10.1}%
+\contentsline {subsection}{\numberline {10.2}Day Mapping}{51}{subsection.10.2}%
+\contentsline {subsection}{\numberline {10.3}Start, Hints and Completion}{51}{subsection.10.3}%
+\contentsline {subsection}{\numberline {10.4}Relaxation Start}{52}{subsection.10.4}%
+\contentsline {subsection}{\numberline {10.5}Warm-Start Reports}{52}{subsection.10.5}%
+\contentsline {subsection}{\numberline {10.6}Warm Starts in Sweeps}{52}{subsection.10.6}%
+\contentsline {subsection}{\numberline {10.7}Greedy Heuristic}{52}{subsection.10.7}%
+\contentsline {section}{\numberline {11}File \& Folder Structure}{54}{section.11}%
+\contentsline {subsection}{\numberline {11.1}Public API}{55}{subsection.11.1}%
+\contentsline {subsection}{\numberline {11.2}Cell-Builder Interface}{55}{subsection.11.2}%
+\contentsline {subsection}{\numberline {11.3}Plotting API and Layout}{56}{subsection.11.3}%
+\contentsline {subsubsection}{\numberline {11.3.1}Plot Layout}{57}{subsubsection.11.3.1}%
+\contentsline {section}{\numberline {12}Validation Tools}{58}{section.12}%
+\contentsline {subsection}{\numberline {12.1}Structural Validator}{58}{subsection.12.1}%
+\contentsline {subsection}{\numberline {12.2}Dashboards}{59}{subsection.12.2}%
+\contentsline {subsection}{\numberline {12.3}Validators of the Gamma Model}{60}{subsection.12.3}%
+\contentsline {section}{\numberline {13}Input File Schema}{62}{section.13}%
+\contentsline {subsection}{\numberline {13.1}Format Rules}{62}{subsection.13.1}%
+\contentsline {subsection}{\numberline {13.2}HDF5 Layout}{63}{subsection.13.2}%
+\contentsline {subsection}{\numberline {13.3}Keys by Cell Type}{63}{subsection.13.3}%
+\contentsline {subsection}{\numberline {13.4}YAML Example (Mixed Models)}{64}{subsection.13.4}%
+\contentsline {section}{\numberline {14}Open Questions}{66}{section.14}%
+\contentsline {section}{\numberline {15}Changelog}{67}{section.15}%
+\contentsline {section}{References}{68}{section.15}%

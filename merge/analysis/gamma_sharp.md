@@ -1,9 +1,8 @@
 # Gamma: the sharp safe cap over the class of weighted Gamma sums
 
-Status: done: all computations for T1 to T4 (scripts run, outputs saved). In progress: the write-up;
-T1 is written below in full draft form, T2 to T4 are written as drafts with all numbers. Next: re-read
-the draft against the outputs in `scripts/gamma_sharp/`, tighten it to about 220 lines, set Status to done.
-Paused on 26 Oct 2026 at the coordinator's request.
+Status: done (26 Oct 2026). T1 to T4 computed by an agent; every number and the proof of Statement 2
+checked by Claude (section "Check by Claude"). U is a published theorem (T4), so Statement 2 holds with no
+assumption.
 
 All derivations, proofs, counterexamples and numbers in this file are Claude's own (26 Oct 2026).
 No literature was read for it. Symbols as in `gamma.md`.
@@ -22,8 +21,11 @@ No literature was read for it. Symbols as in `gamma.md`.
 - **One-term cap** `A_1(t, eps) = sup{A < t : max over c ∈ (0, 1] of Q(A/c, t/c) <= eps}`.
 - **Threshold** `t1(eps)`: the root in `t` of `g(t) = t·f_A(t) - A·∂Q/∂a(A, t)`, with `A = A_hat(t, eps)`.
   `g = d/dc Q(A/c, t/c)` at `c = 1`.
-- **Assumption U** (labelled; not proven here): every finite sum of independent Gamma variables (any
-  shapes, any rates) has a unimodal density on `(0, ∞)`. See T4.
+- **U**: every finite sum of independent Gamma variables (any shapes, any rates) has a unimodal density
+  on `(0, ∞)`. **A published theorem**: Roosta-Khorasani and Székely (2015, *Metrika* 78; arXiv 1601.04731,
+  Theorem 4, p. 11), proved as in Székely and Bakirov (2003, proof of Theorem 4, pp. 194-195) through
+  Yamazato (1978). So every statement below marked "under U" holds with no assumption. See T4 and
+  `gamma_unimodal.md`.
 
 ## T1. Is the single Gamma the worst case at the cap?
 
@@ -150,34 +152,59 @@ Source: `t2_table.py` (output `t2_output.txt`).
   - `A_cap = A_hat(b·tau, eps)` when `b·tau >= t1(eps)`; `A_1 < A_hat` below it (T2 table);
   - row on every day `k`: `A_k <= A_cap`. One row per cell and day, as `lore`'s row `alpha <= alpha_hat`.
     No new variables, no binaries; `F·L·2H` rows in total, the same count as `lore`.
-  - Without Assumption U: `A_cap = A_icx` everywhere (S5), same rows.
+  - `A_icx` (S5) is the fallback that needs no Statement 2; U holds (T4), so the fallback is not needed.
 - **Caveat.** The class `C(b, m)` is larger than the set of states a schedule can reach: a reachable
   state also satisfied the cap on every earlier day. So `A_1` is safe, but may be conservative below
   `t1`. Not studied.
 
 ## T4. Theorems relied on (draft)
 
-- **Assumption U** (not read, labelled). It would follow from two results in the literature:
-  every self-decomposable law is unimodal (Yamazato, 1978); and a law on `[0, ∞)` whose Lévy density is
-  `k(y)/y` with `k` nonincreasing is self-decomposable. Each member has `k(y) = Σ a_i e^(-y/c_i)`,
-  nonincreasing. Neither source was read; another agent reads the literature.
+- **U is a published theorem** (another agent, 26 Oct 2026, `gamma_unimodal.md`; Claude checked the
+  statement on p. 11 of arXiv 1601.04731 and the proof on pp. 194-195 of Székely and Bakirov 2003):
+  - Roosta-Khorasani and Székely (2015), Theorem 4: the density of `Σ λ_i X_i`, `X_i ~ Gamma(α_i, β_i)`
+    independent, any `α_i, β_i > 0`, `λ_i >= 0`, is unimodal. Read in full by the agent.
+  - Its proof (Székely and Bakirov 2003, proof of Theorem 4): every Gamma law is self-decomposable (class
+    L); class L is closed under independent linear combinations; every class-L law is unimodal (Yamazato
+    1978, Theorem 1; only p. 523 read by the agent, the rest is behind a login).
+  - A drift `δ` shifts the law and keeps it unimodal.
 - **Standard facts used without proof:** compactness of a closed bounded parameter set; the Lévy density
   `a·e^(-ry)/y` of `Gamma(a, r)`; dominated convergence; Rolle's theorem; analyticity of a Laplace transform.
 - **Proven here:** the first-order rate (Statement 1a), the single crossing (1c), the running-average
   lemma (P3), the zero count for Laplace transforms (P4), the reduction (Statement 2).
 - **Not used:** Diaconis-Perlman 1990, Székely-Bakirov 2003, Roosta-Khorasani-Székely-Ascher 2015.
 
-## Resume here
+## Check by Claude (26 Oct 2026)
 
-- T1 to T4: all numbers are computed and recorded above. Nothing needs to be recomputed.
-- Remaining work: editing only.
-  1. Re-read each statement against its output file in `scripts/gamma_sharp/`.
-  2. Shorten to about 220 lines (merge the witness table and the T2 table where they overlap).
-  3. Keep the labels: Statement 2 and the cap `A_1` are conditional on Assumption U; the range above
-     `t1` is a grid check up to `b·t = 1000`, not a proof for every `t`.
-  4. Set `Status:` to done and send the final reply (at most 35 lines: verdicts, T2 table, notes path).
-- Optional, if time allows: a numerical check of the scale-derivative rate `m_i·∂φ_S/∂c` on a two-term
-  member (only the single-Gamma case is checked, in `t1c_one_term.py`, part e).
+- **Numbers: all reproduced** by independent code, `scripts/verify_gamma_sharp/check.py` (output
+  `check_output.txt`). It shares no code with `scripts/gamma_sharp/`: its own incomplete gamma (series and
+  continued fraction), its own searches.
+  - `A_hat`: the 21 values of the T2 table, 5 digits.
+  - `t1(eps)`: 0.43614, 0.44839, 0.61422, and 0.43495 at `eps = 1e-4`. Found by a finite difference of
+    `Q(A_hat/c, t/c)` in `c` at `c = 1`, not by the formula of `g`: an independent route.
+  - The 16 witnesses of Statement 1d: `c*` to 4 digits, tail / `eps` to 6 digits.
+  - `A_1/A_hat` and `A_icx/A_hat`: the 42 values of the T2 table, 4 digits.
+  - Above `t1`: 121 values of `t` on a log grid in `[t1, 1000]`, 401 values of `c` in `[1e-4, 1]` plus a
+    refinement. No `c < 1` gives a larger tail than `c = 1`; the slope at `c = 1` is positive everywhere.
+- **Proof of Statement 2: checked step by step; correct.** Points made explicit:
+  - The rate formulas of Statement 1a hold for every member, not only the single Gamma. For a change `∂ν` of
+    the Lévy measure of `S` (no drift), `d P(S > t) = ∫ P(t - y < S <= t) ∂ν(dy)`. Proof: differentiate the
+    Laplace transform `E e^(-sS) = exp(-∫ (1 - e^(-sy)) ν(dy))`; it gives `∫ E[e^(-s(S+y)) - e^(-sS)] ∂ν(dy)`.
+    Taking `∂ν` = the change of the Lévy density `m_i·e^(-y/c)/(c·y)` of one term gives the mass rate `φ_S(c_i)`
+    and the scale rate `m_i·∂φ_S/∂c (c_i)` of P2.
+  - P3: `v -> f*(t - v)` on `[0, t)`, zero after, is unimodal whenever `f*` is (mode at `t - mode(f*)`, or at
+    0 if the mode of `f*` is at least `t`).
+  - P4 holds at every level `κ'`, because `h - κ'` changes sign at most twice for every constant. So `φ*`
+    cannot dip below a level between two higher values: with `φ*(0+) = 0` that would cross the level three
+    times. Hence `φ*` is quasi-concave.
+  - P5, uniqueness of the maximiser over `λ ∈ [1, ∞]`, including `λ = ∞` (the drift): two maximisers
+    `λa < λb` would make `φ*` constant on `[λa, λb]` (or on `[λa, ∞)`), against analyticity.
+- **Reachable states are members** (not in the notes above). Each increment `Gamma(a, b_q)` with `b_q >= b*`,
+  multiplied by the product `κ <= 1` of the repair factors `1 - rho` (both repair laws), is
+  `(b*·κ/b_q)·Gamma(a, 1)` in units of `1/b*`, so `c = b*·κ/b_q ∈ (0, 1]`. The initial and replacement states
+  are alike. The terms are independent. `W(m, t)` is nondecreasing in `m` (add a drift). The one-sided rows
+  give `A' >= b*·E[D]`. So `A' <= A_cap` with `W(A_cap, b*·tau) <= eps` gives `P(D > tau) <= eps` on every day.
+- **Literature.** No source read so far proves Statement 2 (`gamma_literature.md`: five papers read; Diaconis
+  and Perlman 1990 not read). U: a published theorem (T4).
 
 ## Scripts
 
