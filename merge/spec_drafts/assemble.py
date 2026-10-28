@@ -30,6 +30,7 @@ preamble = read("preamble.tex")
 title = r"""\begin{document}
 
 % --- Title page ---
+\hypersetup{pageanchor=false}
 \begin{titlepage}
   \centering
   \vspace*{3cm}
@@ -41,6 +42,7 @@ title = r"""\begin{document}
   \vspace{1cm}
   {\large Version 1.0 $\cdot$ \today\par}
 \end{titlepage}
+\hypersetup{pageanchor=true}
 
 \tableofcontents
 \newpage

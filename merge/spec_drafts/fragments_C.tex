@@ -308,55 +308,133 @@ In the column \emph{Shape}, a dash marks a scalar or a string.
 
 \subsection{Rules for the Values}
 
-If Gurobi found no solution, the solution arrays and the cost report are \texttt{null}, and so are \texttt{objective} and \texttt{mip\_gap}; if it found one, the arrays hold the best solution and \texttt{status} tells how the solve ended.
-The arrays \texttt{mu}, \texttt{v}, \texttt{R}, \texttt{K}, \texttt{g\_mu}, \texttt{g\_v}, \texttt{g\_R}, \texttt{g\_K} and \texttt{z} hold the tracked variables of the model, and are upper bounds (Section~\ref{sec:encoding}).
-
-In the mode \texttt{operating\_average}, $z$ is not built on the days of the transitory phase (Section~\ref{sec:repair_cost}); at a cell with $C_{R,i\ell} > 0$ the result holds, for those days, the value computed after the solve:
-\begin{equation}\label{eq:c_zpost}
-  z_{i\ell k} = \begin{cases}
-    \rho_{i\ell}\,\bigl(\mu_{i\ell,k-1} - g^{\mu}_{i\ell,k-1}\bigr) & \text{if } x^m_{i\ell k} = 1,\\
-    0 & \text{otherwise,}
-  \end{cases}
-  \qquad k = 1, \ldots, H_1,
-\end{equation}
-with $\mu_{i\ell 0} = \mu_{0,i\ell}$, $g^{\mu}_{i\ell 0}$ the starting anchor, and $g^{\mu} \equiv 0$ under \texttt{ardinf}.
-
-The value $u$ is recomputed from \texttt{mu}, and is reported also when $C_D = 0$:
-\begin{equation}\label{eq:c_u}
-  u = \max_{i,k} \sum_{\ell=1}^{L} \mu_{i\ell k} \quad (\texttt{inf\_norm}),
-  \qquad
-  u = \max_{i,k} \sum_{\ell=1}^{L} \mu_{i\ell k}^2 \quad (\texttt{quadratic}).
-\end{equation}
-
-The cost $c_k$ of day $k$ and the phase costs $J_{\mathrm{init}}$, $J_{\mathrm{op}}$ are Equations~\eqref{eq:a_daycost} and~\eqref{eq:a_phases} (Section~\ref{sec:objective}) on the arrays of the result, with $z_{i\ell k} = 0$ where it is \texttt{NaN}. When the variable $u$ has no slack, \texttt{objective} equals, up to the tolerance of the solver, \texttt{J\_total}, \texttt{operating\_objective} or \texttt{evaluation\_objective} for the mode \texttt{total}, \texttt{operating\_average} or \texttt{evaluation\_total}; otherwise it is larger by $C_D$ times the slack.
+\begin{itemize}[nosep,leftmargin=1.5em]
+  \item \textbf{No solution}: if Gurobi found no solution, the solution arrays and the cost report are \texttt{null}, and so are \texttt{objective} and \texttt{mip\_gap}.
+  \item \textbf{A solution found}: the arrays hold the best solution, and \texttt{status} tells how the solve ended.
+  \item \textbf{Upper bounds}: the arrays \texttt{mu}, \texttt{v}, \texttt{R}, \texttt{K}, \texttt{g\_mu}, \texttt{g\_v}, \texttt{g\_R}, \texttt{g\_K} and \texttt{z} hold the tracked variables of the model, and are upper bounds (Section~\ref{sec:encoding}).
+  \item \textbf{$z$ on transitory days}: in the mode \texttt{operating\_average}, $z$ is not built on the days of the transitory phase (Section~\ref{sec:repair_cost}). At a cell with $C_{R,i\ell} > 0$ the result holds, for those days, the value computed after the solve:
+  \begin{equation}\label{eq:c_zpost}
+    z_{i\ell k} = \begin{cases}
+      \rho_{i\ell}\,\bigl(\mu_{i\ell,k-1} - g^{\mu}_{i\ell,k-1}\bigr) & \text{if } x^m_{i\ell k} = 1,\\
+      0 & \text{otherwise,}
+    \end{cases}
+    \qquad k = 1, \ldots, H_1,
+  \end{equation}
+  with $\mu_{i\ell 0} = \mu_{0,i\ell}$, $g^{\mu}_{i\ell 0}$ the starting anchor, and $g^{\mu} \equiv 0$ under \texttt{ardinf}.
+  \item \textbf{Value of $u$}: it is recomputed from \texttt{mu}, and reported also when $C_D = 0$:
+  \begin{equation}\label{eq:c_u}
+    u = \max_{i,k} \sum_{\ell=1}^{L} \mu_{i\ell k} \quad (\texttt{inf\_norm}),
+    \qquad
+    u = \max_{i,k} \sum_{\ell=1}^{L} \mu_{i\ell k}^2 \quad (\texttt{quadratic}).
+  \end{equation}
+  \item \textbf{Costs}: the cost $c_k$ of day $k$ and the phase costs $J_{\mathrm{init}}$, $J_{\mathrm{op}}$ are Equations~\eqref{eq:a_daycost} and~\eqref{eq:a_phases} (Section~\ref{sec:objective}) on the arrays of the result, with $z_{i\ell k} = 0$ where it is \texttt{NaN}.
+  \item \textbf{Objective}: if the variable $u$ has no slack, \texttt{objective} equals, up to the tolerance of the solver, the key below for the mode in use; otherwise it is larger by $C_D$ times the slack.
+  \begin{itemize}[nosep,leftmargin=1.5em]
+    \item mode \texttt{total}: \texttt{J\_total};
+    \item mode \texttt{operating\_average}: \texttt{operating\_objective};
+    \item mode \texttt{evaluation\_total}: \texttt{evaluation\_objective}.
+  \end{itemize}
+\end{itemize}
 
 \subsection{Reports}\label{sec:output_reports}
 
-\textbf{\texttt{performance}} is a mapping; an entry that Gurobi does not give is \texttt{null}. \emph{Keys:}
+\blockhead{\texttt{performance}}
+A mapping. An entry that Gurobi does not give is \texttt{null}.
+
+\tabstart{p{7.2cm}p{7.8cm}}{Key & Content}
+\multicolumn{2}{@{}l}{\emph{Size entries}} \\
+\rejrow{\texttt{gurobi\_version}}{Version of Gurobi}
+\rejrow{\texttt{variables}}{Variables; given with \texttt{continuous\_variables}, \texttt{integer\_variables} and \texttt{binary\_variables}}
+\rejrow{\texttt{linear\_constraints}, \texttt{general\_constraints}, \texttt{indicator\_constraints}, \texttt{quadratic\_constraints}}{Rows of each of the four kinds}
+\rejrow{\texttt{nonzeros}}{Nonzeros of the model}
+\midrule
+\multicolumn{2}{@{}l}{\emph{Work entries}} \\
+\rejrow{\texttt{solutions\_found}, \texttt{gurobi\_runtime\_seconds}}{Solutions found; runtime of Gurobi in seconds}
+\rejrow{\texttt{branch\_and\_bound\_nodes}, \texttt{simplex\_iterations}, \texttt{barrier\_iterations}}{Counts of nodes and of iterations}
+\rejrow{\texttt{work\_units}}{Work units}
+\midrule
+\multicolumn{2}{@{}l}{\emph{Wall-clock entries, in seconds}} \\
+\rejrow{\texttt{model\_construction\_seconds}}{Model construction}
+\rejrow{\texttt{optimizer\_call\_seconds}}{Optimizer call}
+\rejrow{\texttt{solution\_extraction\_seconds}}{Solution extraction}
+\rejrow{\texttt{backend\_wall\_seconds}}{Backend}
+\midrule
+\multicolumn{2}{@{}l}{\emph{Settings}} \\
+\rejrow{\texttt{requested\_time\_limit\_seconds}, \texttt{requested\_mip\_gap}}{Time limit and MIP gap that were requested}
+\rejrow{\texttt{threads}, \texttt{seed}}{Number of threads and random seed}
+\tabend
+
+\blockhead{\texttt{optimization\_progress}}
+A list of records. A record has these keys:
+
+\tabstart{p{5.2cm}p{9.8cm}}{Key & Content}
+\rejrow{\texttt{runtime\_seconds}}{Runtime at the record, in seconds}
+\rejrow{\texttt{incumbent}, \texttt{best\_bound}, \texttt{relative\_gap}}{\texttt{null} while Gurobi has none}
+\rejrow{\texttt{nodes}, \texttt{solutions}}{Number of nodes and number of solutions}
+\tabend
+
+A record is made:
 \begin{itemize}[nosep,leftmargin=1.5em]
-  \item size entries: \texttt{gurobi\_version}; \texttt{variables}, with \texttt{continuous\_variables}, \texttt{integer\_variables} and \texttt{binary\_variables}; the rows \texttt{linear\_constraints}, \texttt{general\_constraints}, \texttt{indicator\_constraints} and \texttt{quadratic\_constraints}; \texttt{nonzeros};
-  \item work entries: \texttt{solutions\_found} and \texttt{gurobi\_runtime\_seconds}; the counts \texttt{branch\_and\_bound\_nodes}, \texttt{simplex\_iterations} and \texttt{barrier\_iterations}; \texttt{work\_units};
-  \item wall-clock entries, in seconds: \texttt{model\_construction\_seconds}, \texttt{optimizer\_call\_seconds}, \texttt{solution\_extraction\_seconds} and \texttt{backend\_wall\_seconds};
-  \item settings: \texttt{requested\_time\_limit\_seconds}, \texttt{requested\_mip\_gap}, \texttt{threads} and \texttt{seed}.
+  \item at the first progress report of Gurobi;
+  \item afterwards, at least \texttt{progress\_interval\_seconds} after the previous record;
+  \item whenever the number of solutions changes.
 \end{itemize}
+The last record is the final state of the solve.
 
-\textbf{\texttt{optimization\_progress}} is a list of records with the entries \texttt{runtime\_seconds}, \texttt{incumbent}, \texttt{best\_bound}, \texttt{relative\_gap}, \texttt{nodes} and \texttt{solutions}; the incumbent, the bound and the gap are \texttt{null} while Gurobi has none. A record is made at the first progress report of Gurobi, then at least \texttt{progress\_interval\_seconds} after the previous record and whenever the number of solutions changes; the last record is the final state of the solve.
+\blockhead{\texttt{warm\_start}}
+A mapping (Section~\ref{sec:warm_starts}).
 
-\textbf{\texttt{warm\_start}} (Section~\ref{sec:warm_starts}) is a mapping with the entries \texttt{applied} (\texttt{true} when at least one value was set), \texttt{values} (number of values set), \texttt{mode} (\texttt{"start"}, \texttt{"hint"} or \texttt{"both"}, \texttt{null} without a source), \texttt{source\_horizon} (the pair $H_1$, $H_2$ of the source, or \texttt{null}) and \texttt{completion}. \texttt{completion} (Section~\ref{sec:warm_start_modes}) is a mapping with \texttt{requested}, \texttt{status}, \texttt{fixed\_integer\_variables}, \texttt{values\_copied}, \texttt{runtime\_seconds} and \texttt{iis\_constraints}.
-Its \texttt{status} is one of \texttt{"not\_requested"}, \texttt{"completed"}, \texttt{"infeasible"}, \texttt{"infeasible\_or\_unbounded"} and \texttt{"time\_limit"}, or \texttt{"status\_}$q$\texttt{"} for another Gurobi status code $q$. \texttt{iis\_constraints} is a list of at most $50$ names of rows of an irreducible infeasible subset, empty unless the status is \texttt{"infeasible"}.
+\tabstart{p{5.2cm}p{9.8cm}}{Key & Content}
+\rejrow{\texttt{applied}}{\texttt{true} when at least one value was set}
+\rejrow{\texttt{values}}{Number of values set}
+\rejrow{\texttt{mode}}{\texttt{"start"}, \texttt{"hint"} or \texttt{"both"}; \texttt{null} without a source}
+\rejrow{\texttt{source\_horizon}}{The pair $H_1$, $H_2$ of the source, or \texttt{null}}
+\rejrow{\texttt{completion}}{Mapping; its keys are in the next table}
+\tabend
 
-\textbf{\texttt{relaxation\_warm\_start}} (Section~\ref{sec:warm_relaxation}) is a mapping with the entries \texttt{enabled} (the value of the option); \texttt{status} (\texttt{"disabled"} if the option is false, \texttt{"skipped"} if it is true and a start or a hint was applied, otherwise the Gurobi status of the relaxed copy as a string); \texttt{relaxation\_objective}; \texttt{values\_copied}; \texttt{runtime\_seconds}.
+\blockhead{Keys of \texttt{completion}}
+A mapping (Section~\ref{sec:warm_start_modes}).
+
+\tabstart{p{4.3cm}p{10.7cm}}{Key & Content}
+\rejrow{\texttt{requested}}{Whether the completion was requested}
+\rejrow{\texttt{status}}{One of \texttt{"not\_requested"}, \texttt{"completed"}, \texttt{"infeasible"}, \texttt{"infeasible\_or\_unbounded"} and \texttt{"time\_limit"}, or \texttt{"status\_}$q$\texttt{"} for another Gurobi status code $q$}
+\rejrow{\texttt{fixed\_integer\_variables}}{Number of integer variables fixed}
+\rejrow{\texttt{values\_copied}}{Number of values copied}
+\rejrow{\texttt{runtime\_seconds}}{Runtime of the completion, in seconds}
+\rejrow{\texttt{iis\_constraints}}{List of at most $50$ names of rows of an irreducible infeasible subset; empty unless the status is \texttt{"infeasible"}}
+\tabend
+
+\blockhead{\texttt{relaxation\_warm\_start}}
+A mapping (Section~\ref{sec:warm_relaxation}).
+
+\tabstart{p{5.2cm}p{9.8cm}}{Key & Content}
+\rejrow{\texttt{enabled}}{The value of the option}
+\rejrow{\texttt{status} is \texttt{"disabled"}}{The option is false}
+\rejrow{\texttt{status} is \texttt{"skipped"}}{The option is true and a start or a hint was applied}
+\rejrow{\texttt{status} is a Gurobi status}{Otherwise: the Gurobi status of the relaxed copy, as a string}
+\rejrow{\texttt{relaxation\_objective}}{Objective value of the relaxed copy}
+\rejrow{\texttt{values\_copied}, \texttt{runtime\_seconds}}{Number of values copied; runtime in seconds}
+\tabend
 
 \subsection{Result Files}\label{sec:output_files}
 
-\texttt{solve} writes the result to the file \texttt{results\_path}.
-\begin{itemize}[leftmargin=1.5em]
-  \item The default of \texttt{results\_path} is \texttt{"output.yaml"}; \texttt{None} writes no file.
-  \item A path without extension gets the extension \texttt{.yaml}. \texttt{.yaml} and \texttt{.yml} give YAML, \texttt{.json} gives JSON, \texttt{.h5} and \texttt{.hdf5} give HDF5; another extension raises a \texttt{ValueError}.
-  \item The extension and the directory of the path are checked before the input file is read: the directory must exist (\texttt{FileNotFoundError}) and be writable (\texttt{PermissionError}).
-  \item YAML and JSON files hold plain data (lists, numbers, strings, \texttt{null}); \texttt{NaN} is written as \texttt{null}. They load with \texttt{yaml.safe\_load} and \texttt{json.load}. HDF5 files keep \texttt{NaN} (Section~\ref{sec:schema_hdf5}).
-  \item A key whose value is \texttt{None} is not written, except \texttt{objective}, written as \texttt{null}. Every reader of a result treats a missing key as \texttt{null}.
+\texttt{solve} writes the result to the file \texttt{results\_path}. The extension of the path gives the format:
+
+\tabstart{p{4.3cm}p{4.3cm}}{Extension & Format}
+\rejrow{\texttt{.yaml}, \texttt{.yml}}{YAML}
+\rejrow{\texttt{.json}}{JSON}
+\rejrow{\texttt{.h5}, \texttt{.hdf5}}{HDF5}
+\rejrow{any other extension}{raises a \texttt{ValueError}}
+\tabend
+
+\begin{itemize}[nosep,leftmargin=1.5em]
+  \item \textbf{Default}: the default of \texttt{results\_path} is \texttt{"output.yaml"}; \texttt{None} writes no file.
+  \item \textbf{No extension}: a path without extension gets the extension \texttt{.yaml}.
+  \item \textbf{Path checks}: the extension and the directory of the path are checked before the input file is read. The directory must exist (\texttt{FileNotFoundError}) and be writable (\texttt{PermissionError}).
+  \item \textbf{Plain data and \texttt{NaN}}: YAML and JSON files hold plain data (lists, numbers, strings, \texttt{null}); \texttt{NaN} is written as \texttt{null}. They load with \texttt{yaml.safe\_load} and \texttt{json.load}. HDF5 files keep \texttt{NaN} (Section~\ref{sec:schema_hdf5}).
+  \item \textbf{Keys with value \texttt{None}}: such a key is not written, except \texttt{objective}, written as \texttt{null}. Every reader of a result treats a missing key as \texttt{null}.
 \end{itemize}
+
 
 % ==== BLOCK 3 ====
 

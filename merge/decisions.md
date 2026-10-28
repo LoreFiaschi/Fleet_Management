@@ -4,10 +4,11 @@ Status: all 30 divergences decided (26 Oct 2026).
 
 **Resume here** (26 Oct 2026; no background task runs):
 - **Spec (an SDD, Software Design Document) and scoping: done, waiting for the user's reading** (rule in `CLAUDE.md`).
-  `spec/spec.tex` (43 pages; 0 errors, 0 warnings; PDF `spec_drafts/build_final/spec.pdf`) holds only the codebase
+  `spec/spec.tex` (51 pages; 0 errors, 0 warnings; PDF `spec_drafts/build_final/spec.pdf`) holds only the codebase
   and its mathematical constructions, in this order: overview, architecture, notation, inputs, variables, objective,
   constraints (explicit big-M rows per model), full problem, outputs, sweeps, warm starts, plotting, validation, input
-  schema. `scoping.tex` (63 pages; clean build; `scoping.pdf`) holds every proof, example, reason and source, the open
+  schema. From the output rules on, every tool follows one template (user's choice, 28 Oct 2026): signature,
+  arguments table, numbered steps, errors table, report-key table; definitions as a bold-term list. `scoping.tex` (63 pages; clean build; `scoping.pdf`) holds every proof, example, reason and source, the open
   questions and the spec's changelog (`sec:spec_changelog`); its whole text passed a readability pass for a reader
   whose second language is English (record: `scoping_readability_status.md`; the copy before that pass:
   `scoping_before_readability_pass.tex`). Moved blocks and their places: `spec_scoping_map.md`. Spec sources: the
