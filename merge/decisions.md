@@ -28,14 +28,22 @@ Status: all 30 divergences decided (26 Oct 2026).
   the characteristic life, not the median; the variance ratio of the two Miner interpretations is a direct
   computation, and Cauchy--Schwarz only bounds it by the number of days. Moved blocks and their places: `spec_scoping_map.md`. Spec
   sources: the fragments and `spec_drafts/claude_*.tex`, joined by `spec_drafts/assemble.py`; copy
-  `spec_assembled.tex` to `spec/spec.tex` with CRLF. The spec work is committed (f898c6a); the scoping structure pass
-  is not.
-- **Step 2, code:** plan in [`code_plan.md`](code_plan.md). WP0 to WP2 done on the branch `merge/lore-into-main`
-  (worktree `C:\Users\utente\Documents\GitHub\Fleet_Management-merge`, commit ed6694c; list in `wp1_removals.md`).
-  Next: WP3 (merge of `lore` into the branch) after the user reads the spec and commits `lore`'s finished work; then
-  WP4 and WP5.
-- **Pending actions of the user:** read the spec and the scoping document; commit `lore`'s work (spec, scoping
-  document, `merge/`); copy `lore`'s `test/` and `input/` folders into the repository (item "Tests and test inputs").
+  `spec_assembled.tex` to `spec/spec.tex` with CRLF. The spec and scoping work is committed on `lore` (68ec120).
+- **Step 2, code:** plan in [`code_plan.md`](code_plan.md). WP0 to WP3 done on the branch `merge/lore-into-main`
+  (worktree `C:\Users\utente\Documents\GitHub\Fleet_Management-merge`, commits ed6694c and 5f29660; list in
+  `wp1_removals.md`). WP3 merged `lore` at 68ec120. Conflicts were resolved toward `main`'s code: `README.md` and
+  `solver.py` from `main`; `lore`'s plotter removed (item "Plotting"). `lore`'s builders are in
+  `src/fleet_management/models/` and `src/fleet_management/maintenance/`, as sources for WP6; no module of `main`
+  imports them. **WP4 and WP5 paused on 29 Oct 2026 (user: credit limit; resume when the user says so).** Workflow and
+  interface: `wp4_wp5_interface.md`; plans `wp4_plan.md`, `wp5_plan.md` (done). Four Sonnet executors were stopped
+  mid-task; their uncommitted edits are in the worktree (`config.py`, `solver.py`, `base.py`, `tests/test_config.py`,
+  `tests/test_io.py`). Progress at the stop: WP4 Task A done A1, next A2; WP4 Task B done B1-B2, next B3; WP5 Task A
+  done A1-A2, next A3; WP5 Task B not started. To resume: start one Sonnet executor per task with the same brief, told
+  to continue from its progress file (`...\scratchpad\wp4\task*_progress.md`, `...\scratchpad\wp5\task*_progress.md`;
+  copies with the local tools in `merge/wp45_work/`); then the two Opus planners review and correct; then Claude
+  commits.
+- **Pending actions of the user:** read the spec and the scoping document; copy `lore`'s `test/` and `input/` folders
+  into the repository (item "Tests and test inputs").
 - Documents plan: [`documents_plan.md`](documents_plan.md), agreed by the user on 26 Oct 2026.
 
 - **Purpose.** This file records the user's choice for each divergence between the branches `lore` and `main`.
@@ -1556,3 +1564,11 @@ Questions raised by the four writers of spec version 1.0 (26 Oct 2026; their not
     `main`'s code, as decided.
   - Item "Encoding of the dynamics": the claim "with one tracked quantity and the whole-state law, it rejects none"
     needs the hypothesis that the cell is not replaced on day `H1` (writer A's counterexample).
+- **From the WP4 plan (29 Oct 2026, chosen in the answer menu; written into `spec_drafts/fragments_C.tex` and
+  `spec/spec.tex` on `lore`, not yet merged into the merge branch)**:
+  - `null` at a cell means "not given at this cell" for the three keys without a default: `v_max_user`,
+    `gamma_beta_0`, `gamma_beta_new`.
+  - Checks: a non-strict inequality passes up to `1e-12·max(1, |a|, |b|)`; selector values are case sensitive; an
+    integer key accepts `3.0` and refuses `2.5` and a flag.
+  - Result files: `NaN` and `±inf` are `null` in YAML and JSON; HDF5 keeps them; HDF5 does not store
+    `objective = None`.

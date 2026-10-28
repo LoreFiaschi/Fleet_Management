@@ -1,0 +1,16 @@
+# ===========================================================================
+# Run options and solver settings
+# ===========================================================================
+def resolve_run_options(cfg) -> dict:
+    """The run options of the spec ("Run Options"), defaults filled by ``load_config``."""
+    return dict(cfg.options)
+
+
+def cost_days(objective_mode: str, H1: int, T: int) -> range:
+    """Day indices whose cost enters the objective and carry a ``z`` variable.
+
+    The transitory days are left out in the mode ``operating_average``.
+    """
+    return range(H1, T) if objective_mode == "operating_average" else range(T)
+
+

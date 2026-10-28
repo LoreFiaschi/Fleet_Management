@@ -350,9 +350,11 @@ A \emph{profile} is defined in Section~\ref{sec:input_increments}; a \emph{flag}
 No other broadcasting is accepted.
 
 At a cell where a key does not apply, an array entry may be \texttt{null} and the key may be omitted; where it applies, \texttt{null} is an error.
+The exceptions are the three keys without a default, \texttt{v\_max\_user}, \texttt{gamma\_beta\_0} and \texttt{gamma\_beta\_new}: at these keys, \texttt{null} at a cell means that the key is not given at that cell.
 A broadcast value (a scalar, a list, a profile without the axis $F$) is read only where the key applies.
 A non-\texttt{null} entry of an array with one entry per cell ($F \times L$ array, or profile with the axes $F$ and $L$) at a cell where the key does not apply is ignored with a \texttt{UserWarning}; a selector entry there is still checked (Section~\ref{sec:consistency_checks}).
-Key names are case sensitive; a key outside the tables raises an error (Section~\ref{sec:input_rejected}).
+Key names and selector values are case sensitive; a key outside the tables raises an error (Section~\ref{sec:input_rejected}).
+An integer key accepts a number with zero fractional part, such as \texttt{3.0}; it refuses any other number, such as \texttt{2.5}, and a flag.
 
 \subsection{Sizes and Horizon}\label{sec:input_scalars}
 
@@ -520,6 +522,7 @@ The check on keys runs before any array is read.
 The solver validates all of the following before it builds the model.
 A violation raises a \texttt{ValueError} whose message names the key and, for a cell value, the cell $(i,\ell)$.
 A check of one model runs only at the cells of that model, on the entries where the key applies.
+A non-strict inequality $a \le b$ (or $a \ge b$) passes when it holds up to $10^{-12}\max(1, |a|, |b|)$; a strict inequality has no tolerance.
 
 \textbf{Keys, shapes and entries.}
 \begin{itemize}[leftmargin=1.5em]
@@ -1863,8 +1866,8 @@ A mapping (Section~\ref{sec:warm_relaxation}).
   \item \textbf{Default}: the default of \texttt{results\_path} is \texttt{"output.yaml"}; \texttt{None} writes no file.
   \item \textbf{No extension}: a path without extension gets the extension \texttt{.yaml}.
   \item \textbf{Path checks}: the extension and the directory of the path are checked before the input file is read. The directory must exist (\texttt{FileNotFoundError}) and be writable (\texttt{PermissionError}).
-  \item \textbf{Plain data and \texttt{NaN}}: YAML and JSON files hold plain data (lists, numbers, strings, \texttt{null}); \texttt{NaN} is written as \texttt{null}. They load with \texttt{yaml.safe\_load} and \texttt{json.load}. HDF5 files keep \texttt{NaN} (Section~\ref{sec:schema_hdf5}).
-  \item \textbf{Keys with value \texttt{None}}: such a key is not written, except \texttt{objective}, written as \texttt{null}. Every reader of a result treats a missing key as \texttt{null}.
+  \item \textbf{Plain data and \texttt{NaN}}: YAML and JSON files hold plain data (lists, numbers, strings, \texttt{null}); \texttt{NaN}, $+\infty$ and $-\infty$ are written as \texttt{null}. They load with \texttt{yaml.safe\_load} and \texttt{json.load}. HDF5 files keep \texttt{NaN} and $\pm\infty$ (Section~\ref{sec:schema_hdf5}).
+  \item \textbf{Keys with value \texttt{None}}: such a key is not written, except \texttt{objective}, written as \texttt{null} in YAML and JSON. HDF5 has no \texttt{null}, so it does not store \texttt{objective} either. Every reader of a result treats a missing key as \texttt{null}.
 \end{itemize}
 
 % ================================================================
@@ -2681,7 +2684,7 @@ The reader makes one entry of every root attribute and root dataset; a byte stri
 \end{itemize}
 
 \textbf{Output file.}
-A number or a string is an attribute; an array of numbers is a \texttt{float64} dataset, with \texttt{NaN} kept; a list of strings, a mapping or a list of records is JSON text in an attribute; a key whose value is absent is not stored.
+A number or a string is an attribute; an array of numbers is a \texttt{float64} dataset, with \texttt{NaN} kept; a list of strings, a mapping or a list of records is JSON text in an attribute; a key whose value is \texttt{None}, \texttt{objective} included, is not stored.
 
 \tabstart{p{4.2cm}p{10.0cm}}{Placement & Keys}
 \rejrow{Attribute: number or string}{\texttt{status}, \texttt{objective}, \texttt{mip\_gap}, \texttt{bound}, \texttt{F}, \texttt{M}, \texttt{L}, \texttt{H} (one or two integers), \texttt{H1}, \texttt{H2}, \texttt{T}, \texttt{objective\_mode}, \texttt{evaluation\_horizon}, \texttt{u}, \texttt{J\_initialization}, \texttt{J\_op}, \texttt{J\_op\_average}, \texttt{peak\_damage}, \texttt{damage\_penalty}, \texttt{operating\_objective}, \texttt{J\_total}, \texttt{projected\_evaluation\_cost}, \texttt{evaluation\_objective}; the selectors \texttt{bound\_method}, \texttt{repair\_model}, \texttt{reliability\_impl}, \texttt{encoding} when they are one string}

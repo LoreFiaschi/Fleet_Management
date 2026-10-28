@@ -1,10 +1,14 @@
 # Code of the merged package: plan
 
-Status (26 Oct 2026): agreed by the user for WP0 to WP2, which are done: worktree
-`C:\Users\utente\Documents\GitHub\Fleet_Management-merge`, branch `merge/lore-into-main`, commit ed6694c (65 files
-removed, egg-info untracked, `.gitignore` and `pyproject.toml`; details in `wp1_removals.md`). No local installs (the
-user's choice); Claude commits on that branch at each commit point. Next: WP3 after the user reads the spec and commits
-`lore`'s finished work; WP4 and WP5 after that.
+Status (28 Oct 2026): WP0 to WP3 done. Worktree `C:\Users\utente\Documents\GitHub\Fleet_Management-merge`, branch
+`merge/lore-into-main`:
+- WP0 to WP2, commit ed6694c: 65 files removed, egg-info untracked, `.gitignore` and `pyproject.toml`; details in
+  `wp1_removals.md`.
+- WP3, commit 5f29660: `lore` merged at 68ec120. `README.md` and `solver.py` resolved to `main`'s version; `lore`'s
+  plotter removed. `lore`'s builders are in `src/fleet_management/models/` and `src/fleet_management/maintenance/`.
+
+No local installs (the user's choice); Claude commits on that branch at each commit point. Next: WP4 and WP5, in
+parallel.
 
 - **Purpose.** How the code of the merged package is built from `main`: the work packages, their order, what each
   needs before it starts, and who does it.
@@ -54,6 +58,9 @@ user's choice); Claude commits on that branch at each commit point. Next: WP3 af
   done, because they touch different files; WP4 first fixes the fields of `FleetConfig`, which WP5 reads. WP6 runs one
   agent per builder file, in parallel. WP7 runs one agent per tool, in parallel.
 - **Models of the agents.** Opus for WP4 to WP7 (formulation and tools); Sonnet for WP1 and WP2 (narrow tasks with a
-  precise list).
+  precise list). For WP4 and WP5 (user, 28 Oct 2026: *"Make these opus agents plan what to do. Then use sonnet agents
+  to execute. Then the opus agents revise"*): an Opus agent plans each package, Sonnet agents carry out the plan, and
+  the same Opus agent reviews and corrects the result. Interface and file ownership:
+  [`wp4_wp5_interface.md`](wp4_wp5_interface.md).
 - **Checks of each package.** The agent writes unit tests with the package; Claude reviews the diff against the spec
   sections before the commit point. Step 3 (the `spec-alignment` skill) then checks the whole code and the README.
