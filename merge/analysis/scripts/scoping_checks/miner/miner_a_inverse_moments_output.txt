@@ -1,0 +1,62 @@
+(1) eq:miner_invmom: quadrature against the closed form
+  log-normal mu=1.3 sigma=0.4 r=1: quad=0.295230166924 closed=0.295230166924 rel.err=6.2e-17
+  log-normal mu=1.3 sigma=0.4 r=2: quad=0.102284206716 closed=0.102284206716 rel.err=2.0e-16
+  log-normal mu=11.5 sigma=0.5 r=1: quad=1.14788998907e-5 closed=1.14788998907e-5 rel.err=1.3e-31
+  log-normal mu=11.5 sigma=0.5 r=2: quad=1.69189792262e-10 closed=1.69189792262e-10 rel.err=8.9e-25
+  log-normal mu=0.0 sigma=0.8 r=3.5: quad=50.4004447781 closed=50.4004447781 rel.err=3.8e-16
+  log-normal mu=0.0 sigma=0.5 r=10: quad=268337.286521 closed=268337.286521 rel.err=0.0e+00
+  Weibull k=3 lambda=2 r=1: quad=0.677058969713 closed=0.677058969713 rel.err=1.5e-31
+  Weibull k=3 lambda=2 r=2: quad=0.669734633677 closed=0.669734633677 rel.err=1.5e-31
+  Weibull k=3 lambda=2 r=2.9: quad=3.94610640954 closed=3.94610640954 rel.err=9.2e-17
+  Weibull k=1.5 lambda=100000 r=1: quad=2.67893853471e-5 closed=2.67893853471e-5 rel.err=5.6e-17
+  Weibull k=2.5 lambda=100000 r=2: quad=4.590843712e-10 closed=4.590843712e-10 rel.err=1.1e-17
+  Weibull k=0.8 lambda=1 r=0.5: quad=2.37043618442 closed=2.37043618442 rel.err=0.0e+00
+  Gumbel-min mu=1.3 beta=0.3 r=1: quad=0.353761347264 closed=0.353761347264 rel.err=0.0e+00
+  Gumbel-min mu=1.3 beta=0.3 r=2: quad=0.164750646365 closed=0.164750646365 rel.err=0.0e+00
+  Gumbel-min mu=11.5 beta=0.45 r=2: quad=9.7626470879e-10 closed=9.7626470879e-10 rel.err=5.1e-30
+  Gumbel-min mu=0.0 beta=0.6 r=1.5: quad=9.51350769867 closed=9.51350769867 rel.err=0.0e+00
+  RESULT: worst relative error 3.8e-16
+
+(2) existence: truncated moments as the lower cut-off goes to the origin
+  Weibull lambda=1: E[N^-r; N > delta]; finite limit only for r < k
+    k=2.0 r=1.9: d=1e-2: 6.851  d=1e-4: 11.5079  d=1e-6: 14.4463  d=1e-8: 16.3003  closed=19.4701
+    k=2.0 r=2.0: d=1e-2: 8.63322  d=1e-4: 17.8435  d=1e-6: 27.0538  d=1e-8: 36.2641  closed=infinite
+    k=2.0 r=2.5: d=1e-2: 35.0997  d=1e-4: 395.098  d=1e-6: 3995.1  d=1e-8: 39995.1  closed=infinite
+    k=1.5 r=1.5: d=1e-2: 6.33154  d=1e-4: 13.2383  d=1e-6: 20.1461  d=1e-8: 27.0538  closed=infinite
+    k=2 r=2: E[N^-2; N > 1e-6] = 27.053805451, E1(1e-12) = 27.053805451
+  Gumbel-min mu=0: E[N^-r; G > g0]; finite limit only for r*beta < 1
+    beta=0.5 r=1.9 (r*beta=0.95): g0=-10: 7.3395  g0=-20: 12.1125  g0=-40: 16.7634  g0=-80: 19.1038  closed=19.4701
+    beta=0.5 r=2.0 (r*beta=1): g0=-10: 9.42283  g0=-20: 19.4228  g0=-40: 39.4228  g0=-80: 79.4228  closed=infinite
+    beta=0.5 r=2.5 (r*beta=1.25): g0=-10: 43.829  g0=-20: 588.751  g0=-40: 88101.0  g0=-80: 1.94066e+9  closed=infinite
+  RESULT: the moments converge exactly in the stated ranges and grow without bound outside them
+
+(3) Var[1/N_f]: E[N^-2] - E[N^-1]^2 by quadrature against the three printed lines
+  log-normal mu=11.5 sigma=0.5: quad=3.74246495606e-11 line=3.74246495606e-11
+  Weibull k=3.0 lambda=100000: quad=8.45303140831e-11 line=8.45303140831e-11
+  Gumbel-min mu=11.5 beta=0.3: quad=5.47175630667e-11 line=5.47175630667e-11
+  RESULT: worst relative error 4.3e-16
+
+(4) Remark rem:miner_tails: P(N_f > x) for ln N_f ~ Gumbel-min(mu, beta) against Wei(1/beta, e^mu)
+  41 points x in [0.01, 100]: max |closed - Weibull sf| = 2.2e-16, max |closed - gumbel_l sf| = 0.0e+00
+
+(5) quantiles q_eps of A: closed form against scipy's ppf, and F_A(q_eps) = eps
+  eps=1e-06 log-normal sigma=0.5: q=0.0928553703 scipy=0.0928553703 F_A(q)/eps-1=+0.0e+00
+  eps=1e-06 Weibull k=2.5: q=0.003981072502 scipy=0.003981072502 F_A(q)/eps-1=-8.9e-16
+  eps=1e-06 Gumbel beta=0.25: q=0.03162278055 scipy=0.03162278055 F_A(q)/eps-1=+4.4e-16
+  eps=0.0001 log-normal sigma=0.5: q=0.1557492023 scipy=0.1557492023 F_A(q)/eps-1=-5.6e-16
+  eps=0.0001 Weibull k=2.5: q=0.02511936672 scipy=0.02511936672 F_A(q)/eps-1=-1.1e-16
+  eps=0.0001 Gumbel beta=0.25: q=0.1000012501 scipy=0.1000012501 F_A(q)/eps-1=-4.4e-16
+  eps=0.01 log-normal sigma=0.5: q=0.3124927728 scipy=0.3124927728 F_A(q)/eps-1=+0.0e+00
+  eps=0.01 Weibull k=2.5: q=0.1588079465 scipy=0.1588079465 F_A(q)/eps-1=-3.3e-16
+  eps=0.01 Gumbel beta=0.25: q=0.3166249569 scipy=0.3166249569 F_A(q)/eps-1=+2.2e-16
+  eps=0.1 log-normal sigma=0.5: q=0.5268835183 scipy=0.5268835183 F_A(q)/eps-1=+8.9e-16
+  eps=0.1 Weibull k=2.5: q=0.4065099265 scipy=0.4065099265 F_A(q)/eps-1=-1.1e-16
+  eps=0.1 Gumbel beta=0.25: q=0.5697305029 scipy=0.5697305029 F_A(q)/eps-1=+2.2e-16
+  RESULT: worst relative error 8.5e-16
+
+(6) sample variance of 1/N_f, N_f ~ Wei(k, 1): median over 10 seeds
+  k=1.5: n=1e3: 50.63  n=1e4: 89.92  n=1e5: 170.8  n=1e6: 373.1  n=1e7: 1463  Var=inf
+  k=2.0: n=1e3: 4.421  n=1e4: 6.625  n=1e5: 8.534  n=1e6: 12.06  n=1e7: 17.24  Var=inf
+  k=3.0: n=1e3: 0.6713  n=1e4: 0.7559  n=1e5: 0.7927  n=1e6: 0.8267  n=1e7: 0.8458  Var=0.8453
+  k=5.0: n=1e3: 0.1157  n=1e4: 0.1298  n=1e5: 0.1342  n=1e6: 0.1335  n=1e7: 0.1338  Var=0.1338
+  RESULT: at k = 1.5 and k = 2 the sample variance keeps growing with n (theory: like n^(2/k - 1) = n^(1/3) at k = 1.5, like ln n at k = 2, see (2)); at k = 3 and k = 5 it approaches the closed form

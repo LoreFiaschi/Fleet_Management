@@ -1,0 +1,47 @@
+== A. CVaR cap mu_hat = tau / CVaR(Z) vs lore's cap mu_bar = tau / VaR(Z), Z ~ IG(1, 1/eta) ==
+eta=0.05   | eps=0.001: mu_bar=0.5214 mu_hat=0.4913 ratio=0.942 | eps=0.01: mu_bar=0.6139 mu_hat=0.5696 ratio=0.928 | eps=0.1: mu_bar=0.7714 mu_hat=0.6926 ratio=0.898
+eta=0.25   | eps=0.001: mu_bar=0.2713 mu_hat=0.2419 ratio=0.892 | eps=0.01: mu_bar=0.3748 mu_hat=0.3215 ratio=0.858 | eps=0.1: mu_bar=0.6048 mu_hat=0.4773 ratio=0.789
+eta=1.0    | eps=0.001: mu_bar=0.1197 mu_hat=0.1006 ratio=0.840 | eps=0.01: mu_bar=0.2006 mu_hat=0.1555 ratio=0.775 | eps=0.1: mu_bar=0.4666 mu_hat=0.2986 ratio=0.640
+eta=4.0    | eps=0.001: mu_bar=0.0471 mu_hat=0.0370 ratio=0.786 | eps=0.01: mu_bar=0.1010 mu_hat=0.0679 ratio=0.673 | eps=0.1: mu_bar=0.4129 mu_hat=0.1826 ratio=0.442
+eta=10.0   | eps=0.001: mu_bar=0.0255 mu_hat=0.0190 ratio=0.743 | eps=0.01: mu_bar=0.0682 mu_hat=0.0401 ratio=0.588 | eps=0.1: mu_bar=0.4730 mu_hat=0.1411 ratio=0.298
+eta=100.0  | eps=0.001: mu_bar=0.0072 mu_hat=0.0042 ratio=0.580 | eps=0.01: mu_bar=0.0519 mu_hat=0.0150 ratio=0.289 | eps=0.1: mu_bar=1.0000 mu_hat=0.1052 ratio=0.105
+
+== A'. check: Markov stop-loss bound at d = VaR equals eps; mu_hat is safe on the S1 counterexamples ==
+eta=10.0 eps=0.1: mu_hat=0.1411; stop-loss bound 0.10000; worst true tail over n-equal = 0.02918 (n=1)
+eta=100.0 eps=0.01: mu_hat=0.0150; stop-loss bound 0.01000; worst true tail over n-equal = 0.00289 (n=1)
+eta=4.0 eps=0.2: mu_hat=0.2781; stop-loss bound 0.20000; worst true tail over n-equal = 0.06089 (n=1)
+
+== B. sub-gamma check: psi(s) = (1/eta)(1 - sqrt(1 - 2 eta a s)) - a s <= eta a^2 s^2 / (2 (1 - 2 eta a s)) ==
+coefficients c_k of 1 - sqrt(1-u), k=1..6: [0.5, 0.125, 0.0625, 0.039062, 0.027344, 0.020508] ; max_{k>=2} c_k = 0.125
+eta=0.25 a=1.0: max over s in (0, 1/(2 eta a)) of psi - bound = -3.127e-11 (must be <= 0)
+eta=10.0 a=0.3: max over s in (0, 1/(2 eta a)) of psi - bound = -7.818e-13 (must be <= 0)
+
+== C. caps on example structures (reset draw mu0 + equal missions m), tau = 1 ==
+eta=0.25 eps=0.01 mu0=0.05 m=0.02:
+   lore mu_bar (not proven)         0.3748
+   CVaR cap (S4.1)                  0.3215
+   Bernstein, mean only (S4.3)      0.5983
+   Bernstein, tracked v (S4.2)      0.6671
+   Cantelli, tracked v (S4.4)       0.4772
+   exact cap for this structure     0.8300
+eta=0.25 eps=0.01 mu0=0.05 m=0.2:
+   lore mu_bar (not proven)         0.3748
+   CVaR cap (S4.1)                  0.3215
+   Bernstein, mean only (S4.3)      0.0531
+   Bernstein, tracked v (S4.2)      0.0653
+   Cantelli, tracked v (S4.4)       0.1750
+   exact cap for this structure     0.5300
+eta=1.0 eps=0.01 mu0=0.05 m=0.02:
+   lore mu_bar (not proven)         0.2006
+   CVaR cap (S4.1)                  0.1555
+   Bernstein, mean only (S4.3)      0.0531
+   Bernstein, tracked v (S4.2)      0.0539
+   Cantelli, tracked v (S4.4)       0.2269
+   exact cap for this structure     0.6628
+eta=10.0 eps=0.1 mu0=0.05 m=0.05:
+   lore mu_bar (not proven)         0.4730
+   CVaR cap (S4.1)                  0.1411
+   Bernstein, mean only (S4.3)      0.0000
+   Bernstein, tracked v (S4.2)      0.0000
+   Cantelli, tracked v (S4.4)       0.1577
+   exact cap for this structure     0.4600

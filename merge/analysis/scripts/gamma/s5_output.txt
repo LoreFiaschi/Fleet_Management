@@ -1,0 +1,24 @@
+caps, one rate: A_hat (exact Gamma), A_icx (this proposal), A_Cantelli; ratios to A_hat
+  eps=0.01  b*tau=0.01    A_hat=0.002488   A_icx=0.0001     (0.040) A_Cantelli=1.01e-06   (0.000); exact tail at A_icx = 4.04e-04
+  eps=0.01  b*tau=0.1     A_hat=0.005501   A_icx=0.001      (0.182) A_Cantelli=0.0001008  (0.018); exact tail at A_icx = 1.82e-03
+  eps=0.01  b*tau=1.0     A_hat=0.04365    A_icx=0.01522    (0.349) A_Cantelli=0.009902   (0.227); exact tail at A_icx = 3.39e-03
+  eps=0.01  b*tau=10.0    A_hat=3.972      A_icx=3.204      (0.807) A_Cantelli=0.8464     (0.213); exact tail at A_icx = 3.72e-03
+  eps=0.01  b*tau=100.0   A_hat=78         A_icx=74.87      (0.960) A_Cantelli=38.37      (0.492); exact tail at A_icx = 3.81e-03
+  eps=0.01  b*tau=1000.0  A_hat=927.7      A_icx=917.2      (0.989) A_Cantelli=731        (0.788); exact tail at A_icx = 3.84e-03
+  eps=0.1   b*tau=0.01    A_hat=0.02596    A_icx=0.001      (0.039) A_Cantelli=1.109e-05  (0.000); exact tail at A_icx = 4.03e-03
+  eps=0.1   b*tau=0.1     A_hat=0.05655    A_icx=0.01       (0.177) A_Cantelli=0.001087   (0.019); exact tail at A_icx = 1.81e-02
+  eps=0.1   b*tau=1.0     A_hat=0.3456     A_icx=0.1368     (0.396) A_Cantelli=0.09167    (0.265); exact tail at A_icx = 3.41e-02
+  eps=0.1   b*tau=10.0    A_hat=6.575      A_icx=5.293      (0.805) A_Cantelli=4          (0.608); exact tail at A_icx = 3.80e-02
+  eps=0.1   b*tau=100.0   A_hat=87.8       A_icx=83.26      (0.948) A_Cantelli=74.16      (0.845); exact tail at A_icx = 3.91e-02
+  eps=0.1   b*tau=1000.0  A_hat=960.1      A_icx=945.3      (0.985) A_Cantelli=909.5      (0.947); exact tail at A_icx = 3.95e-02
+S3 example: tracked A'=0.0024877, true tail 0.01329, bound B(A')=0.2488, A_icx=0.0001
+S2 example A (3,2): A'=b*mu=5.0000, true tail 0.01417, bound B(A')=0.0772, A_icx=3.2041
+S2 example B (0,2): A'=b*mu=8.0000, true tail 0.06457, bound B(A')=0.5439, A_icx=3.2041
+S1 example: A_icx=3.2041; accepted pairs 10; largest n2 per n1: {0: 3, 1: 2, 2: 1, 3: 0}
+Monte Carlo, 12 random schedules x 12 days (144 checks, 20000 paths each):
+  max of (MC tail - 3 s.e. - bound B(A')) = -0.0002 (<= 0 expected)
+  max of (MC stop-loss - 3 s.e. - Gamma(A', b*) stop-loss) at x = 0.5, 0.8 = -0.0000 (<= 0 expected)
+
+real	0m16.353s
+user	0m0.031s
+sys	0m0.031s

@@ -1,0 +1,81 @@
+% ================================================================
+\section{Full Optimization Problem}
+\label{sec:full_problem}
+% ================================================================
+
+This section collects the whole problem in one place. Each row is stated once, in the
+section that the reference names; this section does not repeat the rows.
+
+\textbf{Objective.} Minimise Eq.~\eqref{eq:a_objective}, the mode chosen by
+\texttt{objective\_mode}, with the day cost Eq.~\eqref{eq:a_daycost}.
+
+\textbf{Fleet rows.} For every train $i$ and day $k$: one activity,
+Eq.~\eqref{eq:a_one_activity}. For every mission $j \geq 1$ and day $k$: coverage,
+Eq.~\eqref{eq:a_coverage}. For every cell and day: depot-day compatibility,
+Eq.~\eqref{eq:a_depot}.
+
+\textbf{Rows of a cell.} For every cell $(i,\ell)$, with the model, repair law,
+tail bound, encoding and reliability form of the cell:
+\begin{enumerate}[nosep,leftmargin=2em]
+  \item for every tracked quantity of the table below: the big-M rows of its model
+        section (Sections~\ref{sec:dyn_gaussian}--\ref{sec:dyn_rainflow};
+        \texttt{encoding = "bigm"}) or the indicator rows
+        Eqs.~\eqref{eq:a_ind_sum}--\eqref{eq:a_ind_state} (\texttt{encoding = "indicator"});
+  \item under $\ARDone$, for every tracked quantity except the Wiener variance: the
+        anchor rows of its model section, or Eq.~\eqref{eq:a_ind_anchor};
+  \item the reliability row of the table, on every day $k = 1, \ldots, T$, in the form
+        \texttt{exact}, \texttt{tangent} (Eq.~\eqref{eq:a_tangent}) or \texttt{pwl}
+        (Eqs.~\eqref{eq:a_pwl_sum}--\eqref{eq:a_pwl_cap}) for a quadratic row, and in
+        its exact form for a linear row;
+  \item where \texttt{v\_max\_user} is given (G, W, RF with Ca or Be): the optional row
+        $v_{i\ell k} \leq V^{\mathrm{user}}_{\max,i\ell}$ of its model section, on every day;
+  \item the loop rows Eq.~\eqref{eq:a_loop}, one per tracked quantity and per anchor;
+  \item where $C_{R,i\ell} > 0$: the repair-cost rows Eq.~\eqref{eq:a_z}.
+\end{enumerate}
+
+\textbf{Damage penalty.} Where $C_D > 0$: Eq.~\eqref{eq:a_u_inf}
+(\texttt{inf\_norm}) or Eq.~\eqref{eq:a_u_quad} (\texttt{quadratic}), for every train
+and day.
+
+\textbf{Domains.} The variables and their domains are those of
+Section~\ref{sec:variables}; a variable that no row uses is not built.
+
+The table gives, for each kind of cell, the tracked quantities with their repair
+factor $a$ (Eq.~\eqref{eq:a_psi}), their natural ranges $M_s$
+(Section~\ref{sec:encoding}) and the reliability row.
+
+\begingroup\small
+\begin{longtable}{@{}L{3.1cm}L{4.4cm}L{3.0cm}L{4.0cm}@{}}
+\toprule
+Cell & Tracked quantities (factor $a$) & Natural ranges $M_s$ & Reliability row \\
+\midrule
+\endfirsthead
+\toprule
+Cell & Tracked quantities (factor $a$) & Natural ranges $M_s$ & Reliability row \\
+\midrule
+\endhead
+Gaussian & $\mu$ ($1-\rho$), $v$ ($(1-\rho)^2$) & $\tau$, $V_{\max}$ &
+  Eq.~\eqref{eq:g_row}, quadratic \\
+Inverse Gaussian & $\mu$ ($1-\rho$) & $\tau$ & Eq.~\eqref{eq:ig_row}, linear \\
+Wiener & $\mu$ ($1-\rho$), $v$ ($1$, no anchor) & $\tau$, $V_{\max}$ &
+  Eq.~\eqref{eq:g_row}, quadratic \\
+Gamma & $\mu$ ($1-\rho$) & $\tau$ & Eq.~\eqref{eq:gm_row}, linear \\
+Rainflow, Markov & $\mu$ ($1-\rho$) & $\tau$ & Eq.~\eqref{eq:rf_markov}, linear \\
+Rainflow, Cantelli & $\mu$ ($1-\rho$), $v$ ($(1-\rho)^2$) & $\tau$, $V^{\mathrm{C}}$ &
+  Eq.~\eqref{eq:rf_cantelli}, quadratic \\
+Rainflow, Hoeffding & $\mu$ ($1-\rho$), $R$ ($(1-\rho)^2$) & $\tau$, $2\tau^2/\kappa$ &
+  Eq.~\eqref{eq:rf_hoeffding}, quadratic \\
+Rainflow, Bernstein & $\mu$ ($1-\rho$), $v$ ($(1-\rho)^2$) & $\tau$, $V^{\mathrm{B}}$ &
+  Eq.~\eqref{eq:rf_bernstein}, quadratic \\
+Rainflow, Chernoff & $\mu$ ($1-\rho$), $K$ ($1-\rho$) & $\tau$, $s\,\tau - \kappa$ &
+  Eq.~\eqref{eq:rf_chernoff}, linear \\
+\bottomrule
+\end{longtable}
+\endgroup
+
+\textbf{Problem class.} The problem is a mixed-integer linear program when every
+quadratic reliability row uses the \texttt{tangent} or \texttt{pwl} form and the
+damage penalty is \texttt{inf\_norm} or absent. A quadratic row in the \texttt{exact}
+form makes it a nonconvex mixed-integer quadratically constrained program, which
+Gurobi solves with \texttt{NonConvex} $= 2$. The \texttt{quadratic} damage penalty
+alone makes it a convex one (Section~\ref{sec:damage_reg}).

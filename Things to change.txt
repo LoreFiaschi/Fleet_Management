@@ -1,0 +1,35 @@
+- The targets are not trains but electric vehicles (like buses or cars)
+
+- Split the horizon search loop into two different tasks: search for the best transitory horizon and the best operating horizon. This will also impact the interface and formulation of the problem as we have two horizons now.
+
+- Visualization of the results must improve. For instance, don't show the type of degradation as box contours. A label at beginining of the row is probably better.
+
+- Tightening of the linear reliability surrogates beyond their single-tangent forms
+
+- Schedule-dependent Bernstein support
+
+- Merge the branches lore and main: write the choices recorded in merge/decisions.md into spec/spec.tex first, then into the code, then into scoping.tex and the README (plan: merge/documents_plan.md).
+
+- Extend the Monte Carlo replay validator (main's Gamma stochastic validator) to every degradation model.
+
+- Gamma: per-rate weights for cells whose missions have different Gamma rates, tighter than the sharp cap and still safe. First extend the sharp-cap theorem to several rate groups, then compute the weights offline (merge/decisions.md, item "Gamma formulation").
+
+- Redesign the greedy warm-start heuristic so that it gives a good starting point, not only a feasible one (merge/decisions.md, item "Warm starts").
+
+- Scoping, literature review (open items moved from scoping.tex, 28 Oct 2026): Degradation-aware fleet management; Similar applications; Novelties of the project and its placement in the literature.
+
+- Scoping, optimization problem for a fleet of electric vehicles (moved from scoping.tex, 28 Oct 2026): Specialize the previous optimization problem to the case of electric vehicles; Find out what can be modelled exactly and what cannot; Provide the MILP approximation of this problem.
+
+- Scoping, implementation details (moved from scoping.tex, 28 Oct 2026): Provide the details to run an actual simulation of the system.
+
+Research directions (from ASSESSMENT.md, 7 Jul 2026):
+
+- Rolling-horizon deployment: re-solve with observed states as condition-monitoring data arrive; the loop constraint becomes a terminal safety envelope.
+
+- Scenario (sample average approximation) chance constraints: sample the empirical rainflow distribution and allow failure in at most floor(eps*S) scenarios; it measures what the Cantelli/Bernstein conservatism costs.
+
+- Distributionally robust framing: Cantelli is the tight bound over the two-moment ambiguity set; this sets up a Wasserstein-ball extension for the sampling error of the moments.
+
+- Decomposition for scale: components couple only through the assignment variables (Benders or Dantzig-Wolfe: an assignment master, per-component reliability subproblems).
+
+- Policy baseline: compare against simple condition-based threshold policies.

@@ -1,0 +1,628 @@
+% ----------------------------------------------------------------
+\subsection{Gaussian Model}
+\label{sec:dyn_gaussian}
+% ----------------------------------------------------------------
+
+For cells $(i,\ell)$ with \texttt{model} $=$ \texttt{gaussian}. In this section and
+the next four, the subscript $i\ell$ is dropped and $k$ is the day.
+
+\textbf{Model.} A mission increment is $\mathcal{N}(\mu^{\inc}_{jk}, v^{\inc}_{jk})$
+(inputs \texttt{mu}, \texttt{v}); the initial damage is $\mathcal{N}(\mu_0, v_0)$; a
+replacement draw is $\mathcal{N}(\mu^{\new}, v^{\new})$. A known damage has variance 0.
+\textbf{Assumption N1.} The increments, the initial damage and the replacement draws
+are mutually independent.
+
+\textbf{Laws and tracked quantities.} $\ARDinf$ and $\ARDone$. Tracked: $\mu_k$ and
+$v_k$; under $\ARDone$ also the anchors $g^{\mu}_k$ and $g^{v}_k$. Day maps:
+\begin{align}
+  \mu_k &= \begin{cases}
+    \mu_{k-1} + \delta\mu_k & \text{no intervention on day } k,\\
+    (1-\rho)\,\mu_{k-1} & \text{repair, } \ARDinf,\\
+    (1-\rho)\,\mu_{k-1} + \rho\, g^{\mu}_{k-1} & \text{repair, } \ARDone,\\
+    \mu^{\new} & \text{replacement,}
+  \end{cases}
+  \label{eq:g_map_mu} \\
+  v_k &= \begin{cases}
+    v_{k-1} + \delta v_k & \text{no intervention on day } k,\\
+    (1-\rho)^2\, v_{k-1} & \text{repair, } \ARDinf,\\
+    (1-\rho)^2\, v_{k-1} + \bigl(1 - (1-\rho)^2\bigr)\, g^{v}_{k-1}
+      & \text{repair, } \ARDone,\\
+    v^{\new} & \text{replacement,}
+  \end{cases}
+  \label{eq:g_map_v}
+\end{align}
+with $\delta\mu_k = \sum_{j=1}^{M} x_{ijk}\,\mu^{\inc}_{jk}$ and
+$\delta v_k = \sum_{j=1}^{M} x_{ijk}\,v^{\inc}_{jk}$.
+
+\textbf{Big-M rows} (\texttt{encoding = "bigm"}, the default). In this section and
+the next four, each row holds for $k = 1, \ldots, T$, and $e_k = x^m_k + x^r_k$. The
+$\ARDinf$ rows are built at $\ARDinf$ cells; the $\ARDone$ rows and the anchor rows at
+$\ARDone$ cells. With \texttt{allow\_replacement = false}, $x^r_k = 0$ and the
+replacement rows are not built. Big-M constants: $\tau$ for $\mu$ and $g^{\mu}$;
+$V_{\max} = \tau^2/\kappa_G^2$ for $v$ and $g^{v}$, with
+$\kappa_G = \Phi^{-1}(1-\varepsilon)$.
+
+\emph{Mean.}
+\begin{align}
+  &\text{no intervention:} & \mu_k &\geq \mu_{k-1} + \delta\mu_k - \tau\,(x^m_k + x^r_k),
+    \label{eq:g_mu_carry} \\
+  &\text{repair, } \ARDinf\text{:} & \mu_k &\geq (1-\rho)\,\mu_{k-1} - \tau\,(1 - x^m_k),
+    \label{eq:g_mu_inf} \\
+  &\text{repair, } \ARDone\text{:} & \mu_k &\geq (1-\rho)\,\mu_{k-1} + \rho\, g^{\mu}_{k-1}
+    - \tau\,(1 - x^m_k),
+    \label{eq:g_mu_one} \\
+  &\text{replacement:} & \mu_k &\geq \mu^{\new} - \tau\,(1 - x^r_k), \quad
+    \mu_k \leq \mu^{\new} + \tau\,(1 - x^r_k).
+    \label{eq:g_mu_repl}
+\end{align}
+
+\emph{Variance.}
+\begin{align}
+  &\text{no intervention:} & v_k &\geq v_{k-1} + \delta v_k - V_{\max}\,(x^m_k + x^r_k),
+    \label{eq:g_v_carry} \\
+  &\text{repair, } \ARDinf\text{:} & v_k &\geq (1-\rho)^2\, v_{k-1}
+    - V_{\max}\,(1 - x^m_k),
+    \label{eq:g_v_inf} \\
+  &\text{repair, } \ARDone\text{:} & v_k &\geq (1-\rho)^2\, v_{k-1}
+    + \bigl(1 - (1-\rho)^2\bigr)\, g^{v}_{k-1} - V_{\max}\,(1 - x^m_k),
+    \label{eq:g_v_one} \\
+  &\text{replacement:} & v_k &\geq v^{\new} - V_{\max}\,(1 - x^r_k), \quad
+    v_k \leq v^{\new} + V_{\max}\,(1 - x^r_k).
+    \label{eq:g_v_repl}
+\end{align}
+
+\emph{Anchors} ($\ARDone$), for $(y, M_y) \in \{(\mu, \tau),\, (v, V_{\max})\}$:
+\begin{align}
+  g^{y}_k - y_k &\leq M_y\,(1 - e_k), & y_k - g^{y}_k &\leq M_y\,(1 - e_k),
+    \label{eq:g_anchor_set} \\
+  g^{y}_k - g^{y}_{k-1} &\leq M_y\, e_k, & g^{y}_{k-1} - g^{y}_k &\leq M_y\, e_k.
+    \label{eq:g_anchor_keep}
+\end{align}
+
+\emph{Day 0 and replacement.} The constants $\mu_0$, $v_0$ and, under $\ARDone$,
+$g^{\mu}_0$, $g^{v}_0$ (Section~\ref{sec:repair_laws}); the replacement values
+$\mu^{\new}$, $v^{\new}$ (Section~\ref{sec:replacement}).
+
+\emph{Indicator form} (\texttt{encoding = "indicator"}): the rows
+Eqs.~\eqref{eq:a_ind_sum}--\eqref{eq:a_ind_anchor} with the same day maps,
+Eqs.~\eqref{eq:g_map_mu}--\eqref{eq:g_map_v}.
+
+\subsubsection{Reliability row}
+
+Requires $\varepsilon < 0.5$ (Section~\ref{sec:consistency_checks}). On every day
+$k = 1, \ldots, T$:
+\begin{equation}
+  \kappa_G^2\, v_k \leq (\tau - \mu_k)^2, \qquad \mu_k \leq \tau.
+  \label{eq:g_row}
+\end{equation}
+
+\textbf{Forms.} \texttt{exact}: Eq.~\eqref{eq:g_row} as written, a nonconvex
+quadratic constraint (\texttt{NonConvex} $= 2$, Section~\ref{sec:linear_forms}).
+\texttt{tangent} and \texttt{pwl}: Section~\ref{sec:linear_forms}, with $\chi = v$,
+$f(\mu) = (\tau - \mu)^2/\kappa_G^2$ and the side row $\mu \leq \tau$.
+
+\textbf{Optional row.} If \texttt{v\_max\_user} is given for the cell:
+$v_k \leq V^{\mathrm{user}}$ on every day.
+
+% ----------------------------------------------------------------
+\subsection{Inverse Gaussian Model}
+\label{sec:dyn_ig}
+% ----------------------------------------------------------------
+
+For cells $(i,\ell)$ with \texttt{model} $=$ \texttt{inverse\_gaussian} (IG).
+
+\textbf{Model.} $\mathrm{IG}(\mu, \lambda)$ is the inverse Gaussian law with mean
+$\mu$ and shape $\lambda$. Every term of mean $a$ (a mission increment, mean
+$\mu^{\inc}_{jk}$; the initial damage, $\mu_0$; a replacement draw, $\mu^{\new}$)
+has the law $\mathrm{IG}(a, a/\eta) = a\,Z$, with $Z \sim \mathrm{IG}(1, 1/\eta)$
+and $\eta > 0$ the squared coefficient of variation of the terms of the cell (input \texttt{eta}). A known damage is a
+constant. No independence between terms is required (scoping document, section
+``Stochastic orderings'').
+
+\textbf{Laws and tracked quantities.} $\ARDinf$ and $\ARDone$. Tracked: $\mu_k$;
+under $\ARDone$ also the anchor $g^{\mu}_k$. Day map:
+\begin{equation}
+  \mu_k = \begin{cases}
+    \mu_{k-1} + \delta\mu_k & \text{no intervention on day } k,\\
+    (1-\rho)\,\mu_{k-1} & \text{repair, } \ARDinf,\\
+    (1-\rho)\,\mu_{k-1} + \rho\, g^{\mu}_{k-1} & \text{repair, } \ARDone,\\
+    \mu^{\new} & \text{replacement,}
+  \end{cases}
+  \label{eq:ig_map}
+\end{equation}
+with $\delta\mu_k = \sum_{j=1}^{M} x_{ijk}\,\mu^{\inc}_{jk}$.
+
+\textbf{Big-M rows} (\texttt{encoding = "bigm"}, the default; conditions in
+Section~\ref{sec:dyn_gaussian}). Big-M constant: $\tau$ for $\mu$ and $g^{\mu}$.
+\begin{align}
+  &\text{no intervention:} & \mu_k &\geq \mu_{k-1} + \delta\mu_k - \tau\,(x^m_k + x^r_k),
+    \label{eq:ig_mu_carry} \\
+  &\text{repair, } \ARDinf\text{:} & \mu_k &\geq (1-\rho)\,\mu_{k-1} - \tau\,(1 - x^m_k),
+    \label{eq:ig_mu_inf} \\
+  &\text{repair, } \ARDone\text{:} & \mu_k &\geq (1-\rho)\,\mu_{k-1} + \rho\, g^{\mu}_{k-1}
+    - \tau\,(1 - x^m_k),
+    \label{eq:ig_mu_one} \\
+  &\text{replacement:} & \mu_k &\geq \mu^{\new} - \tau\,(1 - x^r_k), \quad
+    \mu_k \leq \mu^{\new} + \tau\,(1 - x^r_k).
+    \label{eq:ig_mu_repl}
+\end{align}
+
+\emph{Anchor} ($\ARDone$):
+\begin{align}
+  g^{\mu}_k - \mu_k &\leq \tau\,(1 - e_k), & \mu_k - g^{\mu}_k &\leq \tau\,(1 - e_k),
+    \label{eq:ig_anchor_set} \\
+  g^{\mu}_k - g^{\mu}_{k-1} &\leq \tau\, e_k, & g^{\mu}_{k-1} - g^{\mu}_k &\leq \tau\, e_k.
+    \label{eq:ig_anchor_keep}
+\end{align}
+
+\emph{Day 0 and replacement.} The constants $\mu_0$ and, under $\ARDone$, $g^{\mu}_0$
+(Section~\ref{sec:repair_laws}); the replacement value $\mu^{\new}$
+(Section~\ref{sec:replacement}).
+
+\emph{Indicator form} (\texttt{encoding = "indicator"}): the rows
+Eqs.~\eqref{eq:a_ind_sum}--\eqref{eq:a_ind_anchor} with the same day map,
+Eq.~\eqref{eq:ig_map}.
+
+\subsubsection{Reliability row}
+
+Let $q$ be the $(1-\varepsilon)$-quantile of $Z$, $\Pr(Z > q) = \varepsilon$, and
+$\bar q = \mathbb{E}[Z \mid Z > q]$. On every day $k = 1, \ldots, T$:
+\begin{equation}
+  \mu_k \leq \bar\mu, \qquad \bar\mu = \frac{\tau}{\bar q}.
+  \label{eq:ig_row}
+\end{equation}
+The row is linear: it is built in its exact form, and a value of
+\texttt{reliability\_impl} at the cell is ignored.
+
+\textbf{Computation of $\bar\mu$} (offline, once per cell). With
+$r(x) = 1/\sqrt{\eta x}$, the distribution function of $Z$ is
+\[
+  F(x) = \Phi\bigl(r(x)\,(x - 1)\bigr) + e^{2/\eta}\,\Phi\bigl(-r(x)\,(x + 1)\bigr).
+\]
+The second term is computed as $\exp\bigl(2/\eta + \ln\Phi(-r(x)(x+1))\bigr)$, with
+$\ln\Phi$ from a log-space routine (\texttt{scipy.special.log\_ndtr}).
+\begin{enumerate}[leftmargin=1.5em, nosep]
+  \item $q$: the root of $1 - F(q) = \varepsilon$, by bisection or \texttt{brentq}
+        on $\ln q$; equivalently, the method \texttt{isf} of
+        \texttt{scipy.stats.invgauss} with \texttt{mu} $= \eta$, \texttt{scale}
+        $= 1/\eta$.
+  \item The tail mean: $\mathbb{E}[Z;\, Z > q] = F(1/q)$, so
+        $\bar\mu = \tau\,\varepsilon/F(1/q)$. Quadrature of
+        $\int_q^\infty z\, f_Z(z)\, dz$, with
+        $f_Z(z) = (2\pi\eta z^3)^{-1/2}\exp\bigl(-(z-1)^2/(2\eta z)\bigr)$, gives
+        the same value.
+\end{enumerate}
+
+% ----------------------------------------------------------------
+\subsection{Wiener Model}
+\label{sec:dyn_wiener}
+% ----------------------------------------------------------------
+
+For cells $(i,\ell)$ with \texttt{model} $=$ \texttt{wiener}.
+
+\textbf{Model.} A mission day adds $\mathcal{N}(\mu^{\inc}_{jk}, \sigma^2)$, with
+the mean from \texttt{mu} and one diffusion constant $\sigma > 0$ per cell (input
+\texttt{sigma}); the initial damage is $\mathcal{N}(\mu_0, v_0)$, $v_0 \geq 0$; a
+replacement draw is $\mathcal{N}(\mu^{\new}, v^{\new})$. \textbf{Assumption W1.} These
+terms are mutually independent. A repair acts on the mean only; the variance falls
+only at a replacement.
+
+\textbf{Laws and tracked quantities.} $\ARDinf$ and $\ARDone$. Tracked: $\mu_k$ and
+$v_k$; under $\ARDone$ also the mean anchor $g^{\mu}_k$ (no variance anchor). The
+mean follows Eq.~\eqref{eq:g_map_mu}. The variance follows
+\begin{equation}
+  v_k = \begin{cases}
+    v_{k-1} + \delta v_k & \text{no intervention on day } k,\\
+    v_{k-1} & \text{repair, both laws},\\
+    v^{\new} & \text{replacement,}
+  \end{cases}
+  \qquad \delta v_k = \sigma^2 \sum_{j=1}^{M} x_{ijk}.
+  \label{eq:w_map_v}
+\end{equation}
+
+\textbf{Big-M rows} (\texttt{encoding = "bigm"}, the default; conditions in
+Section~\ref{sec:dyn_gaussian}). Big-M constants: $\tau$ for $\mu$ and $g^{\mu}$;
+$V_{\max} = \tau^2/\kappa_G^2$ for $v$, with $\kappa_G = \Phi^{-1}(1-\varepsilon)$.
+
+\emph{Mean.}
+\begin{align}
+  &\text{no intervention:} & \mu_k &\geq \mu_{k-1} + \delta\mu_k - \tau\,(x^m_k + x^r_k),
+    \label{eq:w_mu_carry} \\
+  &\text{repair, } \ARDinf\text{:} & \mu_k &\geq (1-\rho)\,\mu_{k-1} - \tau\,(1 - x^m_k),
+    \label{eq:w_mu_inf} \\
+  &\text{repair, } \ARDone\text{:} & \mu_k &\geq (1-\rho)\,\mu_{k-1} + \rho\, g^{\mu}_{k-1}
+    - \tau\,(1 - x^m_k),
+    \label{eq:w_mu_one} \\
+  &\text{replacement:} & \mu_k &\geq \mu^{\new} - \tau\,(1 - x^r_k), \quad
+    \mu_k \leq \mu^{\new} + \tau\,(1 - x^r_k).
+    \label{eq:w_mu_repl}
+\end{align}
+
+\emph{Variance} (both laws; no anchor).
+\begin{align}
+  &\text{no intervention, repair:} & v_k &\geq v_{k-1} + \delta v_k - V_{\max}\, x^r_k,
+    \label{eq:w_vrow} \\
+  &\text{replacement:} & v_k &\geq v^{\new} - V_{\max}\,(1 - x^r_k), \quad
+    v_k \leq v^{\new} + V_{\max}\,(1 - x^r_k).
+    \label{eq:w_v_repl}
+\end{align}
+
+\emph{Anchor} ($\ARDone$, mean only):
+\begin{align}
+  g^{\mu}_k - \mu_k &\leq \tau\,(1 - e_k), & \mu_k - g^{\mu}_k &\leq \tau\,(1 - e_k),
+    \label{eq:w_anchor_set} \\
+  g^{\mu}_k - g^{\mu}_{k-1} &\leq \tau\, e_k, & g^{\mu}_{k-1} - g^{\mu}_k &\leq \tau\, e_k.
+    \label{eq:w_anchor_keep}
+\end{align}
+
+\emph{Day 0 and replacement.} The constants $\mu_0$, $v_0$ and, under $\ARDone$,
+$g^{\mu}_0$ (Section~\ref{sec:repair_laws}); the replacement values $\mu^{\new}$,
+$v^{\new}$ (Section~\ref{sec:replacement}).
+
+\emph{Indicator form} (\texttt{encoding = "indicator"}): the rows
+Eqs.~\eqref{eq:a_ind_sum}--\eqref{eq:a_ind_anchor} with the same day maps,
+Eqs.~\eqref{eq:g_map_mu} and~\eqref{eq:w_map_v}: the variance has
+$\psi = v_{k-1}$, and only $g^{\mu}$ has anchor rows.
+
+\textbf{Reliability row.} The Gaussian row, Eq.~\eqref{eq:g_row}, with
+$\kappa_G = \Phi^{-1}(1-\varepsilon)$, $\varepsilon < 0.5$,
+$V_{\max} = \tau^2/\kappa_G^2$, on every day $k = 1, \ldots, T$, in the same forms
+and with the same $f$ and side row (Section~\ref{sec:dyn_gaussian}). The optional
+row $v_k \leq V^{\mathrm{user}}$ is added when \texttt{v\_max\_user} is given.
+
+\emph{Note.} The loop row $v_T \leq v_{H_1}$ forces a replacement of the component
+in the operating phase whenever its train flies a mission there; with
+\texttt{allow\_replacement} false, the train cannot fly in the operating phase
+(scoping document, section ``Stochastic orderings'', loop constraint for each
+degradation model).
+
+% ----------------------------------------------------------------
+\subsection{Gamma Model}
+\label{sec:dyn_gamma}
+% ----------------------------------------------------------------
+
+For cells $(i,\ell)$ with \texttt{model} $=$ \texttt{gamma}.
+
+\textbf{Model.} $\mathrm{Gamma}(a, \beta)$ has shape $a$, rate $\beta$ and mean
+$a/\beta$. Terms:
+\begin{itemize}[leftmargin=1.5em, nosep]
+  \item a mission increment with mean $\mu^{\inc}_{jk} > 0$ (\texttt{mu}) and rate
+        $\beta_{jk}$ (\texttt{gamma\_beta}, \texttt{gamma\_beta\_trans}):
+        $\mathrm{Gamma}(\beta_{jk}\mu^{\inc}_{jk},\, \beta_{jk})$;
+  \item the initial damage, $\mu_0 > 0$: $\mathrm{Gamma}(\beta_0\mu_0,\, \beta_0)$
+        when \texttt{gamma\_beta\_0} $= \beta_0$ is given; the known constant
+        $\mu_0$ when it is omitted;
+  \item a replacement draw, $\mu^{\new} > 0$:
+        $\mathrm{Gamma}(\beta^{\new}\mu^{\new},\, \beta^{\new})$ when
+        \texttt{gamma\_beta\_new} $= \beta^{\new}$ is given; the known constant
+        $\mu^{\new}$ when it is omitted.
+\end{itemize}
+\textbf{Assumption G1.} All these terms are mutually independent.
+
+\textbf{Laws and tracked quantities.} $\ARDinf$ and $\ARDone$. Tracked: $\mu_k$
+(the shape is not tracked); under $\ARDone$ also the anchor $g^{\mu}_k$. Day map:
+\begin{equation}
+  \mu_k = \begin{cases}
+    \mu_{k-1} + \delta\mu_k & \text{no intervention on day } k,\\
+    (1-\rho)\,\mu_{k-1} & \text{repair, } \ARDinf,\\
+    (1-\rho)\,\mu_{k-1} + \rho\, g^{\mu}_{k-1} & \text{repair, } \ARDone,\\
+    \mu^{\new} & \text{replacement,}
+  \end{cases}
+  \label{eq:gm_map}
+\end{equation}
+with $\delta\mu_k = \sum_{j=1}^{M} x_{ijk}\,\mu^{\inc}_{jk}$.
+
+\textbf{Big-M rows} (\texttt{encoding = "bigm"}, the default; conditions in
+Section~\ref{sec:dyn_gaussian}). Big-M constant: $\tau$ for $\mu$ and $g^{\mu}$.
+\begin{align}
+  &\text{no intervention:} & \mu_k &\geq \mu_{k-1} + \delta\mu_k - \tau\,(x^m_k + x^r_k),
+    \label{eq:gm_mu_carry} \\
+  &\text{repair, } \ARDinf\text{:} & \mu_k &\geq (1-\rho)\,\mu_{k-1} - \tau\,(1 - x^m_k),
+    \label{eq:gm_mu_inf} \\
+  &\text{repair, } \ARDone\text{:} & \mu_k &\geq (1-\rho)\,\mu_{k-1} + \rho\, g^{\mu}_{k-1}
+    - \tau\,(1 - x^m_k),
+    \label{eq:gm_mu_one} \\
+  &\text{replacement:} & \mu_k &\geq \mu^{\new} - \tau\,(1 - x^r_k), \quad
+    \mu_k \leq \mu^{\new} + \tau\,(1 - x^r_k).
+    \label{eq:gm_mu_repl}
+\end{align}
+
+\emph{Anchor} ($\ARDone$):
+\begin{align}
+  g^{\mu}_k - \mu_k &\leq \tau\,(1 - e_k), & \mu_k - g^{\mu}_k &\leq \tau\,(1 - e_k),
+    \label{eq:gm_anchor_set} \\
+  g^{\mu}_k - g^{\mu}_{k-1} &\leq \tau\, e_k, & g^{\mu}_{k-1} - g^{\mu}_k &\leq \tau\, e_k.
+    \label{eq:gm_anchor_keep}
+\end{align}
+
+\emph{Day 0 and replacement.} The constants $\mu_0$ and, under $\ARDone$, $g^{\mu}_0$
+(Section~\ref{sec:repair_laws}); the replacement value $\mu^{\new}$
+(Section~\ref{sec:replacement}).
+
+\emph{Indicator form} (\texttt{encoding = "indicator"}): the rows
+Eqs.~\eqref{eq:a_ind_sum}--\eqref{eq:a_ind_anchor} with the same day map,
+Eq.~\eqref{eq:gm_map}.
+
+\textbf{Smallest rate.}
+\begin{equation}
+  \beta^* = \min\Bigl(\{\beta_{jk} : \mu^{\inc}_{jk} > 0\}
+    \cup \{\beta_0 : \mu_0 > 0\} \cup \{\beta^{\new} : \mu^{\new} > 0\}\Bigr),
+  \label{eq:gm_betastar}
+\end{equation}
+over the missions $j$ and the days $k$ of both phases. $\beta_0$ and $\beta^{\new}$
+enter only when given, and $\beta^{\new}$ only when \texttt{allow\_replacement} is
+true. A cell in which no term has a rate has the row $\mu_k \leq \tau$ in place of
+Eq.~\eqref{eq:gm_row}.
+
+\subsubsection{Reliability row}
+
+$Q(a, x) = \Pr(\mathrm{Gamma}(a, 1) > x)$ is the regularised upper incomplete gamma
+function (\texttt{gammaincc} of \texttt{scipy.special}). Let $t = \beta^*\tau$ and, for
+$A \in [0, t)$,
+\[
+  w(A) = \max_{c \in (0, 1]} Q\!\left(\frac{A}{c},\, \frac{t}{c}\right).
+\]
+The sharp cap $A_1(t, \varepsilon)$ is the largest $A \in [0, t)$ with
+$w(A) \leq \varepsilon$. For $\varepsilon \geq 1/2$ every $A < t$ satisfies this,
+and $A_1$ is the value that step~3 below returns, which lies below $t$. On every
+day $k = 1, \ldots, T$:
+\begin{equation}
+  \mu_k \leq \frac{A_1(\beta^*\tau,\, \varepsilon)}{\beta^*}.
+  \label{eq:gm_row}
+\end{equation}
+The row is linear: it is built in its exact form, and a value of
+\texttt{reliability\_impl} at the cell is ignored.
+
+\textbf{Computation of $A_1$} (offline, once per cell):
+\begin{enumerate}[leftmargin=1.5em, nosep]
+  \item $\hat A$: the root of $Q(\hat A, t) = \varepsilon$, by bisection on
+        $\hat A$ (\texttt{gammaincinv} solves for the second argument and does not
+        apply).
+  \item $w(A)$: maximum of $c \mapsto Q(A/c, t/c)$ over a logarithmic grid of at
+        least 400 values of $c$ in $[\min(10^{-4}, t/100),\, 1]$, refined by a
+        golden-section search between the neighbours of the best grid point. If
+        the best grid point is the smallest $c$, the grid is extended downwards.
+  \item If $\hat A < t$ and $w(\hat A) \leq \varepsilon$: $A_1 = \hat A$.
+        Otherwise: bisection on $A$ in $[\varepsilon t,\, \min(\hat A, t))$, to a
+        relative tolerance of $10^{-9}$; $w(\varepsilon t) \leq \varepsilon$ holds.
+        The bisection returns the lower end of its last interval.
+\end{enumerate}
+
+% ----------------------------------------------------------------
+\subsection{Rainflow Model}
+\label{sec:dyn_rainflow}
+% ----------------------------------------------------------------
+
+For cells $(i,\ell)$ with \texttt{model} $=$ \texttt{rainflow}. The law of a
+mission increment comes from rainflow counting of recorded load histories
+(Palmgren--Miner damage) and enters only through summary statistics: mean,
+variance, width of its range, or cumulant generating function (CGF) at a fixed
+$s$. The tail bound is chosen per cell by \texttt{bound\_method}: \texttt{markov},
+\texttt{cantelli}, \texttt{hoeffding}, \texttt{bernstein} or \texttt{chernoff}.
+
+\textbf{Assumptions on the input data.}
+\begin{itemize}[leftmargin=1.5em, nosep]
+  \item \textbf{A0.} Every increment, the initial damage and every replacement draw
+        are non-negative.
+  \item \textbf{A1.} The mission increments, the initial damage and the replacement
+        draws are mutually independent (all bounds except Markov).
+  \item \textbf{A2} (Hoeffding, Bernstein). Each increment lies in an interval of
+        width $b^{\inc}_{jk}$ (input \texttt{support}). The initial damage is a
+        known part plus independent terms in intervals, with sum of squared widths
+        $R_0$ (\texttt{R\_0}); the range of their sum has width $b^0$ (\texttt{support\_0}); a
+        replacement draw likewise, with $R^{\new}$, $b^{\new}$ (\texttt{R\_new},
+        \texttt{support\_new}). A known damage has $R = b = 0$, the defaults.
+  \item \textbf{A3.} After day $T$ the operating phase repeats with period $H_2$
+        (Section~\ref{sec:loop}).
+\end{itemize}
+The \emph{width} of $X$ is the width $b$ of an interval $[l, l + b]$ that contains
+$X$ almost surely; it must satisfy $v \leq b^2/4$ (Section~\ref{sec:consistency_checks}).
+
+\textbf{Tracked quantities per bound.} Every cell tracks $\mu$; the bound adds at
+most one quantity; under $\ARDone$ each tracked quantity has an anchor ($g^{\mu}$
+and $g^{v}$, $g^{R}$ or $g^{K}$). Both laws are accepted for every bound. ``Forms''
+lists the forms in which the row is built (``all three'': \texttt{exact},
+\texttt{tangent}, \texttt{pwl}); at a linear row a value of
+\texttt{reliability\_impl} is ignored.
+
+\begingroup\small
+\begin{longtable}{@{}lllll@{}}
+\toprule
+\texttt{bound\_method} & Tracked & Increment inputs & Initial; replacement inputs & Forms \\
+\midrule
+\texttt{markov} & $\mu$ & \texttt{mu} & -- & \texttt{exact} \\
+\texttt{cantelli} & $\mu$, $v$ & \texttt{mu}, \texttt{v}
+  & \texttt{v\_0}; \texttt{replacement\_v} & all three \\
+\texttt{hoeffding} & $\mu$, $R$ & \texttt{mu}, \texttt{support}
+  & \texttt{R\_0}; \texttt{R\_new} & all three \\
+\texttt{bernstein} & $\mu$, $v$ & \texttt{mu}, \texttt{v}, \texttt{support}
+  & \texttt{v\_0}, \texttt{support\_0}; & all three \\
+ & & & \texttt{replacement\_v}, \texttt{support\_new} & \\
+\texttt{chernoff} & $\mu$, $K$ & \texttt{mu}, \texttt{cgf}, \texttt{s\_chernoff}
+  & \texttt{cgf\_0}; \texttt{cgf\_new} & \texttt{exact} \\
+\bottomrule
+\end{longtable}
+\endgroup
+
+$R$ is the Hoeffding budget (sum of the squared widths of the terms of the damage).
+$K$ is the CGF of the damage at $s = \texttt{s\_chernoff} > 0$. Day increments:
+$\delta\mu_k = \sum_{j=1}^M x_{ijk}\,\mu^{\inc}_{jk}$,
+$\delta v_k = \sum_{j} x_{ijk}\,v^{\inc}_{jk}$,
+$\delta R_k = \sum_{j} x_{ijk}\,(b^{\inc}_{jk})^2$,
+$\delta K_k = \sum_{j} x_{ijk}\,K^{\inc}_{jk}$, with
+$K^{\inc}_{jk} = \ln\mathbb{E}\,e^{s X_{jk}}$ (input \texttt{cgf}).
+
+\textbf{Day maps.} Each tracked quantity follows the generic map of
+Section~\ref{sec:encoding} with its factor $a$: $1-\rho$ for $\mu$ and $K$,
+$(1-\rho)^2$ for $v$ and $R$. It adds its day
+increment on a day without intervention; a repair multiplies it by $a$ under
+$\ARDinf$, and gives $a$ times its value plus $1-a$ times its anchor under
+$\ARDone$; a replacement sets it to its replacement value. Its anchor is its value
+just after the last intervention.
+
+\textbf{Starting and replacement values.} $\mu$ and $v$: from the inputs
+(Section~\ref{sec:replacement}). $R_0$ from \texttt{R\_0} and $R^{\new}$ from
+\texttt{R\_new}, default 0. $K_0$ from \texttt{cgf\_0}, default $s\,\mu_0$;
+$K^{\new}$ from \texttt{cgf\_new}, default $s\,\mu^{\new}$. With
+\texttt{replacement\_as\_new}, all replacement values are 0. The defaults describe a
+known damage; a random initial or replacement damage needs its own \texttt{R\_0},
+\texttt{cgf\_0}, \texttt{R\_new}, \texttt{cgf\_new} (scoping document, section
+``Conservative surrogates for the empirical damage-increment distribution'').
+
+\textbf{Big-M rows} (\texttt{encoding = "bigm"}, the default; conditions in
+Section~\ref{sec:dyn_gaussian}), with $\kappa = \ln(1/\varepsilon)$ and $c$ from
+Eq.~\eqref{eq:rf_bsupport}. The rows of $\mu$ are built at every cell, the rows of
+$v$ at Cantelli and Bernstein cells, the rows of $R$ at Hoeffding cells, and the rows
+of $K$ at Chernoff cells. Big-M constants: $\tau$ for $\mu$ and $g^{\mu}$;
+$M_v = V^{\mathrm{C}} = \varepsilon\tau^2/(1-\varepsilon)$ (Cantelli) or
+$M_v = V^{\mathrm{B}} = \tau(\tau - 2c)/(2\kappa)$ (Bernstein) for $v$ and $g^{v}$;
+$2\tau^2/\kappa$ for $R$ and $g^{R}$; $s\tau - \kappa$ for $K$ and $g^{K}$.
+
+\emph{Mean} (every bound).
+\begin{align}
+  &\text{no intervention:} & \mu_k &\geq \mu_{k-1} + \delta\mu_k - \tau\,(x^m_k + x^r_k),
+    \label{eq:rf_mu_carry} \\
+  &\text{repair, } \ARDinf\text{:} & \mu_k &\geq (1-\rho)\,\mu_{k-1} - \tau\,(1 - x^m_k),
+    \label{eq:rf_mu_inf} \\
+  &\text{repair, } \ARDone\text{:} & \mu_k &\geq (1-\rho)\,\mu_{k-1} + \rho\, g^{\mu}_{k-1}
+    - \tau\,(1 - x^m_k),
+    \label{eq:rf_mu_one} \\
+  &\text{replacement:} & \mu_k &\geq \mu^{\new} - \tau\,(1 - x^r_k), \quad
+    \mu_k \leq \mu^{\new} + \tau\,(1 - x^r_k).
+    \label{eq:rf_mu_repl}
+\end{align}
+
+\emph{Variance} (Cantelli, Bernstein).
+\begin{align}
+  &\text{no intervention:} & v_k &\geq v_{k-1} + \delta v_k - M_v\,(x^m_k + x^r_k),
+    \label{eq:rf_v_carry} \\
+  &\text{repair, } \ARDinf\text{:} & v_k &\geq (1-\rho)^2\, v_{k-1} - M_v\,(1 - x^m_k),
+    \label{eq:rf_v_inf} \\
+  &\text{repair, } \ARDone\text{:} & v_k &\geq (1-\rho)^2\, v_{k-1}
+    + \bigl(1 - (1-\rho)^2\bigr)\, g^{v}_{k-1} - M_v\,(1 - x^m_k),
+    \label{eq:rf_v_one} \\
+  &\text{replacement:} & v_k &\geq v^{\new} - M_v\,(1 - x^r_k), \quad
+    v_k \leq v^{\new} + M_v\,(1 - x^r_k).
+    \label{eq:rf_v_repl}
+\end{align}
+
+\emph{Hoeffding budget} (Hoeffding).
+\begin{align}
+  &\text{no intervention:} & R_k &\geq R_{k-1} + \delta R_k
+    - (2\tau^2/\kappa)\,(x^m_k + x^r_k),
+    \label{eq:rf_R_carry} \\
+  &\text{repair, } \ARDinf\text{:} & R_k &\geq (1-\rho)^2\, R_{k-1}
+    - (2\tau^2/\kappa)\,(1 - x^m_k),
+    \label{eq:rf_R_inf} \\
+  &\text{repair, } \ARDone\text{:} & R_k &\geq (1-\rho)^2\, R_{k-1}
+    + \bigl(1 - (1-\rho)^2\bigr)\, g^{R}_{k-1} - (2\tau^2/\kappa)\,(1 - x^m_k),
+    \label{eq:rf_R_one} \\
+  &\text{replacement:} & R_k &\geq R^{\new} - (2\tau^2/\kappa)\,(1 - x^r_k), \quad
+    R_k \leq R^{\new} + (2\tau^2/\kappa)\,(1 - x^r_k).
+    \label{eq:rf_R_repl}
+\end{align}
+
+\emph{Chernoff quantity} (Chernoff).
+\begin{align}
+  &\text{no intervention:} & K_k &\geq K_{k-1} + \delta K_k
+    - (s\tau - \kappa)\,(x^m_k + x^r_k),
+    \label{eq:rf_K_carry} \\
+  &\text{repair, } \ARDinf\text{:} & K_k &\geq (1-\rho)\, K_{k-1}
+    - (s\tau - \kappa)\,(1 - x^m_k),
+    \label{eq:rf_K_inf} \\
+  &\text{repair, } \ARDone\text{:} & K_k &\geq (1-\rho)\, K_{k-1} + \rho\, g^{K}_{k-1}
+    - (s\tau - \kappa)\,(1 - x^m_k),
+    \label{eq:rf_K_one} \\
+  &\text{replacement:} & K_k &\geq K^{\new} - (s\tau - \kappa)\,(1 - x^r_k), \quad
+    K_k \leq K^{\new} + (s\tau - \kappa)\,(1 - x^r_k).
+    \label{eq:rf_K_repl}
+\end{align}
+
+\emph{Anchors} ($\ARDone$), for each pair
+$(y, M_y) \in \{(\mu, \tau),\, (v, M_v),\, (R, 2\tau^2/\kappa),\, (K, s\tau - \kappa)\}$
+whose quantity $y$ the cell tracks:
+\begin{align}
+  g^{y}_k - y_k &\leq M_y\,(1 - e_k), & y_k - g^{y}_k &\leq M_y\,(1 - e_k),
+    \label{eq:rf_anchor_set} \\
+  g^{y}_k - g^{y}_{k-1} &\leq M_y\, e_k, & g^{y}_{k-1} - g^{y}_k &\leq M_y\, e_k.
+    \label{eq:rf_anchor_keep}
+\end{align}
+
+\emph{Day 0 and replacement.} For the quantities that the cell tracks: the constants
+$\mu_0$, $v_0$, $R_0$, $K_0$ and, under $\ARDone$, $g^{\mu}_0$, $g^{v}_0$, $g^{R}_0$,
+$g^{K}_0$ (Section~\ref{sec:repair_laws}); the replacement values $\mu^{\new}$,
+$v^{\new}$, $R^{\new}$, $K^{\new}$ (paragraph ``Starting and replacement values'').
+
+\emph{Indicator form} (\texttt{encoding = "indicator"}): the rows
+Eqs.~\eqref{eq:a_ind_sum}--\eqref{eq:a_ind_anchor} with the same day maps (paragraph
+``Day maps'').
+
+\subsubsection{Reliability rows}
+
+Each row holds on every day $k = 1, \ldots, T$.
+
+\textbf{Markov} (\texttt{markov}):
+\begin{equation}
+  \mu_k \leq \varepsilon\,\tau.
+  \label{eq:rf_markov}
+\end{equation}
+
+\textbf{Cantelli} (\texttt{cantelli}), with $\kappa_C = \sqrt{(1-\varepsilon)/\varepsilon}$:
+\begin{equation}
+  \kappa_C^2\, v_k \leq (\tau - \mu_k)^2, \qquad \mu_k \leq \tau.
+  \label{eq:rf_cantelli}
+\end{equation}
+
+\textbf{Hoeffding} (\texttt{hoeffding}):
+\begin{equation}
+  (\tau - \mu_k)^2 \geq \frac{\kappa}{2}\, R_k, \qquad \mu_k \leq \tau.
+  \label{eq:rf_hoeffding}
+\end{equation}
+
+\textbf{Bernstein} (\texttt{bernstein}). Support constant, precomputed per cell:
+\begin{equation}
+  b = \max\Bigl(b^0,\; b^{\new},\; \max_{j,k} b^{\inc}_{jk}\Bigr), \qquad
+  c = \frac{\kappa\, b}{3},
+  \label{eq:rf_bsupport}
+\end{equation}
+over the missions $j$ and the days $k$ of both phases; $b^{\new}$ enters only when
+\texttt{allow\_replacement} is true. Row, with its side row:
+\begin{equation}
+  (\tau - c - \mu_k)^2 \geq c^2 + 2\kappa\, v_k, \qquad \mu_k \leq \tau - c.
+  \label{eq:rf_bernstein}
+\end{equation}
+Requires $\tau > 2\kappa b/3$ (Section~\ref{sec:consistency_checks}).
+
+\textbf{Chernoff} (\texttt{chernoff}), with $s = \texttt{s\_chernoff}$:
+\begin{equation}
+  K_k - s\,\tau \leq \ln\varepsilon.
+  \label{eq:rf_chernoff}
+\end{equation}
+Requires $s > \kappa/\tau$ and $K^{\new} \leq s\tau - \kappa$
+(Section~\ref{sec:consistency_checks}).
+
+\textbf{Forms.} Markov and Chernoff rows are linear and built in their exact form.
+The Cantelli, Hoeffding and Bernstein rows take the forms of
+Section~\ref{sec:linear_forms} with:
+
+\begingroup\small
+\begin{longtable}{@{}lllll@{}}
+\toprule
+Bound & $\chi$ & $f(\mu)$ & Side row & $f(0)$ \\
+\midrule
+Cantelli & $v$ & $\varepsilon(\tau - \mu)^2/(1 - \varepsilon)$ & $\mu \leq \tau$
+  & $\varepsilon\tau^2/(1-\varepsilon)$ \\
+Hoeffding & $R$ & $2(\tau - \mu)^2/\kappa$ & $\mu \leq \tau$ & $2\tau^2/\kappa$ \\
+Bernstein & $v$ & $\bigl((\tau - \mu)^2 - 2c(\tau - \mu)\bigr)/(2\kappa)$
+  & $\mu \leq \tau - c$ & $\tau(\tau - 2c)/(2\kappa)$ \\
+\bottomrule
+\end{longtable}
+\endgroup
+
+At a Bernstein cell with $b > 0$ the tangent point must satisfy
+$\mu_r < \sqrt{\tau(\tau - 2c)}$, and the \texttt{pwl} form requires
+$\tau/(2P) < \sqrt{\tau(\tau - 2c)}$, $P = \texttt{pwl\_points}$
+(Section~\ref{sec:consistency_checks}).
+
+\textbf{Optional row.} If \texttt{v\_max\_user} is given for a Cantelli or
+Bernstein cell: $v_k \leq V^{\mathrm{user}}$ on every day.

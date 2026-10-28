@@ -1,0 +1,7 @@
+sharp cap on total mass: 3.9717 missions of any kind
+fast missions alone, exact cap: 8.4177 missions
+straight line from (3.972 slow, 0) to (0, 8.418 fast): worst tail/eps = 2.9618
+largest safe fast intercept H of a line through (3.972, 0): 6.2890 missions (worst tail/eps 1.00000)
+  on that line at s=0.25: slow 2.979, fast 1.572, tail/eps 0.9789
+  on that line at s=0.50: slow 1.986, fast 3.144, tail/eps 0.8589
+  on that line at s=0.75: slow 0.993, fast 4.717, tail/eps 0.5639

@@ -1,0 +1,105 @@
+Tail experiment for the Route-I bounds (deterministic).
+Lattice step h = 2e-05; mpmath digits = 120
+
+lattice Uniform(0,1)   k= 30: total mass - 1 = -4.44e-16, smallest entry = -1.33e-21
+lattice Uniform(0,1)   k=100: total mass - 1 = 0.00e+00, smallest entry = -1.20e-21
+lattice Beta(2,2)      k= 30: total mass - 1 = 2.22e-16, smallest entry = -1.63e-21
+lattice Beta(2,2)      k=100: total mass - 1 = -4.44e-16, smallest entry = -1.42e-21
+lattice Beta(0.5,5)    k= 30: total mass - 1 = -3.33e-16, smallest entry = -3.62e-21
+lattice Beta(0.5,5)    k=100: total mass - 1 = -1.11e-15, smallest entry = -2.65e-21
+
+Columns: bound / exact tail. 'exact' is Pr(D ev tau); '+-' is the relative half-width
+of the rigorous bracket of the exact tail (0 for the Irwin-Hall and binomial values).
+z = (tau - E[D]) / sd(D); s* = optimal Chernoff point.
+
+=== target eps = 0.01 ===
+law                  k       tau ev     exact              z     s* |    Markov   Cantelli  Hoeffding  Bernstein   Chernoff   Chern-ms
+Uniform(0,1)        30   18.6633  > 1.000e-02 +- 0.0%   2.32   1.52 |      80.4       15.7       40.9       16.5        6.5       40.5
+Beta(2,2)           30   17.8409  > 1.000e-02 +- 0.1%   2.32   1.94 |      84.1       15.7       58.4       19.2       6.55       58.2
+Beta(0.5,5)         30    4.3171  > 1.000e-02 +- 0.1%   2.57   2.95 |      63.2       13.1       84.5         25       7.42       64.4
+Two-point p=0.5     30   22.0000 >= 8.062e-03 +- 0.0%   2.56   1.01 |      84.6       16.5       4.73       10.3       4.15       4.15
+Two-point p=0.05    30    5.0000 >= 1.564e-02 +- 0.0%   2.93   1.34 |      19.2       6.66       28.3       6.02       4.11       4.11
+Uniform(0,1)       100   56.7075  > 1.000e-02 +- 0.0%   2.32  0.814 |      88.2       15.6       40.7       11.9       6.63       40.6
+Beta(2,2)          100   55.1974  > 1.000e-02 +- 0.1%   2.32   1.05 |      90.6       15.6       58.3       13.5       6.64       58.2
+Beta(0.5,5)        100   11.8702  > 1.000e-02 +- 0.2%   2.46   1.78 |      76.6       14.1       85.7       17.3       7.13         65
+Two-point p=0.5    100   62.0000 >= 1.049e-02 +- 0.0%   2.40   0.49 |      76.9       14.1       5.35       7.96        5.2        5.2
+Two-point p=0.05   100   11.0000 >= 1.147e-02 +- 0.0%   2.75  0.854 |      39.6       10.2       42.4       6.06       4.96       4.96
+
+=== target eps = 0.0001 ===
+law                  k       tau ev     exact              z     s* |    Markov   Cantelli  Hoeffding  Bernstein   Chernoff   Chern-ms
+Uniform(0,1)        30   20.7716  > 1.000e-04 +- 0.0%   3.65   2.55 |  7.22e+03        698   1.09e+03        232       9.22   1.02e+03
+Beta(2,2)           30   19.4953  > 1.000e-04 +- 0.1%   3.67   3.21 |  7.69e+03        691    2.6e+03        344       9.43   2.55e+03
+Beta(0.5,5)         30    5.4586  > 1.000e-04 +- 0.1%   4.42    4.3 |     5e+03        486   6.08e+03        557       11.4   3.02e+03
+Two-point p=0.5     30   25.0000 >= 1.625e-04 +- 0.0%   3.65   1.61 |  3.69e+03        429       7.83       60.9       4.25       4.25
+Two-point p=0.05    30    8.0000 >= 8.465e-05 +- 0.0%   5.45   1.93 |  2.22e+03        385        707         33       5.37       5.37
+Uniform(0,1)       100   60.6773  > 1.000e-04 +- 0.0%   3.70   1.32 |  8.24e+03        681   1.02e+03       82.9       9.71      1e+03
+Beta(2,2)          100   58.2837  > 1.000e-04 +- 0.2%   3.70   1.69 |  8.58e+03        679   2.54e+03        120       9.78   2.52e+03
+Beta(0.5,5)        100   13.7330  > 1.000e-04 +- 0.3%   4.12   2.67 |  6.62e+03        557    6.5e+03        219       10.9   3.19e+03
+Two-point p=0.5    100   69.0000 >= 9.157e-05 +- 0.0%   3.80    0.8 |  7.91e+03        707       7.99       34.4       6.64       6.64
+Two-point p=0.05   100   15.0000 >= 1.359e-04 +- 0.0%   4.59   1.21 |  2.45e+03        334        996       15.2       6.55       6.55
+
+=== target eps = 1e-06 ===
+law                  k       tau ev     exact              z     s* |    Markov   Cantelli  Hoeffding  Bernstein   Chernoff   Chern-ms
+Uniform(0,1)        30   22.2618  > 1.000e-06 +- 0.0%   4.59   3.43 |  6.74e+05   4.53e+04   2.97e+04   4.71e+03       10.9   2.55e+04
+Beta(2,2)           30   20.6836  > 1.000e-06 +- 0.1%   4.64   4.25 |  7.25e+05   4.44e+04   1.16e+05   8.58e+03       11.4    1.1e+05
+Beta(0.5,5)         30    6.3786  > 1.000e-06 +- 0.2%   5.91   5.17 |  4.28e+05   2.78e+04   4.11e+05   1.55e+04       14.5   1.32e+05
+Two-point p=0.5     30   28.0000 >= 4.340e-07 +- 0.0%   4.75   2.64 |  1.23e+06   9.79e+04       29.5   1.83e+03       3.33       3.33
+Two-point p=0.05    30   10.0000 >= 1.162e-06 +- 0.0%   7.12   2.25 |  1.29e+05   1.67e+04   6.97e+03        178       5.92       5.92
+Uniform(0,1)       100   63.5862  > 1.000e-06 +- 0.0%   4.71   1.71 |  7.86e+05   4.32e+04   2.49e+04        765         12   2.38e+04
+Beta(2,2)          100   60.5542  > 1.000e-06 +- 0.2%   4.72   2.18 |  8.26e+05    4.3e+04   1.08e+05   1.45e+03       12.1   1.06e+05
+Beta(0.5,5)        100   15.1977  > 1.000e-06 +- 0.3%   5.42   3.27 |  5.98e+05    3.3e+04   4.74e+05   3.56e+03       13.9   1.48e+05
+Two-point p=0.5    100   74.0000 >= 8.337e-07 +- 0.0%   4.80   1.05 |   8.1e+05   4.99e+04       11.9        194        7.3        7.3
+Two-point p=0.05   100   19.0000 >= 5.013e-07 +- 0.0%   6.42   1.49 |  5.25e+05   4.72e+04   3.96e+04       60.3        7.8        7.8
+
+=== target eps = 1e-08 ===
+law                  k       tau ev     exact              z     s* |    Markov   Cantelli  Hoeffding  Bernstein   Chernoff   Chern-ms
+Uniform(0,1)        30   23.4323  > 1.000e-08 +- 0.0%   5.33    4.3 |   6.4e+07    3.4e+06   8.74e+05   1.24e+05       12.1   6.55e+05
+Beta(2,2)           30   21.6352  > 1.000e-08 +- 0.2%   5.42    5.2 |  6.93e+07   3.29e+06   5.31e+06   2.66e+05       12.9   4.79e+06
+Beta(0.5,5)         30    7.1846  > 9.999e-09 +- 0.2%   7.22   5.84 |   3.8e+07   1.88e+06   2.66e+07   4.89e+05       17.1   5.57e+06
+Two-point p=0.5     30   29.0000 >= 2.887e-08 +- 0.0%   5.11   3.37 |  1.79e+07   1.28e+06       73.2    1.1e+04       2.59       2.59
+Two-point p=0.05    30   12.0000 >= 9.040e-09 +- 0.0%   8.80   2.54 |  1.38e+07   1.41e+06   7.11e+04   1.52e+03        6.3        6.3
+Uniform(0,1)       100   65.9666  > 1.000e-08 +- 0.0%   5.53   2.05 |  7.58e+07   3.17e+06   6.11e+05   8.83e+03       13.8   5.58e+05
+Beta(2,2)          100   62.4203  > 1.000e-08 +- 0.3%   5.55    2.6 |  8.01e+07   3.14e+06   4.57e+06   2.16e+04         14   4.43e+06
+Beta(0.5,5)        100   16.4637  > 1.000e-08 +- 0.4%   6.54   3.73 |  5.52e+07   2.29e+06   3.37e+07   6.83e+04       16.4   6.64e+06
+Two-point p=0.5    100   78.0000 >= 7.953e-09 +- 0.0%   5.60   1.27 |  8.06e+07   3.89e+06       19.5   1.38e+03       7.58       7.58
+Two-point p=0.05   100   21.0000 >= 2.081e-08 +- 0.0%   7.34   1.62 |  1.14e+07   8.75e+05   2.87e+05        147       8.34       8.34
+
+=== Checks of the method ===
+Uniform k= 30 eps=0.01: lattice bracket [9.994791e-03, 1.000514e-02] contains Irwin-Hall 1.000000e-02: True
+Binomial Two-point p=0.5 k= 30 eps=0.01: scipy 8.0624008551e-03 vs mpmath 8.0624008551e-03, rel. diff 2.2e-16
+Binomial Two-point p=0.05 k= 30 eps=0.01: scipy 1.5635510129e-02 vs mpmath 1.5635510129e-02, rel. diff 4.4e-16
+Uniform k=100 eps=0.01: lattice bracket [9.990793e-03, 1.000938e-02] contains Irwin-Hall 1.000000e-02: True
+Binomial Two-point p=0.5 k=100 eps=0.01: scipy 1.0489367839e-02 vs mpmath 1.0489367839e-02, rel. diff 2.2e-16
+Binomial Two-point p=0.05 k=100 eps=0.01: scipy 1.1472410067e-02 vs mpmath 1.1472410067e-02, rel. diff 3.3e-16
+Uniform k= 30 eps=0.0001: lattice bracket [9.991922e-05, 1.000801e-04] contains Irwin-Hall 1.000000e-04: True
+Binomial Two-point p=0.5 k= 30 eps=0.0001: scipy 1.6245711595e-04 vs mpmath 1.6245711595e-04, rel. diff 2.2e-16
+Binomial Two-point p=0.05 k= 30 eps=0.0001: scipy 8.4647493557e-05 vs mpmath 8.4647493557e-05, rel. diff 0.0e+00
+Uniform k=100 eps=0.0001: lattice bracket [9.986083e-05, 1.001405e-04] contains Irwin-Hall 1.000000e-04: True
+Binomial Two-point p=0.5 k=100 eps=0.0001: scipy 9.1571612441e-05 vs mpmath 9.1571612441e-05, rel. diff 0.0e+00
+Binomial Two-point p=0.05 k=100 eps=0.0001: scipy 1.3585423899e-04 vs mpmath 1.3585423899e-04, rel. diff 2.9e-15
+Uniform k= 30 eps=1e-06: lattice bracket [9.989296e-07, 1.001048e-06] contains Irwin-Hall 1.000000e-06: True
+Binomial Two-point p=0.5 k= 30 eps=1e-06: scipy 4.3399631977e-07 vs mpmath 4.3399631977e-07, rel. diff 0.0e+00
+Binomial Two-point p=0.05 k= 30 eps=1e-06: scipy 1.1615213969e-06 vs mpmath 1.1615213969e-06, rel. diff 0.0e+00
+Uniform k=100 eps=1e-06: lattice bracket [9.982162e-07, 1.001761e-06] contains Irwin-Hall 1.000000e-06: True
+Binomial Two-point p=0.5 k=100 eps=1e-06: scipy 8.3368132473e-07 vs mpmath 8.3368132473e-07, rel. diff 1.1e-16
+Binomial Two-point p=0.05 k=100 eps=1e-06: scipy 5.0126894243e-07 vs mpmath 5.0126894243e-07, rel. diff 6.7e-16
+Uniform k= 30 eps=1e-08: lattice bracket [9.986989e-09, 1.001321e-08] contains Irwin-Hall 1.000000e-08: True
+Binomial Two-point p=0.5 k= 30 eps=1e-08: scipy 2.8870999813e-08 vs mpmath 2.8870999813e-08, rel. diff 0.0e+00
+Binomial Two-point p=0.05 k= 30 eps=1e-08: scipy 9.0404067698e-09 vs mpmath 9.0404067698e-09, rel. diff 0.0e+00
+Uniform k=100 eps=1e-08: lattice bracket [9.978895e-09, 1.002090e-08] contains Irwin-Hall 1.000000e-08: True
+Binomial Two-point p=0.5 k=100 eps=1e-08: scipy 7.9526642369e-09 vs mpmath 7.9526642369e-09, rel. diff 2.2e-16
+Binomial Two-point p=0.05 k=100 eps=1e-08: scipy 2.0810607711e-08 vs mpmath 2.0810607711e-08, rel. diff 4.7e-15
+
+=== Summary over the cases ===
+eps=0.01: Chernoff/exact in [4.11, 7.42]; Cantelli/exact in [6.66, 16.5]; Bernstein/exact in [6.02, 25]; Hoeffding/exact in [4.73, 85.7]
+          cases with Bernstein >= Cantelli: ['Uniform(0,1) k=30', 'Beta(2,2) k=30', 'Beta(0.5,5) k=30', 'Beta(0.5,5) k=100']
+          cases where Chernoff <= Bernstein <= Cantelli fails: ['Uniform(0,1) k=30', 'Beta(2,2) k=30', 'Beta(0.5,5) k=30', 'Beta(0.5,5) k=100']
+eps=0.0001: Chernoff/exact in [4.25, 11.4]; Cantelli/exact in [334, 707]; Bernstein/exact in [15.2, 557]; Hoeffding/exact in [7.83, 6.5e+03]
+          cases with Bernstein >= Cantelli: ['Beta(0.5,5) k=30']
+          cases where Chernoff <= Bernstein <= Cantelli fails: ['Beta(0.5,5) k=30']
+eps=1e-06: Chernoff/exact in [3.33, 14.5]; Cantelli/exact in [1.67e+04, 9.79e+04]; Bernstein/exact in [60.3, 1.55e+04]; Hoeffding/exact in [11.9, 4.74e+05]
+          cases with Bernstein >= Cantelli: none
+          cases where Chernoff <= Bernstein <= Cantelli fails: none
+eps=1e-08: Chernoff/exact in [2.59, 17.1]; Cantelli/exact in [8.75e+05, 3.89e+06]; Bernstein/exact in [147, 4.89e+05]; Hoeffding/exact in [19.5, 3.37e+07]
+          cases with Bernstein >= Cantelli: none
+          cases where Chernoff <= Bernstein <= Cantelli fails: none

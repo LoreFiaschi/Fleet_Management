@@ -1,0 +1,19 @@
+A_1/A_hat at eps = 0.01 (scoping table: 0.142 0.642 0.961 1 1)
+  t=0.01: A_hat=0.0024877386 A_1=0.00035288876 A_1/A_hat=0.141851  A_1/t=0.035289
+  t=0.1: A_hat=0.0055012397 A_1=0.0035288876 A_1/A_hat=0.641471  A_1/t=0.035289
+  t=0.3: A_hat=0.011020586 A_1=0.010586663 A_1/A_hat=0.960626  A_1/t=0.035289
+  t=1: A_hat=0.043652729 A_1=0.043652729 A_1/A_hat=1.000000  A_1/t=0.043653
+  t=10: A_hat=3.971716 A_1=3.971716 A_1/A_hat=1.000000  A_1/t=0.397172
+r* for eps = 0.001, 0.01, 0.1 (scoping: 0.00355 0.0353 0.331)
+  eps=0.001: r*=0.00355013
+  eps=0.01: r*=0.0352889
+  eps=0.1: r*=0.330617
+example t=0.1 eps=0.01: A_hat=0.0055012397, worst c*=0.21911, rate=4.5639 beta*, tail/eps=1.56487
+  with rate exactly 4.56 beta*: tail/eps=1.56487
+single peak check of s -> Q(r s, s) on s in [1e-12, 1e8]:
+  r values with more than one sign change of the slope: 0
+  r=0.0001: peak at s=0.43442, value 2.815e-05
+  r=0.00355: peak at s=0.43442, value 0.00099996
+  r=0.0353: peak at s=0.44969, value 0.010003
+  r=0.05: peak at s=0.4549, value 0.014209
+  r=0.331: peak at s=0.61369, value 0.10013

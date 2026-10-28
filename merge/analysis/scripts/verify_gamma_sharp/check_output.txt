@@ -1,0 +1,52 @@
+(1) A_hat(t, eps): Q(A_hat, t) = eps
+  eps=0.001: t=0.01: 0.00024776  t=0.1: 0.00054872  t=0.3: 0.0011039  t=1: 0.0045372  t=3: 0.067651  t=10: 2.3715  t=100: 71.077
+  eps=0.01: t=0.01: 0.0024877  t=0.1: 0.0055012  t=0.3: 0.011021  t=1: 0.043653  t=3: 0.39997  t=10: 3.9717  t=100: 77.997
+  eps=0.1: t=0.01: 0.025959  t=0.1: 0.056549  t=0.3: 0.10906  t=1: 0.34564  t=3: 1.4207  t=10: 6.5748  t=100: 87.798
+(2) threshold t1(eps): sign change of d/dc Q(A_hat/c, t/c) at c = 1 (finite differences)
+  eps=0.001: t1=0.43614  slope(t1-0.01)=-1.296e-05  slope(t1+0.01)=+1.289e-05
+  eps=0.01: t1=0.44839  slope(t1-0.01)=-1.230e-04  slope(t1+0.01)=+1.223e-04
+  eps=0.1: t1=0.61422  slope(t1-0.01)=-6.811e-04  slope(t1+0.01)=+6.737e-04
+  eps=0.0001: t1=0.43495  slope(t1-0.01)=-1.302e-06  slope(t1+0.01)=+1.296e-06
+(3) below t1: worst one-term member c Gamma(A_hat/c, 1) at the cap, tail/eps
+  eps=0.001 t=0.01: A_hat=0.0002478  c*=0.02251  tail/eps=7.006936
+  eps=0.001 t=0.1: A_hat=0.0005487  c*=0.2289  tail/eps=1.546203
+  eps=0.001 t=0.3: A_hat=0.001104  c*=0.6878  tail/eps=1.036541
+  eps=0.001 t=0.4: A_hat=0.001423  c*=0.9171  tail/eps=1.002064
+  eps=0.001 t=0.43: A_hat=0.001527  c*=0.9859  tail/eps=1.000056
+  eps=0.01 t=0.01: A_hat=0.002488  c*=0.01799  tail/eps=7.375094
+  eps=0.01 t=0.1: A_hat=0.005501  c*=0.2191  tail/eps=1.564868
+  eps=0.01 t=0.3: A_hat=0.01102  c*=0.6682  tail/eps=1.041276
+  eps=0.01 t=0.4: A_hat=0.01416  c*=0.892  tail/eps=1.003497
+  eps=0.01 t=0.43: A_hat=0.01518  c*=0.959  tail/eps=1.000478
+  eps=0.1 t=0.01: A_hat=0.02596 >= t, the drift alone gives tail 1
+  eps=0.1 t=0.1: A_hat=0.05655  c*=0.1115  tail/eps=1.835903
+  eps=0.1 t=0.3: A_hat=0.1091  c*=0.4675  tail/eps=1.109131
+  eps=0.1 t=0.4: A_hat=0.1369  c*=0.6413  tail/eps=1.038523
+  eps=0.1 t=0.43: A_hat=0.1456  c*=0.6927  tail/eps=1.026567
+  eps=0.1 t=0.6: A_hat=0.1984  c*=0.9768  tail/eps=1.000114
+(4) one-term cap A_1/A_hat and S5 cap A_icx/A_hat
+  eps=0.001 t=0.01: A_1/A_hat=0.1433  A_icx/A_hat=0.0404
+  eps=0.001 t=0.1: A_1/A_hat=0.6470  A_icx/A_hat=0.1822
+  eps=0.001 t=0.3: A_1/A_hat=0.9648  A_icx/A_hat=0.2778
+  eps=0.001 t=1: A_1/A_hat=1.0000  A_icx/A_hat=0.3399
+  eps=0.001 t=3: A_1/A_hat=1.0000  A_icx/A_hat=0.3887
+  eps=0.001 t=10: A_1/A_hat=1.0000  A_icx/A_hat=0.7806
+  eps=0.001 t=100: A_1/A_hat=1.0000  A_icx/A_hat=0.9652
+  eps=0.01 t=0.01: A_1/A_hat=0.1419  A_icx/A_hat=0.0402
+  eps=0.01 t=0.1: A_1/A_hat=0.6415  A_icx/A_hat=0.1818
+  eps=0.01 t=0.3: A_1/A_hat=0.9606  A_icx/A_hat=0.2781
+  eps=0.01 t=1: A_1/A_hat=1.0000  A_icx/A_hat=0.3486
+  eps=0.01 t=3: A_1/A_hat=1.0000  A_icx/A_hat=0.4909
+  eps=0.01 t=10: A_1/A_hat=1.0000  A_icx/A_hat=0.8067
+  eps=0.01 t=100: A_1/A_hat=1.0000  A_icx/A_hat=0.9599
+  eps=0.1 t=0.01: A_1/A_hat=0.1274  A_icx/A_hat=0.0385
+  eps=0.1 t=0.1: A_1/A_hat=0.5847  A_icx/A_hat=0.1768
+  eps=0.1 t=0.3: A_1/A_hat=0.9094  A_icx/A_hat=0.2795
+  eps=0.1 t=1: A_1/A_hat=1.0000  A_icx/A_hat=0.3958
+  eps=0.1 t=3: A_1/A_hat=1.0000  A_icx/A_hat=0.5994
+  eps=0.1 t=10: A_1/A_hat=1.0000  A_icx/A_hat=0.8050
+  eps=0.1 t=100: A_1/A_hat=1.0000  A_icx/A_hat=0.9483
+(5) above t1: max over c in [1e-4, 1] of Q(A_hat/c, t/c)/eps, log grid of 120 values of t in [t1, 1000]
+  eps=0.001: largest ratio at c < 1: none above Q(A_hat, t) (c* = 1 at every t); min slope/eps at c = 1: +5.636e-04
+  eps=0.01: largest ratio at c < 1: none above Q(A_hat, t) (c* = 1 at every t); min slope/eps at c = 1: +5.500e-04
+  eps=0.1: largest ratio at c < 1: none above Q(A_hat, t) (c* = 1 at every t); min slope/eps at c = 1: +4.159e-04

@@ -1,0 +1,16 @@
+[1] Bernstein tangent: 400 random (tau, eps, c); cases accepted by the spec rule mu_r < tau - c but empty: 757; mismatches of the rule mu_r < sqrt(tau(tau-2c)): 0
+[1] example tau=1, eps=0.1, b=0.3: c=0.2303, tau-c=0.7697, sqrt(tau(tau-2c))=0.7345
+    tangent_ref=0.6: spec check passes=True; row nonempty=True; max over mu of tangent RHS=0.03897; T(0)=f(0)-c2*mu_r^2=0.03897
+    tangent_ref=0.65: spec check passes=True; row nonempty=True; max over mu of tangent RHS=0.02540; T(0)=f(0)-c2*mu_r^2=0.02540
+    tangent_ref=0.7: spec check passes=True; row nonempty=True; max over mu of tangent RHS=0.01075; T(0)=f(0)-c2*mu_r^2=0.01075
+[1] pwl P=1, tau=1, c=0.4: nonempty=False (rule tau/(2P) <= sqrt(tau(tau-2c))=0.4472: False)
+[1] pwl P=2, tau=1, c=0.4: nonempty=True (rule tau/(2P) <= sqrt(tau(tau-2c))=0.4472: True)
+[2] non-negative X, width 0.2, mean 0.01: largest variance 0.00190; Popoviciu cap 0.01000
+[3] Gamma cell: one-rate cap A=13.4538 (mean cap 0.6727); sharp cap A_1 ~ 13.4538 (mean cap 0.6727); replacement_mu 0.02 below: True
+[3] IG cell: q=1.7307, E[Z|Z>q]=2.0311, mean cap=0.4923
+[3] V_max(eps=0.05)=0.3696; Bernstein (eps 0.1, b 0.05): c=0.03838, V^B=0.2005; Chernoff K range=2.6974
+[3] Gaussian tangent row at the replacement state: RHS 0.3016 >= v_new 4e-5: True
+[3] three-sigma: mu_0 0.12 >= 0.060; mu_inc >= 0.05 >= 0.030
+[3] Popoviciu Be cell: v_0 4e-4 <= 0.0006250000000000001; v_new 4e-5 <= 0.000225; v_inc 1e-4 <= 0.0004
+[3] Jensen Ch cell: cgf 0.22 >= 0.20, 0.38 >= 0.35; anchor_K_0 0.50 >= s*anchor_mu_0 = 0.50
+[3] Bernstein exact row at replacement: d^2-2cd-2kv = 0.8850 >= 0; side row True

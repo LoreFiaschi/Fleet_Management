@@ -1,0 +1,10 @@
+dominance: 2100 (case, t) pairs; max of [true tail (upper) - bound tail] = -5.501e-11
+A_max at b*=10.0: 3.9717
+pairs (n1, n2), n1+n2 <= 15: exactly safe 20; accepted by the S1 bound 4
+largest n2 for each n1, exact: {0: 7, 1: 5, 2: 3, 3: 1}
+largest n2 for each n1, S1   : {0: 0, 1: 0, 2: 0, 3: 0}
+S1 accepts only exactly safe pairs: True
+
+real	0m6.088s
+user	0m0.015s
+sys	0m0.078s

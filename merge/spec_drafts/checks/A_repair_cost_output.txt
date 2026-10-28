@@ -1,0 +1,3 @@
+repair days checked: 13570 ; max (reference - z_min) = 2.7755575615628914e-17 (must be <= 0)
+zero slack: max |z_min - reference| = 0.0 (must be ~0)
+anchor example (s, g) after repair; start-anchor example (anchor 0, anchor mu_0): ((0.4, 0.4), 0.25, 0.5)

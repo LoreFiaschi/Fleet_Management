@@ -1,0 +1,47 @@
+t, m=A_hat, phi(1), argmax_c D(c), max_c D(c) / phi(1), phi'(1)
+eps=0.001  t=0.01   m=0.0002478  phi1=4.034      argmax c=0.02   max D/phi1=+5.9345e+00  phi'(1)=-3.0478e+00
+eps=0.001  t=0.1    m=0.0005487  phi1=1.822      argmax c=0.22   max D/phi1=+5.4426e-01  phi'(1)=-9.1843e-01
+eps=0.001  t=0.3    m=0.001104   phi1=0.906      argmax c=0.68   max D/phi1=+3.6412e-02  phi'(1)=-1.6563e-01
+eps=0.001  t=0.4    m=0.001423   phi1=0.7031     argmax c=0.92   max D/phi1=+2.0561e-03  phi'(1)=-3.2955e-02
+eps=0.001  t=0.45   m=0.001598   phi1=0.6262     argmax c=0.999  max D/phi1=-1.8136e-05  phi'(1)=+1.1358e-02
+eps=0.001  t=0.5    m=0.001785   phi1=0.5608     argmax c=0.999  max D/phi1=-8.1637e-05  phi'(1)=+4.5783e-02
+eps=0.001  t=0.55   m=0.001984   phi1=0.5045     argmax c=0.999  max D/phi1=-1.4387e-04  phi'(1)=+7.2586e-02
+eps=0.001  t=0.6    m=0.002198   phi1=0.4557     argmax c=0.999  max D/phi1=-2.0500e-04  phi'(1)=+9.3415e-02
+eps=0.001  t=0.7    m=0.00267    phi1=0.3753     argmax c=0.999  max D/phi1=-3.2452e-04  phi'(1)=+1.2179e-01
+eps=0.001  t=0.8    m=0.003211   phi1=0.3123     argmax c=0.999  max D/phi1=-4.4096e-04  phi'(1)=+1.3771e-01
+eps=0.001  t=1.0    m=0.004537   phi1=0.2214     argmax c=0.999  max D/phi1=-6.6647e-04  phi'(1)=+1.4757e-01
+eps=0.001  t=3.0    m=0.06765    phi1=0.01657    argmax c=0.999  max D/phi1=-2.3515e-03  phi'(1)=+3.8975e-02
+eps=0.001  t=10.0   m=2.371      phi1=0.001767   argmax c=0.999  max D/phi1=-1.0890e-03  phi'(1)=+1.9240e-03
+eps=0.001  t=100.0  m=71.08      phi1=0.0003774  argmax c=0.999  max D/phi1=-1.8909e-04  phi'(1)=+7.1363e-05
+eps=0.01   t=0.01   m=0.002488   phi1=4.002      argmax c=0.02   max D/phi1=+5.9620e+00  phi'(1)=-3.0239e+00
+eps=0.01   t=0.1    m=0.005501   phi1=1.813      argmax c=0.22   max D/phi1=+5.5268e-01  phi'(1)=-9.1685e-01
+eps=0.01   t=0.3    m=0.01102    phi1=0.909      argmax c=0.68   max D/phi1=+4.0295e-02  phi'(1)=-1.7331e-01
+eps=0.01   t=0.4    m=0.01416    phi1=0.7095     argmax c=0.9    max D/phi1=+3.3925e-03  phi'(1)=-4.2348e-02
+eps=0.01   t=0.45   m=0.01588    phi1=0.634      argmax c=0.999  max D/phi1=-2.2419e-06  phi'(1)=+1.4214e-03
+eps=0.01   t=0.5    m=0.0177     phi1=0.5699     argmax c=0.999  max D/phi1=-6.2224e-05  phi'(1)=+3.5459e-02
+eps=0.01   t=0.55   m=0.01964    phi1=0.5147     argmax c=0.999  max D/phi1=-1.2046e-04  phi'(1)=+6.2002e-02
+eps=0.01   t=0.6    m=0.02171    phi1=0.4669     argmax c=0.999  max D/phi1=-1.7708e-04  phi'(1)=+8.2680e-02
+eps=0.01   t=0.7    m=0.02624    phi1=0.3884     argmax c=0.999  max D/phi1=-2.8585e-04  phi'(1)=+1.1102e-01
+eps=0.01   t=0.8    m=0.03136    phi1=0.327      argmax c=0.999  max D/phi1=-3.8900e-04  phi'(1)=+1.2719e-01
+eps=0.01   t=1.0    m=0.04365    phi1=0.2387     argmax c=0.999  max D/phi1=-5.7888e-04  phi'(1)=+1.3816e-01
+eps=0.01   t=3.0    m=0.4        phi1=0.03896    argmax c=0.999  max D/phi1=-1.2349e-03  phi'(1)=+4.8113e-02
+eps=0.01   t=10.0   m=3.972      phi1=0.01172    argmax c=0.999  max D/phi1=-5.7709e-04  phi'(1)=+6.7662e-03
+eps=0.01   t=100.0  m=78         phi1=0.002898   argmax c=0.999  max D/phi1=-1.3278e-04  phi'(1)=+3.8479e-04
+eps=0.1    t=0.01   m=0.02596    phi1=3.671      argmax c=0.02   max D/phi1=+6.2427e+00  phi'(1)=-2.7825e+00
+eps=0.1    t=0.1    m=0.05655    phi1=1.712      argmax c=0.2    max D/phi1=+6.3699e-01  phi'(1)=-8.9411e-01
+eps=0.1    t=0.3    m=0.1091     phi1=0.922      argmax c=0.54   max D/phi1=+8.4915e-02  phi'(1)=-2.3652e-01
+eps=0.1    t=0.4    m=0.1369     phi1=0.7508     argmax c=0.7000000000000001 max D/phi1=+2.9401e-02  phi'(1)=-1.2005e-01
+eps=0.1    t=0.45   m=0.1515     phi1=0.6865     argmax c=0.78   max D/phi1=+1.5240e-02  phi'(1)=-8.0571e-02
+eps=0.1    t=0.5    m=0.1667     phi1=0.632      argmax c=0.84   max D/phi1=+6.5463e-03  phi'(1)=-4.9411e-02
+eps=0.1    t=0.55   m=0.1823     phi1=0.5852     argmax c=0.92   max D/phi1=+1.8619e-03  phi'(1)=-2.4614e-02
+eps=0.1    t=0.6    m=0.1984     phi1=0.5448     argmax c=0.98   max D/phi1=+8.2016e-05  phi'(1)=-4.7645e-03
+eps=0.1    t=0.7    m=0.2322     phi1=0.4783     argmax c=0.999  max D/phi1=-5.0245e-05  phi'(1)=+2.4031e-02
+eps=0.1    t=0.8    m=0.268      phi1=0.4262     argmax c=0.999  max D/phi1=-1.0022e-04  phi'(1)=+4.2713e-02
+eps=0.1    t=1.0    m=0.3456     phi1=0.3504     argmax c=0.999  max D/phi1=-1.7782e-04  phi'(1)=+6.2309e-02
+eps=0.1    t=3.0    m=1.421      phi1=0.1422     argmax c=0.999  max D/phi1=-3.2447e-04  phi'(1)=+4.6138e-02
+eps=0.1    t=10.0   m=6.575      phi1=0.06502    argmax c=0.999  max D/phi1=-2.1130e-04  phi'(1)=+1.3739e-02
+eps=0.1    t=100.0  m=87.8       phi1=0.01835    argmax c=0.999  max D/phi1=-6.5956e-05  phi'(1)=+1.2105e-03
+first-order threshold t1(eps): max_c D(c) changes sign
+  eps=0.001: t1 in [0.43592, 0.43592], A_hat(t1)=0.0015476, last argmax c=0.999, phi'(1)=-2.518e-10
+  eps=0.01: t1 in [0.44816, 0.44816], A_hat(t1)=0.015815, last argmax c=0.999, phi'(1)=-5.266e-10
+  eps=0.1: t1 in [0.61383, 0.61383], A_hat(t1)=0.20294, last argmax c=0.999, phi'(1)=-4.974e-10

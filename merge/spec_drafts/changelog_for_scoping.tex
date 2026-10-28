@@ -1,0 +1,90 @@
+% Changelog of the software specification spec/spec.tex, kept in the scoping document
+% (user, 26 Oct 2026: the spec holds only the specification).
+\section{Changelog of the software specification}
+\label{sec:spec_changelog}
+
+This section records the versions of the software specification 	exttt{spec/spec.tex}.
+
+\emph{Change log (v0.3, panel review).}
+ARA1 maintenance removed from the Gaussian model (no literature basis for the
+variance extension). Output \texttt{v} shape changed from $F \times V \times 2H$
+to $F \times L \times 2H$ with NaN for non-variance components.
+$\varepsilon$ bound tightened from $(0, 0.5)$ to $(0, 0.01]$.
+IG FSD TODO replaced with verified Proposition (MLR proof).
+Tightness remark refined to three-mechanism argument.
+
+\emph{Change log (v0.4, rainflow extension).}
+Rainflow degradation model added: distribution-free, with per-mission empirical
+mean/variance/support inputs from rainflow counting; reliability certified by a
+Cantelli or Bernstein tail bound (new \texttt{tail\_bound} option,
+\texttt{"cantelli"} default); exact nonconvex-quadratic and conservative LP
+tangent formulations both specified; loop constraint imposed on both tracked
+moments, with the argument that moment domination chains across repetitions
+while the scalar bound comparison $U_{2H} \leq U_H$ does not; ARD1 only,
+mirroring the Gaussian precedent. \texttt{formulation} token renamed
+\texttt{"socp"} $\to$ \texttt{"exact"} (\texttt{"socp"} retained as a deprecated
+alias with a \texttt{UserWarning}); the previous identification of the
+Gaussian/Wiener exact reliability constraint as a rotated SOC was corrected---with
+the variance affine in the decisions, the squared form is a nonconvex quadratic,
+handled by Gurobi's \texttt{NonConvex=2} support (the \texttt{"quadratic"}
+damage penalty remains genuinely convex SOC). Wiener loop-constraint wording
+corrected per accepted review item A-02 (moment bounds, not FSD). Version
+reconciliation: the v0.3 change log above corresponds to the revision previously
+titled ``v0.2 (revised)'' on the title page.
+A post-draft panel pass (markers RF-042--RF-045 and in-place corrections)
+additionally fixed the loop-induction base case ($m \geq 2$ with
+the loop row as the $m=1$ case), the boundary wording of the
+$\tau > 2\kappa b/3$ precondition, the a-fortiori centering step in the
+Bernstein application, and the problem-class qualifier for IG/Gamma-only
+fleets; extended the Bhatia--Davis consistency checks to the initial and
+replacement states and the shape-validation list to $b^{\mathrm{inc}}, b^{0},
+b^{\mathrm{new}}$; relocated \texttt{tail\_bound} to the model-specific
+schema tables; added the fifth plot border style; and corrected the YAML
+example's $\varepsilon$ to respect its own $(0, 0.01]$ bound.
+
+\emph{Change log (v0.5, loop-penalty removal).}
+The soft loop-constraint penalty $\mathcal{L}_{\mathrm{loop}}$ and its
+coefficient $C_P$ were removed throughout (objective, per-model penalty
+formulas, total penalty sum, input tables, YAML example, full-problem
+statement); the hard loop constraints are unchanged for all five models. The
+former three-mechanism big-M tightness remark was revised to its two remaining
+cost mechanisms ($C_D\,u$ and $C_R\,z$), and a slack-robustness argument was
+added: the tracked states are componentwise upper bounds on the true moments,
+each one-sided dynamics row dominates the exact monotone one-step map, so the
+hard loop constraint yields $\Phi(\cdot_H) \leq \cdot_H$ for the exact
+second-half period map $\Phi$ --- the induction premise of the repeatability
+argument --- and monotonicity of the reliability certificates keeps every
+future repetition certified even when the tracked states carry slack; the
+penalty's only role was a tie-break toward larger sustainability margins.
+A subsequent review pass (markers REV-001--REV-022) closed the ARA1
+loop-constraint anchor gap by adding the hard rows
+$\mu^{\mathrm{last}}_{2H} \leq \mu^{\mathrm{last}}_{H}$ (Wiener--ARA1) and
+$\alpha^{\mathrm{last}}_{2H} \leq \alpha^{\mathrm{last}}_{H}$ (Gamma--ARA1),
+with a full-state monotonicity derivation showing they restore the chaining
+premise $\Phi(s_H) \leq s_H$, and extended the slack-robustness remark
+accordingly. The same pass made the idle-as-all-zeros assignment semantics
+explicit (the $C_M$ term is a genuine decision cost, not a constant),
+corrected the ARA1 repair-cost anchor index ($k \to k{-}1$), removed the
+stale duplicate parameter \texttt{alpha\_target} (legacy name of $\tau$),
+reconciled the optionality of \texttt{tail\_bound} and the defaulted schema
+fields, added the derived constants to the notation table, expanded the two
+rainflow FUTURE bullets with pointers to the scoping document's Route-I
+refinements, and recorded the ARA1 anchor-convention questions (pre- vs.\
+post-repair storage; no reset at replacement) as open items.
+
+\emph{Change log (v1.0, merged package).}
+The specification describes the package that merges the branches \texttt{lore}
+and \texttt{main}, on \texttt{main}'s code base. It holds only the codebase and its
+mathematical constructions; the reasons, proofs and sources are in the project
+scoping document. The five degradation models are cell builders of one registry.
+The repair laws are $\ARDinf$ (the whole degradation is reduced) and $\ARDone$
+(the degradation since the last intervention is reduced). The horizon has a
+transitory and an operating phase, $H = [H_1, H_2]$, and the loop row bounds the
+full tracked state, anchors included. Every dynamics row is one-sided, in big-M
+or indicator form. The rainflow model offers five tail bounds; the quadratic
+reliability rows have an exact, a tangent and a piecewise-linear form. The
+inverse Gaussian row is a cap from a conditional tail mean; the Gamma row is a
+cap on the tracked mean that holds for any mix of rates. The reliability level,
+the tangent point and the costs are set per cell. The horizon sweeps, the warm
+starts, the schedule plot and the validators are specified. The input keys follow
+one table, and unknown or old keys raise an error.

@@ -1,0 +1,44 @@
+=== Instance of sec:loop_routeI (ARD_inf repair, then the mission days) ===
+Cantelli, sum v = 399/100
+  n=0: (E, Var) = (4.0, 9.0)  U = 0.200000
+  n=1: (E, Var) = (5.0, 6.24)  U = 0.199744
+  n=2: (E, Var) = (5.5, 5.55)  U = 0.215116
+  n=3: (E, Var) = (5.75, 5.3775)  U = 0.229416
+  n=4: (E, Var) = (5.875, 5.334375)  U = 0.238674
+  limit: (E, Var) = (6.0, 5.32)  U = 0.249531
+  text: U0 = 0.2000, U1 = 0.1997, U2 = 0.2151, limit 0.2495
+Bernstein (b = 3), sum v = 63/20
+  n=0: (E, Var) = (4.0, 9.0)  U = 0.301194
+  n=1: (E, Var) = (5.0, 5.4)  U = 0.300616
+  n=2: (E, Var) = (5.5, 4.5)  U = 0.324652
+  n=3: (E, Var) = (5.75, 4.275)  U = 0.346669
+  n=4: (E, Var) = (5.875, 4.21875)  U = 0.360717
+  limit: (E, Var) = (6.0, 4.2)  U = 0.376962
+  text: 'also fails at the second repetition'
+Cantelli, Appendix drv:loopI_no_chain, sum v = 4
+  n=0: (E, Var) = (4.0, 9.0)  U = 0.200000
+  n=1: (E, Var) = (5.0, 6.25)  U = 0.200000
+  n=2: (E, Var) = (5.5, 5.5625)  U = 0.215496
+  n=3: (E, Var) = (5.75, 5.390625)  U = 0.229847
+  n=4: (E, Var) = (5.875, 5.34765625)  U = 0.239127
+  limit: (E, Var) = (6.0, 5.333333333333333)  U = 0.250000
+  text: U1 = U0 = 0.2000 and U2 = 0.2155
+
+=== Loop constraint (eq:loop_moments) on the instance ===
+  sum v = 399/100: E[D_T] = 5.0 vs E[D_H1] = 4.0 -> rejected;  Var[D_T] = 6.24 vs 9
+  sum v = 63/20: E[D_T] = 5.0 vs E[D_H1] = 4.0 -> rejected;  Var[D_T] = 5.4 vs 9
+
+=== Realisability with terms whose range has width <= 3 (b_l = 3) ===
+  D_H1 = sum of 6 two-point terms on {0, 2.9167}, p = 0.2286: mean 4.0, var 9.0
+  missions (sum v = 399/100): 2 days, each two-point on {1.5 - d, 1.5 + d}, d = 1.4124, values {0.0876, 2.9124}, width 2.8249: mean 3.0000, var 3.9900
+  missions (sum v = 63/20): 2 days, each two-point on {1.5 - d, 1.5 + d}, d = 1.2550, values {0.2450, 2.7550}, width 2.5100: mean 3.0000, var 3.1500
+
+=== Margin claim: U(1) <= U(0) - delta ===
+  instance: U0 - U1 = 0.000256, so it satisfies every margin delta <= 0.000256 and fails at n = 2
+  steady state (E, Var) = (6.0, 5.32): U1 = U0 = 0.249531; the moment loop accepts it, every delta > 0 rejects it
+  derived bound delta_max(U0) = U0 (1 - U0) / (2 - U0); delta_max(0.2) = 0.088889
+  near-extremal instances with U0 = 0.2:
+    Delta=    5.0 rho=0.8496: U0=0.200000 U1=0.130431 delta=U0-U1=0.069569 (78.3% of delta_max); first n with U_n > U0: 3; limit 0.208092
+    Delta=   50.0 rho=0.9806: U0=0.200000 U1=0.113557 delta=U0-U1=0.086443 (97.2% of delta_max); first n with U_n > U0: 3; limit 0.201612
+    Delta= 1000.0 rho=0.9990: U0=0.200000 U1=0.111259 delta=U0-U1=0.088741 (99.8% of delta_max); first n with U_n > U0: 3; limit 0.200160
+  random search (200000 samples, seed 20261028): 3002 failing instances with U1 < U0; largest (U0 - U1) / delta_max(U0) = 0.7418 (must be < 1)

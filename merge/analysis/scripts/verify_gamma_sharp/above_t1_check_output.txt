@@ -1,0 +1,3 @@
+eps=0.001: largest max_(c<1) Q(A_hat/c,t/c)/eps over t in [t1, 1e5] = 0.999999760 at t=0.4361
+eps=0.01: largest max_(c<1) Q(A_hat/c,t/c)/eps over t in [t1, 1e5] = 0.999999767 at t=0.4484
+eps=0.1: largest max_(c<1) Q(A_hat/c,t/c)/eps over t in [t1, 1e5] = 0.999999823 at t=0.6142

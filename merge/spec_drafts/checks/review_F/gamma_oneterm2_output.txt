@@ -1,0 +1,10 @@
+sanity equal scales: series 0.0170486936  one-term 0.0170486936  mass 1.000000000000
+sanity mass of mixture weights (should be 1): 1.000000000000
+random members (2 or 3 terms, optional constant): largest P(S>t)/W(m,t) = 1.00000000
+  at t=3 m=0.64636 delta=0 terms=[(0.4558650636318008, 1.0), (0.19049434417110264, 1.0)] P=0.022172345 W=0.022172345 mass=1.0000000000
+targeted: optimal one term split into two scales around c*
+  t=0.1 m=0.0035 c*=0.2231 W=0.0099175907 best two-term=0.0099175907 ratio=1.00000000
+  t=0.3 m=0.0106 c*=0.6690 W=0.010012683 best two-term=0.010012683 ratio=1.00000000
+  t=1 m=0.0437 c*=1.0000 W=0.010011283 best two-term=0.010011283 ratio=1.00000000
+  t=0.448 m=0.0158 c*=0.9991 W=0.0099940034 best two-term=0.0099940034 ratio=1.00000000
+  t=3 m=0.8 c*=1.0000 W=0.032605462 best two-term=0.032605462 ratio=1.00000000

@@ -1,0 +1,17 @@
+mu_bar/tau = eps/F(1/q); spec table rows eps = 0.001, 0.01, 0.1; columns eta = 0.05 0.25 1 4 10
+  eps=0.001: 0.4913  0.2419  0.1006  0.03697  0.01897
+  eps=0.01: 0.5696  0.3215  0.1555  0.06794  0.04011
+  eps=0.1: 0.6926  0.4773  0.2986  0.1826  0.1411
+closed form vs quadrature of E[Z; Z>q] (eps=0.01)
+  eta=0.05  F(1/q)=0.0175547  quad=0.0175545
+  eta=1  F(1/q)=0.0643291  quad=0.0643291
+  eta=10  F(1/q)=0.249329  quad=0.249329
+ratio mu_bar/(tau/q) at eps=0.01 (spec: 0.93 to 0.59 for eta 0.05..10)
+  eta=0.05  q=1.6289  ratio=0.9279
+  eta=0.25  q=2.6682  ratio=0.8579
+  eta=1  q=4.9841  ratio=0.7748
+  eta=4  q=9.9031  ratio=0.6728
+  eta=10  q=14.655  ratio=0.5878
+eta=10, eps=0.1: tau/q (spec 0.473 tau); 3 iid missions with total mean tau/q: tail (spec 0.118)
+  tau/q = 0.4730 tau
+  tail = 0.1180

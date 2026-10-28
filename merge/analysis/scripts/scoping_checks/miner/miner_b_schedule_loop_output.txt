@@ -1,0 +1,45 @@
+increments n_j / Nbar_j: {'m1': 0.04096, 'm2': 0.06, 'm3': 0.06912}  rho = 0.5
+(1) and (6) Monte Carlo, 1000000 units per law and schedule: max |z| of (frequency - F_A(M_k))
+  S1 (repair and replacement): H1=12 T=24, M_H1=0.36064 M_T=0.17008, max M on the horizon=0.59072, days simulated=72
+    log-normal sigma=0.5: F_A(M_k) in [0.0000, 0.1462], max |z| = 1.85, days with M=0 and a failure = 0; eps met on the horizon = 0.1462, max F_A on the repetitions = 0.0335, max frequency on the repetitions = 0.0338
+    Weibull k=2.5: F_A(M_k) in [0.0003, 0.2352], max |z| = 2.61, days with M=0 and a failure = 0; eps met on the horizon = 0.2352, max F_A on the repetitions = 0.0963, max frequency on the repetitions = 0.0966
+    Gumbel beta=0.25: F_A(M_k) in [0.0000, 0.1146], max |z| = 2.44, days with M=0 and a failure = 0; eps met on the horizon = 0.1146, max F_A on the repetitions = 0.0253, max frequency on the repetitions = 0.0255
+  S2 (repair only): H1=12 T=24, M_H1=0.36064 M_T=0.33368, max M on the horizon=0.59072, days simulated=72
+    log-normal sigma=0.5: F_A(M_k) in [0.0000, 0.1462], max |z| = 2.01, days with M=0 and a failure = 0; eps met on the horizon = 0.1462, max F_A on the repetitions = 0.1258, max frequency on the repetitions = 0.1253
+    Weibull k=2.5: F_A(M_k) in [0.0003, 0.2352], max |z| = 1.54, days with M=0 and a failure = 0; eps met on the horizon = 0.2352, max F_A on the repetitions = 0.2123, max frequency on the repetitions = 0.2127
+    Gumbel beta=0.25: F_A(M_k) in [0.0000, 0.1146], max |z| = 1.46, days with M=0 and a failure = 0; eps met on the horizon = 0.1146, max F_A on the repetitions = 0.0961, max frequency on the repetitions = 0.0961
+  RESULT: max |z| = 2.61 over 432 day-tests; if the formula is exact, max |z| > 4 has probability about 0.027
+
+(2) F_A(M_k) <= eps  <=>  M_k <= q_eps, every day of both schedules
+  log-normal sigma=0.5 eps=0.01: q_eps=0.31249, days with M_k <= q_eps: 72 of 144, mismatches = 0
+  log-normal sigma=0.5 eps=0.05: q_eps=0.43936, days with M_k <= q_eps: 120 of 144, mismatches = 0
+  log-normal sigma=0.5 eps=0.1: q_eps=0.52688, days with M_k <= q_eps: 136 of 144, mismatches = 0
+  Weibull k=2.5 eps=0.01: q_eps=0.15881, days with M_k <= q_eps: 19 of 144, mismatches = 0
+  Weibull k=2.5 eps=0.05: q_eps=0.30481, days with M_k <= q_eps: 68 of 144, mismatches = 0
+  Weibull k=2.5 eps=0.1: q_eps=0.40651, days with M_k <= q_eps: 118 of 144, mismatches = 0
+  Gumbel beta=0.25 eps=0.01: q_eps=0.31662, days with M_k <= q_eps: 72 of 144, mismatches = 0
+  Gumbel beta=0.25 eps=0.05: q_eps=0.47590, days with M_k <= q_eps: 130 of 144, mismatches = 0
+  Gumbel beta=0.25 eps=0.1: q_eps=0.56973, days with M_k <= q_eps: 142 of 144, mismatches = 0
+
+(3) the rewriting with percentile lives
+  S1 (repair and replacement): days without repair since the last replacement: 44, max |count sum - M_k| / M_k = 1.4e-16; days after a repair with count sum > M_k: 28
+  S2 (repair only): days without repair since the last replacement: 8, max |count sum - M_k| / M_k = 0.0e+00; days after a repair with count sum > M_k: 64
+  log-normal sigma=0.5 m1: q_eps Nbar_j = 858133, empirical eps-quantile of N_f,j = 858519, fraction of N_f,j <= q_eps Nbar_j = 0.04991 (eps = 0.05)
+  log-normal sigma=0.5 m2: q_eps Nbar_j = 439364, empirical eps-quantile of N_f,j = 439561, fraction of N_f,j <= q_eps Nbar_j = 0.04991 (eps = 0.05)
+  log-normal sigma=0.5 m3: q_eps Nbar_j = 254262, empirical eps-quantile of N_f,j = 254376, fraction of N_f,j <= q_eps Nbar_j = 0.04991 (eps = 0.05)
+  Weibull k=2.5 m1: q_eps Nbar_j = 595325, empirical eps-quantile of N_f,j = 595012, fraction of N_f,j <= q_eps Nbar_j = 0.05006 (eps = 0.05)
+  Weibull k=2.5 m2: q_eps Nbar_j = 304807, empirical eps-quantile of N_f,j = 304646, fraction of N_f,j <= q_eps Nbar_j = 0.05006 (eps = 0.05)
+  Weibull k=2.5 m3: q_eps Nbar_j = 176393, empirical eps-quantile of N_f,j = 176300, fraction of N_f,j <= q_eps Nbar_j = 0.05006 (eps = 0.05)
+  Gumbel beta=0.25 m1: q_eps Nbar_j = 929491, empirical eps-quantile of N_f,j = 930670, fraction of N_f,j <= q_eps Nbar_j = 0.04977 (eps = 0.05)
+  Gumbel beta=0.25 m2: q_eps Nbar_j = 475899, empirical eps-quantile of N_f,j = 476503, fraction of N_f,j <= q_eps Nbar_j = 0.04977 (eps = 0.05)
+  Gumbel beta=0.25 m3: q_eps Nbar_j = 275405, empirical eps-quantile of N_f,j = 275754, fraction of N_f,j <= q_eps Nbar_j = 0.04977 (eps = 0.05)
+
+(4) eq:loop_prob  <=>  M_T <= M_H1: random pairs in [0, 2], with ties and zeros
+  log-normal sigma=0.5: mismatches = 0 of 20020
+  Weibull k=2.5: mismatches = 0 of 20020
+  Gumbel beta=0.25: mismatches = 0 of 20020
+
+(5) chaining of eq:miner_loop_det: random operating phases, 200 repetitions each
+  q = q_0.01 (log-normal) = 0.31249; cases with M_T <= M_H1 and M_k <= q on the horizon: 5000
+  violations over 200 repetitions: day state above the horizon state = 0, end state above the previous end state = 0, state above q = 0
+  control, cases with M_k <= q on the horizon but M_T > M_H1: 3802; of these, 1716 exceed q in a later repetition
