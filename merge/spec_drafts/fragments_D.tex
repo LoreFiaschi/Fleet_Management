@@ -81,7 +81,7 @@ dispatch_cell(ctx, i, l)  # get_cell_builder(ctx.model_of[i, l])
 \end{lstlisting}
 A builder has the attribute \texttt{name} and three hooks:
 \begin{itemize}[nosep]
-  \item \texttt{prepare(ctx, cfg, cells, opts)}: called once per model in the fleet, with its cells. It stores the per-cell arrays of the model in \texttt{ctx}, creates the variables of the tracked quantities, anchors and selectors of these cells only, may tighten variable bounds, and sets Gurobi's \texttt{NonConvex} to $2$ if some cell keeps an exact quadratic row.
+  \item \texttt{prepare(ctx, cfg, cells, opts)}: called once per model in the fleet, with its cells. It stores the per-cell arrays of the model in \texttt{ctx}, creates the variables of the tracked quantities other than the shared mean $\mu$, and of the anchors and selectors, of these cells only, may tighten variable bounds, and sets Gurobi's \texttt{NonConvex} to $2$ if some cell keeps an exact quadratic row.
   \item \texttt{add\_cell(ctx, i, l)}: adds the rows of one cell (Section~\ref{sec:constraints}): dynamics in the form of \texttt{encoding}, replacement and anchor rows, repair-cost rows, reliability rows in the form of \texttt{reliability\_impl}, loop rows of the full tracked state.
   \item \texttt{extract(ctx, cfg, out)}, optional: adds model-specific entries to the result \texttt{out} after the shared entries.
 \end{itemize}
@@ -405,7 +405,7 @@ The original model is not changed; a failed completion does not stop the solve.
   \item Optimise the copy with the time limit $\max\{1,\ \texttt{relaxation\_time\_limit}\}$ seconds and the MIP gap $0.05$.
   \item If the copy has a solution, set \texttt{Start} of every integer variable of the original model to the rounded value of the variable of the same name in the copy.
 \end{enumerate}
-The relaxed solution is not a point of the original model.
+The relaxed solution need not be feasible for the original model.
 
 \subsection{Warm Starts in Sweeps}
 \label{sec:warm_sweeps}

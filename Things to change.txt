@@ -16,6 +16,12 @@
 
 - Redesign the greedy warm-start heuristic so that it gives a good starting point, not only a feasible one (merge/decisions.md, item "Warm starts").
 
+- Scoping, literature review (open items moved from scoping.tex, 28 Oct 2026): Degradation-aware fleet management; Similar applications; Novelties of the project and its placement in the literature.
+
+- Scoping, optimization problem for a fleet of electric vehicles (moved from scoping.tex, 28 Oct 2026): Specialize the previous optimization problem to the case of electric vehicles; Find out what can be modelled exactly and what cannot; Provide the MILP approximation of this problem.
+
+- Scoping, implementation details (moved from scoping.tex, 28 Oct 2026): Provide the details to run an actual simulation of the system.
+
 Research directions (from ASSESSMENT.md, 7 Jul 2026):
 
 - Rolling-horizon deployment: re-solve with observed states as condition-monitoring data arrive; the loop constraint becomes a terminal safety envelope.

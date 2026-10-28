@@ -244,7 +244,7 @@ dispatch_cell(ctx, i, l)  # get_cell_builder(ctx.model_of[i, l])
 \end{lstlisting}
 A builder has the attribute \texttt{name} and three hooks:
 \begin{itemize}[nosep]
-  \item \texttt{prepare(ctx, cfg, cells, opts)}: called once per model in the fleet, with its cells. It stores the per-cell arrays of the model in \texttt{ctx}, creates the variables of the tracked quantities, anchors and selectors of these cells only, may tighten variable bounds, and sets Gurobi's \texttt{NonConvex} to $2$ if some cell keeps an exact quadratic row.
+  \item \texttt{prepare(ctx, cfg, cells, opts)}: called once per model in the fleet, with its cells. It stores the per-cell arrays of the model in \texttt{ctx}, creates the variables of the tracked quantities other than the shared mean $\mu$, and of the anchors and selectors, of these cells only, may tighten variable bounds, and sets Gurobi's \texttt{NonConvex} to $2$ if some cell keeps an exact quadratic row.
   \item \texttt{add\_cell(ctx, i, l)}: adds the rows of one cell (Section~\ref{sec:constraints}): dynamics in the form of \texttt{encoding}, replacement and anchor rows, repair-cost rows, reliability rows in the form of \texttt{reliability\_impl}, loop rows of the full tracked state.
   \item \texttt{extract(ctx, cfg, out)}, optional: adds model-specific entries to the result \texttt{out} after the shared entries.
 \end{itemize}
@@ -295,7 +295,7 @@ $\mu^{\inc}_{i\ell jk}$, $v^{\inc}_{i\ell jk}$, $b^{\inc}_{i\ell jk}$,
   flies mission $j$ on day $k$, after the phase lookup; Gamma rate &
   \ref{sec:input_increments} \\
 $\delta\mu_{i\ell k} = \sum_{j=1}^{M} x_{ijk}\, \mu^{\inc}_{i\ell jk}$ & day increment
-  of the mean; $\delta v$, $\delta R$ (from $(b^{\inc})^2$) and $\delta K$ likewise; $0$
+  of the mean; $\delta v$ (from $\sigma^2$ at a Wiener cell), $\delta R$ (from $(b^{\inc})^2$) and $\delta K$ likewise; $0$
   on depot and idle days & \\
 $\mu_{i\ell k}$, $v_{i\ell k}$, $R_{i\ell k}$, $K_{i\ell k}$ & tracked mean,
   variance, Hoeffding budget, Chernoff quantity & \ref{sec:variables} \\
@@ -318,7 +318,7 @@ $\kappa_G = \Phi^{-1}(1 - \varepsilon)$ & standard normal quantile & \ref{sec:dy
 $V_{\max} = \tau^2 / \kappa_G^2$ & variance range, Gaussian and
   Wiener & \ref{sec:dyn_gaussian} \\
 $\eta_{i\ell}$; $Z \sim \mathrm{IG}(1, 1/\eta)$; $q$; $\bar\mu = \tau /
-  \mathbb{E}[Z \mid Z > q]$ & inverse Gaussian dispersion; unit law; its
+  \mathbb{E}[Z \mid Z > q]$ & squared coefficient of variation of an inverse Gaussian term; unit law; its
   $(1-\varepsilon)$-quantile; mean cap & \ref{sec:dyn_ig} \\
 $\beta^*_{i\ell}$; $t = \beta^*\tau$; $A_1(t, \varepsilon)$; $Q(a, x)$ & smallest
   Gamma rate among the terms of the cell with a positive mean; scaled threshold;
@@ -402,7 +402,7 @@ A profile has $H_2$ entries for the operating phase and, optionally, $H_1$ entri
 \keyrow{\texttt{mu\_0}}{cell value}{required}{all}{Initial mean degradation $\mu_{0,i\ell}$}
 \keyrow{\texttt{v\_0}}{cell value}{$0$}{G, W, RF (Ca, Be)}{Initial variance $v_{0,i\ell}$}
 \keyrow{\texttt{support\_0}}{cell value}{$0$}{RF (Be)}{Width $b^{0}_{i\ell}$ of the range of the initial damage}
-\keyrow{\texttt{R\_0}}{cell value}{$0$}{RF (Ho)}{Initial Hoeffding budget $R_{0,i\ell}$: the square of the width of the range of the initial damage}
+\keyrow{\texttt{R\_0}}{cell value}{$0$}{RF (Ho)}{Initial Hoeffding budget $R_{0,i\ell}$: the sum of the squared widths of the independent terms of the initial damage}
 \keyrow{\texttt{cgf\_0}}{cell value}{$s\,\mu_0$}{RF (Ch)}{Initial Chernoff quantity $K_{0,i\ell}$: the cumulant generating function of the initial damage at $s_{i\ell}$}
 \tabend
 
@@ -454,7 +454,7 @@ The symbols $\mu^{\inc}_{i\ell jk}$, $v^{\inc}_{i\ell jk}$, $b^{\inc}_{i\ell jk}
 
 \keytab
 \keyrow{\texttt{sigma}}{cell value}{required}{W}{Diffusion constant $\sigma_{i\ell}$: every mission adds $\sigma_{i\ell}^2$ to the variance}
-\keyrow{\texttt{eta}}{cell value}{required}{IG}{Dispersion $\eta_{i\ell}$ of the inverse Gaussian law of each term (Section~\ref{sec:dyn_ig})}
+\keyrow{\texttt{eta}}{cell value}{required}{IG}{Squared coefficient of variation $\eta_{i\ell}$ of the inverse Gaussian law of each term (Section~\ref{sec:dyn_ig})}
 \keyrow{\texttt{v\_max\_user}}{cell value}{none}{G, W, RF (Ca, Be)}{Upper bound $V^{\mathrm{user}}_{\max,i\ell}$ on the variance; if given, the row $v_{i\ell k} \le V^{\mathrm{user}}_{\max,i\ell}$ holds on every day}
 \keyrow{\texttt{gamma\_beta\_0}}{cell value}{none (known damage)}{Ga}{Rate of the initial damage, a Gamma variable with mean $\mu_0$; if omitted, the initial damage is the known constant $\mu_0$ and does not enter the smallest rate}
 \keyrow{\texttt{gamma\_beta\_new}}{cell value}{none (known damage)}{Ga}{Rate of the damage after a replacement, a Gamma variable with mean $\mu^{\new}$; if omitted, it is the known constant $\mu^{\new}$ and does not enter the smallest rate}
@@ -463,10 +463,10 @@ The symbols $\mu^{\inc}_{i\ell jk}$, $v^{\inc}_{i\ell jk}$, $b^{\inc}_{i\ell jk}
 \subsection{Costs and Objective}\label{sec:input_costs}
 
 \keytab
-\keyrow{\texttt{C\_M}}{scalar}{required}{all}{Cost of one depot day of one train, whatever the number of jobs on that day}
+\keyrow{\texttt{C\_M}}{scalar}{required}{all}{Cost of one depot day of one train, whatever the number of interventions on that day}
 \keyrow{\texttt{C\_R}}{cell value}{required}{all}{Repair cost $C_{R,i\ell}$ per unit of degradation removed; at a cell with $C_{R,i\ell} = 0$ the variable $z$ and its rows are not built}
 \keyrow{\texttt{C\_rep}}{cell value}{required}{all}{Replacement cost $C_{\mathrm{rep},i\ell}$}
-\keyrow{\texttt{C\_D}}{scalar}{required}{all}{Damage penalty coefficient $C_D$; if $C_D = 0$, the variable $u$ and its rows are not built and \texttt{penalty\_type} is ignored}
+\keyrow{\texttt{C\_D}}{scalar}{required}{all}{Damage penalty coefficient $C_D$; if $C_D = 0$, the variable $u$ and its rows are not built, and \texttt{penalty\_type} only selects the formula of the reported value $u$ (Section~\ref{sec:output})}
 \keyrow{\texttt{penalty\_type}}{string}{\texttt{inf\_norm}}{all}{Damage penalty (Section~\ref{sec:damage_reg}): \texttt{inf\_norm} or \texttt{quadratic}; if $C_D > 0$, \texttt{quadratic} requires \texttt{reliability\_impl} \texttt{exact} at every cell with a quadratic reliability row (G, W, RF with Ca, Ho or Be); another value is an error}
 \tabend
 
@@ -534,7 +534,7 @@ A check of one model runs only at the cells of that model, on the entries where 
   \item Every entry of \texttt{component\_names} is a string that is not empty after blanks are removed.
   \item $H$ is an integer $\ge 1$, or a pair of integers $H_1, H_2 \ge 1$.
   \item \texttt{model} entries are \texttt{gaussian}, \texttt{inverse\_gaussian}, \texttt{wiener}, \texttt{gamma} or \texttt{rainflow}; \texttt{repair\_model} entries are \texttt{ard1} or \texttt{ardinf}, for every model.
-  \item \texttt{bound\_method} entries at rainflow cells are \texttt{markov}, \texttt{cantelli}, \texttt{hoeffding}, \texttt{bernstein} or \texttt{chernoff}.
+  \item Every non-\texttt{null} entry of \texttt{bound\_method} is \texttt{markov}, \texttt{cantelli}, \texttt{hoeffding}, \texttt{bernstein} or \texttt{chernoff}, also at a cell that is not rainflow.
   \item Every non-\texttt{null} entry of \texttt{reliability\_impl} is \texttt{exact}, \texttt{tangent} or \texttt{pwl}, also at a cell whose row is linear (IG, Ga, Mk, Ch); there the value is ignored and the form \texttt{exact} is built. \texttt{encoding} entries are \texttt{bigm} or \texttt{indicator}.
   \item \texttt{penalty\_type} is \texttt{inf\_norm} or \texttt{quadratic}. If $C_D > 0$ and \texttt{penalty\_type} is \texttt{quadratic}, \texttt{reliability\_impl} is \texttt{exact} at every cell with a quadratic reliability row (G, W, and RF with Ca, Ho or Be); another value is an error.
 \end{itemize}
@@ -1027,7 +1027,7 @@ For cells $(i,\ell)$ with \texttt{model} $=$ \texttt{inverse\_gaussian} (IG).
 $\mu$ and shape $\lambda$. Every term of mean $a$ (a mission increment, mean
 $\mu^{\inc}_{jk}$; the initial damage, $\mu_0$; a replacement draw, $\mu^{\new}$)
 has the law $\mathrm{IG}(a, a/\eta) = a\,Z$, with $Z \sim \mathrm{IG}(1, 1/\eta)$
-and $\eta > 0$ the dispersion of the cell (input \texttt{eta}). A known damage is a
+and $\eta > 0$ the squared coefficient of variation of the terms of the cell (input \texttt{eta}). A known damage is a
 constant. No independence between terms is required (scoping document, section
 ``Stochastic orderings'').
 
@@ -1078,9 +1078,9 @@ Eq.~\eqref{eq:ig_map}.
 \subsubsection{Reliability row}
 
 Let $q$ be the $(1-\varepsilon)$-quantile of $Z$, $\Pr(Z > q) = \varepsilon$, and
-$C = \mathbb{E}[Z \mid Z > q]$. On every day $k = 1, \ldots, T$:
+$\bar q = \mathbb{E}[Z \mid Z > q]$. On every day $k = 1, \ldots, T$:
 \begin{equation}
-  \mu_k \leq \bar\mu, \qquad \bar\mu = \frac{\tau}{C}.
+  \mu_k \leq \bar\mu, \qquad \bar\mu = \frac{\tau}{\bar q}.
   \label{eq:ig_row}
 \end{equation}
 The row is linear: it is built in its exact form, and a value of
@@ -1321,7 +1321,7 @@ $s$. The tail bound is chosen per cell by \texttt{bound\_method}: \texttt{markov
   \item \textbf{A2} (Hoeffding, Bernstein). Each increment lies in an interval of
         width $b^{\inc}_{jk}$ (input \texttt{support}). The initial damage is a
         known part plus independent terms in intervals, with sum of squared widths
-        $R_0$ (\texttt{R\_0}) and largest width $b^0$ (\texttt{support\_0}); a
+        $R_0$ (\texttt{R\_0}); the range of their sum has width $b^0$ (\texttt{support\_0}); a
         replacement draw likewise, with $R^{\new}$, $b^{\new}$ (\texttt{R\_new},
         \texttt{support\_new}). A known damage has $R = b = 0$, the defaults.
   \item \textbf{A3.} After day $T$ the operating phase repeats with period $H_2$
@@ -1565,7 +1565,8 @@ true one (scoping document, section ``Cost function'').
 % ----------------------------------------------------------------
 
 The scalar $u \geq 0$ and its rows are built only when $C_D > 0$; with $C_D = 0$ the
-input \texttt{penalty\_type} is ignored. One row per train and day:
+input \texttt{penalty\_type} only selects the formula of the reported value $u$
+(Section~\ref{sec:output}). One row per train and day:
 \begin{align}
   \texttt{inf\_norm} \text{ (default)}:&\quad
     u \;\geq\; \sum_{\ell=1}^{L} \mu_{i\ell k} \qquad \forall\, i, k,
@@ -1637,6 +1638,8 @@ tail bound, encoding and reliability form of the cell:
         \texttt{exact}, \texttt{tangent} (Eq.~\eqref{eq:a_tangent}) or \texttt{pwl}
         (Eqs.~\eqref{eq:a_pwl_sum}--\eqref{eq:a_pwl_cap}) for a quadratic row, and in
         its exact form for a linear row;
+  \item where \texttt{v\_max\_user} is given (G, W, RF with Ca or Be): the optional row
+        $v_{i\ell k} \leq V^{\mathrm{user}}_{\max,i\ell}$ of its model section, on every day;
   \item the loop rows Eq.~\eqref{eq:a_loop}, one per tracked quantity and per anchor;
   \item where $C_{R,i\ell} > 0$: the repair-cost rows Eq.~\eqref{eq:a_z}.
 \end{enumerate}
@@ -1713,7 +1716,7 @@ In the column \emph{Shape}, a dash marks a scalar or a string.
 \typerow{\texttt{x}}{$F \times (M{+}1) \times T$}{Assignment $x_{ijk}$ (Section~\ref{sec:variables})}
 \typerow{\texttt{m}}{$F \times L \times T$}{Repair $x^m_{i\ell k}$}
 \typerow{\texttt{r}}{$F \times L \times T$}{Replacement $x^r_{i\ell k}$; zero if \texttt{allow\_replacement} is \texttt{false}}
-\typerow{\texttt{idle}}{$F \times L \times T$}{$\text{idle}_{i\ell k} = x_{i0k} - x^m_{i\ell k} - x^r_{i\ell k}$: component $\ell$ is in the depot without an intervention}
+\typerow{\texttt{idle}}{$F \times L \times T$}{$\text{idle}_{i\ell k} = x_{i0k} - x^m_{i\ell k} - x^r_{i\ell k}$: component $\ell$ is in the depot without an intervention (mark \texttt{D} of Section~\ref{sec:plotting}); it is $0$ on an idle day of the train (Section~\ref{sec:assignment})}
 \typerow{\texttt{mu}}{$F \times L \times T$}{Tracked mean degradation}
 \typerow{\texttt{v}}{$F \times L \times T$}{Tracked variance; \texttt{NaN} at cells that track no variance (IG, Ga, RF with Mk, Ho or Ch)}
 \typerow{\texttt{z}}{$F \times L \times T$}{Repair-cost variable; \texttt{NaN} at cells with $C_{R,i\ell} = 0$. On the transitory days of the mode \texttt{operating\_average}: Equation~\eqref{eq:c_zpost}}
@@ -2171,7 +2174,7 @@ The original model is not changed; a failed completion does not stop the solve.
   \item Optimise the copy with the time limit $\max\{1,\ \texttt{relaxation\_time\_limit}\}$ seconds and the MIP gap $0.05$.
   \item If the copy has a solution, set \texttt{Start} of every integer variable of the original model to the rounded value of the variable of the same name in the copy.
 \end{enumerate}
-The relaxed solution is not a point of the original model.
+The relaxed solution need not be feasible for the original model.
 
 \subsection{Warm Starts in Sweeps}
 \label{sec:warm_sweeps}

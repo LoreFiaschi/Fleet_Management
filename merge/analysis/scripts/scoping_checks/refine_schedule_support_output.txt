@@ -1,0 +1,33 @@
+=== Worked example (eps = 0.01, tau = 1) ===
+[PASS] E1: kappa = ln 100 = 4.605170 (text 4.605)
+[PASS] E2: kappa b_l/3 with b_l = 0.30: 0.460517 (text 0.4605)
+[PASS] E3: mean budget tau - 2c = 0.078966 (text 0.079)
+[PASS] E4: largest n_i1 = 7 (text 7); cert(7) = 0.991314, cert(8) = 1.001354
+[PASS] E5: kappa b/3 with the supports present (0.02): 0.030701 (text 0.0307)
+[PASS] E6: mean budget = 0.938598 (text 0.939)
+[PASS] E7: largest n_i1 = 90 (text 90); cert(90) = 0.995957, cert(91) = 1.006238
+[PASS] E8: factor 90/7 = 12.8571 (text 12.9); ratio of the mean budgets = 11.8861
+[PASS] E9: b_l2 = 0.35: 2 kappa b_l/3 = 1.074540 (text 1.075) > tau, so even mu = v = 0 fails: cert(0, 0) = 1.074540
+
+=== Monotonicity in the support constant ===
+[PASS] M1: d/dc [mu + c + sqrt(c^2 + 2 kappa v)] = c/sqrt(c**2 + 2*kappa*v) + 1
+[PASS] M2: derivative over 200000 random (c, v, kappa) lies in [1.000004, 2.000000] (text [1, 2])
+[PASS] M3: row at the larger constant implies the row at the smaller one: 0 violations in 100000
+[PASS] M4: largest admissible variance (at mu = 0) = -tau*(2*c - tau)/(2*kappa), derivative in c = -tau/kappa < 0: a big-M taken from b_l cuts the region of c_0
+
+=== Equivalence: conditional rows at c_j plus the row at c_0 == one row at kappa b_l(zeta)/3 ===
+[PASS] Q1: 0 mismatches in 50000 random cases (10215 feasible)
+  validity of b_l(zeta) (Appendix drv:sched_support): by derivation. Between resets the state is a
+  weighted sum (weights in [0, 1]) of one reset draw and of increments of served missions; zeta_ij >= x_ijt
+  makes every served mission enter b_l(zeta). A zeta_ij = 1 on an unserved mission only adds a row with a
+  larger constant, which is more conservative.
+
+=== Empty schedule and the local precondition ===
+[PASS] P1: cert(0, 0; c) = 2c, so the empty schedule satisfies the row only if 2 kappa b_l/3 <= tau
+  c_j = 0.500000000 (2 c_j - tau = +0.0e+00): feasible grid points 1, only [(0.0, 0.0)]
+  c_j = 0.500000001 (2 c_j - tau = +2.0e-09): feasible grid points 0
+  c_j = 0.600000000 (2 c_j - tau = +2.0e-01): feasible grid points 0
+[PASS] P2: 2 c_j > tau: the row admits no point, so zeta_ij = 1 is infeasible and zeta_ij = 0 is forced; at 2 c_j = tau the row admits only mu = v = 0
+
+=== Big-M constant 2 tau (tau - c_0) of the conditional tangent rows (extra check) ===
+[PASS] B1: largest violation / (2 tau (tau - c_0)) over 20000 random cases with 2 c_j < tau, mu_r in [0, tau): 0.996440

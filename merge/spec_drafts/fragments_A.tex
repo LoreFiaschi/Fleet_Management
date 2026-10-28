@@ -102,7 +102,7 @@ $\mu^{\inc}_{i\ell jk}$, $v^{\inc}_{i\ell jk}$, $b^{\inc}_{i\ell jk}$,
   flies mission $j$ on day $k$, after the phase lookup; Gamma rate &
   \ref{sec:input_increments} \\
 $\delta\mu_{i\ell k} = \sum_{j=1}^{M} x_{ijk}\, \mu^{\inc}_{i\ell jk}$ & day increment
-  of the mean; $\delta v$, $\delta R$ (from $(b^{\inc})^2$) and $\delta K$ likewise; $0$
+  of the mean; $\delta v$ (from $\sigma^2$ at a Wiener cell), $\delta R$ (from $(b^{\inc})^2$) and $\delta K$ likewise; $0$
   on depot and idle days & \\
 $\mu_{i\ell k}$, $v_{i\ell k}$, $R_{i\ell k}$, $K_{i\ell k}$ & tracked mean,
   variance, Hoeffding budget, Chernoff quantity & \ref{sec:variables} \\
@@ -125,7 +125,7 @@ $\kappa_G = \Phi^{-1}(1 - \varepsilon)$ & standard normal quantile & \ref{sec:dy
 $V_{\max} = \tau^2 / \kappa_G^2$ & variance range, Gaussian and
   Wiener & \ref{sec:dyn_gaussian} \\
 $\eta_{i\ell}$; $Z \sim \mathrm{IG}(1, 1/\eta)$; $q$; $\bar\mu = \tau /
-  \mathbb{E}[Z \mid Z > q]$ & inverse Gaussian dispersion; unit law; its
+  \mathbb{E}[Z \mid Z > q]$ & squared coefficient of variation of an inverse Gaussian term; unit law; its
   $(1-\varepsilon)$-quantile; mean cap & \ref{sec:dyn_ig} \\
 $\beta^*_{i\ell}$; $t = \beta^*\tau$; $A_1(t, \varepsilon)$; $Q(a, x)$ & smallest
   Gamma rate among the terms of the cell with a positive mean; scaled threshold;
@@ -497,7 +497,8 @@ true one (scoping document, section ``Cost function'').
 % ----------------------------------------------------------------
 
 The scalar $u \geq 0$ and its rows are built only when $C_D > 0$; with $C_D = 0$ the
-input \texttt{penalty\_type} is ignored. One row per train and day:
+input \texttt{penalty\_type} only selects the formula of the reported value $u$
+(Section~\ref{sec:output}). One row per train and day:
 \begin{align}
   \texttt{inf\_norm} \text{ (default)}:&\quad
     u \;\geq\; \sum_{\ell=1}^{L} \mu_{i\ell k} \qquad \forall\, i, k,

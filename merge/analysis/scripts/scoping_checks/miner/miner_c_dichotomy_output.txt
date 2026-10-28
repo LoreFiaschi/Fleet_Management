@@ -1,0 +1,72 @@
+(1) means and the variance ratio, (I) against (II)
+  profile equal: (sum m)^2 / sum m^2 = 50.0000, days = 50, days with m_t > 0 = 50
+    log-normal sigma=0.5: mean I 0.67981 II 0.67920 formula 0.67989; Var I 2.6100e-03 formula 2.6258e-03; Var II 1.3071e-01 formula 1.3129e-01; MC ratio 50.078
+    Weibull k=5: mean I 0.69854 II 0.69896 formula 0.69854; Var I 9.6369e-04 formula 9.6308e-04; Var II 4.8196e-02 formula 4.8154e-02; MC ratio 50.012
+  profile linear m_t ~ t: (sum m)^2 / sum m^2 = 37.8713, days = 50, days with m_t > 0 = 50
+    log-normal sigma=0.5: mean I 0.68004 II 0.67964 formula 0.67989; Var I 3.4794e-03 formula 3.4668e-03; Var II 1.3049e-01 formula 1.3129e-01; MC ratio 37.504
+    Weibull k=5: mean I 0.69856 II 0.69869 formula 0.69854; Var I 1.2706e-03 formula 1.2715e-03; Var II 4.8568e-02 formula 4.8154e-02; MC ratio 38.223
+  profile Dirichlet(1): (sum m)^2 / sum m^2 = 21.1840, days = 50, days with m_t > 0 = 50
+    log-normal sigma=0.5: mean I 0.67990 II 0.68020 formula 0.67989; Var I 6.1828e-03 formula 6.1976e-03; Var II 1.3170e-01 formula 1.3129e-01; MC ratio 21.302
+    Weibull k=5: mean I 0.69837 II 0.69842 formula 0.69854; Var I 2.2601e-03 formula 2.2731e-03; Var II 4.7791e-02 formula 4.8154e-02; MC ratio 21.146
+  profile ten zero days: (sum m)^2 / sum m^2 = 40.0000, days = 50, days with m_t > 0 = 40
+    log-normal sigma=0.5: mean I 0.67969 II 0.67903 formula 0.67989; Var I 3.2868e-03 formula 3.2823e-03; Var II 1.3038e-01 formula 1.3129e-01; MC ratio 39.667
+    Weibull k=5: mean I 0.69864 II 0.69897 formula 0.69854; Var I 1.2066e-03 formula 1.2039e-03; Var II 4.7958e-02 formula 4.8154e-02; MC ratio 39.746
+  100000 random profiles: max ratio / days = 0.5362 (bound 1); equal profile ratio = 50.0000000000
+
+(2) the experiment: sigma = 0.5, 50 days, equal increments m_t = 0.012, M = 0.6
+  P(II) = Phi(ln 0.6 / 0.5) = 0.153473
+  P(I) by convolution: N cells on [0, 1); lower bound, midpoint estimate, upper bound
+    N=2^13: lower 2.031106e-07  mid 2.465541e-07  upper 2.992079e-07
+    N=2^15: lower 2.341887e-07  mid 2.458107e-07  upper 2.580050e-07
+    N=2^17: lower 2.426745e-07  mid 2.456304e-07  upper 2.486221e-07
+    N=2^19: lower 2.448435e-07  mid 2.455857e-07  upper 2.463301e-07
+    N=2^21: lower 2.453889e-07  mid 2.455746e-07  upper 2.457605e-07
+  floating-point check at N=2^12: max |cumulative(FFT) - cumulative(direct)| = 3.7e-15
+  P(I) by conditional Monte Carlo: P(S >= c) = n E[ P(Y_n > max(max_{t<n} Y_t, c - S_{n-1})) ],
+  Y_t = exp(sigma Z_t), c = n / M, the first n-1 normals shifted by theta and reweighted
+    theta=0.4, 4e6 samples: 2.4505e-07, 95% CI [2.4366e-07, 2.4645e-07], overlaps the convolution bracket: True; relative standard error 0.29%
+    theta=0.5, 4e6 samples: 2.4585e-07, 95% CI [2.4471e-07, 2.4700e-07], overlaps the convolution bracket: True; relative standard error 0.24%
+    theta=0.6, 4e6 samples: 2.4620e-07, 95% CI [2.4479e-07, 2.4760e-07], overlaps the convolution bracket: True; relative standard error 0.29%
+  importance sampling with one uniform mean shift of all fifty normals:
+    theta=0.7717, 2e6 samples: 2.3126e-07, 95% CI [2.0825e-07, 2.5426e-07], overlaps the convolution bracket: True; relative standard error 5.08%
+    reason: the cheapest way to reach the event (min |z|^2 / 2) is not the symmetric point (all z_t = 1.022, cost 26.09) but one large factor (z = 6.59, the others 0.28, cost 23.63); a uniform shift rarely samples it
+  RESULT: P(II) = 0.1535; P(I) in [2.4539e-07, 2.4576e-07], midpoint 2.4557e-07; ratio P(II)/P(I) = 6.25e+05
+
+(3) other readings of the experiment (convolution at N=2^18, midpoint; lower and upper bounds in brackets)
+  R1 the reading of (2): P(II) = 0.1535, P(I) = 2.456e-07 [2.441e-07, 2.471e-07]
+  R2 median of D under (I) equal to 0.6: M = 0.53113; P(I) = 9.704e-11 [9.650e-11, 9.757e-11]; P(II) at M = 0.6 stays 0.1535, at M = 0.5311 it is 0.1028
+  R3 mean of D equal to 0.6: M = 0.52950; P(II) = 0.1017 (not 0.15); P(I) = 8.130e-11 [8.086e-11, 8.175e-11]
+  R4 equal increments on n days, M = 0.6:
+    n=1: P(I) = 1.535e-01 [1.535e-01, 1.535e-01]
+    n=2: P(I) = 1.064e-01 [1.064e-01, 1.064e-01]
+    n=5: P(I) = 3.964e-02 [3.963e-02, 3.964e-02]
+    n=10: P(I) = 9.004e-03 [9.001e-03, 9.007e-03]
+    n=15: P(I) = 2.225e-03 [2.223e-03, 2.226e-03]
+    n=20: P(I) = 5.737e-04 [5.731e-04, 5.743e-04]
+    n=25: P(I) = 1.519e-04 [1.517e-04, 1.522e-04]
+    n=30: P(I) = 4.100e-05 [4.090e-05, 4.109e-05]
+    n=35: P(I) = 1.122e-05 [1.119e-05, 1.126e-05]
+    n=40: P(I) = 3.108e-06 [3.096e-06, 3.120e-06]
+    n=45: P(I) = 8.695e-07 [8.653e-07, 8.739e-07]
+    n=50: P(I) = 2.456e-07 [2.441e-07, 2.471e-07]
+    P(I) = 1e-6 lies between n = 40 and n = 45
+  R5 unequal increments over 50 days, m_t proportional to t^a, M = 0.6:
+    a=0.0: effective days (sum m)^2/sum m^2 = 50.00, P(I) = 2.456e-07 [2.441e-07, 2.471e-07]
+    a=1.0: effective days (sum m)^2/sum m^2 = 37.87, P(I) = 9.769e-06 [9.728e-06, 9.810e-06]
+    a=2.0: effective days (sum m)^2/sum m^2 = 28.06, P(I) = 1.218e-04 [1.215e-04, 1.222e-04]
+    a=3.0: effective days (sum m)^2/sum m^2 = 22.10, P(I) = 5.335e-04 [5.322e-04, 5.348e-04]
+    a=4.0: effective days (sum m)^2/sum m^2 = 18.19, P(I) = 1.397e-03 [1.394e-03, 1.400e-03]
+    P(I) = 1e-6 at a = 0.424, effective days 45.91, last-day share 0.028
+    20 random profiles (uniform on the simplex): effective days 22.1..31.5, P(I) min 7.29e-05, median 3.36e-04, max 9.72e-04
+  R6 plain Monte Carlo with 1e6 samples: expected failures 0.246; P(0 failures) = 0.782, P(1 failure, printed as 1e-6) = 0.192, P(2 or more) = 0.026
+  R7 sigma = 0.5 read on log10 N_f: P(II) = Phi(ln 0.6 / (0.5 ln 10)) = 0.3286 (not 0.15)
+  R8 (I) by a normal approximation: 2.09e-10; by the Cantelli bound: 0.0250
+
+(4) the reversal: equal increments, 50 days, sigma = 0.5, P(I) and P(II) as functions of M
+  M=0.86530: P(I) in [0.381054, 0.381296], P(II) = 0.386157
+  M=0.86630: P(I) in [0.386913, 0.387156], P(II) = 0.387042
+  M=0.86730: P(I) in [0.392792, 0.393035], P(II) = 0.387925
+  RESULT: P(I) = P(II) = 0.3870 at M = 0.8663 (median damage under (II)); mean damage there 0.9817
+  undecided interval [0.8620, 0.8718]
+  grid of 300 intervals on M in [0.1, 3]: P(I) < P(II) on 190, P(I) > P(II) on 109, undecided 1
+  P(II) at the ends of the grid: 2.06e-06 at M = 0.1, 0.9860 at M = 3

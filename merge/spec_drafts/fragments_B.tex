@@ -115,7 +115,7 @@ For cells $(i,\ell)$ with \texttt{model} $=$ \texttt{inverse\_gaussian} (IG).
 $\mu$ and shape $\lambda$. Every term of mean $a$ (a mission increment, mean
 $\mu^{\inc}_{jk}$; the initial damage, $\mu_0$; a replacement draw, $\mu^{\new}$)
 has the law $\mathrm{IG}(a, a/\eta) = a\,Z$, with $Z \sim \mathrm{IG}(1, 1/\eta)$
-and $\eta > 0$ the dispersion of the cell (input \texttt{eta}). A known damage is a
+and $\eta > 0$ the squared coefficient of variation of the terms of the cell (input \texttt{eta}). A known damage is a
 constant. No independence between terms is required (scoping document, section
 ``Stochastic orderings'').
 
@@ -166,9 +166,9 @@ Eq.~\eqref{eq:ig_map}.
 \subsubsection{Reliability row}
 
 Let $q$ be the $(1-\varepsilon)$-quantile of $Z$, $\Pr(Z > q) = \varepsilon$, and
-$C = \mathbb{E}[Z \mid Z > q]$. On every day $k = 1, \ldots, T$:
+$\bar q = \mathbb{E}[Z \mid Z > q]$. On every day $k = 1, \ldots, T$:
 \begin{equation}
-  \mu_k \leq \bar\mu, \qquad \bar\mu = \frac{\tau}{C}.
+  \mu_k \leq \bar\mu, \qquad \bar\mu = \frac{\tau}{\bar q}.
   \label{eq:ig_row}
 \end{equation}
 The row is linear: it is built in its exact form, and a value of
@@ -409,7 +409,7 @@ $s$. The tail bound is chosen per cell by \texttt{bound\_method}: \texttt{markov
   \item \textbf{A2} (Hoeffding, Bernstein). Each increment lies in an interval of
         width $b^{\inc}_{jk}$ (input \texttt{support}). The initial damage is a
         known part plus independent terms in intervals, with sum of squared widths
-        $R_0$ (\texttt{R\_0}) and largest width $b^0$ (\texttt{support\_0}); a
+        $R_0$ (\texttt{R\_0}); the range of their sum has width $b^0$ (\texttt{support\_0}); a
         replacement draw likewise, with $R^{\new}$, $b^{\new}$ (\texttt{R\_new},
         \texttt{support\_new}). A known damage has $R = b = 0$, the defaults.
   \item \textbf{A3.} After day $T$ the operating phase repeats with period $H_2$

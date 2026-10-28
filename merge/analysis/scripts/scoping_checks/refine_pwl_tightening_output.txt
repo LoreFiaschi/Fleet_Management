@@ -1,0 +1,46 @@
+=== Identities (sympy) ===
+[PASS] I1: (v/(v+d^2) - eps) (v+d^2)/eps = kC2 v - d^2, so Cantelli <= eps <=> kC2 v <= d^2 <=> mu + kC sqrt(v) <= tau
+[PASS] I2: tangent of (tau - mu)^2 at mu_r = (tau - mu_r)(tau + mu_r - 2 mu)
+[PASS] I3: f - T_r = (mu - mu_r)^2 (Appendix drv:pwl_recovery)
+[PASS] I4: f - (tau^2 - 2 tau mu) = mu^2: the tangent at 0 loses mu^2/kC2 of variance
+[PASS] I5: 2 (tau - mu_r)(tau - mu - kC t_r(v)) = T_r(mu) - kC2 v: the tangent to sqrt at v_r and the tangent at mu_r bound the same half-plane
+[PASS] I6: consecutive tangents of sqrt at a and b meet at v = sqrt(a b) with value (sqrt a + sqrt b)/2
+[PASS] I7: (sqrt a + sqrt b)/2 - (ab)^(1/4) = (a^(1/4) - b^(1/4))^2/2 >= 0: the vertex lies above the curve (strictly for a != b); sqrt'' = -1/(4 v^(3/2)) < 0, so chords between points on the curve lie below it
+
+=== Single tangent, union and intersection (tau = 1, eps = 0.01, kC2 = 99) ===
+[PASS] R1: single tangent: loss mu^2 on [0, tau/2], zero at tau/2, negative (so v >= 0 is infeasible) for mu > tau/2; exact admits v > 0 up to mu = tau
+[PASS] R2: intersection <= each single tangent <= union <= exact, pointwise on [0, 1]
+[PASS] R3: intersection strictly inside the region of the tangent at mu_r = 0.00
+[PASS] R3: intersection strictly inside the region of the tangent at mu_r = 0.25
+[PASS] R3: intersection strictly inside the region of the tangent at mu_r = 0.50
+[PASS] R3: intersection strictly inside the region of the tangent at mu_r = 0.75
+  areas of the regions (mu in [0,1], units of kC2 v): exact 0.333333, single 0.250000, union 0.328125, intersection 0.144531
+[PASS] R4: union recovers 0.937500 of the area lost by the single tangent; exact 15/16 = 0.9375 (text 94%)
+  table (v x 1e3): mu, exact, single, union
+   0.0  10.10  10.10  10.10
+   0.2  6.46  6.06  6.44
+   0.4  3.64  2.02  3.54
+   0.5  2.53  0.00  2.53
+   0.6  1.62  infeasible  1.52
+[PASS] R5: the table of the text is reproduced
+
+=== Encodings and the shortcuts that fail ===
+[PASS] S1: encoding (ii), y = min of the tangents to sqrt, equals the union (selector encoding (i)): 0 mismatches in 200000 points
+[PASS] S2: y >= every tangent gives the intersection: 0 mismatches in 200000 points
+[PASS] S3: y <= every tangent admits y = 0: the point (mu, v) = (0.9, 0.05) is accepted, but its Cantelli bound is 0.833 > eps
+
+=== Remaining gap of the union (Appendix drv:pwl_recovery) ===
+  P= 4, Delta=0.2500: worst gap (clipped at v >= 0) 0.015625; worst of min_r (mu - mu_r)^2 on [0, tau] 0.062500; midpoints: 0.015625; (Delta/2)^2 = 0.015625
+[PASS] G4: worst case (Delta/2)^2 holds for the clipped gap and for midpoint tangents
+  P= 8, Delta=0.1250: worst gap (clipped at v >= 0) 0.003906; worst of min_r (mu - mu_r)^2 on [0, tau] 0.015625; midpoints: 0.003906; (Delta/2)^2 = 0.003906
+[PASS] G8: worst case (Delta/2)^2 holds for the clipped gap and for midpoint tangents
+[PASS] G8/4: doubling the tangents divides the worst gap by 4.0000
+  P=16, Delta=0.0625: worst gap (clipped at v >= 0) 0.000977; worst of min_r (mu - mu_r)^2 on [0, tau] 0.003906; midpoints: 0.000977; (Delta/2)^2 = 0.000977
+[PASS] G16: worst case (Delta/2)^2 holds for the clipped gap and for midpoint tangents
+[PASS] G16/4: doubling the tangents divides the worst gap by 4.0000
+  note: with tangent points 0, Delta, ..., tau - Delta, the formula min_r (mu - mu_r)^2 reaches Delta^2 at mu = tau; the admissible variance is 0 there, so the loss measured in v >= 0 is still at most (Delta/2)^2
+
+=== Bernstein and the loop argument ===
+[PASS] B1: Bernstein: gap of a tangent = (mu - mu_r)^2, the same law
+[PASS] B2: second derivative of sqrt(c^2 + 2 kappa v) in v = -kappa^2/(c^2 + 2 kappa v)^(3/2) < 0: concave, so its tangents lie above it
+[PASS] L1: the union region is a down-set in (mu, v): 0 violations; so componentwise smaller moments (the moment loop) keep every refined row satisfied

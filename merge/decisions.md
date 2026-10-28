@@ -4,16 +4,32 @@ Status: all 30 divergences decided (26 Oct 2026).
 
 **Resume here** (26 Oct 2026; no background task runs):
 - **Spec (an SDD, Software Design Document) and scoping: done, waiting for the user's reading** (rule in `CLAUDE.md`).
+  Error review of both documents (28 Oct 2026): 70 findings, 68 fixed, then the open points settled from the
+  sources and new checks; choices, open items and the spec changes that the code must follow are in
+  `error_review_2026-10-28/outcome.md`. Step 6 (clean-up): the scoping footnotes cite
+  `merge/analysis/scripts/scoping_checks`; move that folder with `merge/` and update the paths.
   `spec/spec.tex` (51 pages; 0 errors, 0 warnings; PDF `spec_drafts/build_final/spec.pdf`) holds only the codebase
   and its mathematical constructions, in this order: overview, architecture, notation, inputs, variables, objective,
   constraints (explicit big-M rows per model), full problem, outputs, sweeps, warm starts, plotting, validation, input
   schema. From the output rules on, every tool follows one template (user's choice, 28 Oct 2026): signature,
-  arguments table, numbered steps, errors table, report-key table; definitions as a bold-term list. `scoping.tex` (63 pages; clean build; `scoping.pdf`) holds every proof, example, reason and source, the open
-  questions and the spec's changelog (`sec:spec_changelog`); its whole text passed a readability pass for a reader
-  whose second language is English (record: `scoping_readability_status.md`; the copy before that pass:
-  `scoping_before_readability_pass.tex`). Moved blocks and their places: `spec_scoping_map.md`. Spec sources: the
-  fragments and `spec_drafts/claude_*.tex`, joined by `spec_drafts/assemble.py`; copy `spec_assembled.tex` to
-  `spec/spec.tex` with CRLF. Nothing is committed.
+  arguments table, numbered steps, errors table, report-key table; definitions as a bold-term list. `scoping.tex` (85 pages; 0 errors, 0 undefined references, 0 bibtex warnings, no overfull line; `scoping.pdf`)
+  holds every proof, example,
+  reason and source, the open questions and the spec's changelog (`sec:spec_changelog`); its whole text passed a
+  readability pass for a reader whose second language is English (record: `scoping_readability_status.md`; the copy
+  before that pass: `scoping_before_readability_pass.tex`), then a structure pass (user's choice, 28 Oct 2026):
+  summary tables for parallel items (`tab:objective_modes`, `tab:loop_routeI_bounds`, `tab:miner_interpretations`,
+  `tab:reduction_classes`), long paragraphs split into lists with bold lead-ins; statements and proofs verbatim. Its
+  "Remaining items" lists moved to `Things to change.txt`. `tab:cons_surrogates` has a Hoeffding row citing
+  Hoeffding (1963), Theorem 2 (read in full, 28 Oct 2026; PDF in `literature/`, supplied by the user). Second
+  structure pass (user's choices, 28 Oct 2026): every proof and every prose derivation is in the appendix "Proofs and
+  derivations" (17 proofs, 35 derivations; anchors `prf:<statement label>` and `drv:<name>`; each main-text pointer
+  gives the appendix number and page); every display is numbered; long inline math is displayed; no prose paragraph
+  over about 80 words outside footnotes. Two corrections made in that pass: for the Gumbel-minimum scatter, e^mu is
+  the characteristic life, not the median; the variance ratio of the two Miner interpretations is a direct
+  computation, and Cauchy--Schwarz only bounds it by the number of days. Moved blocks and their places: `spec_scoping_map.md`. Spec
+  sources: the fragments and `spec_drafts/claude_*.tex`, joined by `spec_drafts/assemble.py`; copy
+  `spec_assembled.tex` to `spec/spec.tex` with CRLF. The spec work is committed (f898c6a); the scoping structure pass
+  is not.
 - **Step 2, code:** plan in [`code_plan.md`](code_plan.md). WP0 to WP2 done on the branch `merge/lore-into-main`
   (worktree `C:\Users\utente\Documents\GitHub\Fleet_Management-merge`, commit ed6694c; list in `wp1_removals.md`).
   Next: WP3 (merge of `lore` into the branch) after the user reads the spec and commits `lore`'s finished work; then

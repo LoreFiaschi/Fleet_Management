@@ -70,7 +70,7 @@ A profile has $H_2$ entries for the operating phase and, optionally, $H_1$ entri
 \keyrow{\texttt{mu\_0}}{cell value}{required}{all}{Initial mean degradation $\mu_{0,i\ell}$}
 \keyrow{\texttt{v\_0}}{cell value}{$0$}{G, W, RF (Ca, Be)}{Initial variance $v_{0,i\ell}$}
 \keyrow{\texttt{support\_0}}{cell value}{$0$}{RF (Be)}{Width $b^{0}_{i\ell}$ of the range of the initial damage}
-\keyrow{\texttt{R\_0}}{cell value}{$0$}{RF (Ho)}{Initial Hoeffding budget $R_{0,i\ell}$: the square of the width of the range of the initial damage}
+\keyrow{\texttt{R\_0}}{cell value}{$0$}{RF (Ho)}{Initial Hoeffding budget $R_{0,i\ell}$: the sum of the squared widths of the independent terms of the initial damage}
 \keyrow{\texttt{cgf\_0}}{cell value}{$s\,\mu_0$}{RF (Ch)}{Initial Chernoff quantity $K_{0,i\ell}$: the cumulant generating function of the initial damage at $s_{i\ell}$}
 \tabend
 
@@ -122,7 +122,7 @@ The symbols $\mu^{\inc}_{i\ell jk}$, $v^{\inc}_{i\ell jk}$, $b^{\inc}_{i\ell jk}
 
 \keytab
 \keyrow{\texttt{sigma}}{cell value}{required}{W}{Diffusion constant $\sigma_{i\ell}$: every mission adds $\sigma_{i\ell}^2$ to the variance}
-\keyrow{\texttt{eta}}{cell value}{required}{IG}{Dispersion $\eta_{i\ell}$ of the inverse Gaussian law of each term (Section~\ref{sec:dyn_ig})}
+\keyrow{\texttt{eta}}{cell value}{required}{IG}{Squared coefficient of variation $\eta_{i\ell}$ of the inverse Gaussian law of each term (Section~\ref{sec:dyn_ig})}
 \keyrow{\texttt{v\_max\_user}}{cell value}{none}{G, W, RF (Ca, Be)}{Upper bound $V^{\mathrm{user}}_{\max,i\ell}$ on the variance; if given, the row $v_{i\ell k} \le V^{\mathrm{user}}_{\max,i\ell}$ holds on every day}
 \keyrow{\texttt{gamma\_beta\_0}}{cell value}{none (known damage)}{Ga}{Rate of the initial damage, a Gamma variable with mean $\mu_0$; if omitted, the initial damage is the known constant $\mu_0$ and does not enter the smallest rate}
 \keyrow{\texttt{gamma\_beta\_new}}{cell value}{none (known damage)}{Ga}{Rate of the damage after a replacement, a Gamma variable with mean $\mu^{\new}$; if omitted, it is the known constant $\mu^{\new}$ and does not enter the smallest rate}
@@ -131,10 +131,10 @@ The symbols $\mu^{\inc}_{i\ell jk}$, $v^{\inc}_{i\ell jk}$, $b^{\inc}_{i\ell jk}
 \subsection{Costs and Objective}\label{sec:input_costs}
 
 \keytab
-\keyrow{\texttt{C\_M}}{scalar}{required}{all}{Cost of one depot day of one train, whatever the number of jobs on that day}
+\keyrow{\texttt{C\_M}}{scalar}{required}{all}{Cost of one depot day of one train, whatever the number of interventions on that day}
 \keyrow{\texttt{C\_R}}{cell value}{required}{all}{Repair cost $C_{R,i\ell}$ per unit of degradation removed; at a cell with $C_{R,i\ell} = 0$ the variable $z$ and its rows are not built}
 \keyrow{\texttt{C\_rep}}{cell value}{required}{all}{Replacement cost $C_{\mathrm{rep},i\ell}$}
-\keyrow{\texttt{C\_D}}{scalar}{required}{all}{Damage penalty coefficient $C_D$; if $C_D = 0$, the variable $u$ and its rows are not built and \texttt{penalty\_type} is ignored}
+\keyrow{\texttt{C\_D}}{scalar}{required}{all}{Damage penalty coefficient $C_D$; if $C_D = 0$, the variable $u$ and its rows are not built, and \texttt{penalty\_type} only selects the formula of the reported value $u$ (Section~\ref{sec:output})}
 \keyrow{\texttt{penalty\_type}}{string}{\texttt{inf\_norm}}{all}{Damage penalty (Section~\ref{sec:damage_reg}): \texttt{inf\_norm} or \texttt{quadratic}; if $C_D > 0$, \texttt{quadratic} requires \texttt{reliability\_impl} \texttt{exact} at every cell with a quadratic reliability row (G, W, RF with Ca, Ho or Be); another value is an error}
 \tabend
 
@@ -202,7 +202,7 @@ A check of one model runs only at the cells of that model, on the entries where 
   \item Every entry of \texttt{component\_names} is a string that is not empty after blanks are removed.
   \item $H$ is an integer $\ge 1$, or a pair of integers $H_1, H_2 \ge 1$.
   \item \texttt{model} entries are \texttt{gaussian}, \texttt{inverse\_gaussian}, \texttt{wiener}, \texttt{gamma} or \texttt{rainflow}; \texttt{repair\_model} entries are \texttt{ard1} or \texttt{ardinf}, for every model.
-  \item \texttt{bound\_method} entries at rainflow cells are \texttt{markov}, \texttt{cantelli}, \texttt{hoeffding}, \texttt{bernstein} or \texttt{chernoff}.
+  \item Every non-\texttt{null} entry of \texttt{bound\_method} is \texttt{markov}, \texttt{cantelli}, \texttt{hoeffding}, \texttt{bernstein} or \texttt{chernoff}, also at a cell that is not rainflow.
   \item Every non-\texttt{null} entry of \texttt{reliability\_impl} is \texttt{exact}, \texttt{tangent} or \texttt{pwl}, also at a cell whose row is linear (IG, Ga, Mk, Ch); there the value is ignored and the form \texttt{exact} is built. \texttt{encoding} entries are \texttt{bigm} or \texttt{indicator}.
   \item \texttt{penalty\_type} is \texttt{inf\_norm} or \texttt{quadratic}. If $C_D > 0$ and \texttt{penalty\_type} is \texttt{quadratic}, \texttt{reliability\_impl} is \texttt{exact} at every cell with a quadratic reliability row (G, W, and RF with Ca, Ho or Be); another value is an error.
 \end{itemize}
@@ -284,7 +284,7 @@ In the column \emph{Shape}, a dash marks a scalar or a string.
 \typerow{\texttt{x}}{$F \times (M{+}1) \times T$}{Assignment $x_{ijk}$ (Section~\ref{sec:variables})}
 \typerow{\texttt{m}}{$F \times L \times T$}{Repair $x^m_{i\ell k}$}
 \typerow{\texttt{r}}{$F \times L \times T$}{Replacement $x^r_{i\ell k}$; zero if \texttt{allow\_replacement} is \texttt{false}}
-\typerow{\texttt{idle}}{$F \times L \times T$}{$\text{idle}_{i\ell k} = x_{i0k} - x^m_{i\ell k} - x^r_{i\ell k}$: component $\ell$ is in the depot without an intervention}
+\typerow{\texttt{idle}}{$F \times L \times T$}{$\text{idle}_{i\ell k} = x_{i0k} - x^m_{i\ell k} - x^r_{i\ell k}$: component $\ell$ is in the depot without an intervention (mark \texttt{D} of Section~\ref{sec:plotting}); it is $0$ on an idle day of the train (Section~\ref{sec:assignment})}
 \typerow{\texttt{mu}}{$F \times L \times T$}{Tracked mean degradation}
 \typerow{\texttt{v}}{$F \times L \times T$}{Tracked variance; \texttt{NaN} at cells that track no variance (IG, Ga, RF with Mk, Ho or Ch)}
 \typerow{\texttt{z}}{$F \times L \times T$}{Repair-cost variable; \texttt{NaN} at cells with $C_{R,i\ell} = 0$. On the transitory days of the mode \texttt{operating\_average}: Equation~\eqref{eq:c_zpost}}
