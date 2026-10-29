@@ -1,47 +1,43 @@
 """
 Shared Gurobi model layer for fleet management (model-agnostic skeleton).
 
-This module owns everything that does **not** depend on which degradation model
-a cell uses:
+This module owns what does **not** depend on the degradation model of a cell:
 
-* the shared context object ``FleetModel`` (sizes, decision variables, per-cell
-  parameters, increment accessors);
-* the shared variables and the general constraints / problem equations
-  (assignment, mission demand, safety ``u``);
-* the objective  ``J = sum_l C_M[l] m[l] + C_R[l] z[l] +``
-  ``C_rep[l] r[l] + C_D u``;
-* solution extraction, status decoding, run-option and cost resolution.
+* the context ``FleetModel`` (sizes, shared variables, per-cell arrays, increment
+  accessor, run options) and the cell-builder registry;
+* the fleet rows (assignment, depot day, damage penalty) and the objective;
+* the helpers that the cell builders call: variables in ``prepare``, and in
+  ``add_cell`` the dynamics, replacement, anchor, loop, repair-cost and
+  reliability rows;
+* the result extraction, the cost report and the reports of ``solve_mixed``.
 
-Degradation models plug in through the **cell-builder registry**: each model
-registers a ``CellBuilder`` with
+A degradation model plugs in through a ``CellBuilder`` registered under its name,
+in the module ``fleet_management.degradation_model.<name>``, with the hooks
+``prepare(ctx, cfg, cells, opts)``, ``add_cell(ctx, i, l)`` and the optional
+``extract(ctx, cfg, out)``. ``build_fleet`` follows the building order of the
+spec: model, options and shared variables; ``prepare`` of each model in
+alphabetical order; objective and the rows that do not depend on the model;
+``add_cell`` of every cell, ``i`` outer and ``l`` inner.
 
-    prepare(ctx, cfg, cells, opts)   create that model's auxiliary variables and
-                                     per-cell arrays for *its* cells (called once
-                                     per model that appears in the fleet)
-    add_cell(ctx, i, l)              add the constraints of ONE (vehicle,
-                                     component) cell
-    extract(ctx, cfg, out)           optional: add model-specific arrays to the
-                                     result dict
+The dynamics have two encodings, chosen per cell: ``bigm`` (one-sided big-M rows)
+and ``indicator`` (a selector ``n`` and Gurobi indicator constraints). At binary
+points both have the same feasible set.
 
-``solve_mixed`` then builds one program for a fleet whose cells use *different*
-degradation models: shared skeleton once, then the right block per cell.
-
-Layering
---------
-    base.py       shared skeleton + registry + solve_mixed   (this file)
-    rainflow.py   rainflow cell math + reliability bounds; registers "rainflow"
-    gamma block   finite-horizon common-rate tail builder below; registers "gamma"
+The Gamma block below stays until the Gamma cell builder is rewritten (work
+package WP6 of the merge). It still calls helpers that no longer exist, so a
+Gamma cell fails when it is built.
 
 `base` must not import the model modules at import time (they import `base`);
-``solve_mixed`` imports them lazily so their registration side-effect happens.
+``build_fleet`` imports them lazily so that their registration happens.
 """
 
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+import importlib
 import math
 import time
-from typing import Callable, Dict, Optional, Protocol
+from typing import Dict, Optional, Protocol
 
 import numpy as np
 import gurobipy as gp
@@ -51,61 +47,65 @@ from gurobipy import GRB
 # ===========================================================================
 # Shared context
 # ===========================================================================
+TRACKED_QUANTITIES = ("mu", "v", "R", "K")   # mean, variance, Hoeffding R, Chernoff K
+
+
+def phase_day(k: int, H1: int, H2: int, has_transitory: bool) -> tuple[bool, int]:
+    """Phase lookup of day index ``k`` (spec day ``k + 1``), Eq. c_phase.
+
+    Returns ``(use_transitory, h)``: whether the transitory profile is read, and
+    the index ``h`` on the day axis of the profile that is read.
+    """
+    if k < H1:
+        return (True, k) if has_transitory else (False, k % H2)
+    return (False, (k - H1) % H2)
+
+
 @dataclass
 class FleetModel:
     """Everything the per-cell builders need, built once and passed around.
 
-    Required fields are model-agnostic. The optional ones are filled in by a
-    degradation model's ``prepare`` hook for the cells that need them (e.g.
-    rainflow's variance / latch / descriptor variables), so a builder can read
-    ``ctx.<field>`` exactly as if it owned the context.
+    The shared variables, the per-cell arrays read from ``cfg``, the increment
+    accessor and the run options are filled by ``build_context``. The state
+    variables, anchors, selectors and segment binaries of the model-specific
+    quantities are filled by the helpers that a builder's ``prepare`` calls.
     """
     # --- structure ---
     model: gp.Model
     F: int; H1: int; H2: int; M: int; L: int; T: int
-    # --- shared decision variables / states ---
-    x: gp.tupledict                        # assignment  (F, M+1, T)
-    m_rep: gp.tupledict                    # imperfect repair (F, L, T)
-    r_rep: Optional[gp.tupledict]          # replacement (F, L, T) or None
-    idle: gp.tupledict                     # depot-idle action (F, L, T)
-    nb: gp.tupledict                       # no-intervention selector for rainflow
-    mu_var: gp.tupledict                   # mean damage state (F, L, T)
-    z_var: gp.tupledict                    # removed expected damage (F, L, T)
-    u_var: gp.Var                         # maximum aggregate damage over i,k
-    # --- shared per-cell (F, L) parameters ---
-    model_of: np.ndarray
-    tau: np.ndarray
-    eps: np.ndarray
-    rho: np.ndarray
-    mu_0: np.ndarray
-    mu_new: np.ndarray
+    # --- shared decision variables ---
+    x: gp.tupledict                        # assignment (F, M+1, T); j = 0 depot
+    m_rep: gp.tupledict                    # repair x^m (F, L, T)
+    r_rep: Optional[gp.tupledict]          # replacement x^r (F, L, T) or None
+    mu_var: gp.tupledict                   # shared mean (F, L, T), [0, tau]
+    z_var: gp.tupledict                    # removed damage z, cells with C_R > 0
+    u_var: Optional[gp.Var]                # damage penalty u, None if C_D == 0
+    # --- per-cell (F, L) selectors ---
+    model_of: np.ndarray                   # cfg.model
+    repair_of: np.ndarray                  # cfg.repair_model
+    bound_of: np.ndarray                   # cfg.bound_method
+    impl_of: np.ndarray                    # cfg.reliability_impl
+    encoding_of: np.ndarray                # cfg.encoding
+    # --- per-cell (F, L) parameters ---
+    tau: np.ndarray                        # threshold
+    eps: np.ndarray                        # cfg.epsilon
+    rho: np.ndarray                        # repair efficiency
+    tangent_ref: np.ndarray                # tangent point, as a fraction of tau
+    initial: Dict[str, np.ndarray]         # q -> mu_0, v_0, R_0, cgf_0
+    replacement: Dict[str, np.ndarray]     # q -> replacement_mu, replacement_v, R_new, cgf_new
+    anchor_start: Dict[str, np.ndarray]    # q -> anchor_mu_0, anchor_v_0, anchor_R_0, anchor_K_0
+    state_range: Dict[str, np.ndarray]     # q -> natural range M_s (range_mu, ...)
+    # --- options and profiles ---
     allow_replacement: bool
-    mu_inc: Callable[[int, int, int, int], float]   # (i, j0, l, k) -> mean increment
-
-    # --- optional, model-specific (filled by a model's prepare hook) ---
-    v_var: Optional[gp.tupledict] = None
-    gmu: Optional[gp.tupledict] = None
-    gv: Optional[gp.tupledict] = None
-    gR: Optional[gp.tupledict] = None      # ARD1 latch for the Hoeffding R budget
-    R_var: Optional[gp.tupledict] = None
-    K_var: Optional[gp.tupledict] = None
-    bound_of: Optional[np.ndarray] = None
-    repair_of: Optional[np.ndarray] = None
-    v_0: Optional[np.ndarray] = None
-    v_new: Optional[np.ndarray] = None
-    s_chernoff: Optional[np.ndarray] = None
-    support_max_of: Optional[np.ndarray] = None
-    Le: Optional[np.ndarray] = None
-    ln_eps: Optional[np.ndarray] = None
-    track_v_of: Optional[np.ndarray] = None
-    latch_of: Optional[np.ndarray] = None
-    impl_of: dict = field(default_factory=dict)
-    pwl_points: int = 8
-    tangent_ref: float = 0.5
-    v_inc: Optional[Callable[[int, int, int, int], float]] = None
-    w2_inc: Optional[Callable[[int, int, int, int], float]] = None
-    cgf_inc: Optional[Callable[[int, int, int, int], float]] = None
-    # free-form per-model storage (gamma state, future models, ...)
+    pwl_points: int
+    opts: dict                             # the run options
+    profiles: dict                         # key -> (operating, transitory or None)
+    # --- filled by the helpers of the builders' prepare hooks ---
+    state_vars: dict = field(default_factory=dict)    # q -> {(i, l, k): Var}
+    anchor_vars: dict = field(default_factory=dict)   # q -> {(i, l, k): Var}, ard1 cells
+    nb: dict = field(default_factory=dict)            # (i, l, k) -> selector n
+    pwl_w: dict = field(default_factory=dict)         # (i, l, k, p) -> segment binary w
+    # free-form per-model storage
     extras: dict = field(default_factory=dict)
 
     # --- helpers ---
@@ -117,15 +117,35 @@ class FleetModel:
     def all_cells(self):
         return [(i, l) for i in range(self.F) for l in range(self.L)]
 
-    def rainflow_cells(self):               # backwards-compatible alias
-        return self.cells_of("rainflow")
+    def increment(self, key: str, i: int, j: int, l: int, k: int) -> float:
+        """Increment of profile ``key`` for train ``i``, activity ``j``,
+        component ``l`` and day index ``k``, after the phase lookup (Eq. c_phase).
+
+        ``j = 0`` is the depot and adds no increment; mission ``j`` is read at
+        position ``j - 1`` of the profile.
+        """
+        if j == 0:
+            return 0.0
+        try:
+            operating, transitory = self.profiles[key]
+        except KeyError:
+            raise KeyError(f"profile {key!r} is not in the input") from None
+        use_transitory, h = phase_day(k, self.H1, self.H2, transitory is not None)
+        source = transitory if use_transitory else operating
+        return float(source[i, l, j - 1, h])
 
 
 # ===========================================================================
 # Cell-builder registry
 # ===========================================================================
 class CellBuilder(Protocol):
-    """Interface a degradation model implements to plug into the shared model."""
+    """Interface a degradation model implements to plug into the shared model.
+
+    ``prepare`` and ``add_cell`` are required. A builder may also define
+    ``extract(ctx, cfg, out)``, which ``solve_mixed`` calls after the shared
+    extraction to add model-specific entries to the result ``out``; it must
+    accept ``out["x"] is None`` (no solution).
+    """
 
     name: str
 
@@ -1188,120 +1208,19 @@ register_cell_builder("gamma", GammaCellBuilder())
 
 
 # ===========================================================================
-# Options, costs, accessors
+# Run options and solver settings
 # ===========================================================================
-def pick(explicit, from_options, default):
-    """First non-None of (explicit kwarg, cfg.options value, default)."""
-    if explicit is not None:
-        return explicit
-    if from_options is not None:
-        return from_options
-    return default
+def resolve_run_options(cfg) -> dict:
+    """The run options of the spec ("Run Options"), defaults filled by ``load_config``."""
+    return dict(cfg.options)
 
 
-def resolve_run_options(cfg, **overrides) -> dict:
-    """Merge explicit kwargs, ``cfg.options`` and defaults into one dict."""
-    o = cfg.options
-    return {
-        "allow_replacement": pick(overrides.get("allow_replacement"),
-                                  o.get("allow_replacement"), True),
-        "verbose": pick(overrides.get("verbose"), o.get("verbose"), 1),
-        "mip_gap": pick(overrides.get("mip_gap"), o.get("mip_gap"), 0.12),
-        "time_limit": pick(overrides.get("time_limit"), o.get("time_limit"), None),
-        "fast": pick(overrides.get("fast"), o.get("fast"), False),
-        "gurobi_params": pick(overrides.get("gurobi_params"),
-                              o.get("gurobi_params"), None),
-        # reliability-constraint implementation (rainflow cells)
-        "reliability_impl": pick(overrides.get("reliability_impl"),
-                                 o.get("reliability_impl"), "exact"),
-        "pwl_points": int(pick(overrides.get("pwl_points"), o.get("pwl_points"), 8)),
-        "tangent_ref": float(pick(overrides.get("tangent_ref"),
-                                  o.get("tangent_ref"), 0.5)),
-        "replacement_as_new": bool(pick(overrides.get("replacement_as_new"),
-                                        o.get("replacement_as_new"), True)),
-        "objective_mode": str(pick(
-            overrides.get("objective_mode"),
-            o.get("objective_mode"),
-            "total",
-        )).strip().lower(),
-        "evaluation_horizon": pick(
-            overrides.get("evaluation_horizon"),
-            o.get("evaluation_horizon"),
-            None,
-        ),
-        "progress_interval_seconds": float(pick(
-            overrides.get("progress_interval_seconds"),
-            o.get("progress_interval_seconds"),
-            5.0,
-        )),
-        "relaxation_warm_start": bool(pick(
-            overrides.get("relaxation_warm_start"),
-            o.get("relaxation_warm_start"),
-            False,
-        )),
-        "relaxation_time_limit": float(pick(
-            overrides.get("relaxation_time_limit"),
-            o.get("relaxation_time_limit"),
-            60.0,
-        )),
-    }
+def cost_days(objective_mode: str, H1: int, T: int) -> range:
+    """Day indices whose cost enters the objective and carry a ``z`` variable.
 
-
-def resolve_costs(cfg, tau) -> dict:
-    """Resolve component costs for repair, removed damage and replacement.
-
-    ``C_D`` is the damage-regularisation coefficient (legacy alias ``C_S``).
-    ``C_M``, ``C_R`` and ``C_rep`` are component vectors. Scalar YAML values
-    have already been broadcast by ``load_config``. ``C_rep`` defaults
-    component-wise to ``C_R[l] * max_i(tau[i,l])`` when not supplied.
+    The transitory days are left out in the mode ``operating_average``.
     """
-    c = dict(cfg.costs)
-    if "C_D" not in c or c["C_D"] is None:
-        if "C_S" in c and c["C_S"] is not None:
-            c["C_D"] = float(c["C_S"])
-        else:
-            raise KeyError("missing damage cost 'C_D' (legacy alias 'C_S').")
-    for key in ("C_M", "C_R"):
-        if key not in c:
-            raise KeyError(f"missing required cost coefficient '{key}'.")
-    for key in ("C_M", "C_R"):
-        values = np.asarray(c[key], dtype=float)
-        if values.shape != (cfg.L,):
-            raise ValueError(f"normalized {key} must have shape ({cfg.L},)")
-        c[key] = values
-    if "C_rep" not in c or c["C_rep"] is None:
-        c["C_rep"] = c["C_R"] * np.max(np.asarray(tau), axis=0)
-    else:
-        values = np.asarray(c["C_rep"], dtype=float)
-        if values.shape != (cfg.L,):
-            raise ValueError(f"normalized C_rep must have shape ({cfg.L},)")
-        c["C_rep"] = values
-    return c
-
-
-def cell_max(op, tr, i, l) -> float:
-    """Max of a profile over cell (i, l) across operating and transitory arrays,
-    each shaped (F, L, M, H)."""
-    m = float(op[i, l].max()) if op is not None else 0.0
-    if tr is not None:
-        m = max(m, float(tr[i, l].max()))
-    return m
-
-
-def make_accessor(op, tr, H1, H2, transform=lambda a: a):
-    """Phase-aware increment accessor ``f(i, j0, l, k)`` over a (F, L, M, H)
-    profile: steps k < H1 read the transitory array when present, otherwise the
-    operating one; later steps cycle the operating profile."""
-    if op is None and tr is None:
-        return lambda *a: 0.0
-
-    def f(i, j0, l, k):
-        if k < H1:
-            src = tr if tr is not None else op
-            h = k % (H1 if tr is not None else H2)
-            return float(transform(src[i, l, j0, h]))
-        return float(transform(op[i, l, j0, (k - H1) % H2]))
-    return f
+    return range(H1, T) if objective_mode == "operating_average" else range(T)
 
 
 def apply_performance_params(model, time_limit, mip_gap, fast, extra) -> None:
@@ -1323,7 +1242,7 @@ def apply_performance_params(model, time_limit, mip_gap, fast, extra) -> None:
 
 def _make_progress_callback(interval_seconds: float):
     """Return a lightweight Gurobi callback recording primal/dual progress."""
-    interval = max(0.1, float(interval_seconds))
+    interval = float(interval_seconds)
 
     def callback(model, where):
         if where != GRB.Callback.MIP:
@@ -1445,11 +1364,6 @@ def apply_binary_warm_start(ctx: FleetModel, result: dict | None) -> dict:
                         r_value = float(round(r_old[i, l, source_k]))
                         ctx.r_rep[i, l, k].Start = r_value
                         values += 1
-                depot_value = float(round(x_old[i, 0, source_k]))
-                ctx.idle[i, l, k].Start = max(
-                    0.0, depot_value - m_value - r_value
-                )
-                values += 1
                 if (i, l, k) in ctx.nb:
                     ctx.nb[i, l, k].Start = max(
                         0.0, 1.0 - m_value - r_value
@@ -1607,10 +1521,15 @@ def apply_relaxation_warm_start(
 # Model + shared variables
 # ===========================================================================
 def build_context(cfg, opts: dict, model_name: str = "fleet_management") -> FleetModel:
-    """Create the Gurobi model, the shared variables, and the context object."""
+    """Create the Gurobi model, the shared variables, and the context object.
+
+    Step 1 of the building order (spec, "Cell-Builder Interface"). ``z`` is built
+    only at cells with ``C_R > 0``, on the days whose cost enters the objective;
+    ``u`` only if ``C_D > 0``. The per-cell arrays are read from ``cfg``.
+    """
     F, L, M = cfg.F, cfg.L, cfg.M
     H1, H2, T = cfg.H1, cfg.H2, cfg.T
-    allow_replacement = bool(opts["allow_replacement"])
+    allow_replacement = bool(cfg.allow_replacement)
 
     md = gp.Model(model_name)
     md.Params.OutputFlag = int(opts["verbose"])
@@ -1620,194 +1539,463 @@ def build_context(cfg, opts: dict, model_name: str = "fleet_management") -> Flee
     x = md.addVars(F, M + 1, T, vtype=GRB.BINARY, name="x")
     m_rep = md.addVars(F, L, T, vtype=GRB.BINARY, name="m")
     r_rep = md.addVars(F, L, T, vtype=GRB.BINARY, name="r") if allow_replacement else None
-    # Explicit depot action requested by the mathematical formulation:
-    # idle at the depot, imperfect repair, or replacement. Rainflow also needs
-    # a distinct no-intervention selector: during a mission the component is
-    # not depot-idle, but its state still follows the carry recursion.
-    idle = md.addVars(F, L, T, vtype=GRB.BINARY, name="idle")
-    nb_keys = [
-        (i, l, k)
-        for i in range(F)
-        for l in range(L)
-        if str(cfg.model[i, l]) != "gamma"
-        for k in range(T)
-    ]
-    nb = md.addVars(nb_keys, vtype=GRB.BINARY, name="nb")
     mu_var = md.addVars(F, L, T, lb=0.0, name="mu")
-    z_var = md.addVars(F, L, T, lb=0.0, name="z")
-    u_var = md.addVar(lb=0.0, name="u")
+    for i in range(F):
+        for l in range(L):
+            for k in range(T):
+                mu_var[i, l, k].UB = float(cfg.tau[i, l])
+
+    C_R = np.asarray(cfg.C_R, dtype=float)
+    z_keys = [(i, l, k) for i in range(F) for l in range(L) if C_R[i, l] > 0
+              for k in cost_days(str(opts["objective_mode"]), H1, T)]
+    z_var = md.addVars(z_keys, lb=0.0, name="z") if z_keys else gp.tupledict()
+    u_var = md.addVar(lb=0.0, name="u") if float(cfg.C_D) > 0 else None
+
+    profiles = {}
+    for key in ("mu", "v", "support", "cgf", "gamma_beta"):
+        operating = getattr(cfg, key, None)
+        if operating is not None:
+            transitory = getattr(cfg, key + "_trans", None)
+            profiles[key] = (
+                np.asarray(operating, dtype=float),
+                None if transitory is None else np.asarray(transitory, dtype=float),
+            )
+
+    def floats(table):
+        return {q: np.asarray(values, dtype=float) for q, values in table.items()}
 
     ctx = FleetModel(
         model=md, F=F, H1=H1, H2=H2, M=M, L=L, T=T,
-        x=x, m_rep=m_rep, r_rep=r_rep, idle=idle, nb=nb,
-        mu_var=mu_var, z_var=z_var, u_var=u_var,
-        model_of=cfg.model, tau=cfg.tau, eps=cfg.epsilon, rho=cfg.rho,
-        mu_0=cfg.mu_0,
-        mu_new=(cfg.replacement_mu if cfg.replacement_mu is not None
-                else np.zeros((F, L))),
-        allow_replacement=allow_replacement,
-        mu_inc=make_accessor(cfg.mu, cfg.mu_trans, H1, H2),
-        pwl_points=int(opts["pwl_points"]), tangent_ref=float(opts["tangent_ref"]),
+        x=x, m_rep=m_rep, r_rep=r_rep, mu_var=mu_var, z_var=z_var, u_var=u_var,
+        model_of=np.asarray(cfg.model, dtype=str),
+        repair_of=np.asarray(cfg.repair_model, dtype=str),
+        bound_of=np.asarray(cfg.bound_method, dtype=str),
+        impl_of=np.asarray(cfg.reliability_impl, dtype=str),
+        encoding_of=np.asarray(cfg.encoding, dtype=str),
+        tau=np.asarray(cfg.tau, dtype=float), eps=np.asarray(cfg.epsilon, dtype=float),
+        rho=np.asarray(cfg.rho, dtype=float),
+        tangent_ref=np.asarray(cfg.tangent_ref, dtype=float),
+        initial=floats({"mu": cfg.mu_0, "v": cfg.v_0, "R": cfg.R_0, "K": cfg.cgf_0}),
+        replacement=floats({"mu": cfg.replacement_mu, "v": cfg.replacement_v,
+                            "R": cfg.R_new, "K": cfg.cgf_new}),
+        anchor_start=floats({"mu": cfg.anchor_mu_0, "v": cfg.anchor_v_0,
+                             "R": cfg.anchor_R_0, "K": cfg.anchor_K_0}),
+        state_range=floats({"mu": cfg.range_mu, "v": cfg.range_v,
+                            "R": cfg.range_R, "K": cfg.range_K}),
+        allow_replacement=allow_replacement, pwl_points=int(cfg.pwl_points),
+        opts=dict(opts), profiles=profiles,
     )
-
-    # generically valid bounds; a model's prepare may tighten them further
-    for i in range(F):
-        for l in range(L):
-            t = float(cfg.tau[i, l])
-            for k in range(T):
-                ctx.mu_var[i, l, k].UB = t
-                ctx.z_var[i, l, k].UB = t
+    ctx.state_vars = {"mu": mu_var, "v": {}, "R": {}, "K": {}}
+    ctx.anchor_vars = {q: {} for q in TRACKED_QUANTITIES}
     return ctx
+
+
+# ===========================================================================
+# Helpers for the cell builders: variables
+# ===========================================================================
+# A builder's ``prepare`` calls these for its own cells. ``q`` names a tracked
+# quantity: "mu" (mean), "v" (variance), "R" (Hoeffding budget), "K" (Chernoff).
+def _cell_value(values, i: int, l: int, label: str) -> float:
+    """Float value of an (F, L) array at cell (i, l); a value that is not finite is an error."""
+    value = float(values[i, l])
+    if not math.isfinite(value):
+        raise ValueError(f"{label} is not finite at cell (i={i}, l={l})")
+    return value
+
+
+def repair_factor(q: str, rho: float) -> float:
+    """Repair factor ``a`` of the tracked quantity ``q`` (Eq. a_psi)."""
+    if q in ("mu", "K"):
+        return 1.0 - rho
+    if q in ("v", "R"):
+        return (1.0 - rho) ** 2
+    raise ValueError(f"unknown tracked quantity {q!r}")
+
+
+def add_state_vars(ctx: FleetModel, q: str, cells, *, anchored: bool = True) -> None:
+    """State of ``q`` (not for the shared mean) and, at ard1 cells, its anchor.
+
+    Both lie in the natural range of ``q`` (variable table; Eq. a_anchor).
+    ``anchored=False`` builds no anchor (Wiener variance).
+    """
+    md, T = ctx.model, ctx.T
+    for i, l in cells:
+        upper = _cell_value(ctx.state_range[q], i, l, f"range_{q}")
+        keys = [(i, l, k) for k in range(T)]
+        if q != "mu":
+            ctx.state_vars[q].update(md.addVars(keys, lb=0.0, ub=upper, name=q))
+        if anchored and str(ctx.repair_of[i, l]) == "ard1":
+            ctx.anchor_vars[q].update(md.addVars(keys, lb=0.0, ub=upper, name=f"g{q}"))
+
+
+def add_selector_vars(ctx: FleetModel, cells) -> None:
+    """Selector ``n`` at the cells with ``encoding = indicator`` (Eq. a_ind_sum)."""
+    md, T = ctx.model, ctx.T
+    for i, l in cells:
+        if str(ctx.encoding_of[i, l]) == "indicator":
+            keys = [(i, l, k) for k in range(T)]
+            ctx.nb.update(md.addVars(keys, vtype=GRB.BINARY, name="n"))
+
+
+def add_pwl_vars(ctx: FleetModel, cells) -> None:
+    """Segment binaries ``w`` at the cells with ``reliability_impl = pwl`` (Eq. a_pwl_sum).
+
+    ``cells`` must hold only cells with a quadratic reliability row. Nothing is
+    built for ``pwl_points < 2``.
+    """
+    md, T = ctx.model, ctx.T
+    P = int(ctx.pwl_points)
+    if P < 2:
+        return
+    for i, l in cells:
+        if str(ctx.impl_of[i, l]) == "pwl":
+            keys = [(i, l, k, p) for k in range(T) for p in range(P)]
+            ctx.pwl_w.update(md.addVars(keys, vtype=GRB.BINARY, name="w"))
+
+
+# ===========================================================================
+# Helpers for the cell builders: rows
+# ===========================================================================
+# A builder's ``add_cell`` calls these for one cell, in this order:
+# ``add_selector_rows``, ``add_quantity_rows`` once per tracked quantity ("mu"
+# first), the reliability rows, ``add_repair_cost_rows``.
+def mission_count(ctx: FleetModel, i: int, k: int):
+    """Number of missions flown by train ``i`` on day index ``k``."""
+    return gp.quicksum(ctx.x[i, j, k] for j in range(1, ctx.M + 1))
+
+
+def day_increment(ctx: FleetModel, i: int, l: int, k: int, key: str,
+                  *, squared: bool = False):
+    """Day increment of profile ``key`` of cell ``(i, l)`` on day index ``k``.
+
+    The sum over the missions ``j`` of ``x[i, j, k]`` times the profile value
+    after the phase lookup (Eq. c_phase), or its square if ``squared``. Terms
+    with value zero are left out.
+    """
+    terms = []
+    for j in range(1, ctx.M + 1):
+        value = ctx.increment(key, i, j, l, k)
+        if not math.isfinite(value):
+            raise ValueError(
+                f"increment {key!r} is not finite at cell (i={i}, l={l}), "
+                f"mission {j}, day {k + 1}"
+            )
+        if squared:
+            value = value * value
+        if value != 0.0:
+            terms.append(value * ctx.x[i, j, k])
+    return gp.quicksum(terms)
+
+
+def add_selector_rows(ctx: FleetModel, i: int, l: int) -> None:
+    """``n + x^m + x^r = 1`` at an indicator cell (Eq. a_ind_sum); nothing at a big-M cell."""
+    if str(ctx.encoding_of[i, l]) != "indicator":
+        return
+    md = ctx.model
+    for k in range(ctx.T):
+        xm = ctx.m_rep[i, l, k]
+        if ctx.r_rep is None:
+            md.addConstr(ctx.nb[i, l, k] + xm == 1, name=f"sel_{i}_{l}_{k}")
+        else:
+            md.addConstr(ctx.nb[i, l, k] + xm + ctx.r_rep[i, l, k] == 1,
+                         name=f"sel_{i}_{l}_{k}")
+
+
+def add_quantity_rows(ctx: FleetModel, i: int, l: int, q: str, increments,
+                      *, repair_keeps_state: bool = False) -> None:
+    """All generic rows of the tracked quantity ``q`` of cell ``(i, l)``, every day.
+
+    The dynamics in the cell's encoding, the replacement rows (if replacement is
+    allowed), the anchor rows (at an ard1 cell) and the loop rows of the state and
+    of its anchor. ``increments[k]`` is the day increment of day index ``k``.
+    ``repair_keeps_state`` is for the Wiener variance: repair factor 1, no anchor,
+    and in the big-M form one row replaces the carry and repair rows (Eq. w_vrow).
+    """
+    md, T = ctx.model, ctx.T
+    S, G = ctx.state_vars[q], ctx.anchor_vars[q]
+    big_m = _cell_value(ctx.state_range[q], i, l, f"range_{q}")
+    start = _cell_value(ctx.initial[q], i, l, f"initial {q}")
+    rho = float(ctx.rho[i, l])
+    a = 1.0 if repair_keeps_state else repair_factor(q, rho)
+    anchored = (not repair_keeps_state) and str(ctx.repair_of[i, l]) == "ard1"
+    if anchored and (i, l, 0) not in G:
+        raise ValueError(
+            f"anchor of {q!r} missing at cell (i={i}, l={l}); call add_state_vars in prepare"
+        )
+    g_start = s_new = None
+    if anchored:
+        g_start = _cell_value(ctx.anchor_start[q], i, l, f"starting anchor {q}")
+    if ctx.allow_replacement:
+        s_new = _cell_value(ctx.replacement[q], i, l, f"replacement {q}")
+    indicator = str(ctx.encoding_of[i, l]) == "indicator"
+    if indicator and (i, l, 0) not in ctx.nb:
+        raise ValueError(
+            f"selector missing at cell (i={i}, l={l}); call add_selector_vars in prepare"
+        )
+    if len(increments) != T:
+        raise ValueError(f"increments of {q!r} must hold {T} entries, got {len(increments)}")
+
+    for k in range(T):
+        s = S[i, l, k]
+        s_prev = start if k == 0 else S[i, l, k - 1]
+        xm = ctx.m_rep[i, l, k]
+        xr = ctx.r_rep[i, l, k] if ctx.allow_replacement else 0.0
+        if anchored:
+            g = G[i, l, k]
+            g_prev = g_start if k == 0 else G[i, l, k - 1]
+            psi = a * s_prev + (1.0 - a) * g_prev      # Eq. a_psi, ard1
+        else:
+            psi = a * s_prev                           # Eq. a_psi, ardinf
+
+        if not indicator:
+            if repair_keeps_state:
+                # Eq. w_vrow
+                md.addConstr(s >= s_prev + increments[k] - big_m * xr,
+                             name=f"{q}_carry_{i}_{l}_{k}")
+            else:
+                # Eq. a_bigm_carry, a_bigm_repair
+                md.addConstr(s >= s_prev + increments[k] - big_m * (xm + xr),
+                             name=f"{q}_carry_{i}_{l}_{k}")
+                md.addConstr(s >= psi - big_m * (1 - xm),
+                             name=f"{q}_repair_{i}_{l}_{k}")
+            if ctx.allow_replacement:
+                # Eq. a_bigm_repl
+                md.addConstr(s >= s_new - big_m * (1 - xr),
+                             name=f"{q}_repl_lb_{i}_{l}_{k}")
+                md.addConstr(s <= s_new + big_m * (1 - xr),
+                             name=f"{q}_repl_ub_{i}_{l}_{k}")
+            if anchored:
+                # Eq. a_bigm_anchor
+                e = xm + xr
+                md.addConstr(g - s <= big_m * (1 - e), name=f"g{q}_set_lb_{i}_{l}_{k}")
+                md.addConstr(s - g <= big_m * (1 - e), name=f"g{q}_set_ub_{i}_{l}_{k}")
+                md.addConstr(g - g_prev <= big_m * e, name=f"g{q}_keep_lb_{i}_{l}_{k}")
+                md.addConstr(g_prev - g <= big_m * e, name=f"g{q}_keep_ub_{i}_{l}_{k}")
+        else:
+            n = ctx.nb[i, l, k]
+            # Eq. a_ind_state
+            md.addGenConstrIndicator(n, True, s >= s_prev + increments[k],
+                                     name=f"{q}_carry_{i}_{l}_{k}")
+            md.addGenConstrIndicator(xm, True, s >= psi,
+                                     name=f"{q}_repair_{i}_{l}_{k}")
+            if ctx.allow_replacement:
+                md.addGenConstrIndicator(xr, True, s == s_new,
+                                         name=f"{q}_repl_{i}_{l}_{k}")
+            if anchored:
+                # Eq. a_ind_anchor
+                md.addGenConstrIndicator(n, True, g == g_prev, name=f"g{q}_keep_{i}_{l}_{k}")
+                md.addGenConstrIndicator(xm, True, g == s, name=f"g{q}_setm_{i}_{l}_{k}")
+                if ctx.allow_replacement:
+                    md.addGenConstrIndicator(xr, True, g == s, name=f"g{q}_setr_{i}_{l}_{k}")
+
+    # Eq. a_loop
+    md.addConstr(S[i, l, T - 1] <= S[i, l, ctx.H1 - 1], name=f"loop_{q}_{i}_{l}")
+    if anchored:
+        md.addConstr(G[i, l, T - 1] <= G[i, l, ctx.H1 - 1], name=f"loop_g{q}_{i}_{l}")
+
+
+def add_repair_cost_rows(ctx: FleetModel, i: int, l: int) -> None:
+    """Lower rows of the repair cost ``z`` at cell ``(i, l)`` (Eq. a_z).
+
+    ``z_k >= rho (mu_{k-1} - g_{k-1}) - rho tau (1 - x^m_k)`` with ``g = 0`` at an
+    ardinf cell, on every day that has a ``z``. Nothing is built at a cell without
+    ``z``; there is no row on a replacement day.
+    """
+    md = ctx.model
+    days = [k for k in range(ctx.T) if (i, l, k) in ctx.z_var]
+    if not days:
+        return
+    ard1 = str(ctx.repair_of[i, l]) == "ard1"
+    rho, tau = float(ctx.rho[i, l]), float(ctx.tau[i, l])
+    G = ctx.anchor_vars["mu"]
+    mu_start = _cell_value(ctx.initial["mu"], i, l, "initial mu")
+    if ard1:
+        if (i, l, 0) not in G:
+            raise ValueError(
+                f"anchor of 'mu' missing at cell (i={i}, l={l}); call add_state_vars in prepare"
+            )
+        g_start = _cell_value(ctx.anchor_start["mu"], i, l, "starting anchor mu")
+    for k in days:
+        mu_prev = mu_start if k == 0 else ctx.mu_var[i, l, k - 1]
+        g_prev = (g_start if k == 0 else G[i, l, k - 1]) if ard1 else 0.0
+        md.addConstr(
+            ctx.z_var[i, l, k] >= rho * (mu_prev - g_prev) - rho * tau * (1 - ctx.m_rep[i, l, k]),
+            name=f"z_{i}_{l}_{k}",
+        )
+
+
+def add_upper_cap_rows(ctx: FleetModel, i: int, l: int, q: str, cap, *, name: str) -> None:
+    """``state_vars[q] <= cap`` on every day (the linear reliability rows)."""
+    cap = float(cap)
+    for k in range(ctx.T):
+        ctx.model.addConstr(ctx.state_vars[q][i, l, k] <= cap, name=f"{name}_{i}_{l}_{k}")
+
+
+def add_quadratic_reliability_rows(ctx: FleetModel, i: int, l: int, q: str,
+                                   *, c2: float, c1: float, mu_side: float) -> None:
+    """Reliability row ``chi <= f(mu)`` and side row ``mu <= mu_side``, every day.
+
+    ``chi = state_vars[q]`` and ``f(mu) = c2 (tau - mu)^2 + c1 (tau - mu)``
+    (Eq. a_quad), in the form ``impl_of[i, l]``: ``exact``, ``tangent`` (at
+    ``tangent_ref * tau``, Eq. a_tangent) or ``pwl`` (``pwl_points`` segments,
+    Eqs. a_pwl_sum, a_pwl_seg, a_pwl_cap; one tangent at ``tau / 2`` for a single
+    point). The caller sets ``NonConvex`` for the exact form.
+    """
+    md, T = ctx.model, ctx.T
+    chi, mu_var = ctx.state_vars[q], ctx.mu_var
+    tau = float(ctx.tau[i, l])
+    c2, c1, mu_side = float(c2), float(c1), float(mu_side)
+    form = str(ctx.impl_of[i, l])
+    P = int(ctx.pwl_points)
+    if form not in ("exact", "tangent", "pwl"):
+        raise ValueError(f"unknown reliability_impl {form!r} at cell (i={i}, l={l})")
+
+    def f(m):
+        return c2 * (tau - m) ** 2 + c1 * (tau - m)
+
+    def df(m):
+        return -2.0 * c2 * (tau - m) - c1
+
+    for k in range(T):
+        md.addConstr(mu_var[i, l, k] <= mu_side, name=f"rel_side_{i}_{l}_{k}")
+
+    if form == "pwl" and P >= 2:
+        if (i, l, 0, 0) not in ctx.pwl_w:
+            raise ValueError(
+                f"segment binaries missing at cell (i={i}, l={l}); call add_pwl_vars in prepare"
+            )
+        for k in range(T):
+            mu = mu_var[i, l, k]
+            md.addConstr(gp.quicksum(ctx.pwl_w[i, l, k, p] for p in range(P)) == 1,
+                         name=f"rel_seg_{i}_{l}_{k}")                       # Eq. a_pwl_sum
+            for p in range(P):
+                lo, hi, mid = p * tau / P, (p + 1) * tau / P, (p + 0.5) * tau / P
+                w = ctx.pwl_w[i, l, k, p]
+                # Eq. a_pwl_seg
+                md.addGenConstrIndicator(w, True, mu >= lo, name=f"rel_lo_{i}_{l}_{k}_{p}")
+                md.addGenConstrIndicator(w, True, mu <= hi, name=f"rel_hi_{i}_{l}_{k}_{p}")
+                # Eq. a_pwl_cap
+                md.addGenConstrIndicator(w, True, chi[i, l, k] <= f(mid) + df(mid) * (mu - mid),
+                                         name=f"rel_cap_{i}_{l}_{k}_{p}")
+    elif form == "exact":
+        for k in range(T):
+            mu = mu_var[i, l, k]
+            md.addQConstr(chi[i, l, k] <= c2 * (tau - mu) * (tau - mu) + c1 * (tau - mu),
+                          name=f"rel_{i}_{l}_{k}")                          # Eq. a_quad
+    else:
+        if form == "pwl":
+            mu_r = tau / 2.0                                # pwl_points == 1: one tangent
+        else:
+            mu_r = _cell_value(ctx.tangent_ref, i, l, "tangent_ref") * tau
+        for k in range(T):
+            md.addConstr(chi[i, l, k] <= f(mu_r) + df(mu_r) * (mu_var[i, l, k] - mu_r),
+                         name=f"rel_{i}_{l}_{k}")                           # Eq. a_tangent
 
 
 # ===========================================================================
 # General constraints and problem equations (model-agnostic)
 # ===========================================================================
-def add_base_constraints(ctx: FleetModel) -> None:
-    """Assignment, mission demand and safety regularisation variable ``u``.
+def add_assignment_rows(ctx: FleetModel) -> None:
+    """One activity per train and day, and every mission flown every day.
 
-    These couple *all* cells, so every (i, l) must have a ``mu_var`` recursion
-    defined by its model's cell builder.
+    Eqs. a_one_activity and a_coverage; the depot counts as activity 0.
     """
-    md, F, M, L, T = ctx.model, ctx.F, ctx.M, ctx.L, ctx.T
-    x, mu_var, u_var = ctx.x, ctx.mu_var, ctx.u_var
+    md, F, M, T = ctx.model, ctx.F, ctx.M, ctx.T
+    x = ctx.x
 
-    # one activity per vehicle and step (depot counts as activity 0)
     for i in range(F):
         for k in range(T):
             md.addConstr(gp.quicksum(x[i, j, k] for j in range(M + 1)) <= 1,
                          name=f"assign_{i}_{k}")
-    # every mission is served at every step
     for j in range(1, M + 1):
         for k in range(T):
             md.addConstr(gp.quicksum(x[i, j, k] for i in range(F)) == 1,
                          name=f"demand_{j}_{k}")
-    # Damage regularisation epigraph. There is intentionally no separate
-    # fleet-wide cap sum(mu) <= F-M: it is absent from the abstract formulation,
-    # dimensionally tied damage to fleet size, and duplicated the role of the
-    # component reliability constraints and the objective penalty on u.
-    for k in range(T):
-        for i in range(F):
-            md.addConstr(
-                u_var >= gp.quicksum(mu_var[i, l, k] for l in range(L)),
-                name=f"u_{i}_{k}",
-            )
 
 
-def add_maintenance_gating(ctx: FleetModel, i: int, l: int) -> None:
-    """Define the component action while the vehicle is assigned to the depot.
+def add_depot_rows(ctx: FleetModel) -> None:
+    """A component is repaired or replaced only on a depot day, and not both.
 
-    ``idle + repair + replacement = x[i,0,k]`` simultaneously enforces depot
-    availability and mutual exclusivity. Multiple components of one vehicle
-    may still be maintained during the same depot visit. Rainflow additionally
-    keeps ``nb`` as its no-intervention/carry selector; unlike depot-idle, that
-    selector is also one while the vehicle performs a mission.
+    Eq. a_depot: ``x^m + x^r <= x[i, 0, k]``, or ``x^m <= x[i, 0, k]`` without
+    replacement. Several components of one train may be served on the same day.
     """
-    md, T = ctx.model, ctx.T
-    x, idle, m_rep, r_rep, nb = (
-        ctx.x, ctx.idle, ctx.m_rep, ctx.r_rep, ctx.nb
-    )
-    for k in range(T):
-        if ctx.allow_replacement:
-            md.addConstr(
-                idle[i, l, k] + m_rep[i, l, k] + r_rep[i, l, k]
-                == x[i, 0, k],
-                name=f"depot_action_{i}_{l}_{k}",
-            )
-        else:
-            md.addConstr(
-                idle[i, l, k] + m_rep[i, l, k] == x[i, 0, k],
-                name=f"depot_action_{i}_{l}_{k}",
-            )
-        if (i, l, k) in nb:
-            if ctx.allow_replacement:
-                md.addConstr(
-                    nb[i, l, k] + m_rep[i, l, k] + r_rep[i, l, k] == 1,
-                    name=f"nb_def_{i}_{l}_{k}",
-                )
+    md = ctx.model
+    for i in range(ctx.F):
+        for l in range(ctx.L):
+            for k in range(ctx.T):
+                xm = ctx.m_rep[i, l, k]
+                if ctx.r_rep is None:
+                    md.addConstr(xm <= ctx.x[i, 0, k], name=f"depot_{i}_{l}_{k}")
+                else:
+                    md.addConstr(xm + ctx.r_rep[i, l, k] <= ctx.x[i, 0, k],
+                                 name=f"depot_{i}_{l}_{k}")
+
+
+def add_damage_penalty_rows(ctx: FleetModel, penalty_type: str) -> None:
+    """Rows of the damage penalty ``u``, one per train and day; none if ``u`` is not built.
+
+    Eqs. a_u_inf and a_u_quad. The quadratic row is a rotated second-order cone
+    and needs no ``NonConvex``.
+    """
+    if ctx.u_var is None:
+        return
+    md, F, L, T = ctx.model, ctx.F, ctx.L, ctx.T
+    u, mu = ctx.u_var, ctx.mu_var
+    if penalty_type not in ("inf_norm", "quadratic"):
+        raise ValueError(f"penalty_type must be 'inf_norm' or 'quadratic'; got {penalty_type!r}.")
+    for i in range(F):
+        for k in range(T):
+            if penalty_type == "inf_norm":
+                md.addConstr(u >= gp.quicksum(mu[i, l, k] for l in range(L)),
+                             name=f"u_{i}_{k}")
             else:
-                md.addConstr(
-                    nb[i, l, k] + m_rep[i, l, k] == 1,
-                    name=f"nb_def_{i}_{l}_{k}",
-                )
+                md.addQConstr(u >= gp.quicksum(mu[i, l, k] * mu[i, l, k] for l in range(L)),
+                              name=f"u_{i}_{k}")
 
 
-def build_objective(ctx: FleetModel, costs: dict, opts: dict) -> None:
-    """Build the objective with one undivided horizon-maximum penalty.
+def build_objective(ctx: FleetModel, cfg, opts: dict) -> None:
+    """Set the objective of the mode ``objective_mode`` (Eqs. a_daycost, a_phases, a_objective).
 
-    Time-additive maintenance, repair and replacement costs may be averaged or
-    projected. The regularization term ``C_D * u`` is added exactly once,
-    because ``u`` is the maximum aggregate vehicle damage over the complete
-    modeled horizon.
+    The cost of day index ``k`` is ``C_M`` per depot day, ``C_R z`` where ``z`` is
+    built and ``C_rep x^r`` where replacement is allowed. The term ``C_D u`` is
+    added once, and only if ``u`` is built.
     """
     md, F, L, T = ctx.model, ctx.F, ctx.L, ctx.T
-    C_M = costs["C_M"]
-    C_R = costs["C_R"]
-    C_D = costs["C_D"]
-    C_rep = costs["C_rep"]
+    C_M, C_D = float(cfg.C_M), float(cfg.C_D)
+    C_R = np.asarray(cfg.C_R, dtype=float)
+    C_rep = np.asarray(cfg.C_rep, dtype=float)
 
-    J_additive = gp.LinExpr()
-    J_op_additive = gp.LinExpr()
-
+    J_init = gp.LinExpr()
+    J_op = gp.LinExpr()
     for k in range(T):
-        step_cost = gp.LinExpr()
+        step_cost = C_M * gp.quicksum(ctx.x[i, 0, k] for i in range(F))
         for i in range(F):
             for l in range(L):
-                step_cost += C_M[l] * ctx.m_rep[i, l, k]
-                step_cost += C_R[l] * ctx.z_var[i, l, k]
-                if ctx.allow_replacement:
-                    step_cost += C_rep[l] * ctx.r_rep[i, l, k]
+                if (i, l, k) in ctx.z_var:
+                    step_cost += float(C_R[i, l]) * ctx.z_var[i, l, k]
+                if ctx.r_rep is not None:
+                    step_cost += float(C_rep[i, l]) * ctx.r_rep[i, l, k]
+        if k < ctx.H1:
+            J_init += step_cost
+        else:
+            J_op += step_cost
 
-        J_additive += step_cost
-        if k >= ctx.H1:
-            J_op_additive += step_cost
-
-    damage_penalty = C_D * ctx.u_var
-    mode = str(opts.get("objective_mode", "total")).strip().lower()
-
+    mode = str(opts["objective_mode"])
     if mode == "total":
-        objective = J_additive + damage_penalty
+        objective = J_init + J_op
     elif mode == "operating_average":
-        objective = (1.0 / ctx.H2) * J_op_additive + damage_penalty
+        objective = (1.0 / ctx.H2) * J_op
     elif mode == "evaluation_total":
-        evaluation_horizon = opts.get("evaluation_horizon")
-        if evaluation_horizon is None:
-            raise ValueError(
-                "objective_mode='evaluation_total' requires evaluation_horizon"
-            )
-        evaluation_horizon = int(evaluation_horizon)
-        if evaluation_horizon <= ctx.H1:
-            raise ValueError("evaluation_horizon must exceed H1")
-
-        J_initialization_additive = J_additive - J_op_additive
-        operating_periods = evaluation_horizon - ctx.H1
-        objective = (
-            J_initialization_additive
-            + (operating_periods / ctx.H2) * J_op_additive
-            + damage_penalty
-        )
+        E = int(opts["evaluation_horizon"])
+        objective = J_init + ((E - ctx.H1) / ctx.H2) * J_op
     else:
         raise ValueError(
             "objective_mode must be 'total', 'operating_average' or "
-            "'evaluation_total'; "
-            f"got {mode!r}."
+            f"'evaluation_total'; got {mode!r}."
         )
-
+    if ctx.u_var is not None:
+        objective = objective + C_D * ctx.u_var
     md.setObjective(objective, GRB.MINIMIZE)
-
-    ctx.extras["phase_costs"] = {
-        "mode": mode,
-        "evaluation_horizon": opts.get("evaluation_horizon"),
-        "J_additive": J_additive,
-        "J_op_additive": J_op_additive,
-        "damage_penalty": damage_penalty,
-        "costs": {
-            "C_M": C_M.tolist(),
-            "C_R": C_R.tolist(),
-            "C_D": float(C_D),
-            "C_rep": C_rep.tolist(),
-        },
-    }
 
 
 # ===========================================================================
@@ -1828,174 +2016,222 @@ def status_string(code: int) -> str:
     }.get(code, f"gurobi_status_{code}")
 
 
-def collapse(arr):
-    """A per-cell (F, L) selector array -> a single string when every cell agrees,
-    else a plain nested list. Keeps results free of NumPy objects."""
-    if arr is None:
-        return None
-    flat = {str(v) for v in np.asarray(arr).ravel()}
+def collapse_selector(arr, *, empty_as_none: bool = False):
+    """A per-cell (F, L) selector array: one string if every cell agrees, else a nested list.
+
+    The result holds Python strings only, no NumPy objects. With ``empty_as_none``
+    an empty string becomes ``None`` (spec, "Result Dictionary").
+    """
+    values = [[str(v) for v in row] for row in np.asarray(arr)]
+    if empty_as_none:
+        values = [[None if v == "" else v for v in row] for row in values]
+    flat = {v for row in values for v in row}
     if len(flat) == 1:
         return next(iter(flat))
-    return np.asarray(arr).astype(str).tolist()
+    return values
 
 
-def collapse_dict(impl_of, F, L):
-    """Per-cell impl names -> one string when all agree, else a nested list."""
-    flat = set(impl_of.values())
-    if not flat:
-        return ""
-    if len(flat) == 1:
-        return next(iter(flat))
-    grid = [["" for _ in range(L)] for _ in range(F)]
-    for (i, l), name in impl_of.items():
-        grid[i][l] = name
-    return grid
+def transitory_repair_cost(mu, g_mu, m, mu_0, anchor_mu_0, rho, ard1, H1: int) -> np.ndarray:
+    """Repair cost ``z`` on the transitory days, computed after the solve (Eq. c_zpost).
+
+    Returns an array ``(F, L, H1)``: ``rho (mu_{k-1} - g_{k-1})`` on a repair day,
+    ``0`` otherwise, with ``g = 0`` at an ardinf cell and the initial values at
+    the first day.
+    """
+    mu, g_mu, m = (np.asarray(a, dtype=float) for a in (mu, g_mu, m))
+    mu_0, anchor_mu_0 = np.asarray(mu_0, dtype=float), np.asarray(anchor_mu_0, dtype=float)
+    out = np.zeros(mu.shape[:2] + (H1,))
+    for k in range(H1):
+        mu_prev = mu_0 if k == 0 else mu[:, :, k - 1]
+        g_prev = anchor_mu_0 if k == 0 else g_mu[:, :, k - 1]
+        g_prev = np.where(ard1, g_prev, 0.0)
+        out[:, :, k] = np.where(m[:, :, k] > 0.5, rho * (mu_prev - g_prev), 0.0)
+    return out
 
 
-def extract_solution(ctx: FleetModel, cfg, model) -> dict:
-    """Shared result dict; each model's ``extract`` hook may add its own arrays."""
-    F, L, M, T = ctx.F, ctx.L, ctx.M, ctx.T
-    meta = {
-        "status": status_string(model.status),
-        "method": collapse(cfg.bound_method),
-        "bound_method": collapse(cfg.bound_method),
-        "repair_model": collapse(cfg.repair_model),
-        "reliability_impl": collapse_dict(ctx.impl_of, F, L),
-        "models": cfg.models,
-        "model_assignment": np.asarray(cfg.model).astype(str).tolist(),
-        "component_names": list(cfg.component_names),
-        "F": F, "H": cfg.H, "H1": ctx.H1, "H2": ctx.H2, "T": T, "M": M, "L": L,
-        "tau": cfg.tau, "mu_0": cfg.mu_0, "v_0": cfg.v_0, "model": model,
-    }
-    try:
-        objbnd = float(model.ObjBound)
-    except (AttributeError, gp.GurobiError):
-        objbnd = None
+def peak_damage(mu, penalty_type: str) -> float:
+    """The value of ``u`` recomputed from ``mu`` (Eq. c_u)."""
+    mu = np.asarray(mu, dtype=float)
+    if penalty_type == "inf_norm":
+        return float(np.max(np.sum(mu, axis=1)))
+    if penalty_type == "quadratic":
+        return float(np.max(np.sum(mu * mu, axis=1)))
+    raise ValueError(f"penalty_type must be 'inf_norm' or 'quadratic'; got {penalty_type!r}.")
 
-    if model.SolCount == 0:
-        # A relative MIP gap is undefined without an incumbent.  The best
-        # bound may still be informative and is retained when Gurobi exposes it.
-        meta.update({"objective": None, "mip_gap": None, "bound": objbnd,
-                     "x": None, "mu": None, "v": None, "z": None,
-                     "m": None, "r": None, "idle": None, "u": None})
-        return meta
 
-    try:
-        gap = float(model.MIPGap)
-    except (AttributeError, gp.GurobiError):
-        gap = None
-    x_sol = np.zeros((F, M + 1, T)); mu_sol = np.zeros((F, L, T))
-    v_sol = np.zeros((F, L, T)); z_sol = np.zeros((F, L, T))
-    m_sol = np.zeros((F, L, T)); r_sol = np.zeros((F, L, T))
-    u_sol = 0.0
-    idle_sol = np.zeros((F, L, T))
-    track_v = ctx.track_v_of
+def cost_report(x, r, z, C_M, C_R, C_rep, C_D, u, H1: int, H2: int, evaluation_horizon) -> dict:
+    """The cost report of the result, from the arrays of the solution.
+
+    Eqs. a_daycost and a_phases on ``x``, ``r`` and ``z`` (zero where ``NaN``),
+    and ``P_E`` of Eq. d_projected for ``evaluation_horizon``, if given.
+    """
+    C_R, C_rep = np.asarray(C_R, dtype=float), np.asarray(C_rep, dtype=float)
+    z0 = np.where(np.isnan(z), 0.0, z)
+    T = x.shape[2]
+    step_costs = np.zeros(T)
     for k in range(T):
-        for i in range(F):
-            for j in range(M + 1):
-                x_sol[i, j, k] = ctx.x[i, j, k].X
-            for l in range(L):
-                mu_sol[i, l, k] = ctx.mu_var[i, l, k].X
-                if ctx.v_var is not None and (track_v is None or track_v[i, l]):
-                    v_sol[i, l, k] = ctx.v_var[i, l, k].X
-                z_sol[i, l, k] = ctx.z_var[i, l, k].X
-                m_sol[i, l, k] = ctx.m_rep[i, l, k].X
-                idle_sol[i, l, k] = ctx.idle[i, l, k].X
-                if ctx.allow_replacement:
-                    r_sol[i, l, k] = ctx.r_rep[i, l, k].X
-    # Canonical horizon-wide maximum, independent of possible numerical slack
-    # in the epigraph variable.
-    u_sol = max(
-        float(np.sum(mu_sol[i, :, k]))
-        for i in range(F)
-        for k in range(T)
-    )
-    meta.update({"objective": model.ObjVal, "mip_gap": gap, "bound": objbnd,
-                 "x": x_sol, "mu": mu_sol, "v": v_sol, "z": z_sol,
-                 "m": m_sol, "r": r_sol, "idle": idle_sol, "u": u_sol})
-    phase = ctx.extras.get("phase_costs")
-    if phase is not None:
-        coefficients = phase["costs"]
-        step_costs = np.zeros(T, dtype=float)
+        step_costs[k] = (C_M * x[:, 0, k].sum()
+                         + (C_R * z0[:, :, k]).sum()
+                         + (C_rep * r[:, :, k]).sum())
+    J_init = float(step_costs[:H1].sum())
+    J_op = float(step_costs[H1:].sum())
+    J_op_average = J_op / H2
+    u, C_D = float(u), float(C_D)
+    penalty = C_D * u
+    if evaluation_horizon is None:
+        projected = evaluation = None
+    else:
+        projected = J_init + (int(evaluation_horizon) - H1) * J_op_average
+        evaluation = projected + penalty
+    return {
+        "step_costs": step_costs,
+        "J_initialization": J_init,
+        "J_op": J_op,
+        "J_op_average": J_op_average,
+        "peak_damage": u,
+        "damage_penalty": penalty,
+        "operating_objective": J_op_average + penalty,
+        "J_total": J_init + J_op + penalty,
+        "projected_evaluation_cost": projected,
+        "evaluation_objective": evaluation,
+        "component_costs": {"C_M": float(C_M), "C_D": C_D, "C_R": C_R, "C_rep": C_rep},
+    }
 
-        # These are genuinely time-additive monetary/intervention costs.
-        # The horizon-maximum damage penalty is reported separately.
-        for k in range(T):
-            step_costs[k] = (
-                float(np.sum(
-                    np.asarray(coefficients["C_M"])[None, :] * m_sol[:, :, k]
-                ))
-                + float(np.sum(
-                    np.asarray(coefficients["C_R"])[None, :] * z_sol[:, :, k]
-                ))
-                + float(np.sum(
-                    np.asarray(coefficients["C_rep"])[None, :] * r_sol[:, :, k]
-                ))
-            )
 
-        J_init_additive = float(np.sum(step_costs[:ctx.H1]))
-        J_op_additive = float(np.sum(step_costs[ctx.H1:]))
-        J_op_average = J_op_additive / ctx.H2
-        damage_penalty = float(coefficients["C_D"]) * u_sol
-        operating_objective = J_op_average + damage_penalty
+_SOLUTION_KEYS = ("x", "m", "r", "idle", "mu", "v", "z", "R", "K",
+                  "g_mu", "g_v", "g_R", "g_K", "u")
+_COST_KEYS = ("step_costs", "J_initialization", "J_op", "J_op_average", "peak_damage",
+              "damage_penalty", "operating_objective", "J_total",
+              "projected_evaluation_cost", "evaluation_objective", "component_costs")
 
-        evaluation_horizon = phase.get("evaluation_horizon")
-        projected_evaluation_cost = (
-            J_init_additive
-            + (int(evaluation_horizon) - ctx.H1) * J_op_average
-            if evaluation_horizon is not None
-            else None
+
+def _read_values(variables, shape) -> np.ndarray:
+    """Values of a dict of variables keyed by index tuples; ``NaN`` where a key is absent."""
+    values = np.full(shape, np.nan)
+    for key, var in variables.items():
+        values[key] = var.X
+    return values
+
+
+def extract_solution(ctx: FleetModel, cfg) -> dict:
+    """The result dictionary of the spec ("Result Dictionary") without the reports.
+
+    ``solve_mixed`` adds ``performance``, ``optimization_progress``, ``warm_start``
+    and ``relaxation_warm_start``, and calls each builder's ``extract`` hook. The
+    solution arrays and the cost report are ``None`` if Gurobi found no solution.
+    """
+    md = ctx.model
+    F, M, L, T, H1, H2 = ctx.F, ctx.M, ctx.L, ctx.T, ctx.H1, ctx.H2
+    model = np.asarray(cfg.model).astype(str)
+    try:
+        bound = float(md.ObjBound)
+    except (AttributeError, gp.GurobiError):
+        bound = None
+
+    out = {
+        "status": status_string(md.Status),
+        "objective": None, "mip_gap": None, "bound": bound,
+        "F": F, "M": M, "L": L, "H1": H1, "H2": H2, "T": T, "H": cfg.H,
+        "model": model.tolist(),
+        "component_names": list(cfg.component_names),
+        "tau": np.asarray(cfg.tau, dtype=float),
+        "mu_0": np.asarray(cfg.mu_0, dtype=float),
+        "v_0": np.asarray(cfg.v_0, dtype=float),
+        "bound_method": collapse_selector(
+            np.where(model == "rainflow", cfg.bound_method, ""), empty_as_none=True),
+        "repair_model": collapse_selector(cfg.repair_model),
+        "reliability_impl": collapse_selector(cfg.reliability_impl),
+        "encoding": collapse_selector(cfg.encoding),
+        "objective_mode": ctx.opts["objective_mode"],
+        "evaluation_horizon": ctx.opts["evaluation_horizon"],
+    }
+    if int(md.SolCount) == 0:
+        out.update({key: None for key in _SOLUTION_KEYS + _COST_KEYS})
+        return out
+
+    out["objective"] = float(md.ObjVal)
+    try:
+        out["mip_gap"] = float(md.MIPGap)
+    except (AttributeError, gp.GurobiError):
+        out["mip_gap"] = None
+
+    shape = (F, L, T)
+    x = _read_values(ctx.x, (F, M + 1, T))
+    m = _read_values(ctx.m_rep, shape)
+    r = _read_values(ctx.r_rep, shape) if ctx.r_rep is not None else np.zeros(shape)
+    mu = _read_values(ctx.mu_var, shape)
+    z = _read_values(ctx.z_var, shape)
+    g_mu = _read_values(ctx.anchor_vars["mu"], shape)
+    out.update({
+        "x": x, "m": m, "r": r,
+        "idle": x[:, 0, :][:, None, :] - m - r,
+        "mu": mu,
+        "v": _read_values(ctx.state_vars["v"], shape),
+        "z": z,
+        "R": _read_values(ctx.state_vars["R"], shape),
+        "K": _read_values(ctx.state_vars["K"], shape),
+        "g_mu": g_mu,
+        "g_v": _read_values(ctx.anchor_vars["v"], shape),
+        "g_R": _read_values(ctx.anchor_vars["R"], shape),
+        "g_K": _read_values(ctx.anchor_vars["K"], shape),
+    })
+
+    if str(ctx.opts["objective_mode"]) == "operating_average":
+        # z is not built on the transitory days; Eq. c_zpost
+        C_R = np.asarray(cfg.C_R, dtype=float)
+        ard1 = np.asarray(cfg.repair_model).astype(str) == "ard1"
+        z[:, :, :H1] = np.where(
+            C_R[:, :, None] > 0,
+            transitory_repair_cost(mu, g_mu, m, ctx.initial["mu"], ctx.anchor_start["mu"],
+                                   ctx.rho, ard1, H1),
+            np.nan,
         )
-        evaluation_objective = (
-            projected_evaluation_cost + damage_penalty
-            if projected_evaluation_cost is not None
-            else None
-        )
 
-        meta.update({
-            "objective_mode": phase["mode"],
-            "evaluation_horizon": evaluation_horizon,
-            "J_initialization": J_init_additive,
-            "J_op": J_op_additive,
-            "J_op_average": J_op_average,
-            "peak_damage": u_sol,
-            "damage_penalty": damage_penalty,
-            "operating_objective": operating_objective,
-            "J_total": (
-                J_init_additive + J_op_additive + damage_penalty
-            ),
-            "projected_evaluation_cost": projected_evaluation_cost,
-            "evaluation_objective": evaluation_objective,
-            "step_costs": step_costs,
-            "component_costs": coefficients,
-        })
-    return meta
+    out["u"] = peak_damage(mu, str(cfg.penalty_type))
+    out.update(cost_report(x, r, z, float(cfg.C_M), cfg.C_R, cfg.C_rep, float(cfg.C_D),
+                           out["u"], H1, H2, ctx.opts["evaluation_horizon"]))
+    return out
 
 
 # ===========================================================================
 # Assembly: build a whole fleet from the registered cell builders
 # ===========================================================================
-def _load_builders() -> None:
-    """Import the model modules so they register their cell builders.
-    Done lazily to avoid a circular import (they import this module)."""
-    if "rainflow" not in CELL_BUILDERS:
-        from fleet_management.degradation_model import rainflow  # noqa: F401
+def _load_builders(names) -> None:
+    """Import the module of each model in ``names`` so that it registers its cell builder.
+
+    The module is ``fleet_management.degradation_model.<name>``. Done lazily to
+    avoid a circular import (the modules import this one). A model without a
+    module is reported by ``get_cell_builder``.
+    """
+    for name in names:
+        if name in CELL_BUILDERS:
+            continue
+        module = f"fleet_management.degradation_model.{name}"
+        try:
+            importlib.import_module(module)
+        except ModuleNotFoundError as error:
+            if error.name != module:
+                raise
 
 
-def build_fleet(cfg, opts: dict, model_name: str = "fleet_management_mixed") -> FleetModel:
-    """Shared skeleton + one constraint block per cell, dispatched by model."""
-    _load_builders()
-    ctx = build_context(cfg, opts, model_name=model_name)
-
-    # per-model preparation (auxiliary variables, per-cell arrays, solver flags)
+def build_fleet(cfg, opts: dict, model_name: str = "fleet_management") -> FleetModel:
+    """Shared skeleton + one block of rows per cell, in the building order of the spec."""
     present = sorted({str(m) for m in np.asarray(cfg.model).ravel()})
+    _load_builders(present)
     for name in present:
-        builder = get_cell_builder(name)
-        builder.prepare(ctx, cfg, ctx.cells_of(name), opts)
+        get_cell_builder(name)           # fails before any Gurobi object exists
 
-    # shared objective and general constraints
-    build_objective(ctx, resolve_costs(cfg, cfg.tau), opts)
-    add_base_constraints(ctx)
+    ctx = build_context(cfg, opts, model_name)
+
+    # per-model preparation (variables of the model's own quantities, solver flags)
+    for name in present:
+        get_cell_builder(name).prepare(ctx, cfg, ctx.cells_of(name), opts)
+
+    # objective and the rows that do not depend on the model
+    build_objective(ctx, cfg, opts)
+    add_assignment_rows(ctx)
+    add_depot_rows(ctx)
+    add_damage_penalty_rows(ctx, str(cfg.penalty_type))
 
     # per-cell blocks
     for i in range(cfg.F):
@@ -2004,17 +2240,62 @@ def build_fleet(cfg, opts: dict, model_name: str = "fleet_management_mixed") -> 
     return ctx
 
 
-def solve_mixed(cfg, **overrides) -> dict:
-    """Solve a fleet whose cells may use **different** degradation models.
+def _model_statistics(model) -> dict:
+    """Size and work entries of ``performance`` (spec, "Reports").
 
-    Builds the shared skeleton once (``base``) and fills in each cell's
-    constraints through its registered builder. An unimplemented model (today:
-    gamma) raises ``NotImplementedError`` from its placeholder block.
+    An entry that Gurobi does not give is ``None``.
     """
+    model.update()
+
+    def read(getter):
+        try:
+            return getter()
+        except (AttributeError, TypeError, gp.GurobiError):
+            return None
+
+    def indicator_count():
+        return sum(int(item.GenConstrType == GRB.GENCONSTR_INDICATOR)
+                   for item in model.getGenConstrs())
+
+    return {
+        "gurobi_version": read(lambda: ".".join(str(v) for v in gp.gurobi.version())),
+        "variables": read(lambda: int(model.NumVars)),
+        "continuous_variables": read(lambda: int(model.NumVars - model.NumIntVars)),
+        "integer_variables": read(lambda: int(model.NumIntVars)),
+        "binary_variables": read(lambda: int(model.NumBinVars)),
+        "linear_constraints": read(lambda: int(model.NumConstrs)),
+        "general_constraints": read(lambda: int(model.NumGenConstrs)),
+        "indicator_constraints": read(indicator_count),
+        "quadratic_constraints": read(lambda: int(model.NumQConstrs)),
+        "nonzeros": read(lambda: int(model.NumNZs)),
+        "solutions_found": read(lambda: int(model.SolCount)),
+        "gurobi_runtime_seconds": read(lambda: float(model.Runtime)),
+        "branch_and_bound_nodes": read(lambda: float(model.NodeCount)),
+        "simplex_iterations": read(lambda: float(model.IterCount)),
+        "barrier_iterations": read(lambda: float(model.BarIterCount)),
+        "work_units": read(lambda: float(model.Work)),
+    }
+
+
+def solve_mixed(cfg, *, warm_start=None, warm_start_mode: str = "start") -> dict:
+    """Build, warm start, optimise and extract one fleet; return the whole result.
+
+    The cells may use different degradation models; each cell is built by the
+    builder registered for its model. The run options are ``cfg.options``. The
+    result is the dictionary of the spec ("Result Dictionary"), reports included.
+    """
+    if warm_start_mode not in ("start", "hint", "both"):
+        raise ValueError(
+            f"warm_start_mode must be 'start', 'hint' or 'both'; got {warm_start_mode!r}."
+        )
+    has_source = warm_start is not None and warm_start.get("x") is not None
+    if has_source and warm_start_mode != "start":
+        raise NotImplementedError(
+            f"warm_start_mode {warm_start_mode!r} is not implemented yet; only 'start' is."
+        )
+
     backend_start = time.perf_counter()
-    _load_builders()
-    warm_start = overrides.pop("warm_start", None)
-    opts = resolve_run_options(cfg, **overrides)
+    opts = resolve_run_options(cfg)
     construction_start = time.perf_counter()
     ctx = build_fleet(cfg, opts)
     ctx.model.update()
@@ -2022,6 +2303,7 @@ def solve_mixed(cfg, **overrides) -> dict:
     warm_start_diagnostics = complete_binary_warm_start(
         ctx.model, warm_start, warm_start_diagnostics
     )
+    warm_start_diagnostics["mode"] = warm_start_mode if has_source else None
     relaxation_diagnostics = {
         "enabled": False,
         "status": "disabled",
@@ -2029,11 +2311,14 @@ def solve_mixed(cfg, **overrides) -> dict:
         "values_copied": 0,
         "runtime_seconds": None,
     }
-    if opts["relaxation_warm_start"] and not warm_start_diagnostics["applied"]:
-        relaxation_diagnostics = apply_relaxation_warm_start(
-            ctx.model,
-            time_limit=opts["relaxation_time_limit"],
-        )
+    if opts["relaxation_warm_start"]:
+        if warm_start_diagnostics["applied"]:
+            relaxation_diagnostics.update({"enabled": True, "status": "skipped"})
+        else:
+            relaxation_diagnostics = apply_relaxation_warm_start(
+                ctx.model,
+                time_limit=opts["relaxation_time_limit"],
+            )
     construction_seconds = time.perf_counter() - construction_start
 
     optimizer_start = time.perf_counter()
@@ -2045,7 +2330,7 @@ def solve_mixed(cfg, **overrides) -> dict:
     optimizer_seconds = time.perf_counter() - optimizer_start
 
     extraction_start = time.perf_counter()
-    out = extract_solution(ctx, cfg, ctx.model)
+    out = extract_solution(ctx, cfg)
     out["optimization_progress"] = list(ctx.model._optimization_progress)
     out["warm_start"] = warm_start_diagnostics
     out["relaxation_warm_start"] = relaxation_diagnostics
@@ -2055,126 +2340,19 @@ def solve_mixed(cfg, **overrides) -> dict:
             hook(ctx, cfg, out)
     extraction_seconds = time.perf_counter() - extraction_start
 
-    from fleet_management.degradation_model.gamma_utils.gamma_diagnostics import (
-        collect_gurobi_model_statistics,
-        compare_estimate_with_actual,
-        estimate_gamma_formulation,
-    )
-
-    performance = collect_gurobi_model_statistics(ctx.model)
+    performance = _model_statistics(ctx.model)
     performance.update({
         "model_construction_seconds": construction_seconds,
         "optimizer_call_seconds": optimizer_seconds,
         "solution_extraction_seconds": extraction_seconds,
         "backend_wall_seconds": time.perf_counter() - backend_start,
-        "requested_time_limit_seconds": (
-            None if opts["time_limit"] is None else float(opts["time_limit"])
-        ),
-        "requested_mip_gap": (
-            None if opts["mip_gap"] is None else float(opts["mip_gap"])
-        ),
+        "requested_time_limit_seconds": float(ctx.model.Params.TimeLimit),
+        "requested_mip_gap": float(ctx.model.Params.MIPGap),
         "threads": int(ctx.model.Params.Threads),
         "seed": int(ctx.model.Params.Seed),
     })
-    if "gamma" in ctx.extras:
-        performance["gamma_calibration_seconds"] = float(sum(
-            ctx.extras["gamma"]["calibration_seconds"].values()
-        ))
-        formulation = estimate_gamma_formulation(
-            cfg, allow_replacement=ctx.allow_replacement
-        )
-        formulation["actual_gurobi_model"] = {
-            key: performance[key]
-            for key in (
-                "variables",
-                "continuous_variables",
-                "integer_variables",
-                "binary_variables",
-                "linear_constraints",
-                "general_constraints",
-                "indicator_constraints",
-                "quadratic_constraints",
-                "nonzeros",
-            )
-        }
-        formulation["comparison"] = compare_estimate_with_actual(
-            formulation, formulation["actual_gurobi_model"]
-        )
-        big_m_summary = {
-            "conditional_equalities": 0,
-            "linear_rows": 0,
-            "minimum_coefficient": None,
-            "maximum_coefficient": 0.0,
-            **dict(getattr(ctx.model, "_tight_big_m_summary", {})),
-        }
-        big_m_summary.update({
-            "encoding": "not used by the Gamma formulation",
-            "upper_row": None,
-            "lower_row": None,
-            "M_upper": None,
-            "M_lower": None,
-            "bound_strategy": "time_dependent_reachable",
-        })
-        formulation["big_m_implementation"] = big_m_summary
-        product_summary = {
-            "products": 0,
-            "linear_rows": 0,
-            "maximum_bound_coefficient": 0.0,
-            **dict(getattr(ctx.model, "_binary_product_summary", {})),
-        }
-        product_summary.update({
-            "scope": (
-                "Gamma ARD-infinity and Gamma ARD1, with or without replacement"
-            ),
-            "product_identities": [
-                "ARD-infinity: w = rho * previous_state * repair_binary",
-                "ARD-infinity replacement: q = previous_state * replacement_binary",
-                "ARD1: q = (previous_state - previous_latch) * repair_binary",
-                "ARD1 replacement: qR = previous_state * replacement_binary",
-                "ARD1 replacement latch: qRg = previous_latch * replacement_binary",
-            ],
-            "assumptions": (
-                "0 <= selected continuous state <= reachable upper bound"
-            ),
-            "rows": [
-                "product <= scale * selected_state",
-                "product <= scale * upper_bound * repair_binary",
-                "product >= scale * selected_state - scale * upper_bound * "
-                "(1 - repair_binary)",
-            ],
-            "seed_step": (
-                "previous state and latch are constant, so product = "
-                "scale * seed * "
-                "repair_binary is already linear"
-            ),
-        })
-        formulation["binary_product_implementation"] = product_summary
-        out["gamma_formulation"] = formulation
-    performance["backend_wall_seconds"] = time.perf_counter() - backend_start
     out["performance"] = performance
     # Release native resources, including an active LogFile handle on Windows,
     # after all solution and diagnostic information has been extracted.
     ctx.model.dispose()
     return out
-
-
-# ===========================================================================
-# Mathematical interface (kept from the original base.py)
-# ===========================================================================
-class AccumulatedDegradationModel(Protocol):
-    """Mathematical interface for accumulated-degradation models."""
-
-    name: str
-
-    def increment_parameter(self, expected_damage: np.ndarray) -> np.ndarray:
-        """Convert expected mission damage into model parameters."""
-        ...
-
-    def expected_damage(self, state_parameter: np.ndarray) -> np.ndarray:
-        """Return expected damage represented by the state."""
-        ...
-
-    def tail_probability(self, state_parameter: np.ndarray,
-                         threshold: float) -> np.ndarray:
-        """Return P(D > threshold)."""
-        ...
