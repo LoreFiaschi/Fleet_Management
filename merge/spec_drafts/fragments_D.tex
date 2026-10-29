@@ -674,7 +674,7 @@ python -m streamlit run src/fleet_management/validator_dashboard.py
   \item \textbf{Sidebar.} It selects the mode, the input file, the result file and the tolerance (default $10^{-6}$). A button loads the pair.
   \item \textbf{Loading.} The dashboards read only these two files: the input with the input reader and \texttt{load\_config}, the result with \texttt{read\_result} (Section~\ref{sec:output_files}). The errors of \texttt{validate} on sizes, shapes and arrays apply. A result whose \texttt{model} differs from the input at some cell raises a \texttt{ValueError}. A failed load shows the error and no page.
   \item \textbf{Tolerance.} At least $10^{-12}$, step $10^{-6}$.
-  \item \textbf{Code.} \texttt{main()} of \texttt{validator\_dashboard.py} builds the page; it runs under \texttt{if \_\_name\_\_ == "\_\_main\_\_"}. Each mode has a loading function and a page function: \texttt{load\_inspector}, \texttt{render\_result\_inspector} (\texttt{validation/dashboard\_inspector.py}); \texttt{load\_gamma\_diagnostic}, \texttt{render\_gamma\_diagnostic} (\texttt{validation/dashboard\_gamma.py}). Streamlit is imported only inside \texttt{main} and the page functions; every module loads without it.
+  \item \textbf{Code.} \texttt{main()} of \texttt{validator\_dashboard.py} builds the page; it runs under \texttt{if \_\_name\_\_ == "\_\_main\_\_"}. Each mode has a loading function and a page function. Result inspector, in \texttt{validation/dashboard\_inspector.py}: \texttt{load\_inspector} and \texttt{render\_result\_inspector}. Gamma diagnostic, in \texttt{validation/dashboard\_gamma.py}: \texttt{load\_gamma\_diagnostic} and \texttt{render\_gamma\_diagnostic}. Streamlit is imported only inside \texttt{main} and the page functions; every module loads without it.
 \end{itemize}
 
 \blockhead{Mode ``Result inspector''}
@@ -692,8 +692,21 @@ Every model.
 \tabend
 
 \begin{itemize}[nosep,leftmargin=1.5em]
-  \item \textbf{Margin} of a cell on a day: the right side minus the left side of the exact form of its reliability row (Sections~\ref{sec:dyn_gaussian}--\ref{sec:dyn_rainflow}), on the saved tracked states. The row holds if the margin is at least $-\texttt{tolerance}$; \texttt{NaN} entries are left out.
+  \item \textbf{Margin} of a cell on a day: the slack of the exact form of its reliability row on the saved tracked states, by the table below; at a row with a side row, the smaller of the two slacks. The row holds if the margin is at least $-\texttt{tolerance}$; \texttt{NaN} entries are left out. $\beta^*$ follows Eq.~\eqref{eq:gm_betastar}.
 \end{itemize}
+
+\tabstart{p{2.4cm}p{8.4cm}p{3.4cm}}{Cell & Margin & Row}
+\typerow{G, W}{$\min\{(\tau-\mu)^2-\kappa_G^2 v,\ \tau-\mu\}$}{Eq.~\eqref{eq:g_row}}
+\typerow{IG}{$\bar\mu-\mu$}{Eq.~\eqref{eq:ig_row}}
+\typerow{Ga}{$A_1(\beta^*\tau,\varepsilon)/\beta^*-\mu$}{Eq.~\eqref{eq:gm_row}}
+\typerow{RF, Mk}{$\varepsilon\tau-\mu$}{Eq.~\eqref{eq:rf_markov}}
+\typerow{RF, Ca}{$\min\{(\tau-\mu)^2-\kappa_C^2 v,\ \tau-\mu\}$}{Eq.~\eqref{eq:rf_cantelli}}
+\typerow{RF, Ho}{$\min\{(\tau-\mu)^2-\tfrac{\kappa}{2}R,\ \tau-\mu\}$}{Eq.~\eqref{eq:rf_hoeffding}}
+\typerow{RF, Be}{$\min\{(\tau-c-\mu)^2-c^2-2\kappa v,\ \tau-c-\mu\}$}{Eq.~\eqref{eq:rf_bernstein}}
+\typerow{RF, Ch}{$\ln\varepsilon-(K-s\tau)$}{Eq.~\eqref{eq:rf_chernoff}}
+\tabend
+
+Trains and days are numbered from $1$; components are shown by name. The Overview lists the ten cells and days with the smallest margins. Repeatability shows, for each cell and each saved quantity of \texttt{loop\_}$q$ with numbers at days $H_1$ and $T$, both values and the margin $q_{i\ell H_1}-q_{i\ell T}$, which holds if it is at least $-\texttt{tolerance}$. The Train timeline has the column ``initial'' ($\mu_{0,i\ell}$), a dashed line at $\tau_{i\ell}$ for each component, a dotted line after day $H_1$ and the mark of each day above its point. The Heatmap has one row per cell and a red-to-green scale symmetric about $0$. The tab Validation shows the report of \texttt{check\_result} with the sidebar tolerance.
 
 \blockhead{Mode ``Gamma diagnostic''}
 Gamma cells. The mode runs the replay and the exact validators (Section~\ref{sec:validation_gamma}). It needs no schedule inside the input file.
@@ -705,6 +718,7 @@ Tabs, in this order:
   \item the exact tail probability of the true damage against $\varepsilon$, also as a heatmap;
   \item raw data.
 \end{itemize}
+The validators run with the sidebar tolerance; an input without a Gamma cell raises a \texttt{ValueError}. The overview shows \texttt{repairs}, \texttt{replacements}, \texttt{valid}, the number of records in \texttt{violations}, the list \texttt{global\_violations} and \texttt{maximum\_errors} of the replay report. The cap is that of the margin table. The tail tab takes \texttt{exact\_tail\_upper\_bound} from each record of \texttt{steps} (\texttt{include\_steps=True}); a day holds if $\varepsilon_{i\ell}$ minus that bound is at least $-\texttt{tolerance}$, and the heatmap marks a day that does not hold with ``!''.
 
 \subsection{Validators of the Gamma Model}
 \label{sec:validation_gamma}
