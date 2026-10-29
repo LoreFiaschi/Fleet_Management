@@ -374,6 +374,7 @@ class _RowOnlyBuilder:
 # Registry and context
 # ---------------------------------------------------------------------------
 def test_unknown_model_has_no_cell_builder():
+    base._load_builders(["gamma"])
     with pytest.raises(NotImplementedError, match="gamma"):
         base.get_cell_builder("no_such_model")
 

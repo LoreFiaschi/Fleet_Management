@@ -1,6 +1,6 @@
-from fleet_management.degradation_model.gamma import GammaAction, GammaModel
+"""
+Degradation models: the shared model ``base`` and one cell builder per model.
 
-__all__ = [
-    "GammaAction",
-    "GammaModel",
-]
+The package imports no module, so that it loads without Gurobi; ``base`` imports
+the builder of a model by its name when a fleet needs it.
+"""

@@ -15,7 +15,9 @@ Schema") into a mapping.  ``load_config`` turns a mapping into a ``FleetConfig``
 Every error is a ``ValueError`` that names the key and, for a cell value, the cell.
 An input that is not a mapping raises ``TypeError``; a value that is ignored raises
 a ``UserWarning``.  The module imports only the standard library, numpy and scipy
-(``yaml`` and ``h5py`` are imported inside the reader), so it runs without Gurobi.
+(``yaml`` and ``h5py`` are imported inside the reader, and the caps of
+``degradation_model.inverse_gaussian`` and ``degradation_model.gamma`` inside their
+checks; both modules load without Gurobi), so it runs without Gurobi.
 """
 
 from __future__ import annotations
@@ -810,6 +812,30 @@ def _check_ranges(cfg: FleetConfig) -> None:
         check(m["hoeffding"], _le(chi, cap), "R_new", row)
         check(m["markov"], _le(mu, cfg.epsilon * cfg.tau), "replacement_mu",
               "must be <= epsilon*tau at a markov cell")
+        ig = m["inverse_gaussian"]
+        if ig.any():
+            # inverse Gaussian cap, Eq. ig_row; inverse_gaussian.py loads without Gurobi
+            from fleet_management.degradation_model.inverse_gaussian import ig_mean_cap
+            mu_bar = np.full(mu.shape, np.nan)
+            for i, l in zip(*np.nonzero(ig)):
+                mu_bar[i, l] = ig_mean_cap(float(cfg.eta[i, l]), float(cfg.tau[i, l]),
+                                           float(cfg.epsilon[i, l]))
+            check(ig, _le(mu, mu_bar), "replacement_mu",
+                  "must be <= the mean cap tau/E[Z | Z > q] at an inverse_gaussian cell")
+        if m["gamma"].any():
+            # Gamma cap, Eqs. gm_betastar and gm_row; gamma.py loads without Gurobi
+            from fleet_management.degradation_model.gamma import mean_cap, smallest_rate
+            mu_inc = _lookup(cfg.mu, cfg.mu_trans, cfg.H1, cfg.H2)
+            beta_inc = _lookup(cfg.gamma_beta, cfg.gamma_beta_trans, cfg.H1, cfg.H2)
+            gamma_cap = np.full(mu.shape, np.nan)
+            for i, l in np.argwhere(m["gamma"]):
+                beta_star = smallest_rate(mu_inc[i, l], beta_inc[i, l], float(cfg.mu_0[i, l]),
+                                          float(cfg.gamma_beta_0[i, l]), float(mu[i, l]),
+                                          float(cfg.gamma_beta_new[i, l]), True)
+                gamma_cap[i, l] = mean_cap(beta_star, float(cfg.tau[i, l]),
+                                           float(cfg.epsilon[i, l]))
+            check(m["gamma"], _le(mu, gamma_cap), "replacement_mu",
+                  "must be <= the Gamma cap A_1(beta_star*tau, epsilon)/beta_star at a gamma cell")
 
 
 # ---------------------------------------------------------------------------

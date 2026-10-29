@@ -672,3 +672,35 @@ def test_replacement_rows():
 
 def test_replacement_rows_off():
     load_config(_small("rainflow", "markov", replacement_mu=0.2, allow_replacement=False))
+
+
+# ---------------------------------------------------------------------------
+# Mean caps on a replacement day: inverse Gaussian and Gamma cells (spec, "Consistency Checks")
+# ---------------------------------------------------------------------------
+def test_inverse_gaussian_replacement_cap():
+    # cap 0.5493234 for eta = 0.15, epsilon = 0.1, tau = 1
+    rule = "must be <= the mean cap"
+    _fails("inverse_gaussian", None, "replacement_mu", rule, replacement_mu=0.56)
+    load_config(_small("inverse_gaussian", replacement_mu=0.54))
+    load_config(_small("inverse_gaussian", replacement_mu=0.56, allow_replacement=False))
+
+
+def test_gamma_replacement_cap():
+    # mean cap A_1(beta* tau, epsilon)/beta* at tau = 1, epsilon = 0.1: 0.744517 for beta* = 20,
+    # 0.414912 for beta* = 2, 0.330617 for beta* = 0.2 (below the threshold t_1)
+    cap = "must be <= the Gamma cap"
+    _fails("gamma", None, "replacement_mu", cap, replacement_mu=0.7453)
+    load_config(_small("gamma", replacement_mu=0.7437))
+    _fails("gamma", None, "replacement_mu", cap, gamma_beta_new=2.0, replacement_mu=0.5)
+    load_config(_small("gamma", gamma_beta_new=2.0, replacement_mu=0.41))
+    load_config(_small("gamma", replacement_mu=0.5))
+    load_config(_small("gamma", gamma_beta_new=2.0, replacement_mu=0.5, allow_replacement=False))
+    # day 1 pairs the transitory rate with the operating mean (phase lookup)
+    _fails("gamma", None, "replacement_mu", cap, gamma_beta_trans=2.0, replacement_mu=0.5)
+    load_config(_small("gamma", gamma_beta_trans=2.0, mu_trans=0.0, replacement_mu=0.5))
+    _fails("gamma", None, "replacement_mu", cap, gamma_beta_0=2.0, replacement_mu=0.5)
+    load_config(_small("gamma", gamma_beta_0=2.0, mu_0=0.0, replacement_mu=0.5))
+    _fails("gamma", None, "replacement_mu", cap, gamma_beta=0.2, replacement_mu=0.34)
+    load_config(_small("gamma", gamma_beta=0.2, replacement_mu=0.32))
+    # no term with a rate: only the natural range mu_new <= tau
+    load_config(_small("gamma", mu=0.0, replacement_mu=0.9))

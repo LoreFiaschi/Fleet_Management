@@ -1,505 +1,205 @@
-"""Constant-rate Gamma degradation model.
+"""
+Gamma cell builder and the sharp cap ``A_1`` (spec, section "Gamma Model").
 
-The model uses the shape-rate convention
+A Gamma cell tracks the mean ``mu`` of its damage and, at an ard1 cell, the anchor
+``gmu``, with the generic rows of ``base``. Its reliability row is linear: on every
+day, ``mu <= A_1(beta* tau, epsilon) / beta*`` (Eq. gm_row), where ``beta*`` is the
+smallest Gamma rate among the terms of the cell with a positive mean (Eq.
+gm_betastar). A cell in which no term has a rate gets ``mu <= tau``.
 
-    D ~ Gamma(A, beta)
-
-with
-
-    E[D]   = A / beta
-    Var[D] = A / beta**2
-
-The accumulated state stored by this model is the Gamma shape A.
-
-Supported transitions
----------------------
-Idle:
-    A_k = A_{k-1}
-
-Mission:
-    A_k = A_{k-1} + A_increment
-    A_increment = beta * expected_increment
-
-Replacement:
-    A_k = A_new
-    A_new = beta * expected_damage_new
-
-Imperfect repair uses a documented common-beta approximation.  For repair
-effectiveness ``rho``, the shape is updated as
-
-    A_plus = (1-rho) * A_minus.
-
-This preserves the mean of the exact scaled repair while retaining the shared
-rate required by the optimization model.  It does not preserve the exact
-post-repair variance; validators should compare it with the exact scaled
-Gamma distribution offline.
+The cap functions use numpy and scipy only, so ``config.py`` and the Gamma
+validators import them without Gurobi. The builder needs ``base``, which imports
+``gurobipy``; without ``gurobipy`` the module still loads and registers no builder.
 """
 
-from dataclasses import dataclass
-from enum import Enum
-from typing import Optional, Union
+from __future__ import annotations
+
+import functools
+import math
 
 import numpy as np
-from numpy.typing import ArrayLike, NDArray
-from scipy.stats import gamma
-from scipy.optimize import brentq
-
-
-FloatArray = NDArray[np.float64]
-
-
-class GammaAction(str, Enum):
-    """Possible component-state transitions."""
-
-    IDLE = "idle"
-    MISSION = "mission"
-    REPLACEMENT = "replacement"
-    IMPERFECT_REPAIR = "imperfect_repair"
-
-
-@dataclass(frozen=True)
-class GammaModel:
-    """Accumulated degradation represented by a constant-rate Gamma model."""
-
-    beta: float
-    name: str = "gamma"
-
-    def __post_init__(self) -> None:
-        if not np.isfinite(self.beta):
-            raise ValueError("Gamma rate beta must be finite.")
-
-        if self.beta <= 0.0:
-            raise ValueError("Gamma rate beta must be positive.")
-
-    # ------------------------------------------------------------------
-    # Parameter conversions
-    # ------------------------------------------------------------------
-
-    def increment_parameter(self, expected_damage: ArrayLike) -> FloatArray:
-        """Convert expected damage increments into Gamma shapes.
-
-        For a common rate beta,
-
-            A_increment = beta * expected_damage.
-        """
-
-        expected_damage_array = self._nonnegative_array(
-            expected_damage,
-            name="expected_damage",
-        )
-
-        return self.beta * expected_damage_array
-
-    def shape_from_expected_damage(self, expected_damage: ArrayLike) -> FloatArray:
-        """Alias for increment_parameter for readability."""
-
-        return self.increment_parameter(expected_damage)
-
-    def expected_damage(self, shape: ArrayLike) -> FloatArray:
-        """Return the expected damage represented by a Gamma shape."""
-
-        shape_array = self._nonnegative_array(shape, name="shape")
-        return shape_array / self.beta
-
-    def variance(self, shape: ArrayLike) -> FloatArray:
-        """Return the variance represented by a Gamma shape."""
-
-        shape_array = self._nonnegative_array(shape, name="shape")
-        return shape_array / self.beta**2
-
-    def accumulate(self, current_shape: ArrayLike, increment_shape: ArrayLike) -> FloatArray:
-        """Add shapes belonging to independent Gamma variables.
-
-        This operation is exact only because both variables use this model's
-        common rate ``beta``. The rate is attached to the model rather than
-        passed per increment, preventing accidental mixed-rate accumulation.
-        """
-
-        current = self._nonnegative_array(
-            current_shape,
-            name="current_shape",
-        )
-        increment = self._nonnegative_array(
-            increment_shape,
-            name="increment_shape",
-        )
-        try:
-            return current + increment
-        except ValueError as error:
-            raise ValueError(
-                "current_shape and increment_shape cannot be broadcast to compatible shapes."
-            ) from error
-
-    # ------------------------------------------------------------------
-    # Probability calculations
-    # ------------------------------------------------------------------
-
-    def tail_probability(self, shape: ArrayLike, threshold: float) -> FloatArray:
-        """Return P(D > threshold).
-
-        A zero shape is interpreted as the deterministic undamaged state D=0.
-        SciPy's Gamma implementation does not represent this degenerate case
-        directly, so it is handled explicitly.
-        """
-
-        shape_array = self._nonnegative_array(shape, name="shape")
-
-        if not np.isfinite(threshold):
-            raise ValueError("Damage threshold must be finite.")
-
-        if threshold < 0.0:
-            raise ValueError("Damage threshold cannot be negative.")
-
-        probabilities = np.zeros_like(shape_array, dtype=float)
-        positive_shape = shape_array > 0.0
-
-        probabilities[positive_shape] = gamma.sf(threshold, a=shape_array[positive_shape], scale=1.0 / self.beta)
-
-        # For a positive-shape Gamma variable, P(D > 0) = 1.
-        if threshold == 0.0:
-            probabilities[positive_shape] = 1.0
-
-        return probabilities
-
-    def satisfies_reliability(
-        self,
-        shape: ArrayLike,
-        threshold: float,
-        epsilon: float,
-        tolerance: float = 1e-10,
-    ) -> NDArray[np.bool_]:
-        """Check whether P(D > threshold) <= epsilon."""
-
-        if not np.isfinite(epsilon):
-            raise ValueError("epsilon must be finite.")
-
-        if epsilon < 0.0 or epsilon > 1.0:
-            raise ValueError("epsilon must lie between zero and one.")
-
-        if tolerance < 0.0:
-            raise ValueError("tolerance cannot be negative.")
-
-        probability = self.tail_probability(shape, threshold)
-        return probability <= epsilon + tolerance
-
-    # ------------------------------------------------------------------
-    # State transitions
-    # ------------------------------------------------------------------
-
-    def idle(self, current_shape: ArrayLike) -> FloatArray:
-        """Apply an idle step: no degradation is added."""
-
-        current = self._nonnegative_array(current_shape, name="current_shape")
-
-        # Return a copy so the caller cannot accidentally modify the old state.
-        return current.copy()
-
-    def mission(self, current_shape: ArrayLike, expected_increment: ArrayLike) -> FloatArray:
-        """Apply a mission damage increment.
-
-        The increment has the same rate beta as the current state. Therefore,
-        exact Gamma closure under addition applies and the shapes can be added.
-        """
-
-        current = self._nonnegative_array(current_shape, name="current_shape")
-        increment_shape = self.increment_parameter(expected_increment)
-
-        try:
-            return current + increment_shape
-        except ValueError as error:
-            raise ValueError(
-                "current_shape and expected_increment cannot be broadcast to compatible shapes."
-            ) from error
-
-    def replacement(self, expected_damage_new: ArrayLike) -> FloatArray:
-        """Replace the component and reset it to a new initial state.
-        expected_damage_new may be zero for an ideal new component, or positive
-        if newly installed components have nonzero initial damage.
-        """
-
-        return self.shape_from_expected_damage(expected_damage_new)
-
-    def imperfect_repair(self, current_shape: ArrayLike, rho: float) -> FloatArray:
-        """Apply the mean-matched common-beta imperfect-repair approximation.
-
-        If D_plus = (1-rho) * D_minus and
-
-            D_minus ~ Gamma(A, beta),
-
-        then
-
-            D_plus ~ Gamma(A, beta / (1-rho)).
-
-        The exact repaired variable has rate ``beta / (1-rho)``.  The solver
-        instead keeps ``beta`` and reduces the shape to ``(1-rho)A``.  Both
-        representations have the same repaired mean, but different variance.
-        """
-
-        current = self._nonnegative_array(current_shape, name="current_shape")
-
-        if not np.isfinite(rho):
-            raise ValueError("Repair effectiveness rho must be finite.")
-
-        if rho < 0.0 or rho > 1.0:
-            raise ValueError("Repair effectiveness rho must lie in [0, 1].")
-
-        return (1.0 - rho) * current
-
-    def transition(
-        self,
-        current_shape: ArrayLike,
-        action: Union[GammaAction, str],
-        expected_increment: Optional[ArrayLike] = None,
-        expected_damage_new: Optional[ArrayLike] = None,
-        rho: Optional[float] = None,
-    ) -> FloatArray:
-        """Apply one degradation transition.
-
-        Parameters
-        ----------
-        current_shape:
-            Shape parameter before the decision.
-        action:
-            One of idle, mission, replacement or imperfect_repair.
-        expected_increment:
-            Expected mission damage. Required for a mission.
-        expected_damage_new:
-            Expected initial damage of the installed component. Required for
-            replacement.
-        rho:
-            Fraction of expected damage removed by imperfect repair.
-        """
-
-        try:
-            selected_action = GammaAction(action)
-        except ValueError as error:
-            supported = ", ".join(item.value for item in GammaAction)
-            raise ValueError(
-                f"Unsupported Gamma action {action!r}. "
-                f"Supported actions: {supported}."
-            ) from error
-
-        if selected_action == GammaAction.IDLE:
-            self._reject_unexpected_argument(
-                expected_increment,
-                "expected_increment",
-                selected_action,
-            )
-            self._reject_unexpected_argument(
-                expected_damage_new,
-                "expected_damage_new",
-                selected_action,
-            )
-            self._reject_unexpected_argument(rho, "rho", selected_action)
-            return self.idle(current_shape)
-
-        if selected_action == GammaAction.MISSION:
-            if expected_increment is None:
-                raise ValueError(
-                    "expected_increment is required for a mission transition."
-                )
-
-            self._reject_unexpected_argument(
-                expected_damage_new,
-                "expected_damage_new",
-                selected_action,
-            )
-            self._reject_unexpected_argument(rho, "rho", selected_action)
-
-            return self.mission(current_shape=current_shape, expected_increment=expected_increment)
-
-        if selected_action == GammaAction.REPLACEMENT:
-            if expected_damage_new is None:
-                raise ValueError(
-                    "expected_damage_new is required for replacement."
-                )
-
-            self._reject_unexpected_argument(
-                expected_increment,
-                "expected_increment",
-                selected_action,
-            )
-            self._reject_unexpected_argument(rho, "rho", selected_action)
-
-            # current_shape is intentionally not used in the result, but it is
-            # validated because it is part of the common transition contract.
-            self._nonnegative_array(current_shape, name="current_shape")
-
-            return self.replacement(expected_damage_new)
-
-        if selected_action == GammaAction.IMPERFECT_REPAIR:
-            if rho is None:
-                raise ValueError("rho is required for an imperfect-repair transition.")
-
-            self._reject_unexpected_argument(
-                expected_increment,
-                "expected_increment",
-                selected_action,
-            )
-            self._reject_unexpected_argument(
-                expected_damage_new,
-                "expected_damage_new",
-                selected_action,
-            )
-
-            return self.imperfect_repair(current_shape=current_shape, rho=rho)
-
-        # The Enum conversion above should make this unreachable.
-        raise RuntimeError("Unhandled Gamma transition.")
-
-    # ------------------------------------------------------------------
-    # Helpers
-    # ------------------------------------------------------------------
-
-    @staticmethod
-    def _nonnegative_array(value: ArrayLike, name: str) -> FloatArray:
-        """Convert a value to a finite, nonnegative float array."""
-
-        array = np.asarray(value, dtype=float)
-
-        if np.any(~np.isfinite(array)):
-            raise ValueError(f"{name} must contain only finite values.")
-
-        if np.any(array < 0.0):
-            raise ValueError(f"{name} cannot contain negative values.")
-
-        return array
-
-    @staticmethod
-    def _reject_unexpected_argument(
-        value: object,
-        argument_name: str,
-        action: GammaAction,
-    ) -> None:
-        """Reject parameters that do not belong to the selected action."""
-
-        if value is not None:
-            raise ValueError(
-                f"{argument_name} is not used for action {action.value!r}."
-            )
-
-
-def _validate_positive(name: str, value: float) -> None:
-    """Require a finite, strictly positive scalar value."""
-
-    if not np.isfinite(value):
-        raise ValueError(f"{name} must be finite; got {value!r}.")
-
-    if value <= 0.0:
-        raise ValueError(f"{name} must be positive; got {value!r}.")
-
-
-def maximum_reliable_shape(
-    beta: float,
-    threshold: float,
-    epsilon: float,
-    *,
-    initial_upper_bound: float = 1.0,
-    maximum_search_shape: float = 1e9,
-) -> float:
-    """Return the largest Gamma shape satisfying the reliability constraint.
-
-    The shape-rate Gamma convention is used:
-
-        D ~ Gamma(A, beta)
-
-        E[D]   = A / beta
-        Var[D] = A / beta**2
-
-    This function finds A_max such that
-
-        P(D > threshold) = epsilon.
-
-    Because the Gamma tail probability increases monotonically with A
-    for fixed beta and threshold, every shape A <= A_max satisfies
-
-        P(D > threshold) <= epsilon.
-
-    Parameters
-    ----------
-    beta:
-        Positive Gamma rate parameter.
-    threshold:
-        Positive failure threshold.
-    epsilon:
-        Maximum accepted failure probability. Must lie strictly between
-        zero and one.
-    initial_upper_bound:
-        Initial upper search bound for the shape parameter.
-    maximum_search_shape:
-        Safety limit for the expanding search interval.
-
-    Returns
-    -------
-    float
-        Largest admissible Gamma shape A_max.
+from scipy.special import gammaincc
+
+try:
+    from fleet_management.degradation_model import base
+except ModuleNotFoundError as error:      # no gurobipy: the cap functions still work
+    if error.name != "gurobipy":
+        raise
+    base = None
+
+
+# ===========================================================================
+# The sharp cap A_1 (no Gurobi object)
+# ===========================================================================
+_GRID_POINTS = 401           # values of c in one grid (spec: at least 400)
+_GRID_EXTENSIONS = 10        # downward extensions of the grid, by a factor 100 each
+_GOLDEN_STEPS = 60           # golden-section steps in log c
+_GOLDEN = (math.sqrt(5.0) - 1.0) / 2.0
+_SHAPE_RTOL = 1e-12          # bisection of step 1
+_CAP_RTOL = 1e-9             # bisection of step 3
+
+
+def one_rate_cap(t: float, eps: float) -> float:
+    """``A_hat``: the root of ``Q(A_hat, t) = eps`` (step 1 of the computation of ``A_1``).
+
+    Bisection on the first argument of ``Q`` (``gammaincinv`` solves for the second
+    argument and does not apply). It returns the lower end of its last interval,
+    so ``Q(A_hat, t) <= eps``.
     """
-    _validate_positive("beta", beta)
-    _validate_positive("threshold", threshold)
-    _validate_positive("initial_upper_bound", initial_upper_bound)
-    _validate_positive("maximum_search_shape", maximum_search_shape)
-
-    if not 0.0 < epsilon < 1.0:
+    if not (math.isfinite(t) and t > 0.0 and 0.0 < eps < 1.0):
         raise ValueError(
-            f"epsilon must lie strictly between 0 and 1; got {epsilon}."
+            f"the Gamma cap needs t > 0 and 0 < epsilon < 1 (t={t!r}, epsilon={eps!r})"
         )
-
-    def reliability_residual(shape: float) -> float:
-        """Return tail probability minus the permitted probability."""
-
-        # A = 0 represents the deterministic undamaged state D = 0.
-        # Since threshold > 0, its failure probability is zero.
-        if shape == 0.0:
-            return -epsilon
-
-        tail_probability = gamma.sf(threshold, a=shape, scale=1.0 / beta)
-
-        if not np.isfinite(tail_probability):
-            raise RuntimeError(
-                "Gamma tail calculation returned a non-finite value for "
-                f"shape={shape}, beta={beta}, threshold={threshold}."
-            )
-
-        return float(tail_probability - epsilon)
-
-    # At A = 0, damage is treated as deterministically zero. Since the
-    # threshold is positive, the failure probability is zero.
-    lower_shape = 0.0
-    upper_shape = initial_upper_bound
-
-    # Find an upper bound whose tail probability exceeds epsilon.
-    while reliability_residual(upper_shape) < 0.0:
-        upper_shape *= 2.0
-
-        if upper_shape > maximum_search_shape:
-            raise RuntimeError(
-                "Could not bracket the maximum reliable Gamma shape. "
-                "Check beta, threshold, epsilon and maximum_search_shape."
-            )
-
-    return float(
-        brentq(
-            reliability_residual,
-            lower_shape,
-            upper_shape,
-            xtol=1e-12,
-            rtol=1e-12,
-        )
-    )
+    lo, hi = 0.0, max(1.0, 2.0 * t)
+    while gammaincc(hi, t) <= eps:
+        lo, hi = hi, 2.0 * hi
+    while hi - lo > _SHAPE_RTOL * hi:
+        mid = 0.5 * (lo + hi)
+        if gammaincc(mid, t) <= eps:
+            lo = mid
+        else:
+            hi = mid
+    return lo
 
 
-def maximum_reliable_expected_damage(
-    beta: float,
-    threshold: float,
-    epsilon: float,
-) -> float:
-    """Return the largest admissible expected accumulated damage.
+def worst_one_term_tail(A: float, t: float) -> float:
+    """``w(A)``: the maximum over ``c`` in ``(0, 1]`` of ``Q(A/c, t/c)`` (step 2).
 
-    Since E[D] = A / beta, this is simply A_max / beta.
+    A logarithmic grid of 401 values of ``c`` in ``[min(1e-4, t/100), 1]``, extended
+    downwards while its best point is its smallest ``c``, then a golden-section
+    search in ``log c`` between the neighbours of the best point.
     """
-    maximum_shape = maximum_reliable_shape(
-        beta=beta,
-        threshold=threshold,
-        epsilon=epsilon,
-    )
-    return maximum_shape / beta
+    grid = np.geomspace(min(1e-4, t / 100.0), 1.0, _GRID_POINTS)
+    values = gammaincc(A / grid, t / grid)
+    best = int(np.argmax(values))
+    extensions = 0
+    while best == 0:
+        if extensions == _GRID_EXTENSIONS:
+            raise RuntimeError(
+                f"the maximum of Q(A/c, t/c) lies below c = {grid[0]:.3g} "
+                f"(A={A!r}, t={t!r}); the Gamma cap cannot be computed"
+            )
+        grid = np.geomspace(grid[0] / 100.0, grid[0], _GRID_POINTS)
+        values = gammaincc(A / grid, t / grid)
+        best = int(np.argmax(values))
+        extensions += 1
+
+    def tail(u):
+        c = math.exp(u)
+        return float(gammaincc(A / c, t / c))
+
+    lo = math.log(grid[max(best - 1, 0)])
+    hi = math.log(grid[min(best + 1, _GRID_POINTS - 1)])
+    u1, u2 = hi - _GOLDEN * (hi - lo), lo + _GOLDEN * (hi - lo)
+    f1, f2 = tail(u1), tail(u2)
+    for _ in range(_GOLDEN_STEPS):
+        if f1 < f2:
+            lo, u1, f1 = u1, u2, f2
+            u2 = lo + _GOLDEN * (hi - lo)
+            f2 = tail(u2)
+        else:
+            hi, u2, f2 = u2, u1, f1
+            u1 = hi - _GOLDEN * (hi - lo)
+            f1 = tail(u1)
+    return max(float(values[best]), f1, f2)
+
+
+def _within_level(A: float, t: float, eps: float) -> bool:
+    """``w(A) <= eps``; true at every ``A < t`` when ``eps >= 1/2``, because ``w < 1/2``."""
+    return eps >= 0.5 or worst_one_term_tail(A, t) <= eps
+
+
+@functools.lru_cache(maxsize=None)
+def sharp_cap(t: float, eps: float) -> float:
+    """``A_1(t, eps)``, the sharp cap (step 3 of the computation of ``A_1``).
+
+    ``A_hat`` if ``A_hat < t`` and ``w(A_hat) <= eps``. Otherwise a bisection on ``A``
+    in ``[eps t, min(A_hat, t))`` to the relative tolerance 1e-9; it returns the
+    lower end of its last interval, so ``w(A_1) <= eps``. One value per ``(t, eps)``
+    is computed and kept.
+    """
+    a_hat = one_rate_cap(t, eps)
+    if a_hat < t and _within_level(a_hat, t, eps):
+        return a_hat
+    lo, hi = eps * t, min(a_hat, t)
+    while hi - lo > _CAP_RTOL * hi:
+        mid = 0.5 * (lo + hi)
+        if _within_level(mid, t, eps):
+            lo = mid
+        else:
+            hi = mid
+    return lo
+
+
+def smallest_rate(mu_inc, beta_inc, mu_0: float, beta_0: float, mu_new: float,
+                  beta_new: float, allow_replacement: bool) -> float | None:
+    """``beta*`` of one Gamma cell (Eq. gm_betastar); ``None`` if no term has a rate.
+
+    ``mu_inc`` and ``beta_inc`` hold the mean and the rate of every mission and day
+    of both phases, after the phase lookup (two arrays of one shape). ``beta_0`` and
+    ``beta_new`` are NaN where not given; ``beta_new`` enters only if replacement
+    is allowed.
+    """
+    mu_inc = np.asarray(mu_inc, dtype=float)
+    rates = np.asarray(beta_inc, dtype=float)[mu_inc > 0.0].tolist()
+    if mu_0 > 0.0 and not math.isnan(beta_0):
+        rates.append(float(beta_0))
+    if allow_replacement and mu_new > 0.0 and not math.isnan(beta_new):
+        rates.append(float(beta_new))
+    return min(rates) if rates else None
+
+
+def mean_cap(beta_star: float | None, tau: float, eps: float) -> float:
+    """Right-hand side of Eq. gm_row: ``A_1(beta* tau, eps) / beta*``; ``tau`` without rates."""
+    if beta_star is None:
+        return float(tau)
+    return sharp_cap(beta_star * tau, eps) / beta_star
+
+
+# ===========================================================================
+# Cell builder
+# ===========================================================================
+class GammaCellBuilder:
+    """Rows of the Gamma cells: tracked mean and anchor, cap row, repair cost."""
+
+    name = "gamma"
+
+    def prepare(self, ctx: base.FleetModel, cfg, cells, opts: dict) -> None:
+        """Anchors and selectors of ``cells``; ``beta*`` and the cap of each cell.
+
+        ``ctx.extras[self.name]`` holds the dicts ``beta_star`` and ``cap``, keyed by
+        ``(i, l)``. The rows are linear, so ``NonConvex`` is not set.
+        """
+        base.add_state_vars(ctx, "mu", cells)
+        base.add_selector_vars(ctx, cells)
+        M, T = ctx.M, ctx.T
+        beta_star, cap = {}, {}
+        for i, l in cells:
+            mu_inc = [[ctx.increment("mu", i, j, l, k) for k in range(T)]
+                      for j in range(1, M + 1)]
+            beta_inc = [[ctx.increment("gamma_beta", i, j, l, k) for k in range(T)]
+                        for j in range(1, M + 1)]
+            beta_star[i, l] = smallest_rate(
+                mu_inc, beta_inc,
+                float(ctx.initial["mu"][i, l]), float(cfg.gamma_beta_0[i, l]),
+                float(ctx.replacement["mu"][i, l]), float(cfg.gamma_beta_new[i, l]),
+                ctx.allow_replacement,
+            )
+            cap[i, l] = mean_cap(beta_star[i, l], float(ctx.tau[i, l]), float(ctx.eps[i, l]))
+        ctx.extras[self.name] = {"beta_star": beta_star, "cap": cap}
+
+    def add_cell(self, ctx: base.FleetModel, i: int, l: int) -> None:
+        """Dynamics, replacement, anchor and loop rows; the cap row; repair cost."""
+        T = ctx.T
+        base.add_selector_rows(ctx, i, l)
+        # Eqs. gm_mu_carry ... gm_anchor_keep
+        base.add_quantity_rows(ctx, i, l, "mu",
+                               [base.day_increment(ctx, i, l, k, "mu") for k in range(T)])
+        # Eq. gm_row
+        base.add_upper_cap_rows(ctx, i, l, "mu", ctx.extras[self.name]["cap"][i, l],
+                                name="rel")
+        base.add_repair_cost_rows(ctx, i, l)
+
+
+if base is not None:
+    base.register_cell_builder("gamma", GammaCellBuilder())
