@@ -38,7 +38,9 @@ Status: all 30 divergences decided (26 Oct 2026).
   (`wp4_wp5_interface.md`; `wp4_plan.md` and `wp5_plan.md`, each with its review in section 7). 73 tests of WP4 pass
   here; `tests/test_base.py` needs Gurobi. The local tools of both packages (test runner, gurobipy stub, linear
   emulator of gurobipy) are copied in `merge/wp45_work/` (final versions, after the reviews).
-  Next: WP6 (cell builders), after the user's go.
+  **WP6 done (29 Oct 2026), commit 0421e80**: five builders, three Opus plans and reviews (`wp6_interface.md`,
+  `wp6_plan_giw.md`, `wp6_plan_gamma.md`, `wp6_plan_rainflow.md`); local tools copied to `merge/wp45_work/wp6/`. The spec
+  on `lore` holds the reviewers' sentences (cap methods, package layout). Next: WP7 (tools), after the user's go.
 - **Pending actions of the user:** read the spec and the scoping document; copy `lore`'s `test/` and `input/` folders
   into the repository (item "Tests and test inputs").
 - Documents plan: [`documents_plan.md`](documents_plan.md), agreed by the user on 26 Oct 2026.

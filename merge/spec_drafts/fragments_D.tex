@@ -27,7 +27,11 @@ Fleet_Management/
                             warm starts, result extraction,
                             performance counters
       gaussian.py, inverse_gaussian.py, wiener.py, gamma.py, rainflow.py
-                            cell builders; gamma.py computes the cap A_1
+                            cell builders; gamma.py computes beta* and
+                            the cap A_1, inverse_gaussian.py the cap
+                            mu_bar; these two and rainflow.py load
+                            without gurobipy and then register no
+                            builder
       gamma_utils/
         gamma_replay_validator.py      replay validator
         gamma_stochastic_validator.py  Monte Carlo validator

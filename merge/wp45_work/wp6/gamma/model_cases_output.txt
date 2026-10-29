@@ -1,0 +1,89 @@
+ok   G1 ard1 bigm status: 2
+ok   G1 ard1 bigm mu train 0: [0.5, 0.35, 0.6499999999999999, 0.09999999999999998]
+ok   G1 ard1 bigm gmu train 0: [0.2, 0.35, 0.35, 0.09999999999999998]
+ok   G1 ard1 bigm z train 0: [0.0, 0.15, 0.0, 0.0]
+ok   G1 ard1 bigm mu train 1: [0.2, 0.2, 0.2, 0.2]
+ok   G1 ard1 bigm z train 1: [0.0, 0.0, 0.0, 0.0]
+ok   G1 ard1 bigm beta_star: (20.0, None)
+ok   G1 ard1 bigm cap train 0: 0.7445173245655496
+ok   G1 ard1 bigm cap train 1: 1.0
+ok   G1 ard1 bigm cap rows rel_i_0_k: True
+ok   G1 ard1 bigm loop rows: (True, True)
+ok   G1 ard1 bigm selector vars: 0
+ok   G1 ard1 bigm no quadratic rows, NonConvex unset: (0, None)
+ok   G1 ard1 bigm RHS of rel_0_0_2: [0.7445173245655496]
+ok   G1 ard1 indicator status: 2
+ok   G1 ard1 indicator mu train 0: [0.5, 0.35, 0.6499999999999999, 0.1]
+ok   G1 ard1 indicator gmu train 0: [0.2, 0.35, 0.35, 0.1]
+ok   G1 ard1 indicator z train 0: [0.0, 0.15, 0.0, 0.0]
+ok   G1 ard1 indicator mu train 1: [0.2, 0.2, 0.2, 0.2]
+ok   G1 ard1 indicator z train 1: [0.0, 0.0, 0.0, 0.0]
+ok   G1 ard1 indicator beta_star: (20.0, None)
+ok   G1 ard1 indicator cap train 0: 0.7445173245655496
+ok   G1 ard1 indicator cap train 1: 1.0
+ok   G1 ard1 indicator cap rows rel_i_0_k: True
+ok   G1 ard1 indicator loop rows: (True, True)
+ok   G1 ard1 indicator selector vars: 8
+ok   G1 ard1 indicator no quadratic rows, NonConvex unset: (0, None)
+ok   G1 ard1 indicator RHS of rel_0_0_2: [0.7445173245655496]
+ok   G1 ardinf bigm status: 2
+ok   G1 ardinf bigm mu train 0: [0.5, 0.25, 0.55, 0.09999999999999998]
+ok   G1 ardinf bigm gmu train 0: [nan, nan, nan, nan]
+ok   G1 ardinf bigm z train 0: [0.0, 0.25, 0.0, 0.0]
+ok   G1 ardinf bigm mu train 1: [0.2, 0.2, 0.2, 0.2]
+ok   G1 ardinf bigm z train 1: [0.0, 0.0, 0.0, 0.0]
+ok   G1 ardinf bigm beta_star: (20.0, None)
+ok   G1 ardinf bigm cap train 0: 0.7445173245655496
+ok   G1 ardinf bigm cap train 1: 1.0
+ok   G1 ardinf bigm cap rows rel_i_0_k: True
+ok   G1 ardinf bigm loop rows: (True, False)
+ok   G1 ardinf bigm selector vars: 0
+ok   G1 ardinf bigm no quadratic rows, NonConvex unset: (0, None)
+ok   G1 ardinf bigm RHS of rel_0_0_2: [0.7445173245655496]
+ok   G1 ardinf indicator status: 2
+ok   G1 ardinf indicator mu train 0: [0.5, 0.25, 0.55, 0.1]
+ok   G1 ardinf indicator gmu train 0: [nan, nan, nan, nan]
+ok   G1 ardinf indicator z train 0: [0.0, 0.25, 0.0, 0.0]
+ok   G1 ardinf indicator mu train 1: [0.2, 0.2, 0.2, 0.2]
+ok   G1 ardinf indicator z train 1: [0.0, 0.0, 0.0, 0.0]
+ok   G1 ardinf indicator beta_star: (20.0, None)
+ok   G1 ardinf indicator cap train 0: 0.7445173245655496
+ok   G1 ardinf indicator cap train 1: 1.0
+ok   G1 ardinf indicator cap rows rel_i_0_k: True
+ok   G1 ardinf indicator loop rows: (True, False)
+ok   G1 ardinf indicator selector vars: 8
+ok   G1 ardinf indicator no quadratic rows, NonConvex unset: (0, None)
+ok   G1 ardinf indicator RHS of rel_0_0_2: [0.7445173245655496]
+ok   G2 ard1 beta_star: (2.0, 2.0)
+ok   G2 ard1 cap: 0.41491223127286503
+ok   G2 ard1 infeasible: True
+ok   G2 ardinf beta_star: (2.0, 2.0)
+ok   G2 ardinf cap: 0.41491223127286503
+ok   G2 ardinf infeasible: True
+ok   G3 ard1 beta_star (train 0, train 1): (5.0, 5.0)
+ok   G3 ard1 infeasible: True
+ok   G3 ardinf cap: 0.5538640578920422
+ok   G3 ardinf optimal: 2
+ok   G4 beta_new ignored without replacement: (20.0, None)
+ok   G4 beta_new ignored when replacement_mu = 0: (20.0, None)
+ok   G4 transitory rate on days 1-2: (2.0, None)
+ok   G4 transitory rate where mu_trans = 0: (20.0, None)
+ok   G4 transitory mean with operating rate: (20.0, 20.0)
+ok   G4 beta_0 ignored when mu_0 = 0: (20.0, None)
+ok   G4 rate per cell: (20.0, 3.0)
+ok   C1 at 0.999 cap(20): 'passes'
+ok   C1 at 1.001 cap(20): 'fails'
+ok   C2 beta_new 2, mu_new 0.5: 'fails'
+ok   C2 beta_new 2, mu_new 0.41: 'passes'
+ok   C2 no beta_new, mu_new 0.5: 'passes'
+ok   C2 no replacement: 'passes'
+ok   C3 transitory rate 2 on day 1: 'fails'
+ok   C3 transitory rate where mu_trans = 0: 'passes'
+ok   C4 beta_0 2: 'fails'
+ok   C4 beta_0 2 with mu_0 = 0: 'passes'
+ok   C5 below t1: rate 0.2, cap 0.3306 tau: 'fails'
+ok   C5 below t1: 0.32 passes: 'passes'
+ok   C6 no rate (mu = 0, no beta_0): only mu_new <= tau: 'passes'
+ok   C7 tolerance: cap*(1 + 1e-13): 'passes'
+ok   C5 mean_cap(0.2, 1, 0.1) = r*(0.1): 0.3306170695850366
+failures: 0

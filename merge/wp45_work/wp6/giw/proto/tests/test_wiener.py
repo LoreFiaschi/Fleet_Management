@@ -1,0 +1,164 @@
+"""Tests of the Wiener cell builder, ``degradation_model/wiener.py``.
+
+The tests need ``gurobipy`` and are skipped without it. Every model has at most
+about 150 variables and rows, far below the size limit of the free Gurobi
+licence.
+
+The reference case is worked by hand: two trains, one mission, one component,
+horizon ``H1 = H2 = 2``, ``sigma = 0.1`` at both cells. Train 0 flies, is
+repaired, flies and is replaced. Train 1 flies on days 2 and 4, with zero mean
+increments, and is replaced on day 3: its variance grows with every mission,
+so the loop row needs that replacement. The input goes through ``load_config``.
+"""
+
+import numpy as np
+import pytest
+from scipy.special import ndtri
+
+gp = pytest.importorskip("gurobipy")
+
+from fleet_management.config import load_config  # noqa: E402
+from fleet_management.degradation_model import base, wiener  # noqa: E402
+
+_INFEASIBLE = ("infeasible", "inf_or_unbounded")
+
+
+def _data(**changes) -> dict:
+    """The input mapping of the hand-worked case; ``changes`` replace keys."""
+    data = {
+        "F": 2, "M": 1, "H": [2, 2], "model": "wiener", "repair_model": "ard1",
+        "reliability_impl": "tangent", "tau": 1.0, "epsilon": 0.1, "rho": 0.5,
+        "mu_0": 0.2, "replacement_mu": 0.1, "sigma": 0.1,
+        "mu": [[[[0.3, 0.3]]], [[[0.0, 0.0]]]],
+        "C_M": 1.0, "C_R": 2.0, "C_rep": 3.0, "C_D": 0.0,
+        "verbose": 0, "mip_gap": 0.0, "time_limit": 60.0,
+    }
+    data.update(changes)
+    return data
+
+
+# (train, activity, day index) of every binary equal to 1; activity 0 is the depot
+_SCHEDULE = {
+    "x": [(0, 1, 0), (0, 0, 1), (0, 1, 2), (0, 0, 3), (1, 1, 1), (1, 0, 2), (1, 1, 3)],
+    "m": [(0, 0, 1)],
+    "r": [(0, 0, 3), (1, 0, 2)],
+}
+# expected arrays (hand_giw.py)
+_TRAIN_0 = {
+    "ard1": {"mu": [0.5, 0.35, 0.65, 0.1], "g_mu": [0.2, 0.35, 0.35, 0.1],
+             "z": [0.0, 0.15, 0.0, 0.0]},
+    "ardinf": {"mu": [0.5, 0.25, 0.55, 0.1], "z": [0.0, 0.25, 0.0, 0.0]},
+}
+_V = [[0.01, 0.01, 0.02, 0.0], [0.0, 0.01, 0.0, 0.01]]
+_MU_1 = [0.2, 0.2, 0.1, 0.1]
+
+
+def _build(data):
+    cfg = load_config(data)
+    ctx = base.build_fleet(cfg, base.resolve_run_options(cfg))
+    ctx.model.update()
+    return cfg, ctx
+
+
+def _fix(ctx, schedule) -> None:
+    """Fix every binary to the schedule by bounds; the selector ``n`` is ``1 - m - r``."""
+    ones = {name: set(keys) for name, keys in schedule.items()}
+    for variables, name in ((ctx.x, "x"), (ctx.m_rep, "m"), (ctx.r_rep, "r")):
+        for key, variable in (variables or {}).items():
+            variable.LB = variable.UB = float(key in ones[name])
+    for key, variable in ctx.nb.items():
+        variable.LB = variable.UB = 1.0 - float(key in ones["m"]) - float(key in ones["r"])
+
+
+def _solve_fixed(data, schedule=_SCHEDULE):
+    """Build, fix the schedule, minimise the states (the rows are then exact), extract."""
+    cfg, ctx = _build(data)
+    _fix(ctx, schedule)
+    states = (list(ctx.mu_var.values()) + list(ctx.state_vars["v"].values())
+              + list(ctx.z_var.values()))
+    ctx.model.setObjective(gp.quicksum(states), gp.GRB.MINIMIZE)
+    ctx.model.optimize()
+    return ctx, base.extract_solution(ctx, cfg)
+
+
+def _row_names(ctx) -> set:
+    return {row.ConstrName for row in ctx.model.getConstrs()}
+
+
+def test_registered():
+    assert isinstance(base.get_cell_builder("wiener"), wiener.WienerCellBuilder)
+    assert base.get_cell_builder("wiener").name == "wiener"
+
+
+@pytest.mark.parametrize("encoding", ["bigm", "indicator"])
+@pytest.mark.parametrize("law", ["ard1", "ardinf"])
+def test_dynamics(encoding, law):
+    ctx, out = _solve_fixed(_data(encoding=encoding, repair_model=law))
+    assert out["status"] == "optimal"
+    expected = _TRAIN_0[law]
+    np.testing.assert_allclose(out["mu"][0, 0], expected["mu"], atol=1e-6)
+    np.testing.assert_allclose(out["z"][0, 0], expected["z"], atol=1e-6)
+    np.testing.assert_allclose(out["mu"][1, 0], _MU_1, atol=1e-6)
+    np.testing.assert_allclose(out["v"][:, 0], _V, atol=1e-6)
+    if law == "ard1":
+        np.testing.assert_allclose(out["g_mu"][0, 0], expected["g_mu"], atol=1e-6)
+        np.testing.assert_allclose(out["g_mu"][1, 0], _MU_1, atol=1e-6)
+    else:
+        assert np.isnan(out["g_mu"]).all()
+    assert np.isnan(out["g_v"]).all()
+
+
+def test_rows_and_variables():
+    cfg, ctx = _build(_data())
+    assert len(ctx.state_vars["v"]) == 8 and len(ctx.anchor_vars["mu"]) == 8
+    assert not ctx.anchor_vars["v"]
+    names = _row_names(ctx)
+    for k in range(4):
+        for prefix in ("rel_side", "rel", "v_carry", "v_repl_lb", "mu_repair", "gmu_set_lb"):
+            assert f"{prefix}_0_0_{k}" in names
+        assert f"v_repair_0_0_{k}" not in names            # Eq. w_vrow: one row
+    assert "loop_v_0_0" in names and "loop_gmu_0_0" in names
+    assert not any(name.startswith(("gv", "loop_gv", "v_max_user")) for name in names)
+    assert getattr(ctx.model.Params, "NonConvex", None) != 2
+
+
+def test_exact_form_is_quadratic():
+    cfg, ctx = _build(_data(reliability_impl="exact"))
+    assert ctx.model.Params.NonConvex == 2
+    names = {row.QCName for row in ctx.model.getQConstrs()}
+    assert names == {f"rel_{i}_0_{k}" for i in range(2) for k in range(4)}
+
+
+def test_loop_needs_replacement():
+    schedule = {"x": [key for key in _SCHEDULE["x"] if key != (1, 0, 2)],
+                "m": _SCHEDULE["m"], "r": [(0, 0, 3)]}
+    ctx, out = _solve_fixed(_data(), schedule)
+    assert out["status"] in _INFEASIBLE
+
+
+@pytest.mark.parametrize("v_max_user, feasible", [(0.021, True), (0.019, False)])
+def test_v_max_user(v_max_user, feasible):
+    data = _data(v_max_user=[[v_max_user], [None]])
+    cfg, ctx = _build(data)
+    names = _row_names(ctx)
+    assert {f"v_max_user_0_0_{k}" for k in range(4)} <= names
+    assert not any(name.startswith("v_max_user_1_") for name in names)
+    ctx, out = _solve_fixed(data)
+    assert (out["status"] == "optimal") == feasible
+    if not feasible:
+        assert out["status"] in _INFEASIBLE
+
+
+def test_free_schedule():
+    data = _data(mu=0.3, reliability_impl="exact")
+    cfg = load_config(data)
+    out = base.solve_mixed(cfg)
+    assert out["status"] == "optimal"
+    mu, v, x, r, H1, T = out["mu"], out["v"], out["x"], out["r"], cfg.H1, cfg.T
+    kappa2 = float(ndtri(0.9)) ** 2
+    assert (kappa2 * v <= (1.0 - mu) ** 2 + 1e-6).all() and (mu <= 1.0 + 1e-6).all()
+    for key in ("mu", "v", "g_mu"):
+        assert (out[key][:, :, T - 1] <= out[key][:, :, H1 - 1] + 1e-6).all()
+    for i in range(cfg.F):
+        if x[i, 1:, H1:].sum() > 0.5:                     # flies in the operating phase
+            assert r[i, 0, H1:].sum() > 0.5               # so it is replaced there

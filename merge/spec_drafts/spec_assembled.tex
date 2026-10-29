@@ -190,7 +190,11 @@ Fleet_Management/
                             warm starts, result extraction,
                             performance counters
       gaussian.py, inverse_gaussian.py, wiener.py, gamma.py, rainflow.py
-                            cell builders; gamma.py computes the cap A_1
+                            cell builders; gamma.py computes beta* and
+                            the cap A_1, inverse_gaussian.py the cap
+                            mu_bar; these two and rainflow.py load
+                            without gurobipy and then register no
+                            builder
       gamma_utils/
         gamma_replay_validator.py      replay validator
         gamma_stochastic_validator.py  Monte Carlo validator
@@ -1011,6 +1015,9 @@ $k = 1, \ldots, T$:
   \label{eq:g_row}
 \end{equation}
 
+Here $\kappa_G$ is computed by \texttt{scipy.special.ndtri}$(1 - \varepsilon)$, as for
+$V_{\max}$ in \texttt{config.py}.
+
 \textbf{Forms.} \texttt{exact}: Eq.~\eqref{eq:g_row} as written, a nonconvex
 quadratic constraint (\texttt{NonConvex} $= 2$, Section~\ref{sec:linear_forms}).
 \texttt{tangent} and \texttt{pwl}: Section~\ref{sec:linear_forms}, with $\chi = v$,
@@ -1089,24 +1096,26 @@ $\bar q = \mathbb{E}[Z \mid Z > q]$. On every day $k = 1, \ldots, T$:
 The row is linear: it is built in its exact form, and a value of
 \texttt{reliability\_impl} at the cell is ignored.
 
-\textbf{Computation of $\bar\mu$} (offline, once per cell). With
+\textbf{Computation of $\bar\mu$} (offline, once per cell, by
+\texttt{ig\_mean\_cap(eta, tau, epsilon)} in \texttt{inverse\_gaussian.py}). With
 $r(x) = 1/\sqrt{\eta x}$, the distribution function of $Z$ is
 \[
   F(x) = \Phi\bigl(r(x)\,(x - 1)\bigr) + e^{2/\eta}\,\Phi\bigl(-r(x)\,(x + 1)\bigr).
 \]
-The second term is computed as $\exp\bigl(2/\eta + \ln\Phi(-r(x)(x+1))\bigr)$, with
-$\ln\Phi$ from a log-space routine (\texttt{scipy.special.log\_ndtr}).
+Every $\ln\Phi$ below is \texttt{scipy.special.log\_ndtr}.
 \begin{enumerate}[leftmargin=1.5em, nosep]
-  \item $q$: the root of $1 - F(q) = \varepsilon$, by bisection or \texttt{brentq}
-        on $\ln q$; equivalently, the method \texttt{isf} of
-        \texttt{scipy.stats.invgauss} with \texttt{mu} $= \eta$, \texttt{scale}
-        $= 1/\eta$.
-  \item The tail mean: $\mathbb{E}[Z;\, Z > q] = F(1/q)$, so
-        $\bar\mu = \tau\,\varepsilon/F(1/q)$. Quadrature of
-        $\int_q^\infty z\, f_Z(z)\, dz$, with
-        $f_Z(z) = (2\pi\eta z^3)^{-1/2}\exp\bigl(-(z-1)^2/(2\eta z)\bigr)$, gives
-        the same value.
+  \item $\ln F(x) = \mathrm{logaddexp}\bigl(\ln\Phi(r(x)(x-1)),\ 2/\eta + \ln\Phi(-r(x)(x+1))\bigr)$.
+  \item $\ln\bigl(1 - F(x)\bigr) = a + \ln\bigl(1 - e^{\,b-a}\bigr)$ (\texttt{log1p}), with
+        $a = \ln\Phi(-r(x)(x-1))$ and $b = 2/\eta + \ln\Phi(-r(x)(x+1))$.
+  \item $q$: the root in $u = \ln q$ of $\ln\bigl(1 - F(e^u)\bigr) = \ln\varepsilon$, by
+        \texttt{scipy.optimize.brentq} on $\bigl[-50,\ \ln\bigl(1 + \sqrt{\eta\,(2/\varepsilon - 1)}\bigr)\bigr]$,
+        with \texttt{xtol} $= 10^{-14}$, \texttt{rtol} $= 10^{-15}$, \texttt{maxiter} $= 200$; a
+        \texttt{ValueError} is raised if the function does not change sign on the bracket.
+  \item $\bar\mu = \tau\,\exp\bigl(\ln\varepsilon - \ln F(1/q)\bigr)$, since $\mathbb{E}[Z;\, Z > q] = F(1/q)$.
 \end{enumerate}
+The module imports \texttt{base} under a guard: without \texttt{gurobipy} it loads, \texttt{base} is
+\texttt{None} and no builder is registered. \texttt{config.py} imports \texttt{ig\_mean\_cap} inside the check
+of the replacement state (Section~\ref{sec:consistency_checks}).
 
 % ----------------------------------------------------------------
 \subsection{Wiener Model}
@@ -1290,18 +1299,16 @@ The row is linear: it is built in its exact form, and a value of
 
 \textbf{Computation of $A_1$} (offline, once per cell):
 \begin{enumerate}[leftmargin=1.5em, nosep]
-  \item $\hat A$: the root of $Q(\hat A, t) = \varepsilon$, by bisection on
-        $\hat A$ (\texttt{gammaincinv} solves for the second argument and does not
-        apply).
-  \item $w(A)$: maximum of $c \mapsto Q(A/c, t/c)$ over a logarithmic grid of at
-        least 400 values of $c$ in $[\min(10^{-4}, t/100),\, 1]$, refined by a
-        golden-section search between the neighbours of the best grid point. If
-        the best grid point is the smallest $c$, the grid is extended downwards.
-  \item If $\hat A < t$ and $w(\hat A) \leq \varepsilon$: $A_1 = \hat A$.
-        Otherwise: bisection on $A$ in $[\varepsilon t,\, \min(\hat A, t))$, to a
-        relative tolerance of $10^{-9}$; $w(\varepsilon t) \leq \varepsilon$ holds.
-        The bisection returns the lower end of its last interval.
+  \item $\hat A$: the root of $Q(\hat A, t) = \varepsilon$, by bisection on $\hat A$ (\texttt{gammaincinv} solves for the second argument and does not apply). The interval starts as $[0, \max(1, 2t)]$; while $Q(b, t) \le \varepsilon$ at its upper end $b$, it becomes $[b, 2b]$. The bisection stops when the interval is at most $10^{-12}$ times its upper end, and returns the lower end, so $Q(\hat A, t) \le \varepsilon$.
+  \item $w(A)$: maximum of $c \mapsto Q(A/c, t/c)$ over a logarithmic grid of $401$ values of $c$, from $c = \min(10^{-4}, t/100)$ to $c = 1$. While the best grid point is the smallest value $c_0$ of the grid, the grid is replaced by $401$ logarithmic values in $[c_0/100,\, c_0]$, at most $10$ times; then the computation stops with an error. A golden-section search of $60$ steps in $\log c$, between the neighbours of the best grid point, refines the maximum; $w(A)$ is the largest value found.
+  \item If $\hat A < t$ and $w(\hat A) \le \varepsilon$: $A_1 = \hat A$. Otherwise: bisection on $A$ in $[\varepsilon t,\, \min(\hat A, t))$ until the interval is at most $10^{-9}$ times its upper end; $w(\varepsilon t) \le \varepsilon$ holds. For $\varepsilon \ge 1/2$ the test $w(A) \le \varepsilon$ holds without computing $w$, because $w(A) < 1/2$ for every $A < t$. The bisection returns the lower end of its last interval.
 \end{enumerate}
+$A_1$ is computed once for each pair $(t, \varepsilon)$ in a run and then reused.
+\texttt{prepare} computes $\beta^*$ and the cap $A_1(\beta^*\tau, \varepsilon)/\beta^*$ of each cell and keeps them in
+\texttt{ctx.extras["gamma"]}. A value $t$ that is not finite and positive, or $\varepsilon \notin (0, 1)$, raises
+\texttt{ValueError}. The functions of the cap need numpy and scipy only: \texttt{gamma.py} imports \texttt{base}
+only if \texttt{gurobipy} is installed and registers its builder only then, so \texttt{config.py} imports the cap
+for the check of the replacement state without Gurobi.
 
 % ----------------------------------------------------------------
 \subsection{Rainflow Model}
@@ -1501,7 +1508,8 @@ Each row holds on every day $k = 1, \ldots, T$.
   \label{eq:rf_bsupport}
 \end{equation}
 over the missions $j$ and the days $k$ of both phases; $b^{\new}$ enters only when
-\texttt{allow\_replacement} is true. Row, with its side row:
+\texttt{allow\_replacement} is true. \texttt{load\_config} computes $b$ once per Bernstein cell;
+the builder reads this value. Row, with its side row:
 \begin{equation}
   (\tau - c - \mu_k)^2 \geq c^2 + 2\kappa\, v_k, \qquad \mu_k \leq \tau - c.
   \label{eq:rf_bernstein}

@@ -1,0 +1,30 @@
+SKIP test_bernstein_side_row_is_tau_minus_c[0.3-False]: fake gurobipy: no quadratic terms
+SKIP test_bernstein_side_row_is_tau_minus_c[0.0-True]: fake gurobipy: no quadratic terms
+SKIP test_quadratic_forms_keep_the_trajectories[cantelli-exact-ard1]: fake gurobipy: no quadratic terms
+SKIP test_quadratic_forms_keep_the_trajectories[cantelli-exact-ardinf]: fake gurobipy: no quadratic terms
+SKIP test_quadratic_forms_keep_the_trajectories[cantelli-pwl-ard1]: fake gurobipy: binary w[0,0,0,0] is free and has no Start; fix it first
+SKIP test_quadratic_forms_keep_the_trajectories[cantelli-pwl-ardinf]: fake gurobipy: binary w[0,0,0,0] is free and has no Start; fix it first
+SKIP test_quadratic_forms_keep_the_trajectories[hoeffding-exact-ard1]: fake gurobipy: no quadratic terms
+SKIP test_quadratic_forms_keep_the_trajectories[hoeffding-exact-ardinf]: fake gurobipy: no quadratic terms
+SKIP test_quadratic_forms_keep_the_trajectories[hoeffding-pwl-ard1]: fake gurobipy: binary w[0,0,0,0] is free and has no Start; fix it first
+SKIP test_quadratic_forms_keep_the_trajectories[hoeffding-pwl-ardinf]: fake gurobipy: binary w[0,0,0,0] is free and has no Start; fix it first
+SKIP test_quadratic_forms_keep_the_trajectories[bernstein-exact-ard1]: fake gurobipy: no quadratic terms
+SKIP test_quadratic_forms_keep_the_trajectories[bernstein-exact-ardinf]: fake gurobipy: no quadratic terms
+SKIP test_quadratic_forms_keep_the_trajectories[bernstein-pwl-ard1]: fake gurobipy: binary w[0,0,0,0] is free and has no Start; fix it first
+SKIP test_quadratic_forms_keep_the_trajectories[bernstein-pwl-ardinf]: fake gurobipy: binary w[0,0,0,0] is free and has no Start; fix it first
+SKIP test_reliability_row_binds[cantelli-exact-ard1]: fake gurobipy: no quadratic terms
+SKIP test_reliability_row_binds[cantelli-exact-ardinf]: fake gurobipy: no quadratic terms
+SKIP test_reliability_row_binds[cantelli-pwl-ard1]: fake gurobipy: binary w[0,0,0,0] is free and has no Start; fix it first
+SKIP test_reliability_row_binds[cantelli-pwl-ardinf]: fake gurobipy: binary w[0,0,0,0] is free and has no Start; fix it first
+SKIP test_reliability_row_binds[hoeffding-exact-ard1]: fake gurobipy: no quadratic terms
+SKIP test_reliability_row_binds[hoeffding-exact-ardinf]: fake gurobipy: no quadratic terms
+SKIP test_reliability_row_binds[hoeffding-pwl-ard1]: fake gurobipy: binary w[0,0,0,0] is free and has no Start; fix it first
+SKIP test_reliability_row_binds[hoeffding-pwl-ardinf]: fake gurobipy: binary w[0,0,0,0] is free and has no Start; fix it first
+SKIP test_reliability_row_binds[bernstein-exact-ard1]: fake gurobipy: no quadratic terms
+SKIP test_reliability_row_binds[bernstein-exact-ardinf]: fake gurobipy: no quadratic terms
+SKIP test_reliability_row_binds[bernstein-pwl-ard1]: fake gurobipy: binary w[0,0,0,0] is free and has no Start; fix it first
+SKIP test_reliability_row_binds[bernstein-pwl-ardinf]: fake gurobipy: binary w[0,0,0,0] is free and has no Start; fix it first
+SKIP test_segment_binaries_and_nonconvex[cantelli-exact-0-True]: fake gurobipy: no quadratic terms
+SKIP test_segment_binaries_and_nonconvex[hoeffding-exact-0-True]: fake gurobipy: no quadratic terms
+SKIP test_segment_binaries_and_nonconvex[bernstein-exact-0-True]: fake gurobipy: no quadratic terms
+68 passed, 29 skipped (need Gurobi), 0 failed: []
