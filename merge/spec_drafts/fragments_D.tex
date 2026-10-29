@@ -157,7 +157,7 @@ sweep_operating_horizons(
 \typerow{\texttt{warm\_start\_mode}}{\texttt{"start"}}{Mode of that warm start (Section~\ref{sec:warm_sweeps})}
 \typerow{\texttt{n\_workers}}{\texttt{1}}{Number of cases solved at the same time (Section~\ref{sec:sweep_parallel})}
 \typerow{\texttt{objective\_mode}}{\texttt{"operating\_average"}}{Written into every case input; \texttt{"evaluation\_total"} needs $E > H_1$}
-\typerow{\texttt{evaluation\_horizon}}{\texttt{None}}{Written into every case input; \texttt{"evaluation\_total"} needs $E > H_1$}
+\typerow{\texttt{evaluation\_horizon}}{\texttt{None}}{Written into every case input; if given, an integer $E > H_1$; \texttt{"evaluation\_total"} needs it}
 \tabend
 
 \blockhead{Steps}
@@ -225,7 +225,7 @@ The report is a mapping of plain Python types, written as YAML.
 \tabstart{p{5.2cm}p{9.8cm}}{Key & Content}
 \rejrow{\texttt{input}}{input path}
 \rejrow{\texttt{complete}}{\texttt{false} in a checkpoint}
-\rejrow{\texttt{last\_completed\_H2}}{the last completed $H_2$}
+\rejrow{\texttt{last\_completed\_H2}}{the $H_2$ of the case that finished last}
 \rejrow{\texttt{objective}}{a text}
 \rejrow{\texttt{varied\_parameter}}{\texttt{"H2"}}
 \rejrow{\texttt{fixed\_dimensions}}{$F$, $M$, $L$}
@@ -249,7 +249,7 @@ The report is a mapping of plain Python types, written as YAML.
 \rejrow{the scalar keys of the cost report}{from the result of the case (Section~\ref{sec:output})}
 \rejrow{\texttt{warm\_start}}{the warm-start report, from the result of the case (Section~\ref{sec:output})}
 \rejrow{\texttt{objective\_bound}, \texttt{mip\_gap}}{the objective bound and the MIP gap of the case}
-\rejrow{\texttt{absolute\_mip\_gap}}{$\max\{0,\ \text{objective} - \text{bound}\}$}
+\rejrow{\texttt{absolute\_mip\_gap}}{$\max\{0,\ \text{objective} - \text{bound}\}$; \texttt{null} if the objective or the bound is \texttt{null} or not finite}
 \rejrow{\texttt{requested\_mip\_gap}}{Gurobi's \texttt{MIPGap} after all options are set}
 \rejrow{\texttt{requested\_time\_limit\_seconds}}{Gurobi's \texttt{TimeLimit} after all options are set}
 \rejrow{\texttt{optimizer\_seconds}, \texttt{solutions\_found}}{the optimizer time in seconds and the number of solutions found}
@@ -261,7 +261,7 @@ The report is a mapping of plain Python types, written as YAML.
 \begin{itemize}[nosep,leftmargin=1.5em]
   \item \textbf{Checkpoint}: with \texttt{output\_path}, the report is rewritten after every case. It has \texttt{complete = false} and the reason \texttt{"in\_progress"} until the sweep ends.
   \item \textbf{Case error, logging}: an exception (class \texttt{Exception}) raised by a case after the arguments are accepted is logged at level ERROR with $H_1$ and $H_2$.
-  \item \textbf{Case error, row}: the row of the case has the status \texttt{"error: "} followed by the message, and \texttt{null} in every entry except the sizes.
+  \item \textbf{Case error, row}: the row of the case has the status \texttt{"error: "} followed by the message, and \texttt{null} in every entry except the sizes (\texttt{H1}, \texttt{H2}, \texttt{T}, \texttt{dimensions}; $F$, $M$, $L$ are read from the input data, \texttt{null} if they cannot be read).
   \item \textbf{Case error, effect}: the sweep continues. Such a row is neither feasible nor proven, and is never a warm-start source.
 \end{itemize}
 
@@ -348,6 +348,7 @@ A warm start gives Gurobi values for the binary variables. Four mechanisms exist
   \item \textbf{Source}: a result dictionary or the dictionary returned by the greedy heuristic (Section~\ref{sec:greedy}).
   \item \textbf{Keys of a source}: it carries \texttt{x} (shape $F' \times (M'+1) \times T'$) and the integers \texttt{H1}, \texttt{H2} with $T' = H_1' + H_2'$. It may carry \texttt{m} and \texttt{r} (shape $F' \times L' \times T'$).
   \item \textbf{Source without \texttt{x}}: a source whose \texttt{x} is missing or \texttt{null} has no effect.
+  \item \textbf{Invalid source}: \texttt{solve()} raises \texttt{ValueError} for a source with \texttt{x} whose \texttt{H1} or \texttt{H2} is not an integer $\ge 1$ (a number with zero fractional part is one, a flag is not), or whose \texttt{x}, \texttt{m} or \texttt{r} does not have three axes with $T'$ days on the last.
   \item \textbf{Other dimensions}: $F'$, $M'$, $L'$ may differ from $F$, $M$, $L$. Values are set for the indices that both have.
   \item \textbf{Reports}: the result keys \texttt{warm\_start} and \texttt{relaxation\_warm\_start} report what each mechanism did (Section~\ref{sec:output_reports}).
 \end{itemize}
@@ -386,6 +387,7 @@ A binary variable that these values fix through its defining rows (the selector 
   \item \textbf{Request}: only the source requests it, with \texttt{complete\_binary\_start = true}; the greedy heuristic does.
   \item \textbf{Condition}: it runs if the mapping set at least one value.
   \item \textbf{Time limit}: \texttt{completion\_time\_limit} of the source (seconds, default $60$).
+  \item \textbf{Report}: \texttt{requested} is the flag of the source; while the completion does not run, its status is \texttt{"not\_requested"}.
 \end{itemize}
 \begin{enumerate}[nosep,label=\arabic*.]
   \item Copy the model; fix every binary variable that has a \texttt{Start} value to that value; the other binary variables stay free. Optimise the copy within the time limit.
@@ -466,13 +468,15 @@ For each cell:
   \item Compute the excess $e$ of the cell: the largest of
     \begin{itemize}[nosep]
       \item the loop excesses $\max\{0,\ \zeta^{q}_{T} - \zeta^{q}_{H_1}\}/M_q$ of every tracked quantity and anchor $q$ with natural range $M_q$ (Section~\ref{sec:loop});
-      \item the violations of the reliability row on every day, divided by the natural range of the bounded quantity.
+      \item the violations of the reliability row on every day, divided by the natural range of the bounded quantity;
+      \item the violations of the side row $\mu \le \bar\mu_{\mathrm{side}}$ and, where \texttt{v\_max\_user} is given, of $v \le V^{\mathrm{user}}_{\max}$, divided by $\tau$ and by the natural range of $v$.
     \end{itemize}
-    The row is taken in the form built at the cell (Sections~\ref{sec:dyn_gaussian}--\ref{sec:dyn_rainflow}): the exact row for \texttt{"exact"}, the tangent row for \texttt{"tangent"}, and for \texttt{"pwl"} the cap of the segment that contains the mean of the day (Section~\ref{sec:linear_forms}).
+    The row is taken in the form built at the cell (Sections~\ref{sec:dyn_gaussian}--\ref{sec:dyn_rainflow}): the exact row for \texttt{"exact"}, the tangent row for \texttt{"tangent"}, and for \texttt{"pwl"} the cap of the segment that contains the mean of the day (the larger cap where two segments contain it, the last segment for a mean above $\tau$) (Section~\ref{sec:linear_forms}).
   \item While $e > 10^{-10}$: for every free day $k \in \{H_1+1,\ldots,T\}$ (the train has no mission, the cell no intervention), put a repair of the cell on day $k$ (the train goes to the depot) and recompute $e$; keep the repair with the smallest $e$, a tie to the later day.
   \item If no repair lowers $e$ by more than $10^{-10}$ and replacement is allowed, repeat the trial with a replacement.
   \item If no trial lowers $e$, count one failure for the cell and go to the next cell.
 \end{enumerate}
+At a Wiener cell, steps 3 and 4 form one trial: on every free day, put a repair and, if replacement is allowed, a replacement, and recompute $e$ after each; keep the intervention with the smallest $e$, a tie to the repair, then to the later day.
 A start with failures is returned.
 
 \blockhead{Report keys}
@@ -482,8 +486,8 @@ A start with failures is returned.
 \rejrow{\texttt{replacements}}{the number of ones in \texttt{r}}
 \rejrow{\texttt{repeatability\_feasible}}{true without a failure}
 \rejrow{\texttt{repeatability\_failures}}{the number of cells with a failure}
-\rejrow{\texttt{maximum\_repeatability\_excess}}{the largest raw excess over all cells after the loop pass}
-\rejrow{\texttt{maximum\_proxy\_ratio}}{the largest $\hat s_{i\ell}/\tau_{i\ell}$ of the construction pass and reference mean over $\tau_{i\ell}$ of the loop pass}
+\rejrow{\texttt{maximum\_repeatability\_excess}}{the largest excess term of a cell before the division by the natural ranges, over all cells, after the loop pass}
+\rejrow{\texttt{maximum\_proxy\_ratio}}{the largest $\hat s_{i\ell}/\tau_{i\ell}$ of the construction pass and the largest reference mean over $\tau_{i\ell}$ of the schedule returned}
 \rejrow{\texttt{assignment\_order}}{for each day, the missions in the order treated}
 \tabend
 
@@ -510,17 +514,20 @@ plot_management(input_file_path, plot_file_path=None) -> None
 
 \blockhead{Reading rules}
 \begin{itemize}[nosep]
+  \item The result file is read with \texttt{solver.read\_result} (Section~\ref{sec:output_files}).
+  \item $T$ is the length of the last axis of \texttt{mu}; a key \texttt{T} must equal it.
+  \item The model of each row is read from the key \texttt{model}; without that key, every row shows the model ``unknown''.
   \item Any result with a solution is plotted, whatever its status.
   \item Missing \texttt{m} and \texttt{r} are read as zero.
   \item The default name of component $\ell$ is ``Component $\ell$'' ($\ell$ from $1$).
-  \item The model of each row is read from the key \texttt{model}.
 \end{itemize}
 
 \blockhead{Errors}
 \tabstart{p{3.4cm}p{11.6cm}}{Exception & Raised when}
 \rejrow{\texttt{FileNotFoundError}}{a result file or an image folder is missing}
 \rejrow{\texttt{PermissionError}}{an image folder is not writable}
-\rejrow{\texttt{ValueError}}{either file has another extension; the result lacks one of \texttt{F}, \texttt{M}, \texttt{L}, \texttt{H1}, \texttt{H2}, \texttt{tau}, \texttt{mu\_0}, \texttt{mu}, \texttt{x} (the message names the keys); a shape differs from Section~\ref{sec:output}; $H_1 + H_2 \neq T$; \texttt{component\_names} has a length other than $L$}
+\rejrow{\texttt{TypeError}}{the data of the result file are not a mapping}
+\rejrow{\texttt{ValueError}}{either file has another extension; the result lacks one of \texttt{F}, \texttt{M}, \texttt{L}, \texttt{H1}, \texttt{H2}, \texttt{tau}, \texttt{mu\_0}, \texttt{mu}, \texttt{x} (the message names the keys); a shape differs from Section~\ref{sec:output}; $H_1 + H_2 \neq T$; \texttt{component\_names} is not a list of $L$ entries; an entry of \texttt{tau}, \texttt{mu\_0}, \texttt{mu}, \texttt{x}, \texttt{m} or \texttt{r} is not a finite number, or an entry of \texttt{tau} is not positive}
 \tabend
 
 \blockhead{Layout}
@@ -543,16 +550,16 @@ A grid on the left, a summary panel on the right.
 \blockhead{Summary panel}
 The panel ``Run summary'' shows the values that the result holds:
 \begin{itemize}[nosep]
-  \item status, coloured by outcome;
+  \item status, in green if \texttt{optimal}, otherwise in amber; ``unknown'' in grey without the key;
   \item objective, sizes and horizon;
   \item models and repair laws present;
   \item objective mode with $J_{\mathrm{op}}/H_2$;
   \item MIP gap in percent;
   \item numbers of variables (all, continuous, integer) and of linear rows;
   \item optimizer time and branch-and-bound nodes;
-  \item numbers of repairs and replacements.
+  \item numbers of repairs and replacements, counted over all cells and days.
 \end{itemize}
-\textbf{Source of the counts.} The counts come from \texttt{performance}. If a Gurobi log \texttt{runner.out} lies in the folder of the result file, the panel shows instead the presolved counts of its lines ``Presolved: $r$ rows, $c$ columns'' and ``Variable types: $a$ continuous, $b$ integer'', and says so.
+\textbf{Source of the counts.} The counts come from \texttt{performance}. If a Gurobi log \texttt{runner.out} lies in the folder of the result file, the panel shows instead the presolved counts of its lines ``Presolved: $r$ rows, $c$ columns'' and ``Variable types: $a$ continuous, $b$ integer'', and says so. If the log holds several solves, the panel uses its last line ``Presolved: ...'' and the first line ``Variable types: ...'' after it; a log without such a pair is not used.
 
 \subsection{Sweep Plot}
 
@@ -571,19 +578,21 @@ plot_horizon_sweep(sweep_report_path, plot_file_path=None) -> None
 \blockhead{Errors}
 \tabstart{p{3.4cm}p{11.6cm}}{Exception & Raised when}
 \rejrow{\texttt{FileNotFoundError}}{a file is missing}
-\rejrow{\texttt{ValueError}}{a file has another type than YAML or JSON; the list of paths is empty; the reports differ in $F$, $M$, $L$ or $H_1$; a report has no list \texttt{cases}}
+\rejrow{\texttt{TypeError}}{the data of a report file are not a mapping}
+\rejrow{\texttt{ValueError}}{a file has another type than YAML or JSON; the list of paths is empty; the reports differ in $F$, $M$, $L$ or $H_1$; a report has no list \texttt{cases}; the reports hold no case; a case has no \texttt{H2}}
 \tabend
 
 \blockhead{Content}
 \begin{itemize}[nosep]
-  \item \textbf{Selection.} For equal $H_2$ the plot keeps the case with a solution, then the smaller $J_{\mathrm{op}}/H_2$, then the larger objective bound.
-  \item \textbf{Title.} The title names the sweep and $F$, $M$, $L$, $H_1$.
+  \item \textbf{Selection.} For equal $H_2$ the plot keeps the case with a solution (\texttt{J\_op\_average} is not \texttt{null}), then the smaller $J_{\mathrm{op}}/H_2$, then the larger objective bound. Two values of $J_{\mathrm{op}}/H_2$ are equal if \texttt{numpy.isclose} holds with its default tolerances; a case without a bound loses against one with a bound; a remaining tie keeps the case of the earlier report in the list.
+  \item \textbf{Sizes.} $F$, $M$, $L$ are the entries of \texttt{fixed\_dimensions}; $H_1$ is its entry \texttt{H1} if present, otherwise the key \texttt{H1}.
+  \item \textbf{Title.} ``Operating-horizon sweep (F=$F$, M=$M$, L=$L$, H1=$H_1$)''; a size that the reports do not give is left out.
   \item \textbf{Panels.} Three panels over $H_2$, as in the table below.
 \end{itemize}
 
 \tabstart{p{1.6cm}p{13.4cm}}{Panel & Content}
-\rejrow{(a)}{$J_{\mathrm{op}}/H_2$ of each case. Marks: proven case (status \texttt{"optimal"}); feasible case that is not proven; case without a feasible solution (error rows included); best feasible case. The values of the proven cases are shown}
-\rejrow{(b)}{Relative MIP gap in percent. A horizontal line at \texttt{maximum\_mip\_gap\_for\_stopping} of \texttt{stopping\_rule} if it is a number; otherwise a mark at the requested MIP gap of each case}
+\rejrow{(a)}{$J_{\mathrm{op}}/H_2$ of each case. Marks: proven case (status \texttt{"optimal"}); feasible case that is not proven; case without a feasible solution (error rows included); best feasible case. A case is feasible if its \texttt{J\_op\_average} is not \texttt{null} and its status is not \texttt{"infeasible"}, \texttt{"unbounded"} or \texttt{"inf\_or\_unbounded"}. The values of the proven cases and of the best feasible case are shown; a case without a feasible solution is marked at the bottom of the panel}
+\rejrow{(b)}{Relative MIP gap in percent of the feasible cases, each value written beside its point; a case without a feasible solution is marked at the top of the panel. A horizontal line at \texttt{maximum\_mip\_gap\_for\_stopping} of the \texttt{stopping\_rule} of the first report if it is a number; otherwise a mark at the requested MIP gap of each case that has one}
 \rejrow{(c)}{Numbers of continuous variables, integer variables and linear constraints}
 \tabend
 
@@ -621,7 +630,7 @@ validate(input_path, results_path, validation_path="validation.yaml",
 \tabstart{p{3.4cm}p{11.6cm}}{Exception & Raised when}
 \rejrow{\texttt{FileNotFoundError}}{a file is missing}
 \rejrow{\texttt{PermissionError}}{a folder is not writable}
-\rejrow{\texttt{ValueError}}{an extension is not supported; the result has no \texttt{x} (missing or \texttt{null}); the input fails Section~\ref{sec:consistency_checks}; the sizes $F$, $M$, $L$, $H_1$, $H_2$ or the array shapes differ between result and input (named in the message)}
+\rejrow{\texttt{ValueError}}{an extension is not supported; the result has no \texttt{x} (missing or \texttt{null}); the input fails Section~\ref{sec:consistency_checks}; the sizes $F$, $M$, $L$, $H_1$, $H_2$ or the array shapes differ between result and input (named in the message); the result has \texttt{x} but lacks one of \texttt{m}, \texttt{r}, \texttt{mu}, \texttt{z}, \texttt{u}, \texttt{objective}, or has a non-finite entry in \texttt{x}, \texttt{m}, \texttt{r} or \texttt{idle}}
 \tabend
 
 \blockhead{Checks}
@@ -642,6 +651,8 @@ validate(input_path, results_path, validation_path="validation.yaml",
 
 The recomputed objective is Eq.~\eqref{eq:a_objective} in the objective mode of the input, with the day cost of Eq.~\eqref{eq:a_daycost} on the saved $x$, $z$ ($0$ where \texttt{NaN}) and $x^r$, the costs of the input, and the saved $u$.
 
+The report lists the checks in the order of the table. The eight checks \texttt{loop\_}$q$ are always listed; a check whose key is absent, or has no pair of numbers at days $H_1$ and $T$, has violation $0$. The internal function \texttt{check\_result(cfg, result, tol=1e-6) -> dict} runs the checks, and the errors on sizes, shapes and arrays, on a \texttt{FleetConfig} and a result dictionary, and returns the report without writing it; \texttt{validate} and the dashboards call it.
+
 \blockhead{Report keys}
 \tabstart{p{5.2cm}p{9.8cm}}{Key & Content}
 \rejrow{\texttt{status}}{status of the result, echoed}
@@ -661,7 +672,9 @@ python -m streamlit run src/fleet_management/validator_dashboard.py
 \end{lstlisting}
 \begin{itemize}[nosep]
   \item \textbf{Sidebar.} It selects the mode, the input file, the result file and the tolerance (default $10^{-6}$). A button loads the pair.
-  \item \textbf{Loading.} The dashboards read only these two files. A failed load shows the error and no page.
+  \item \textbf{Loading.} The dashboards read only these two files: the input with the input reader and \texttt{load\_config}, the result with \texttt{read\_result} (Section~\ref{sec:output_files}). The errors of \texttt{validate} on sizes, shapes and arrays apply. A result whose \texttt{model} differs from the input at some cell raises a \texttt{ValueError}. A failed load shows the error and no page.
+  \item \textbf{Tolerance.} At least $10^{-12}$, step $10^{-6}$.
+  \item \textbf{Code.} \texttt{main()} of \texttt{validator\_dashboard.py} builds the page; it runs under \texttt{if \_\_name\_\_ == "\_\_main\_\_"}. Each mode has a loading function and a page function: \texttt{load\_inspector}, \texttt{render\_result\_inspector} (\texttt{validation/dashboard\_inspector.py}); \texttt{load\_gamma\_diagnostic}, \texttt{render\_gamma\_diagnostic} (\texttt{validation/dashboard\_gamma.py}). Streamlit is imported only inside \texttt{main} and the page functions; every module loads without it.
 \end{itemize}
 
 \blockhead{Mode ``Result inspector''}
@@ -702,11 +715,15 @@ These rules hold for each validator of this subsection.
   \item \textbf{Inputs.} A validator takes the normalised configuration \texttt{cfg} (\texttt{load\_config}) and the result dictionary. It returns a report of plain Python types.
   \item \textbf{File version.} It takes an input path, a result path and \texttt{report\_path} (default \texttt{None}). It writes the report as YAML or JSON and creates the folder.
   \item \textbf{Tolerance.} \texttt{tolerance} (default $10^{-8}$) must be positive.
+  \item \textbf{Gamma cells.} The Gamma cells are the cells whose entry of the result key \texttt{model} is \texttt{gamma}; this key must have the shape $F \times L$ and equal the input key \texttt{model}.
+  \item \textbf{Event of a day.} The event of a cell on day $k$ is \texttt{"replacement"} if $x^r_{i\ell k} = 1$, else \texttt{"repair"} if $x^m_{i\ell k} = 1$, else \texttt{"mission"} if train $i$ flies a mission, else \texttt{"idle"}. Every validator applies it, also on a day with a global violation.
+  \item \textbf{Indices.} In a report, \texttt{i}, \texttt{l} and \texttt{k} are 0-based array indices; \texttt{k} is day $k+1$.
+  \item \textbf{Order of a file version.} It checks the suffix of \texttt{report\_path} before it reads a file, reads the result with \texttt{read\_result}, writes the report with \texttt{null} for a value that is not finite, and only then raises the \texttt{AssertionError}.
 \end{itemize}
 
 \blockhead{Errors}
 \tabstart{p{3.4cm}p{11.6cm}}{Exception & Raised when}
-\rejrow{\texttt{ValueError}}{\texttt{report\_path} has another suffix than YAML or JSON; \texttt{cfg} has no Gamma cell; a required array is missing, has a wrong shape or a non-finite entry; an array that must be binary is not within \texttt{tolerance} of $\{0,1\}$}
+\rejrow{\texttt{ValueError}}{\texttt{report\_path} has another suffix than YAML or JSON; \texttt{cfg} has no Gamma cell; the result has no key \texttt{model}, or its \texttt{model} has another shape than $F \times L$ or differs from the input at a cell; a required array is missing, has a wrong shape, or has a non-finite entry at a cell where it is read; an array that must be binary is not within \texttt{tolerance} of $\{0,1\}$}
 \rejrow{\texttt{AssertionError}}{\texttt{raise\_on\_failure=True} and the report has \texttt{valid = false}}
 \tabend
 
@@ -723,7 +740,7 @@ validate_gamma_replay_files(input_path, result_path, report_path=None,
 
 \blockhead{Steps}
 \begin{enumerate}[nosep,label=\arabic*.]
-  \item Collect the global violations (strings in \texttt{global\_violations}):
+  \item Collect the global violations (strings in \texttt{global\_violations}) over every cell of the fleet, one string per occurrence:
   \begin{itemize}[nosep]
     \item a result horizon other than $T$;
     \item a train with more than one activity;
@@ -731,7 +748,7 @@ validate_gamma_replay_files(input_path, result_path, report_path=None,
     \item a repair and a replacement of a cell on one day;
     \item an intervention on a day with a mission or without a depot day.
   \end{itemize}
-  \item For each Gamma cell and day $k$, compute the reference trajectory of $\mu$ and $g^{\mu}$ (Section~\ref{sec:encoding}) from the saved schedule, with the initial value, starting anchor and replacement value of the cell.
+  \item For each Gamma cell and day $k$, compute the reference trajectory of $\mu$ and $g^{\mu}$ (Section~\ref{sec:encoding}) from the saved schedule, starting at $\mu_0$ and, under $\ARDone$, at the starting anchor $g^{\mu}_0$, with the replacement value of the cell.
   \item Set the event of the day: \texttt{"replacement"}, \texttt{"repair"}, \texttt{"mission"} or \texttt{"idle"}.
   \item Compute the errors of the fields below.
   \item If an error is above \texttt{tolerance}, add a record \texttt{i}, \texttt{l}, \texttt{k}, \texttt{event}, \texttt{field}, \texttt{expected}, \texttt{saved}, \texttt{error} to \texttt{violations}.
@@ -741,10 +758,11 @@ validate_gamma_replay_files(input_path, result_path, report_path=None,
 \tabstart{p{3.4cm}p{11.6cm}}{Field & Error}
 \rejrow{\texttt{tracked\_mean}}{$\max\{0,\ \text{reference mean} - \texttt{mu}_{i\ell k}\}$}
 \rejrow{\texttt{mean\_anchor}}{the same for \texttt{g\_mu}, under $\ARDone$}
-\rejrow{\texttt{removed\_mean}}{$\max\{0,\ x^m_{i\ell k}\,\rho_{i\ell}(\mu_{i\ell,k-1} - g_{i\ell,k-1}) - z_{i\ell k}\}$, with $g = 0$ under $\ARDinf$ (Section~\ref{sec:repair_cost}); skipped where $z$ is \texttt{NaN} ($C_{R,i\ell} = 0$)}
+\rejrow{\texttt{removed\_mean}}{$\max\{0,\ x^m_{i\ell k}\,\rho_{i\ell}(\mu_{i\ell,k-1} - g_{i\ell,k-1}) - z_{i\ell k}\}$ on the saved \texttt{mu} and \texttt{g\_mu} (on day~1: $\mu_0$ and $g^{\mu}_0$), with $g = 0$ under $\ARDinf$ (Section~\ref{sec:repair_cost}); skipped where $z$ is \texttt{NaN} ($C_{R,i\ell} = 0$)}
 \rejrow{\texttt{cap}}{$\max\{0,\ \texttt{mu}_{i\ell k} - A_1(\beta^*\tau,\varepsilon)/\beta^*\}$ (Section~\ref{sec:dyn_gamma})}
 \rejrow{\texttt{repeatability}}{$\max\{0,\ \texttt{mu}_{i\ell T} - \texttt{mu}_{i\ell H_1}\}$, and the same for the saved anchor}
 \tabend
+In a record, \texttt{expected} is the reference value, the cap (\texttt{cap}) or the saved value on day $H_1$ (\texttt{repeatability}, recorded on day $T$ with its event), and \texttt{saved} is the saved value.
 
 \textbf{Pass rule.} \texttt{valid} is true if there is no global violation and no violation.
 
@@ -785,9 +803,11 @@ For each Gamma cell and day $k = 1,\ldots,T$:
     \item a repair multiplies the rate of the repairable terms by $1/(1-\rho)$, and removes them for $\rho = 1$; under $\ARDone$ the repaired terms join the frozen part of the anchor;
     \item a replacement starts a new list with the replacement term.
   \end{itemize}
-  \item Treat an initial or replacement damage without a rate (\texttt{gamma\_beta\_0} or \texttt{gamma\_beta\_new} omitted) as a known constant $c$, not as a term. The tail is then $\Pr(\text{sum of the terms} > \tau - c)$, and $1$ if $c > \tau$.
+  Under $\ARDone$ the initial damage is a frozen part of mean $g^{\mu}_0$ and a repairable part of mean $\mu_0 - g^{\mu}_0$, both with rate $\beta_0$ or both constants; a replacement term is frozen. A repair multiplies a repairable constant by $1 - \rho$.
+  \item Treat an initial or replacement damage without a rate (\texttt{gamma\_beta\_0} or \texttt{gamma\_beta\_new} omitted) as a known constant $c$, not as a term. The tail is then $\Pr(\text{sum of the terms} > \tau - c)$; it is $1$ if $c \ge \tau$ and some term exists; without terms it is $1$ if $c > \tau$, else $0$.
   \item Compute the tail $\Pr(D_k > \tau)$ by the Moschopoulos series (with equal rates, the Gamma tail).
   \item Take as upper bound the partial sum plus the remaining mixture mass, which is at most \texttt{convolution\_tolerance}.
+  \item The weights, the mass and the tail of the series are summed in \texttt{numpy.longdouble}.
 \end{enumerate}
 
 \blockhead{Pass rule}
@@ -797,6 +817,7 @@ A day passes if:
   \item the saved mean is at least $\mathbb{E}D_k - \texttt{tolerance}$;
   \item under $\ARDone$, the saved anchor is at least the exact mean of the frozen part minus \texttt{tolerance}.
 \end{itemize}
+\texttt{valid} is true if there is no global violation (step 1 of the replay validator) and every day passes. A failed condition adds a record with the keys of the replay record, with field \texttt{reliability} (\texttt{expected} $\varepsilon_{i\ell}$, \texttt{saved} the upper bound), \texttt{tracked\_mean} (\texttt{expected} $\mathbb{E}D_k$) or \texttt{mean\_anchor} (\texttt{expected} the exact mean of the frozen part); \texttt{maximum\_errors} has these three fields.
 
 \blockhead{Errors}
 \tabstart{p{3.4cm}p{11.6cm}}{Exception & Raised when}
@@ -809,8 +830,8 @@ A day passes if:
 \rejrow{\texttt{minimum\_reliability\_slack}}{the minimum of $\varepsilon$ minus the upper bound}
 \rejrow{\texttt{worst\_reliability}}{the step that attains the minimum}
 \rejrow{\texttt{maximum\_remaining\_mass}}{maximum remaining mass}
-\rejrow{further keys}{the numbers of series terms and the timing of the tail computations}
-\rejrow{\texttt{steps}}{with \texttt{include\_steps=True}: the list of terms and values of every cell and day}
+\rejrow{\texttt{maximum\_series\_terms\_used}, \texttt{total\_series\_terms}, \texttt{exact\_tail\_evaluations}}{largest and total number of series terms; number of tails computed by the series; \texttt{timing} adds \texttt{exact\_tail\_seconds}}
+\rejrow{\texttt{steps}}{with \texttt{include\_steps=True}, per cell and day: \texttt{i}, \texttt{l}, \texttt{k}, \texttt{event}, \texttt{epsilon}, \texttt{constant}, \texttt{exact\_mean}, \texttt{saved\_mean}, \texttt{frozen\_mean}, \texttt{saved\_anchor}, \texttt{exact\_tail\_estimate}, \texttt{exact\_tail\_upper\_bound}, \texttt{remaining\_mass}, \texttt{series\_terms}, \texttt{reliability\_slack}, \texttt{terms}; \texttt{worst\_reliability} is the first step with the smallest slack}
 \tabend
 
 \subsubsection{Monte Carlo validator}
@@ -826,11 +847,11 @@ validate_gamma_stochastic_schedule(cfg, result, *, repetitions=100000,
 
 \blockhead{Further arguments}
 \tabstart{p{4.3cm}p{2.3cm}p{8.2cm}}{Argument & Default & Rule}
-\typerow{\texttt{repetitions}}{\texttt{100000}}{Number of runs; must be positive}
-\typerow{\texttt{random\_seed}}{\texttt{20260908}}{Seed of the generator; the same arguments give the same report}
+\typerow{\texttt{repetitions}}{\texttt{100000}}{Number of runs; must be positive and an integer; a number with zero fractional part is accepted, a flag is not}
+\typerow{\texttt{random\_seed}}{\texttt{20260908}}{Seed of the generator; the same arguments give the same report; an integer; a number with zero fractional part is accepted, a flag is not}
 \typerow{\texttt{maximum\_schedule\_failure\_rate}}{\texttt{None}}{Target for the schedule failure rate; if given, must lie in $[0,1]$}
 \typerow{\texttt{confidence\_level}}{\texttt{0.95}}{Must lie in $(0,1)$}
-\typerow{\texttt{batch\_size}}{\texttt{20000}}{Draws are made in batches of this many runs; must be positive}
+\typerow{\texttt{batch\_size}}{\texttt{20000}}{Draws are made in batches of this many runs; must be positive and an integer; a number with zero fractional part is accepted, a flag is not}
 \tabend
 
 \blockhead{Steps}
@@ -842,6 +863,7 @@ In each of \texttt{repetitions} runs:
   \item On a replacement, draw the damage of the replacement part and, under $\ARDone$, set $g$ to it.
   \item After each day, record whether $D > \tau$.
 \end{enumerate}
+The validator raises no error for a global violation of the schedule; it applies the event of each day. The arguments used are \texttt{repetitions}, \texttt{random\_seed}, \texttt{maximum\_schedule\_failure\_rate}, \texttt{confidence\_level}, \texttt{batch\_size} and \texttt{tolerance}.
 
 \blockhead{Definitions}
 \begin{itemize}[nosep,leftmargin=1.5em]
@@ -884,10 +906,11 @@ validate_gamma_schedule_files(input_path, result_path, report_path=None,
 \begin{itemize}[nosep]
   \item \textbf{None rule.} An argument that is \texttt{None} takes the value of the key of the same name in the input block \texttt{validation} (Section~\ref{sec:run_options}), otherwise its default.
   \item \textbf{Default.} The default of \texttt{mode} is \texttt{"deterministic"}.
+  \item \textbf{Reports.} In mode \texttt{"deterministic"} the report is the replay report with the key \texttt{mode}. The validators run without raising; \texttt{raise\_on\_failure} applies to the report of the dispatcher.
 \end{itemize}
 
 \blockhead{Errors}
 \tabstart{p{3.4cm}p{11.6cm}}{Exception & Raised when}
-\rejrow{\texttt{ValueError}}{\texttt{mode} has another value}
+\rejrow{\texttt{ValueError}}{\texttt{mode} has another value (values are case sensitive); the input block \texttt{validation} has a key other than \texttt{mode}, \texttt{repetitions}, \texttt{random\_seed}, \texttt{maximum\_schedule\_failure\_rate}, \texttt{confidence\_level}, \texttt{batch\_size}}
 \tabend
 

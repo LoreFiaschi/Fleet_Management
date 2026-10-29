@@ -1,0 +1,104 @@
+input: input.yaml
+complete: true
+objective: minimize J_op / H2
+varied_parameter: H2
+fixed_dimensions:
+  F: 4
+  M: 1
+  L: 1
+H1: 4
+stopping_rule:
+  enabled: false
+  maximum_mip_gap_for_stopping: null
+cases:
+- H1: 4
+  H2: 4
+  T: 8
+  dimensions:
+    F: 4
+    M: 1
+    L: 1
+    H1: 4
+    H2: 4
+    T: 8
+  status: optimal
+  objective: 3.645004
+  J_op: 3.645004
+  J_op_average: 0.911251
+  objective_bound: 0.911251
+  mip_gap: 0.0
+  requested_mip_gap: 0.01
+  formulation:
+    variables: 120
+    continuous_variables: 40
+    integer_variables: 80
+    linear_constraints: 200
+  timing:
+    optimizer_call_seconds: 1.0
+- H1: 4
+  H2: 8
+  T: 12
+  dimensions:
+    F: 4
+    M: 1
+    L: 1
+    H1: 4
+    H2: 8
+    T: 12
+  status: optimal
+  objective: 6.384008
+  J_op: 6.384008
+  J_op_average: 0.798001
+  objective_bound: 0.798001
+  mip_gap: 0.0
+  requested_mip_gap: 0.01
+  formulation:
+    variables: 240
+    continuous_variables: 80
+    integer_variables: 160
+    linear_constraints: 400
+  timing:
+    optimizer_call_seconds: 1.0
+- H1: 4
+  H2: 12
+  T: 16
+  dimensions:
+    F: 4
+    M: 1
+    L: 1
+    H1: 4
+    H2: 12
+    T: 16
+  status: time_limit
+  objective: 7.410755999999999
+  J_op: 7.410755999999999
+  J_op_average: 0.617563
+  objective_bound: 0.55
+  mip_gap: 0.1094
+  requested_mip_gap: 0.01
+  formulation:
+    variables: 360
+    continuous_variables: 120
+    integer_variables: 240
+    linear_constraints: 600
+  timing:
+    optimizer_call_seconds: 1.0
+- H1: 4
+  H2: 16
+  T: 20
+  dimensions:
+    F: 4
+    M: 1
+    L: 1
+    H1: 4
+    H2: 16
+    T: 20
+  status: 'error: out of memory'
+  objective: null
+  J_op: null
+  J_op_average: null
+  objective_bound: null
+  mip_gap: null
+  requested_mip_gap: null
+  formulation: null
+  timing: null

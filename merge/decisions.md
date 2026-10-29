@@ -40,7 +40,10 @@ Status: all 30 divergences decided (26 Oct 2026).
   emulator of gurobipy) are copied in `merge/wp45_work/` (final versions, after the reviews).
   **WP6 done (29 Oct 2026), commit 0421e80**: five builders, three Opus plans and reviews (`wp6_interface.md`,
   `wp6_plan_giw.md`, `wp6_plan_gamma.md`, `wp6_plan_rainflow.md`); local tools copied to `merge/wp45_work/wp6/`. The spec
-  on `lore` holds the reviewers' sentences (cap methods, package layout). Next: WP7 (tools), after the user's go.
+  on `lore` holds the reviewers' sentences (cap methods, package layout). **WP7 done (29 Oct 2026), commit 7e35db4**: sweeps, warm starts, plots,
+  validators, public API; four Opus plans and reviews (`wp7_interface.md`, `wp7_plan_*.md`); local tools in
+  `merge/wp45_work/wp7/`. The reviewers' spec sentences are being added on `lore` (`spec_wp7_insertions.md`).
+  Next: WP8 (tests), which needs `lore`'s `test/` and `input/` folders and the licensed machine.
 - **Pending actions of the user:** read the spec and the scoping document; copy `lore`'s `test/` and `input/` folders
   into the repository (item "Tests and test inputs").
 - Documents plan: [`documents_plan.md`](documents_plan.md), agreed by the user on 26 Oct 2026.

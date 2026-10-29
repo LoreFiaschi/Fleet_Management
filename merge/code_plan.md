@@ -10,8 +10,10 @@ Status (28 Oct 2026): WP0 to WP3 done. Worktree `C:\Users\utente\Documents\GitHu
 - WP4 and WP5, commit 5c8de19: plans, executor work and reviews in `wp4_plan.md` and `wp5_plan.md`.
 - WP6, commit 0421e80: the five cell builders; `lore`'s `models/` and `maintenance/` and the two old Gamma tests
   removed. Plans and reviews in `wp6_plan_giw.md`, `wp6_plan_gamma.md`, `wp6_plan_rainflow.md`.
+- WP7, commit 7e35db4: sweeps, warm starts, plots, validators, public API; 17 dropped files removed. Plans and
+  reviews in `wp7_plan_sweeps.md`, `wp7_plan_plots.md`, `wp7_plan_validator.md`, `wp7_plan_gamma_validators.md`.
 
-No local installs (the user's choice); Claude commits on that branch at each commit point. Next: WP7.
+No local installs (the user's choice); Claude commits on that branch at each commit point. Next: WP8.
 
 - **Purpose.** How the code of the merged package is built from `main`: the work packages, their order, what each
   needs before it starts, and who does it.
@@ -65,6 +67,8 @@ No local installs (the user's choice); Claude commits on that branch at each com
   to execute. Then the opus agents revise"*): an Opus agent plans each package, Sonnet agents carry out the plan, and
   the same Opus agent reviews and corrects the result. Interface and file ownership:
   [`wp4_wp5_interface.md`](wp4_wp5_interface.md). The same workflow for WP6 (user, 29 Oct 2026), with three
-  planners (G, IG and W; Gamma; rainflow): [`wp6_interface.md`](wp6_interface.md).
+  planners (G, IG and W; Gamma; rainflow): [`wp6_interface.md`](wp6_interface.md). WP7 likewise, with four planners
+  (sweeps and warm starts; plots and public API; validator and dashboards; Gamma validators):
+  [`wp7_interface.md`](wp7_interface.md).
 - **Checks of each package.** The agent writes unit tests with the package; Claude reviews the diff against the spec
   sections before the commit point. Step 3 (the `spec-alignment` skill) then checks the whole code and the README.

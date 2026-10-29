@@ -22,6 +22,8 @@
 
 - Scoping, implementation details (moved from scoping.tex, 28 Oct 2026): Provide the details to run an actual simulation of the system.
 
+- Exact Gamma validator: a cheaper certified tail bound when a component is repaired many times. The exact series grows with the number of repairs: about 2 s per tail after 8 repairs, and from about 11 repairs it needs more than 100,000 terms and stops with an error (merge/wp7_plan_gamma_validators.md, question Q6; added 29 Oct 2026).
+
 Research directions (from ASSESSMENT.md, 7 Jul 2026):
 
 - Rolling-horizon deployment: re-solve with observed states as condition-monitoring data arrive; the loop constraint becomes a terminal safety envelope.

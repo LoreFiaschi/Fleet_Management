@@ -389,7 +389,7 @@ A mapping (Section~\ref{sec:warm_starts}).
 
 \tabstart{p{5.2cm}p{9.8cm}}{Key & Content}
 \rejrow{\texttt{applied}}{\texttt{true} when at least one value was set}
-\rejrow{\texttt{values}}{Number of values set}
+\rejrow{\texttt{values}}{Number of variables that received a value; each counts once, also in the mode \texttt{"both"}}
 \rejrow{\texttt{mode}}{\texttt{"start"}, \texttt{"hint"} or \texttt{"both"}; \texttt{null} without a source}
 \rejrow{\texttt{source\_horizon}}{The pair $H_1$, $H_2$ of the source, or \texttt{null}}
 \rejrow{\texttt{completion}}{Mapping; its keys are in the next table}
@@ -436,6 +436,7 @@ A mapping (Section~\ref{sec:warm_relaxation}).
   \item \textbf{Path checks}: the extension and the directory of the path are checked before the input file is read. The directory must exist (\texttt{FileNotFoundError}) and be writable (\texttt{PermissionError}).
   \item \textbf{Plain data and \texttt{NaN}}: YAML and JSON files hold plain data (lists, numbers, strings, \texttt{null}); \texttt{NaN}, $+\infty$ and $-\infty$ are written as \texttt{null}. They load with \texttt{yaml.safe\_load} and \texttt{json.load}. HDF5 files keep \texttt{NaN} and $\pm\infty$ (Section~\ref{sec:schema_hdf5}).
   \item \textbf{Keys with value \texttt{None}}: such a key is not written, except \texttt{objective}, written as \texttt{null} in YAML and JSON. HDF5 has no \texttt{null}, so it does not store \texttt{objective} either. Every reader of a result treats a missing key as \texttt{null}.
+  \item \textbf{Reader}: \texttt{read\_result(path) -> dict} in \texttt{solver.py} reads a result file of any format of the table above with the input reader (Section~\ref{sec:schema}); another extension raises a \texttt{ValueError}. The dictionary has exactly the keys of the result table (Section~\ref{sec:output}): a key missing from the file is \texttt{None}, a key outside the table is dropped. Each key stored as a \texttt{float64} dataset in HDF5 (Section~\ref{sec:schema_hdf5}) becomes a \texttt{numpy} array of floats, with \texttt{NaN} at a \texttt{null} entry. Every tool that reads a result file uses it.
 \end{itemize}
 
 
