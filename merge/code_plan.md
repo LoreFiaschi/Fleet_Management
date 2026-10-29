@@ -7,8 +7,9 @@ Status (28 Oct 2026): WP0 to WP3 done. Worktree `C:\Users\utente\Documents\GitHu
 - WP3, commit 5f29660: `lore` merged at 68ec120. `README.md` and `solver.py` resolved to `main`'s version; `lore`'s
   plotter removed. `lore`'s builders are in `src/fleet_management/models/` and `src/fleet_management/maintenance/`.
 
-No local installs (the user's choice); Claude commits on that branch at each commit point. Next: WP4 and WP5, in
-parallel.
+- WP4 and WP5, commit 5c8de19: plans, executor work and reviews in `wp4_plan.md` and `wp5_plan.md`.
+
+No local installs (the user's choice); Claude commits on that branch at each commit point. Next: WP6.
 
 - **Purpose.** How the code of the merged package is built from `main`: the work packages, their order, what each
   needs before it starts, and who does it.

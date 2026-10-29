@@ -1,0 +1,113 @@
+def _model_statistics(model) -> dict:
+    """Size and work entries of ``performance`` (spec, "Reports"); ``None`` where Gurobi gives none."""
+    model.update()
+
+    def read(getter):
+        try:
+            return getter()
+        except (AttributeError, TypeError, gp.GurobiError):
+            return None
+
+    def indicator_count():
+        return sum(int(item.GenConstrType == GRB.GENCONSTR_INDICATOR)
+                   for item in model.getGenConstrs())
+
+    return {
+        "gurobi_version": read(lambda: ".".join(str(v) for v in gp.gurobi.version())),
+        "variables": read(lambda: int(model.NumVars)),
+        "continuous_variables": read(lambda: int(model.NumVars - model.NumIntVars)),
+        "integer_variables": read(lambda: int(model.NumIntVars)),
+        "binary_variables": read(lambda: int(model.NumBinVars)),
+        "linear_constraints": read(lambda: int(model.NumConstrs)),
+        "general_constraints": read(lambda: int(model.NumGenConstrs)),
+        "indicator_constraints": read(indicator_count),
+        "quadratic_constraints": read(lambda: int(model.NumQConstrs)),
+        "nonzeros": read(lambda: int(model.NumNZs)),
+        "solutions_found": read(lambda: int(model.SolCount)),
+        "gurobi_runtime_seconds": read(lambda: float(model.Runtime)),
+        "branch_and_bound_nodes": read(lambda: float(model.NodeCount)),
+        "simplex_iterations": read(lambda: float(model.IterCount)),
+        "barrier_iterations": read(lambda: float(model.BarIterCount)),
+        "work_units": read(lambda: float(model.Work)),
+    }
+
+
+def solve_mixed(cfg, *, warm_start=None, warm_start_mode: str = "start") -> dict:
+    """Build, warm start, optimise and extract one fleet; return the whole result.
+
+    The cells may use different degradation models; each cell is built by the
+    builder registered for its model. The run options are ``cfg.options``. The
+    result is the dictionary of the spec ("Result Dictionary"), reports included.
+    """
+    if warm_start_mode not in ("start", "hint", "both"):
+        raise ValueError(
+            f"warm_start_mode must be 'start', 'hint' or 'both'; got {warm_start_mode!r}."
+        )
+    has_source = warm_start is not None and warm_start.get("x") is not None
+    if has_source and warm_start_mode != "start":
+        raise NotImplementedError(
+            f"warm_start_mode {warm_start_mode!r} is not implemented yet; only 'start' is."
+        )
+
+    backend_start = time.perf_counter()
+    opts = resolve_run_options(cfg)
+    construction_start = time.perf_counter()
+    ctx = build_fleet(cfg, opts)
+    ctx.model.update()
+    warm_start_diagnostics = apply_binary_warm_start(ctx, warm_start)
+    warm_start_diagnostics = complete_binary_warm_start(
+        ctx.model, warm_start, warm_start_diagnostics
+    )
+    warm_start_diagnostics["mode"] = warm_start_mode if has_source else None
+    relaxation_diagnostics = {
+        "enabled": False,
+        "status": "disabled",
+        "relaxation_objective": None,
+        "values_copied": 0,
+        "runtime_seconds": None,
+    }
+    if opts["relaxation_warm_start"]:
+        if warm_start_diagnostics["applied"]:
+            relaxation_diagnostics.update({"enabled": True, "status": "skipped"})
+        else:
+            relaxation_diagnostics = apply_relaxation_warm_start(
+                ctx.model,
+                time_limit=opts["relaxation_time_limit"],
+            )
+    construction_seconds = time.perf_counter() - construction_start
+
+    optimizer_start = time.perf_counter()
+    callback = _initialize_progress(
+        ctx.model, opts["progress_interval_seconds"]
+    )
+    ctx.model.optimize(callback)
+    _append_final_progress(ctx.model)
+    optimizer_seconds = time.perf_counter() - optimizer_start
+
+    extraction_start = time.perf_counter()
+    out = extract_solution(ctx, cfg)
+    out["optimization_progress"] = list(ctx.model._optimization_progress)
+    out["warm_start"] = warm_start_diagnostics
+    out["relaxation_warm_start"] = relaxation_diagnostics
+    for name in sorted({str(m) for m in np.asarray(cfg.model).ravel()}):
+        hook = getattr(get_cell_builder(name), "extract", None)
+        if hook is not None:
+            hook(ctx, cfg, out)
+    extraction_seconds = time.perf_counter() - extraction_start
+
+    performance = _model_statistics(ctx.model)
+    performance.update({
+        "model_construction_seconds": construction_seconds,
+        "optimizer_call_seconds": optimizer_seconds,
+        "solution_extraction_seconds": extraction_seconds,
+        "backend_wall_seconds": time.perf_counter() - backend_start,
+        "requested_time_limit_seconds": float(ctx.model.Params.TimeLimit),
+        "requested_mip_gap": float(ctx.model.Params.MIPGap),
+        "threads": int(ctx.model.Params.Threads),
+        "seed": int(ctx.model.Params.Seed),
+    })
+    out["performance"] = performance
+    # Release native resources, including an active LogFile handle on Windows,
+    # after all solution and diagnostic information has been extracted.
+    ctx.model.dispose()
+    return out

@@ -1,7 +1,7 @@
 # WP4 plan: the input and output layer
 
-Status (29 Oct 2026): plan done (sections 1 to 5). Next: Claude answers the questions of section 5; then the Sonnet
-executors run Task A (step A1 first), and Task B once A1 is done; then the planner reviews their work.
+Status (29 Oct 2026): plan done (sections 1 to 5); executors done; review done (section 7). Next: Claude reviews
+the diff and commits on `merge/lore-into-main`.
 
 - **Scope.** WP4 (work package 4) rewrites `src/fleet_management/config.py` and `src/fleet_management/solver.py` of the
   worktree `C:\Users\utente\Documents\GitHub\Fleet_Management-merge` (branch `merge/lore-into-main`), and adds
@@ -708,3 +708,68 @@ None blocks a step: each step follows the recommendation, and a different answer
 - **Q10. "No file for a failed solve"** (interface, section "Solve path"). The spec has no such case: `solve` writes
   the file whenever `results_path` is not `None`, also without a solution (status and `objective: null`). The plan
   follows the spec. No step depends on it.
+
+## 7. Review (29 Oct 2026)
+
+Read: the full diff of `config.py` and `solver.py`, the two new test files, both progress files, the four passages
+of the spec on `lore` that record the user's answers (lines 352-357, 525, 1865-1871, 2671-2690), the last section of
+`wp4_wp5_interface.md`. Line numbers below are those of the corrected files in the worktree.
+
+**State found.** All 13 steps were done once: no duplicate definition, no leftover of the old code
+(`H_prof`, `cfg.costs`, `alias(`, legacy dispatch, `model_assignment`), no function defined and never used. The
+resume after the credit limit left nothing half done. Before the review: 55 + 18 tests passed.
+
+**Defects corrected**
+- `config.py:357-376` (`_float_array`): a numeric string (`"0.5"`) and a flag (`true`) passed as numbers in cell
+  values and profiles, because `np.asarray(..., dtype=float)` converts both; the spec's types are numbers. New helper
+  `_holds_text_or_flag`; `_float_array` refuses a `str`, `bytes` or `bool` anywhere in the value, with the message
+  "'<key>' must be a number or a regular array of numbers.".
+- `config.py:544-552, 573-600, 631-636, 798, 326, 893` (non-strict inequalities against a constant): `rho <= 1`,
+  `mu_0 >= 0`, every `>= 0` of initial, replacement and increment values, `tangent_ref >= 0`, `anchor >= 0`,
+  `C_R, C_rep, C_M, C_D >= 0`, the lower end of the natural ranges, `mip_gap >= 0` were exact. The spec on `lore`
+  (line 525) gives every non-strict inequality the tolerance `1e-12·max(1, |a|, |b|)`. All now use `_le`. This
+  follows the plan's narrower rule ("input against a computed value"), which the user's answer widened; it is not an
+  executor error.
+- `config.py:646, 697, 701` (consequence of the line above): a tolerated variance such as `-1e-13` gave
+  `sqrt(-1e-13) = NaN`, so the three-sigma checks failed with a false error. The square root now takes
+  `max(v, 0)`.
+- `config.py:326`: a `mip_gap` within the tolerance below 0 is stored as `0.0`, because Gurobi refuses a negative
+  `MIPGap`. No other tolerated value is changed: a constant such as `v_0 = -1e-13` reaches the model, where Gurobi's
+  feasibility tolerance (1e-6) absorbs it.
+- `tests/test_config.py:440` (`_fails`): it matched only the key, so a range or replacement-row test could pass on
+  an earlier error that names the same key. It now takes the rule text; `test_natural_ranges` and
+  `test_replacement_rows` match the reason.
+- New test lines: strings and flags refused (`test_non_finite_and_non_numeric`); tolerance at 0 and at 1, and the
+  `mip_gap` clamp (`test_tolerance`); `replacement_as_new` with `allow_replacement=False` (`test_replacement_as_new`).
+
+**Points raised by the executors**
+1. Strings and flags as numbers: refused (above).
+2. Exact comparisons with 0: they did not match the spec text; corrected (above). Equalities (`== 0` under
+   `replacement_as_new`, zero spread where `mu = 0`) and strict inequalities stay exact, as the spec says.
+3. `replacement_as_new` check with `allow_replacement` false: kept. Spec line 551 makes the flag the only condition
+   ("the check does not run when the flag is false"); a test now records it.
+4. `_first_cell` (`config.py`) and `_result_format` (`solver.py`): kept. Each removes a repetition (the first cell
+   of a mask; the one message for an unsupported results file), and both follow the files' helper style.
+5. `base.solve_mixed` still has the signature `solve_mixed(cfg, **overrides)`: WP5. `solve_mapping` calls it with
+   `warm_start=` and `warm_start_mode=`, as the interface fixes; the tests stub it. Until WP5 changes it, an end-to-end
+   `solve` fails at that call. `base.py` not touched.
+
+**Package import and pytest collection.** `import fleet_management` works on the branch today, also without
+gurobipy (checked with `python` on this computer: the package, `config` and `solver` import; `gurobipy` and
+`degradation_model.base` stay unloaded), and with a stub gurobipy. So `tests/test_config.py` and `tests/test_io.py`
+are collected by real pytest once the package is installed (`pip install -e ".[dev]"`, as for the existing tests).
+No change is needed in the four files. Risk for WP7: `__init__.py` imports the sweeps, the plotter and the validators;
+if one of them fails to import later, every test module in `tests/` fails to collect.
+
+**Line endings.** No file has mixed endings: `config.py` CRLF throughout; `solver.py`, `tests/test_config.py`,
+`tests/test_io.py` LF throughout (git warns that it will convert `solver.py` to CRLF).
+
+**Tests.** `tests/test_config.py`: 55 passed; `tests/test_io.py`: 18 passed (runner `run_tests.py`, 29 Oct 2026). The
+test count is unchanged; the new cases extend existing tests.
+
+**Left for other packages**
+- WP5: the signature of `base.solve_mixed`; `bound_method` as `None` at cells that are not rainflow in the result
+  (`cfg.bound_method` holds `''`); read run options and costs from `cfg` (section 4).
+- WP6: the IG and Gamma replacement-state checks (section 4), at the end of `_check_ranges`.
+- WP7: the callers of `solver._read_input` and of `cfg.raw` (section 4, G47); keep `__init__.py` importable without
+  gurobipy.

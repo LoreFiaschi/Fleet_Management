@@ -1,0 +1,498 @@
+{
+  "status": "optimal",
+  "objective": 12.5,
+  "mip_gap": 0.01,
+  "bound": null,
+  "F": 2,
+  "M": 1,
+  "L": 2,
+  "H1": 1,
+  "H2": 2,
+  "T": 3,
+  "H": [
+    1,
+    2
+  ],
+  "model": [
+    [
+      "gaussian",
+      "rainflow"
+    ],
+    [
+      "gaussian",
+      "rainflow"
+    ]
+  ],
+  "component_names": [
+    "Wheelset",
+    "Brake pad"
+  ],
+  "tau": [
+    [
+      1.0,
+      1.0
+    ],
+    [
+      1.0,
+      1.0
+    ]
+  ],
+  "mu_0": [
+    [
+      0.1,
+      0.1
+    ],
+    [
+      0.1,
+      0.1
+    ]
+  ],
+  "v_0": [
+    [
+      0.001,
+      null
+    ],
+    [
+      0.001,
+      null
+    ]
+  ],
+  "bound_method": [
+    [
+      null,
+      "cantelli"
+    ],
+    [
+      null,
+      "cantelli"
+    ]
+  ],
+  "repair_model": "ardinf",
+  "reliability_impl": "exact",
+  "encoding": [
+    [
+      "bigm",
+      "indicator"
+    ],
+    [
+      "bigm",
+      "bigm"
+    ]
+  ],
+  "objective_mode": "total",
+  "x": [
+    [
+      [
+        0.0,
+        0.0,
+        0.0
+      ],
+      [
+        0.0,
+        0.0,
+        0.0
+      ]
+    ],
+    [
+      [
+        0.0,
+        0.0,
+        0.0
+      ],
+      [
+        0.0,
+        0.0,
+        0.0
+      ]
+    ]
+  ],
+  "m": [
+    [
+      [
+        0.0,
+        0.0,
+        0.0
+      ],
+      [
+        0.0,
+        0.0,
+        0.0
+      ]
+    ],
+    [
+      [
+        0.0,
+        0.0,
+        0.0
+      ],
+      [
+        0.0,
+        0.0,
+        0.0
+      ]
+    ]
+  ],
+  "r": [
+    [
+      [
+        0.0,
+        0.0,
+        0.0
+      ],
+      [
+        0.0,
+        0.0,
+        0.0
+      ]
+    ],
+    [
+      [
+        0.0,
+        0.0,
+        0.0
+      ],
+      [
+        0.0,
+        0.0,
+        0.0
+      ]
+    ]
+  ],
+  "idle": [
+    [
+      [
+        1.0,
+        1.0,
+        1.0
+      ],
+      [
+        1.0,
+        1.0,
+        1.0
+      ]
+    ],
+    [
+      [
+        1.0,
+        1.0,
+        1.0
+      ],
+      [
+        1.0,
+        1.0,
+        1.0
+      ]
+    ]
+  ],
+  "mu": [
+    [
+      [
+        0.0,
+        0.1,
+        0.2
+      ],
+      [
+        0.3,
+        0.4,
+        0.5
+      ]
+    ],
+    [
+      [
+        0.6,
+        0.7,
+        0.8
+      ],
+      [
+        0.9,
+        1.0,
+        1.1
+      ]
+    ]
+  ],
+  "v": [
+    [
+      [
+        0.0,
+        0.01,
+        0.02
+      ],
+      [
+        null,
+        null,
+        null
+      ]
+    ],
+    [
+      [
+        0.06,
+        0.07,
+        0.08
+      ],
+      [
+        null,
+        null,
+        null
+      ]
+    ]
+  ],
+  "z": [
+    [
+      [
+        0.0,
+        0.0,
+        0.0
+      ],
+      [
+        0.0,
+        0.0,
+        0.0
+      ]
+    ],
+    [
+      [
+        0.0,
+        0.0,
+        0.0
+      ],
+      [
+        0.0,
+        0.0,
+        0.0
+      ]
+    ]
+  ],
+  "R": [
+    [
+      [
+        null,
+        null,
+        null
+      ],
+      [
+        null,
+        null,
+        null
+      ]
+    ],
+    [
+      [
+        null,
+        null,
+        null
+      ],
+      [
+        null,
+        null,
+        null
+      ]
+    ]
+  ],
+  "K": [
+    [
+      [
+        null,
+        null,
+        null
+      ],
+      [
+        null,
+        null,
+        null
+      ]
+    ],
+    [
+      [
+        null,
+        null,
+        null
+      ],
+      [
+        null,
+        null,
+        null
+      ]
+    ]
+  ],
+  "g_mu": [
+    [
+      [
+        null,
+        null,
+        null
+      ],
+      [
+        null,
+        null,
+        null
+      ]
+    ],
+    [
+      [
+        null,
+        null,
+        null
+      ],
+      [
+        null,
+        null,
+        null
+      ]
+    ]
+  ],
+  "g_v": [
+    [
+      [
+        null,
+        null,
+        null
+      ],
+      [
+        null,
+        null,
+        null
+      ]
+    ],
+    [
+      [
+        null,
+        null,
+        null
+      ],
+      [
+        null,
+        null,
+        null
+      ]
+    ]
+  ],
+  "g_R": [
+    [
+      [
+        null,
+        null,
+        null
+      ],
+      [
+        null,
+        null,
+        null
+      ]
+    ],
+    [
+      [
+        null,
+        null,
+        null
+      ],
+      [
+        null,
+        null,
+        null
+      ]
+    ]
+  ],
+  "g_K": [
+    [
+      [
+        null,
+        null,
+        null
+      ],
+      [
+        null,
+        null,
+        null
+      ]
+    ],
+    [
+      [
+        null,
+        null,
+        null
+      ],
+      [
+        null,
+        null,
+        null
+      ]
+    ]
+  ],
+  "u": 1.2,
+  "step_costs": [
+    1.0,
+    2.0,
+    3.0
+  ],
+  "J_initialization": 1.0,
+  "J_op": 5.0,
+  "J_op_average": 2.5,
+  "peak_damage": 1.2,
+  "damage_penalty": 1.2,
+  "operating_objective": 3.7,
+  "J_total": 12.5,
+  "component_costs": {
+    "C_M": 1.0,
+    "C_D": 1.0,
+    "C_R": [
+      [
+        0.5,
+        0.5
+      ],
+      [
+        0.5,
+        0.5
+      ]
+    ],
+    "C_rep": [
+      [
+        3.0,
+        3.0
+      ],
+      [
+        3.0,
+        3.0
+      ]
+    ]
+  },
+  "performance": {
+    "gurobi_version": "13.0.0",
+    "variables": 120,
+    "solutions_found": null,
+    "gurobi_runtime_seconds": 1.5
+  },
+  "optimization_progress": [
+    {
+      "runtime_seconds": 0.5,
+      "incumbent": null,
+      "best_bound": 3.2,
+      "relative_gap": null,
+      "nodes": 0,
+      "solutions": 0
+    }
+  ],
+  "warm_start": {
+    "applied": true,
+    "values": 40,
+    "mode": "start",
+    "source_horizon": [
+      1,
+      2
+    ],
+    "completion": {
+      "requested": false,
+      "status": "not_requested",
+      "fixed_integer_variables": 0,
+      "values_copied": 0,
+      "runtime_seconds": 0.0,
+      "iis_constraints": []
+    }
+  },
+  "relaxation_warm_start": {
+    "enabled": false,
+    "status": "disabled",
+    "relaxation_objective": null,
+    "values_copied": 0,
+    "runtime_seconds": 0.0
+  }
+}

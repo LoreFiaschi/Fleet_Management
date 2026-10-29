@@ -1,0 +1,101 @@
+# ---------------------------------------------------------------------------
+# Public loader
+# ---------------------------------------------------------------------------
+def load_config(data: dict) -> FleetConfig:
+    """Check an input mapping and normalize it into a ``FleetConfig``.
+
+    The keys are checked first (rejected, unknown, required), before any array is
+    read. A cell value, a selector or a profile is read only at the cells where
+    its key applies; every error is a ``ValueError`` that names the key and,
+    for a cell value, the cell.
+    """
+    _check_keys(data)
+    F, M = _integer(data["F"], "F"), _integer(data["M"], "M")
+    if F < 1 or M < 1:
+        raise ValueError(f"'F' and 'M' must be >= 1 (got F={F}, M={M}).")
+    if F <= M:
+        raise ValueError(f"'F' must be > 'M' (got F={F}, M={M}).")
+    H, H1, H2, T = _parse_horizon(data["H"])
+    L = _infer_L(data, F)
+    everywhere = np.ones((F, L), dtype=bool)
+
+    model = _selector(data, "model", F, L, everywhere, None, SUPPORTED_MODELS)
+    repair_model = _selector(data, "repair_model", F, L, everywhere, "ardinf", REPAIR_MODELS)
+    bound_method = _selector(data, "bound_method", F, L, model == "rainflow", "cantelli",
+                             RAINFLOW_BOUNDS)
+    m = _masks(model, bound_method, repair_model)
+    reliability_impl = _selector(data, "reliability_impl", F, L, m["quadratic"], "exact",
+                                 RELIABILITY_IMPLS, fill="exact")
+    encoding = _selector(data, "encoding", F, L, everywhere, "bigm", ENCODINGS)
+    m = _masks(model, bound_method, repair_model, reliability_impl)
+
+    def cv(key, applies, default=None, optional=False):
+        return _cell_value(data, key, F, L, applies, default, optional)
+
+    def pf(key, Hs, applies, rates=False, required=False):
+        return _profile(data, key, F, L, M, Hs, applies, rates, required)
+
+    tau, epsilon, rho, mu_0 = (cv(key, everywhere) for key in ("tau", "epsilon", "rho", "mu_0"))
+    s_chernoff = cv("s_chernoff", m["chernoff"])
+    v_0 = cv("v_0", m["variance"], 0.0)
+    support_0 = cv("support_0", m["bernstein"], 0.0)
+    R_0 = cv("R_0", m["hoeffding"], 0.0)
+    cgf_0 = cv("cgf_0", m["chernoff"], s_chernoff * mu_0)
+    replacement_mu = cv("replacement_mu", everywhere, 0.0)
+    replacement_v = cv("replacement_v", m["variance"], 0.0)
+    support_new = cv("support_new", m["bernstein"], 0.0)
+    R_new = cv("R_new", m["hoeffding"], 0.0)
+    cgf_new = cv("cgf_new", m["chernoff"], s_chernoff * replacement_mu)
+    anchor_mu_0 = cv("anchor_mu_0", m["ard1"], mu_0)
+    anchor_v_0 = cv("anchor_v_0", m["variance_anchor"], v_0)
+    anchor_R_0 = cv("anchor_R_0", m["ard1"] & m["hoeffding"], R_0)
+    anchor_K_0 = cv("anchor_K_0", m["ard1"] & m["chernoff"], cgf_0)
+    tangent_ref = cv("tangent_ref", m["tangent"], 0.5)
+    sigma = cv("sigma", m["wiener"])
+    eta = cv("eta", m["inverse_gaussian"])
+    v_max_user = cv("v_max_user", m["variance"], optional=True)
+    gamma_beta_0 = cv("gamma_beta_0", m["gamma"], optional=True)
+    gamma_beta_new = cv("gamma_beta_new", m["gamma"], optional=True)
+    C_R, C_rep = cv("C_R", everywhere), cv("C_rep", everywhere)
+
+    profiles = {}
+    for key, applies, rates in (("mu", everywhere, False), ("v", m["v_profile"], False),
+                                ("support", m["support"], False), ("cgf", m["chernoff"], False),
+                                ("gamma_beta", m["gamma"], True)):
+        profiles[key] = pf(key, H2, applies, rates, required=True)
+        if f"{key}_trans" in data and key not in data:
+            raise ValueError(f"'{key}_trans' needs the operating profile '{key}'.")
+        profiles[f"{key}_trans"] = pf(f"{key}_trans", H1, applies, rates)
+
+    pwl_points = _integer(data.get("pwl_points", 8), "pwl_points")
+    if pwl_points < 1:
+        raise ValueError("'pwl_points' must be an integer >= 1.")
+    allow_replacement = _flag(data.get("allow_replacement", True), "allow_replacement")
+    replacement_as_new = _flag(data.get("replacement_as_new", False), "replacement_as_new")
+    costs = {}
+    for key in ("C_M", "C_D"):
+        costs[key] = _number(data[key], key)
+        if not (math.isfinite(costs[key]) and costs[key] >= 0.0):
+            raise ValueError(f"'{key}' must be a finite number >= 0.")
+    penalty_type = data.get("penalty_type", "inf_norm")
+    if penalty_type not in PENALTY_TYPES:
+        raise ValueError(f"'penalty_type' must be one of {PENALTY_TYPES} (got {penalty_type!r}).")
+
+    cfg = FleetConfig(
+        F=F, M=M, L=L, H=H, H1=H1, H2=H2, T=T,
+        component_names=_component_names(data.get("component_names"), L),
+        model=model, repair_model=repair_model, bound_method=bound_method,
+        reliability_impl=reliability_impl, encoding=encoding,
+        tau=tau, epsilon=epsilon, tangent_ref=tangent_ref, rho=rho,
+        anchor_mu_0=anchor_mu_0, anchor_v_0=anchor_v_0, anchor_R_0=anchor_R_0,
+        anchor_K_0=anchor_K_0, mu_0=mu_0, v_0=v_0, support_0=support_0, R_0=R_0, cgf_0=cgf_0,
+        replacement_mu=replacement_mu, replacement_v=replacement_v, support_new=support_new,
+        R_new=R_new, cgf_new=cgf_new, s_chernoff=s_chernoff, sigma=sigma, eta=eta,
+        v_max_user=v_max_user, gamma_beta_0=gamma_beta_0, gamma_beta_new=gamma_beta_new,
+        C_R=C_R, C_rep=C_rep,
+        pwl_points=pwl_points, allow_replacement=allow_replacement,
+        replacement_as_new=replacement_as_new, C_M=costs["C_M"], C_D=costs["C_D"],
+        penalty_type=penalty_type, **profiles,
+        options=_run_options(data, H1),
+    )
+    return cfg

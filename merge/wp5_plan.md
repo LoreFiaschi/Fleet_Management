@@ -1,7 +1,7 @@
 # WP5 plan: the shared model (`base.py`)
 
-Status (29 Oct 2026): done. All six sections written and checked once for consistency. Next: Sonnet executors carry
-out Task A and Task B of section 3; then the planner reviews their work against this plan and the spec.
+Status (29 Oct 2026): done. Plan carried out by the executors (Tasks A and B) and reviewed by the planner
+(section 7). Next: Claude reviews the diff and commits; WP8 runs `tests/test_base.py` on the licensed machine.
 
 ## 0. Scope and rules for the executors
 
@@ -622,3 +622,78 @@ None blocks a step; each step follows the recommendation unless the user decides
   and `null` at a non-rainflow cell (1712). It does not say what a fleet without rainflow cells gets. Options: (1) one
   `None`; (2) an `F x L` list of `None`. Recommendation: (1), the rule "one value if all agree" applied to `null`. The
   WP4 writers then omit the key, and readers treat a missing key as `null` (1867). Step A9 follows (1).
+- **Answers (user, 29 Oct 2026).** All three questions follow the recommendations (`merge/wp4_wp5_interface.md`, last
+  section).
+
+## 7. Review (29 Oct 2026)
+
+Reviewed: every line of `base.py` outside the Gamma block (2358 lines after the corrections) and all of
+`tests/test_base.py` (776 lines, 20 test functions, 44 cases), against this plan and the spec. Line numbers below are
+those before the corrections.
+
+### Defects found and corrected
+
+| File:line | What was wrong | Change |
+|---|---|---|
+| `base.py:40` | `Callable` imported but no longer used (A1 removed the accessor fields) | removed from the import |
+| `base.py:1725-1726, 1874, 1881, 2236` | four lines of 102-104 characters; the file at HEAD has none above 100 | split into short statements; the `pwl` rows now cite `a_pwl_seg` and `a_pwl_cap` on their own lines |
+| `tests/test_base.py:716-718` (T9) | the check `out["u"] == max_{i,k} sum_l mu^p` compared `u` with its own formula, so it could not fail | replaced by `ctx.u_var.X == out["u"]`, which tests the rule "`u` has no slack" (spec 1763) |
+| `tests/test_base.py:414, 448, 583, 585` | row checks through `Model.getConstrByName`, which looks up linear rows only (correct here, but a reader must know it) | a helper `_row_names(ctx)` built from `getConstrs()`; the depot row is found the same way |
+
+No defect in the rows themselves: every row, sign, big-M constant (the natural range `M_s`), anchor rule, the Wiener
+single row, the repair-cost rows (`rho tau`, lower rows only), the objective coefficients of the three modes, and the
+rules "built only where used" (`z`, `u`, `x^r`, `n`, `w`, anchors) match the spec. After the corrections all tools
+pass: `run_checks.py` (ast, CRLF, loader, names, `local_checks.py`), the emulator scripts `hand_rows.py`,
+`hand_rows_extract.py`, `hand_rows_solve.py`, `diff_unchanged.py`, `check_test_base.py`; `names_check.py` reports 0
+names outside the Gamma block, and inside it only `add_maintenance_gating` (expected).
+
+### Interface checks with WP4
+
+1. **Signatures.** `solver.solve_mapping` calls `base.solve_mixed(cfg, warm_start=..., warm_start_mode=...)`; the
+   keyword names and the default `"start"` agree. Both functions reject an unknown mode with `ValueError`. Agreed.
+2. **Result keys.** `interface_keys.py` (scratchpad) runs `solve_mixed` through the emulator with a solution and
+   without one: both key sets equal `solver.RESULT_KEYS` (51 keys); without a solution every solution and cost key is
+   `None`; `R`, `K`, `g_R`, `g_K` are NaN where not tracked; `bound_method` is `None` without rainflow cells. The WP4
+   writers accept every value: YAML, JSON and HDF5 files hold `RESULT_KEYS` minus the `None` keys (`objective` kept
+   as `null` in YAML and JSON). Agreed.
+3. **Phase lookup.** `phase_agreement.py` (scratchpad) compares `config._lookup` with `base.phase_day` for `H1, H2`
+   in 1..7, with and without a transitory profile (98 cases, profile values that encode phase and day): 0
+   disagreements.
+4. **`FleetConfig` fields.** The 41 fields that `base.py` reads directly, and the ten profile fields it reads through
+   `getattr`, exist in the new `config.py` with the interface's names and shapes: selectors `(F, L)` with `''` where a key does not apply; cell values with NaN there; the
+   defaults that `base.py` relies on (anchors equal to the initial values at `ard1` cells, `cgf_0 = s mu_0`, `R_0 = 0`,
+   replacement values 0, `tangent_ref = 0.5` at `tangent` cells, `reliability_impl = "exact"` at linear rows);
+   `range_mu = tau` at every cell, `range_v` at G, W, RF Ca, RF Be, `range_R` at RF Ho, `range_K` at RF Ch, NaN
+   elsewhere; `options` with the eleven run options. `support_const` exists; `base.py` does not read it (WP6 will).
+   No mismatch.
+
+### Other checks
+
+- **Import chain.** `import fleet_management` succeeds on the branch today, without Gurobi; with the stub,
+  `from fleet_management.degradation_model import base` and `fleet_management.solver` import too. So pytest can
+  collect `tests/test_base.py` on a machine with `gurobipy` and the package installed (`pip install -e .`, as for the
+  other test files). No fix needed; nothing to report for `__init__.py`.
+- **Line endings.** `base.py`, `tests/test_base.py`, `config.py`, `solver.py`, `tests/test_config.py`,
+  `tests/test_io.py`: CRLF on every line; no file has mixed endings.
+- **Interrupted executors.** No definition appears twice; all 11 steps of Task A and 4 of Task B are present; the
+  Gamma block is identical to HEAD, and the warm-start functions differ only by the five `idle` lines.
+
+### The executors' problems: decisions
+
+- Task A: `add_repair_cost_rows` returns early at a cell without `z` (accepted: "built only where used"); the form
+  is checked before the side row (accepted); `pwl_points < 1` would give the single tangent (accepted: `config.py`
+  rejects it); `md.Status`, `str(objective_mode)` without normalising (accepted: `config.py` checks the exact
+  values); module docstring of 32 lines (accepted).
+- Task B: the extra checks are kept (each tests a rule of the plan). Gurobi assumptions: `getConstrByName` returns
+  `None` for a missing name (true, but no longer used); `getRow(constr).size()` (`LinExpr.size()` exists; kept);
+  `prepare` sets `NonConvex = 2` (spec 247; kept). T9 with `reliability_impl = "exact"` for the quadratic penalty is
+  the right reading (spec 470). No test for `hint` and `both` (accepted; WP7 adds it).
+
+### Left for other packages
+
+- **WP6:** delete the Gamma block (it calls the removed `add_maintenance_gating`); rewrite `rainflow.py` (it imports
+  removed names); build the five models with the helpers of section 2.
+- **WP7:** warm-start modes `hint` and `both` (remove the `NotImplementedError` of `solve_mixed`); the warm-start
+  functions; the regression scripts that call `build_fleet` and `extract_solution` with their old meaning.
+- **WP8:** run `tests/test_base.py` with Gurobi. Not exercised locally: the `exact` form and the quadratic penalty
+  (`addQConstr`), `optimize` with the progress callback, `feasRelaxS`, `model.copy()`, solves with free binaries.

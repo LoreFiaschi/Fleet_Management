@@ -1,0 +1,83 @@
+# ---------------------------------------------------------------------------
+# Normalized representation
+# ---------------------------------------------------------------------------
+@dataclass
+class FleetConfig:
+    """A checked input in the canonical shapes of the specification.
+
+    Selectors are (F, L) object arrays of str, '' where the key does not apply.
+    Cell values are (F, L) float64 arrays, NaN where the key does not apply.
+    Operating profiles are (F, L, M, H2) arrays and transitory profiles
+    (F, L, M, H1), expanded eagerly; a profile is None if its key is absent.
+    """
+    F: int
+    M: int
+    L: int
+    H: object                       # int or [H1, H2] as written
+    H1: int
+    H2: int
+    T: int
+    component_names: list = field(default_factory=list)
+    # selectors (F, L)
+    model: np.ndarray = None
+    repair_model: np.ndarray = None
+    bound_method: np.ndarray = None
+    reliability_impl: np.ndarray = None  # form that is built: 'exact' at a linear row
+    encoding: np.ndarray = None
+    # cell values (F, L)
+    tau: np.ndarray = None
+    epsilon: np.ndarray = None
+    tangent_ref: np.ndarray = None
+    rho: np.ndarray = None
+    anchor_mu_0: np.ndarray = None
+    anchor_v_0: np.ndarray = None
+    anchor_R_0: np.ndarray = None
+    anchor_K_0: np.ndarray = None
+    mu_0: np.ndarray = None
+    v_0: np.ndarray = None
+    support_0: np.ndarray = None
+    R_0: np.ndarray = None
+    cgf_0: np.ndarray = None
+    replacement_mu: np.ndarray = None
+    replacement_v: np.ndarray = None
+    support_new: np.ndarray = None
+    R_new: np.ndarray = None
+    cgf_new: np.ndarray = None
+    s_chernoff: np.ndarray = None
+    sigma: np.ndarray = None
+    eta: np.ndarray = None
+    v_max_user: np.ndarray = None   # NaN where not given
+    gamma_beta_0: np.ndarray = None   # NaN where not given
+    gamma_beta_new: np.ndarray = None  # NaN where not given
+    C_R: np.ndarray = None
+    C_rep: np.ndarray = None
+    # scalars
+    pwl_points: int = None
+    allow_replacement: bool = None
+    replacement_as_new: bool = None
+    C_M: float = None
+    C_D: float = None
+    penalty_type: str = None
+    # operating profiles (F, L, M, H2)
+    mu: Optional[np.ndarray] = None
+    v: Optional[np.ndarray] = None
+    support: Optional[np.ndarray] = None
+    cgf: Optional[np.ndarray] = None
+    gamma_beta: Optional[np.ndarray] = None
+    # transitory profiles (F, L, M, H1)
+    mu_trans: Optional[np.ndarray] = None
+    v_trans: Optional[np.ndarray] = None
+    support_trans: Optional[np.ndarray] = None
+    cgf_trans: Optional[np.ndarray] = None
+    gamma_beta_trans: Optional[np.ndarray] = None
+    options: dict = field(default_factory=dict)   # the run options, defaults filled
+    # derived (F, L), set by _derive
+    support_const: Optional[np.ndarray] = None    # Bernstein support constant b
+    range_mu: Optional[np.ndarray] = None         # natural ranges of the states
+    range_v: Optional[np.ndarray] = None
+    range_R: Optional[np.ndarray] = None
+    range_K: Optional[np.ndarray] = None
+
+    @property
+    def models(self) -> list:
+        return sorted(set(self.model.ravel().tolist())) if self.model is not None else []

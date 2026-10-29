@@ -256,7 +256,7 @@ A non-strict inequality $a \le b$ (or $a \ge b$) passes when it holds up to $10^
 \textbf{Run options and costs.}
 \begin{itemize}[leftmargin=1.5em]
   \item \texttt{objective\_mode} is \texttt{total}, \texttt{operating\_average} or \texttt{evaluation\_total}; in the last mode \texttt{evaluation\_horizon} is given. If \texttt{evaluation\_horizon} is given, in any mode, it is an integer $E > H_1$.
-  \item \texttt{mip\_gap} $\ge 0$; \texttt{time\_limit}, \texttt{progress\_interval\_seconds} and \texttt{relaxation\_time\_limit} are $> 0$; \texttt{gurobi\_params} and \texttt{validation} are mappings; \texttt{fast}, \texttt{relaxation\_warm\_start}, \texttt{allow\_replacement} and \texttt{replacement\_as\_new} are flags.
+  \item \texttt{mip\_gap} $\ge 0$; a value below $0$ that passes through the tolerance is set to $0$, because Gurobi refuses a negative gap; \texttt{time\_limit}, \texttt{progress\_interval\_seconds} and \texttt{relaxation\_time\_limit} are $> 0$; \texttt{gurobi\_params} and \texttt{validation} are mappings; \texttt{fast}, \texttt{relaxation\_warm\_start}, \texttt{allow\_replacement} and \texttt{replacement\_as\_new} are flags.
   \item $C_M$, $C_D$, $C_{R,i\ell}$ and $C_{\mathrm{rep},i\ell}$ are finite and $\ge 0$.
 \end{itemize}
 

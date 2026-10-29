@@ -1,0 +1,32 @@
+"""
+Shared Gurobi model layer for fleet management (model-agnostic skeleton).
+
+This module owns what does **not** depend on the degradation model of a cell:
+
+* the context ``FleetModel`` (sizes, shared variables, per-cell arrays, increment
+  accessor, run options) and the cell-builder registry;
+* the fleet rows (assignment, depot day, damage penalty) and the objective;
+* the helpers that the cell builders call: variables in ``prepare``, and in
+  ``add_cell`` the dynamics, replacement, anchor, loop, repair-cost and
+  reliability rows;
+* the result extraction, the cost report and the reports of ``solve_mixed``.
+
+A degradation model plugs in through a ``CellBuilder`` registered under its name,
+in the module ``fleet_management.degradation_model.<name>``, with the hooks
+``prepare(ctx, cfg, cells, opts)``, ``add_cell(ctx, i, l)`` and the optional
+``extract(ctx, cfg, out)``. ``build_fleet`` follows the building order of the
+spec: model, options and shared variables; ``prepare`` of each model in
+alphabetical order; objective and the rows that do not depend on the model;
+``add_cell`` of every cell, ``i`` outer and ``l`` inner.
+
+The dynamics have two encodings, chosen per cell: ``bigm`` (one-sided big-M rows)
+and ``indicator`` (a selector ``n`` and Gurobi indicator constraints). At binary
+points both have the same feasible set.
+
+The Gamma block below stays until the Gamma cell builder is rewritten (work
+package WP6 of the merge). It still calls helpers that no longer exist, so a
+Gamma cell fails when it is built.
+
+`base` must not import the model modules at import time (they import `base`);
+``build_fleet`` imports them lazily so that their registration happens.
+"""

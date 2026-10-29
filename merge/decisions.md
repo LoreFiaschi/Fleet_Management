@@ -34,14 +34,11 @@ Status: all 30 divergences decided (26 Oct 2026).
   `wp1_removals.md`). WP3 merged `lore` at 68ec120. Conflicts were resolved toward `main`'s code: `README.md` and
   `solver.py` from `main`; `lore`'s plotter removed (item "Plotting"). `lore`'s builders are in
   `src/fleet_management/models/` and `src/fleet_management/maintenance/`, as sources for WP6; no module of `main`
-  imports them. **WP4 and WP5 paused on 29 Oct 2026 (user: credit limit; resume when the user says so).** Workflow and
-  interface: `wp4_wp5_interface.md`; plans `wp4_plan.md`, `wp5_plan.md` (done). Four Sonnet executors were stopped
-  mid-task; their uncommitted edits are in the worktree (`config.py`, `solver.py`, `base.py`, `tests/test_config.py`,
-  `tests/test_io.py`). Progress at the stop: WP4 Task A done A1, next A2; WP4 Task B done B1-B2, next B3; WP5 Task A
-  done A1-A2, next A3; WP5 Task B not started. To resume: start one Sonnet executor per task with the same brief, told
-  to continue from its progress file (`...\scratchpad\wp4\task*_progress.md`, `...\scratchpad\wp5\task*_progress.md`;
-  copies with the local tools in `merge/wp45_work/`); then the two Opus planners review and correct; then Claude
-  commits.
+  imports them. **WP4 and WP5 done (29 Oct 2026), commit 5c8de19**: Opus plans, Sonnet executors, Opus reviews
+  (`wp4_wp5_interface.md`; `wp4_plan.md` and `wp5_plan.md`, each with its review in section 7). 73 tests of WP4 pass
+  here; `tests/test_base.py` needs Gurobi. The local tools of both packages (test runner, gurobipy stub, linear
+  emulator of gurobipy) are copied in `merge/wp45_work/` (final versions, after the reviews).
+  Next: WP6 (cell builders), after the user's go.
 - **Pending actions of the user:** read the spec and the scoping document; copy `lore`'s `test/` and `input/` folders
   into the repository (item "Tests and test inputs").
 - Documents plan: [`documents_plan.md`](documents_plan.md), agreed by the user on 26 Oct 2026.
