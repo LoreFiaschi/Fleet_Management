@@ -246,3 +246,22 @@ def _save_hdf5(result: dict, path: Path) -> None:
                 f.attrs[key] = np.asarray(value, dtype=np.int64)
             else:
                 f.attrs[key] = value.item() if isinstance(value, np.generic) else value
+
+
+# ---------------------------------------------------------------------------
+# Result files: reading
+# ---------------------------------------------------------------------------
+def read_result(path) -> dict:
+    """Read a result file of ``solve`` in any format: the keys of RESULT_KEYS, arrays as floats."""
+    path = Path(path)
+    if path.suffix.lower() not in RESULT_EXTENSIONS:
+        raise ValueError(
+            f"Unsupported result file type '{path.suffix}'. "
+            f"Supported types: {list(RESULT_EXTENSIONS)}"
+        )
+    data = read_input(path)
+    result = {key: data.get(key) for key in RESULT_KEYS}
+    for key in _HDF5_DATASET_KEYS:
+        if result[key] is not None:
+            result[key] = np.asarray(result[key], dtype=float)
+    return result

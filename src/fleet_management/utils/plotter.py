@@ -1,6 +1,13 @@
+"""The schedule plot and the sweep plot (spec, "Plotting API and Layout").
+
+``plot_management`` draws a result file of ``solve`` as a grid of cells and days with a
+summary panel. ``plot_horizon_sweep`` draws one or more reports of
+``sweep_operating_horizons`` over H2. A result file is read with ``solver.read_result``
+and a sweep report with ``config.read_input``.
+"""
+
 from __future__ import annotations
 
-import json
 import os
 import re
 from collections.abc import Sequence
@@ -11,25 +18,25 @@ import matplotlib.colors as mcolors
 import matplotlib.patches as mpatches
 import matplotlib.pyplot as plt
 import numpy as np
-import yaml
+
+from fleet_management.config import read_input
+from fleet_management.solver import read_result
 
 SUPPORTED_INPUT_EXTENSIONS = {".yaml", ".yml", ".json", ".h5", ".hdf5"}
 SUPPORTED_PLOT_EXTENSIONS = {".png", ".pdf"}
 ACTION_COLOURS = {
     "mission": "#173f5f", "idle": "#6b7280", "repair": "#f59e0b",
-    "replacement": "#8b5cf6", "mixed_intervention": "#dc2626",
-    "depot": "#111827",
+    "replacement": "#8b5cf6", "depot": "#111827",
 }
+REQUIRED_RESULT_KEYS = ("F", "M", "L", "H1", "H2", "tau", "mu_0", "mu", "x")
 
 
-def plot_mixed_management(input_file_path: str, plot_file_path: str | None = None) -> None:
-    """Plot a saved solver result as a schedule/degradation overview.
+def plot_management(input_file_path: str, plot_file_path: str | None = None) -> None:
+    """Plot a result file of ``solve`` (spec, "Schedule Plot").
 
-    Each vehicle/time cell is split into one strip per component, coloured by
-    physical expected damage divided by the failure threshold. Mission, idle,
-    repair and replacement decisions are annotated separately. A side panel
-    records the dimensions, degradation models, solve outcome and useful
-    formulation/performance statistics.
+    One row per cell (train, component), one column per day after the column
+    "initial"; the colour is the tracked mean over the failure threshold, the mark of
+    a day is P, R, M_j, D or I. A side panel summarises the run.
     """
     input_file = Path(input_file_path)
     if not input_file.exists():
@@ -51,7 +58,10 @@ def plot_mixed_management(input_file_path: str, plot_file_path: str | None = Non
     if not os.access(plot_path.parent, os.W_OK):
         raise PermissionError(f"Plot directory is not writable: {plot_path.parent}")
 
-    _draw_solution(_normalise_solution(_read_solution_input(input_file)), plot_path)
+    view = _normalise_solution(read_result(input_file), _read_presolve_log(input_file))
+    figure = _draw_solution(view)
+    figure.savefig(plot_path, dpi=170, bbox_inches="tight")
+    plt.close(figure)
 
 
 def plot_horizon_sweep(
@@ -93,9 +103,11 @@ def plot_horizon_sweep(
     if not os.access(plot_path.parent, os.W_OK):
         raise PermissionError(f"Plot directory is not writable: {plot_path.parent}")
 
-    reports = [_read_input(report_path) for report_path in report_paths]
+    reports = [read_input(report_path) for report_path in report_paths]
     merged_report = _merge_horizon_sweep_reports(reports)
-    _draw_horizon_sweep(_normalise_horizon_sweep(merged_report), plot_path)
+    figure = _draw_horizon_sweep(_normalise_horizon_sweep(merged_report))
+    figure.savefig(plot_path, dpi=170, bbox_inches="tight")
+    plt.close(figure)
 
 
 def _merge_horizon_sweep_reports(reports: list[dict[str, Any]]) -> dict[str, Any]:
@@ -124,6 +136,10 @@ def _merge_horizon_sweep_reports(reports: list[dict[str, Any]]) -> dict[str, Any
                 f"Horizon-sweep report {report_index} has no cases list."
             )
         for case in cases:
+            if not isinstance(case, dict) or case.get("H2") is None:
+                raise ValueError(
+                    f"Horizon-sweep report {report_index} has a case without H2."
+                )
             H2 = int(case["H2"])
             previous = selected.get(H2)
             if previous is None or _prefer_horizon_case(case, previous):
@@ -160,7 +176,9 @@ def _normalise_horizon_sweep(report: dict[str, Any]) -> dict[str, Any]:
         raise ValueError("Horizon-sweep report must contain a nonempty 'cases' list.")
 
     stopping_rule = report.get("stopping_rule") or {}
-    maximum_stopping_gap = float(stopping_rule.get("maximum_mip_gap_for_stopping", 0.05))
+    maximum_stopping_gap = _optional_float(
+        stopping_rule.get("maximum_mip_gap_for_stopping")
+    )
 
     rows: list[dict[str, Any]] = []
     for index, case in enumerate(cases):
@@ -171,6 +189,10 @@ def _normalise_horizon_sweep(report: dict[str, Any]) -> dict[str, Any]:
         status = str(case.get("status", "unknown"))
         cost = _optional_float(case.get("J_op_average"))
         mip_gap = _optional_float(case.get("mip_gap"))
+        has_feasible = (
+            cost is not None
+            and status not in {"infeasible", "inf_or_unbounded", "unbounded"}
+        )
         rows.append({
             "H2": int(case["H2"]),
             "T": int(case.get("T", int(report.get("H1", 0)) + int(case["H2"]))),
@@ -178,6 +200,7 @@ def _normalise_horizon_sweep(report: dict[str, Any]) -> dict[str, Any]:
             "cost": cost,
             "objective_bound": _optional_float(case.get("objective_bound")),
             "mip_gap": mip_gap,
+            "requested_mip_gap": _optional_float(case.get("requested_mip_gap")),
             "runtime": _optional_float(
                 timing.get("optimizer_call_seconds", case.get("optimizer_seconds"))
             ),
@@ -191,13 +214,8 @@ def _normalise_horizon_sweep(report: dict[str, Any]) -> dict[str, Any]:
             "linear_constraints": _optional_float(
                 formulation.get("linear_constraints")
             ),
-            "has_feasible": (
-                cost is not None
-                and status not in {"infeasible", "inf_or_unbounded", "unbounded"}
-            ),
-            "is_proven": (
-                status == "optimal"
-            ),
+            "has_feasible": has_feasible,
+            "is_proven": has_feasible and status == "optimal",
         })
     rows.sort(key=lambda row: row["H2"])
 
@@ -231,7 +249,8 @@ def _normalise_horizon_sweep(report: dict[str, Any]) -> dict[str, Any]:
     }
 
 
-def _draw_horizon_sweep(view: dict[str, Any], plot_path: Path) -> None:
+def _draw_horizon_sweep(view: dict[str, Any]):
+    """Return the figure of the sweep plot: panels (a), (b), (c) of the spec."""
     rows = view["rows"]
     h2 = np.asarray([row["H2"] for row in rows], dtype=float)
     costs = np.asarray([
@@ -268,17 +287,17 @@ def _draw_horizon_sweep(view: dict[str, Any], plot_path: Path) -> None:
         cost_ax.plot(h2, costs, color="#9ca3af", linewidth=1.5, zorder=1)
     cost_ax.scatter(h2[optimal], costs[optimal], s=72, marker="o",
                     facecolor="#2563eb", edgecolor="white", linewidth=0.9,
-                    label="proven optimal", zorder=3)
+                    label="proven (optimal)", zorder=3)
     cost_ax.scatter(h2[limited], costs[limited], s=82, marker="D",
                     facecolor="white", edgecolor="#d97706", linewidth=1.8,
-                    label="feasible", zorder=3)
+                    label="feasible, not proven", zorder=3)
     no_feasible = ~feasible
     if np.any(no_feasible):
         cost_ax.scatter(
             h2[no_feasible], np.full(np.count_nonzero(no_feasible), 0.02),
             transform=cost_ax.get_xaxis_transform(), clip_on=False,
             s=58, marker="x", color="#dc2626", linewidth=1.6,
-            label="no feasible solution found", zorder=4,
+            label="no feasible solution", zorder=4,
         )
 
     for row in rows:
@@ -306,39 +325,38 @@ def _draw_horizon_sweep(view: dict[str, Any], plot_path: Path) -> None:
     cost_ax.grid(axis="both", color="#e5e7eb", linewidth=0.8)
     cost_ax.legend(frameon=False, loc="best", fontsize=8)
 
-    gap_tolerance_percent = (100.0 * view["maximum_mip_gap_for_stopping"])
-    finite_gaps = feasible & np.isfinite(gaps)
-    if np.any(finite_gaps):
-        gap_percent = 100.0 * gaps
+    # Reference of panel (b): the stopping gap if it is a number, otherwise the
+    # requested MIP gap of each case.
+    if view["maximum_mip_gap_for_stopping"] is not None:
+        stopping_percent = 100.0 * view["maximum_mip_gap_for_stopping"]
         gap_ax.axhline(
-            gap_tolerance_percent,
-            color="#15803d",
-            linestyle="--",
-            linewidth=1.3,
-            label=f"{gap_tolerance_percent:g}% MIP-gap tolerance",
-            zorder=2,
+            stopping_percent, color="#15803d", linestyle="--", linewidth=1.3,
+            label=f"{stopping_percent:g}% stopping gap", zorder=2,
         )
-
-        gap_ax.plot(
-            h2,
-            gap_percent,
-            color="#9ca3af",
-            linewidth=1.2,
-            zorder=1,
-        )
-
+    else:
+        requested = [
+            (row["H2"], 100.0 * row["requested_mip_gap"]) for row in rows
+            if row["requested_mip_gap"] is not None
+        ]
+        if requested:
+            gap_ax.scatter(
+                [h for h, _ in requested], [g for _, g in requested],
+                s=160, marker="_", color="#15803d", linewidth=1.6,
+                label="requested MIP gap", zorder=2,
+            )
+    finite_gaps = feasible & np.isfinite(gaps)
     if np.any(finite_gaps):
         gap_percent = 100.0 * gaps
         gap_ax.plot(h2, gap_percent, color="#9ca3af", linewidth=1.2, zorder=1)
         gap_ax.scatter(
             h2[optimal], gap_percent[optimal], s=45, marker="o",
             facecolor="#2563eb", edgecolor="white", linewidth=0.7,
-            label="proven optimal", zorder=3,
+            label="proven (optimal)", zorder=3,
         )
         gap_ax.scatter(
             h2[limited], gap_percent[limited], s=48, marker="D",
             facecolor="white", edgecolor="#d97706", linewidth=1.5,
-            label="time-limited feasible", zorder=3,
+            label="feasible, not proven", zorder=3,
         )
         for row in rows:
             if row["mip_gap"] is None:
@@ -347,14 +365,17 @@ def _draw_horizon_sweep(view: dict[str, Any], plot_path: Path) -> None:
                 f"{100.0 * row['mip_gap']:.1f}%",
                 (row["H2"], 100.0 * row["mip_gap"]),
                 xytext=(0, 5), textcoords="offset points", ha="center",
-                fontsize=6.5, color="#4b5563", rotation=35,
+                fontsize=6.5, color="#4b5563", rotation=35, zorder=5,
+                # A white box keeps the label readable over the reference marks.
+                bbox={"boxstyle": "round,pad=0.1", "facecolor": "white",
+                      "edgecolor": "none", "alpha": 0.85},
             )
     if np.any(no_feasible):
         gap_ax.scatter(
             h2[no_feasible], np.full(np.count_nonzero(no_feasible), 0.96),
             transform=gap_ax.get_xaxis_transform(), clip_on=False,
             s=38, marker="x", color="#dc2626", linewidth=1.4,
-            label="no feasible solution; gap undefined", zorder=4,
+            label="no feasible solution", zorder=4,
         )
     gap_ax.set_title("MIP gap", loc="left", fontweight="bold")
     gap_ax.set_ylabel("Relative MIP gap [%]")
@@ -382,9 +403,8 @@ def _draw_horizon_sweep(view: dict[str, Any], plot_path: Path) -> None:
         f"{name}={view[name]}" for name in ("F", "M", "L", "H1")
         if view[name] is not None
     )
-    figure.suptitle("Operating-horizon sweep", x=0.02, y=0.975, ha="left",
-                    fontsize=16, fontweight="bold")
-    figure.text(0.02, 0.925, dimensions, fontsize=9, color="#4b5563")
+    figure.suptitle(f"Operating-horizon sweep ({dimensions})", x=0.02, y=0.975,
+                    ha="left", fontsize=16, fontweight="bold")
     figure.text(
         0.5, 0.035,
         "Lines connect sampled horizons only; they are not extrapolations. "
@@ -395,8 +415,7 @@ def _draw_horizon_sweep(view: dict[str, Any], plot_path: Path) -> None:
         left=0.075, right=0.925, top=0.84, bottom=0.15,
         wspace=0.32, hspace=0.42
     )
-    figure.savefig(plot_path, dpi=170, bbox_inches="tight")
-    plt.close(figure)
+    return figure
 
 
 def _readable_horizon_ticks(horizons: np.ndarray) -> np.ndarray:
@@ -416,80 +435,51 @@ def _optional_float(value: Any) -> float | None:
     return None if value is None else float(value)
 
 
-def _normalise_solution(data: dict[str, Any]) -> dict[str, Any]:
-    required = ("F", "M", "mu_0", "mu", "x")
-    missing = [key for key in required if data.get(key) is None]
+def _normalise_solution(data: dict[str, Any], presolved: dict[str, int]) -> dict[str, Any]:
+    """Check a result mapping against the spec's shapes and build the view of the plot.
+
+    ``presolved`` holds the counts parsed from ``runner.out``, or is empty.
+    """
+    missing = [key for key in REQUIRED_RESULT_KEYS if data.get(key) is None]
     if missing:
         raise ValueError(
-            "The result does not contain a plottable feasible case; missing "
-            + ", ".join(missing)
+            "The result has no plottable solution; missing keys: " + ", ".join(missing)
         )
 
-    F, M, L = int(data["F"]), int(data["M"]), int(data.get("L", 1))
+    F, M, L = int(data["F"]), int(data["M"]), int(data["L"])
+    H1, H2 = int(data["H1"]), int(data["H2"])
+    tau = np.asarray(data["tau"], dtype=float)
     mu_0 = np.asarray(data["mu_0"], dtype=float)
     mu = np.asarray(data["mu"], dtype=float)
     x = np.asarray(data["x"], dtype=float)
-    if mu_0.ndim == 1:
-        mu_0 = mu_0[:, None]
-    if mu.ndim == 2:
-        mu = mu[:, None, :]
-    if mu_0.shape != (F, L):
-        raise ValueError(f"mu_0 has shape {mu_0.shape}; expected {(F, L)}")
-    if mu.shape[:2] != (F, L):
+    for name, value in (("tau", tau), ("mu_0", mu_0)):
+        if value.shape != (F, L):
+            raise ValueError(f"{name} has shape {value.shape}; expected {(F, L)}")
+    if mu.ndim != 3 or mu.shape[:2] != (F, L):
         raise ValueError(f"mu has shape {mu.shape}; expected ({F}, {L}, T)")
-
-    T = int(mu.shape[-1])
+    T = int(mu.shape[2])
+    if data.get("T") is not None and int(data["T"]) != T:
+        raise ValueError(f"mu has {T} days; the key T is {data['T']}")
+    if H1 + H2 != T:
+        raise ValueError(f"H1 + H2 must equal T; got {H1} + {H2} != {T}")
     if x.shape != (F, M + 1, T):
         raise ValueError(f"x has shape {x.shape}; expected {(F, M + 1, T)}")
-    threshold = data.get("alpha") if data.get("alpha") is not None else data.get("tau", 1.0)
-    tau = _cell_grid(threshold, F, L, "alpha/tau")
+    m = _optional_array(data, "m", (F, L, T))
+    r = _optional_array(data, "r", (F, L, T))
+    # A result with a solution holds finite numbers in these arrays; a null entry of a
+    # file is read as NaN and would give a cell without colour or a false mark "I".
+    for name, value in (("tau", tau), ("mu_0", mu_0), ("mu", mu), ("x", x), ("m", m), ("r", r)):
+        if not np.all(np.isfinite(value)):
+            raise ValueError(f"{name} has an entry that is not a finite number")
     if np.any(tau <= 0.0):
         raise ValueError("All degradation thresholds must be positive.")
 
-    H1 = int(data.get("H1", _legacy_h1(data.get("H"), T)))
-    H2 = int(data.get("H2", T - H1))
-    if H1 + H2 != T:
-        raise ValueError(f"H1 + H2 must equal T; got {H1} + {H2} != {T}")
-
-    m = _optional_array(data, "m", (F, L, T))
-    r = _optional_array(data, "r", (F, L, T))
-
-    # Prefer the counts recorded from Gurobi's presolved model when they are
-    # available.  Older result files fall back to the original model counts.
-    performance = data.get("performance") or {}
-    actual = (data.get("gamma_formulation") or {}).get(
-        "actual_gurobi_model"
-    ) or {}
-    presolved = (
-        data.get("presolved_performance")
-        or performance.get("presolved_performance")
-        or performance.get("presolved_model")
-        or {}
-    )
-    variable_counts = presolved if presolved else performance
-
-    variables = variable_counts.get(
-        "variables", performance.get("variables", actual.get("variables"))
-    )
-    continuous_variables = variable_counts.get(
-        "continuous_variables",
-        performance.get(
-            "continuous_variables", actual.get("continuous_variables")
-        ),
-    )
-    integer_variables = variable_counts.get(
-        "integer_variables",
-        performance.get("integer_variables", actual.get("integer_variables")),
-    )
-    linear_rows = variable_counts.get(
-        "linear_rows",
-        variable_counts.get(
-            "linear_constraints",
-            performance.get(
-                "linear_constraints", actual.get("linear_constraints")
-            ),
-        ),
-    )
+    # Counts of the summary panel: the presolved counts of runner.out if that log
+    # exists, otherwise the counts of the original model in ``performance``.
+    if presolved:
+        counts, counts_source = presolved, "runner.out (presolved)"
+    else:
+        counts, counts_source = data.get("performance") or {}, "performance"
 
     grid = np.empty((F, L, T + 1), dtype=float)
     grid[:, :, 0], grid[:, :, 1:] = mu_0, mu
@@ -498,20 +488,20 @@ def _normalise_solution(data: dict[str, Any]) -> dict[str, Any]:
         "x": x, "m": m, "r": r, "grid": grid, "tau": tau,
         "models": _model_grid(data, F, L),
         "component_names": _component_names(data, L),
-        "variables": variables,
-        "continuous_variables": continuous_variables,
-        "integer_variables": integer_variables,
-        "linear_rows": linear_rows,
-        "formulation_scope": "presolved" if presolved else "original",
-        # Count component actions, not distinct vehicle visits.  If two
-        # components are repaired during the same depot visit, this is two
-        # repaired components.
-        "repaired_components": int(np.count_nonzero(m > 0.5)),
-        "replaced_components": int(np.count_nonzero(r > 0.5)),
+        "variables": counts.get("variables"),
+        "continuous_variables": counts.get("continuous_variables"),
+        "integer_variables": counts.get("integer_variables"),
+        "linear_rows": counts.get("linear_constraints"),
+        "counts_source": counts_source,
+        # Count component actions, not train visits: two components repaired on
+        # the same depot day are two repairs.
+        "repairs": int(np.count_nonzero(m > 0.5)),
+        "replacements": int(np.count_nonzero(r > 0.5)),
     }
 
 
-def _draw_solution(view: dict[str, Any], plot_path: Path) -> None:
+def _draw_solution(view: dict[str, Any]):
+    """Return the figure of the schedule plot: the grid and the summary panel."""
     F, M, L, T = (view[key] for key in ("F", "M", "L", "T"))
     H1, H2, n_cols = view["H1"], view["H2"], T + 1
     width = max(11.5, min(24.0, 0.64 * n_cols + 6.2))
@@ -550,16 +540,16 @@ def _draw_solution(view: dict[str, Any], plot_path: Path) -> None:
     ax.set_xlim(-0.5, n_cols - 0.5)
     ax.set_ylim(row_count - 0.5, -0.5)
     ax.set_xticks(range(n_cols))
-    ax.set_xticklabels(["initial", *range(T)], rotation=45 if T > 12 else 0,
+    ax.set_xticklabels(["initial", *range(1, T + 1)], rotation=45 if T > 12 else 0,
                        ha="right" if T > 12 else "center")
     ax.set_yticks(range(row_count))
     ax.set_yticklabels([
         _component_row_label(view, i, l)
         for i in range(F) for l in range(L)
     ])
-    ax.set_xlabel("Time step")
-    ax.set_ylabel("Vehicle and component model")
-    ax.set_title("Schedule and physical expected damage", loc="left", pad=42,
+    ax.set_xlabel("Day")
+    ax.set_ylabel("Train and component")
+    ax.set_title("Schedule and tracked mean degradation", loc="left", pad=42,
                  fontweight="bold")
 
     for row in range(row_count + 1):
@@ -571,7 +561,7 @@ def _draw_solution(view: dict[str, Any], plot_path: Path) -> None:
     if 0 < H1 < T:
         ax.axvline(H1 + 0.5, color="#2563eb", linewidth=2.0, linestyle="--")
         ax.text(
-            (H1 + 1) / 2, 1.015, "initialization",
+            (H1 + 1) / 2, 1.015, "transitory",
             transform=ax.get_xaxis_transform(), ha="center", va="bottom",
             color="#2563eb", fontsize=8,
         )
@@ -583,26 +573,26 @@ def _draw_solution(view: dict[str, Any], plot_path: Path) -> None:
 
     scalar = plt.cm.ScalarMappable(cmap=cmap, norm=norm)
     scalar.set_array([])
-    fig.colorbar(scalar, ax=ax, label="physical mean / failure threshold",
+    fig.colorbar(scalar, ax=ax, label="tracked mean / failure threshold",
                  fraction=0.032, pad=0.02)
     handles = [mpatches.Patch(facecolor="white", edgecolor=colour, label=label)
-               for label, colour in (("M$_j$ mission", ACTION_COLOURS["mission"]),
-                                     ("I idle", ACTION_COLOURS["idle"]),
+               for label, colour in (("P replacement", ACTION_COLOURS["replacement"]),
                                      ("R repair", ACTION_COLOURS["repair"]),
-                                     ("P replacement", ACTION_COLOURS["replacement"]))]
+                                     ("M$_j$ mission $j$", ACTION_COLOURS["mission"]),
+                                     ("D depot, no intervention", ACTION_COLOURS["depot"]),
+                                     ("I idle train", ACTION_COLOURS["idle"]))]
     ax.legend(handles=handles, loc="upper center", bbox_to_anchor=(0.5, -0.17),
               ncol=5, frameon=False, fontsize=8)
     _draw_statistics(stats_ax, view)
     fig.suptitle("Fleet-management result overview", x=0.02, ha="left",
                  fontsize=15, fontweight="bold")
-    fig.savefig(plot_path, dpi=170, bbox_inches="tight")
-    plt.close(fig)
+    return fig
 
 
 def _component_action_label(
     view: dict[str, Any], i: int, l: int, k: int, M: int
 ) -> tuple[str, str]:
-    """Return the action applied to one vehicle-component cell."""
+    """Return the mark of cell (i, l) on day index k: the first rule that applies."""
     if view["r"][i, l, k] > 0.5:
         return "P", "replacement"
     if view["m"][i, l, k] > 0.5:
@@ -610,41 +600,39 @@ def _component_action_label(
     assigned = np.flatnonzero(view["x"][i, 1:M + 1, k] > 0.5)
     if assigned.size:
         return f"M{int(assigned[0]) + 1}", "mission"
+    if view["x"][i, 0, k] > 0.5:
+        return "D", "depot"
     return "I", "idle"
 
 
 def _draw_statistics(ax, view: dict[str, Any]) -> None:
     data, performance = view["raw"], view["raw"].get("performance") or {}
-    status = str(data.get("status", "unknown"))
-    status_colour = {"optimal": "#15803d", "time_limit": "#b45309",
-                     "infeasible": "#b91c1c"}.get(status, "#374151")
+    status = data.get("status")
+    if status is None:
+        status_text, status_colour = "unknown", "#374151"
+    else:
+        status_text = str(status).replace("_", " ")
+        status_colour = "#15803d" if status == "optimal" else "#b45309"
     lines = [
-        ("Status", status.replace("_", " "), status_colour),
+        ("Status", status_text, status_colour),
         ("Objective", _number(data.get("objective")), "#111827"),
         ("Dimensions", f"F={view['F']}, M={view['M']}, L={view['L']}", "#111827"),
         ("Horizon", f"H1={view['H1']}, H2={view['H2']}, T={view['T']}", "#111827"),
-        ("Models", ", ".join(_unique_models(view["models"])), "#111827"),
-        ("Repair", _compact(data.get("repair_model")), "#111827"),
+        ("Models", ", ".join(_unique_values(view["models"].tolist())), "#111827"),
+        ("Repair laws", ", ".join(_unique_values(data.get("repair_model"))) or "-",
+         "#111827"),
     ]
     if data.get("objective_mode") is not None:
         lines += [("Objective mode", _compact(data.get("objective_mode")), "#111827"),
                   ("J_op / H2", _number(data.get("J_op_average")), "#111827")]
     if data.get("mip_gap") is not None:
         lines.append(("MIP gap", f"{100.0 * float(data['mip_gap']):.2f}%", "#111827"))
-    scope = view.get("formulation_scope", "original")
-    variable_label = (
-        "Presolved variables" if scope == "presolved" else "Original variables"
-    )
-    row_label = (
-        "Presolved linear rows"
-        if scope == "presolved"
-        else "Original linear rows"
-    )
+    lines.append(("Counts from", view["counts_source"], "#111827"))
     for label, key in (
-        (variable_label, "variables"),
+        ("Variables", "variables"),
         ("Continuous variables", "continuous_variables"),
         ("Integer variables", "integer_variables"),
-        (row_label, "linear_rows"),
+        ("Linear rows", "linear_rows"),
     ):
         value = view.get(key)
         if value is not None:
@@ -655,8 +643,8 @@ def _draw_statistics(ax, view: dict[str, Any]) -> None:
         lines.append(("B&B nodes", f"{float(performance['branch_and_bound_nodes']):,.0f}", "#111827"))
 
     lines += [
-        ("Repaired components", str(view["repaired_components"]), "#111827"),
-        ("Replaced components", str(view["replaced_components"]), "#111827"),
+        ("Repairs", str(view["repairs"]), "#111827"),
+        ("Replacements", str(view["replacements"]), "#111827"),
     ]
 
     ax.set_axis_off()
@@ -669,37 +657,25 @@ def _draw_statistics(ax, view: dict[str, Any]) -> None:
                 color=colour, va="top", wrap=True,
                 fontweight="bold" if label == "Status" else "normal")
         y -= 0.058
-    ax.text(0.0, max(0.02, y - 0.02),
-            "Cell colour shows the physical expected-damage state.\n"
-            "Gamma reliability uses a separate bounding-shape state.",
-            transform=ax.transAxes, fontsize=7.7, color="#4b5563", va="top",
-            bbox={"boxstyle": "round,pad=0.45", "facecolor": "#f3f4f6",
-                  "edgecolor": "#d1d5db"})
 
 
 def _model_grid(data: dict[str, Any], F: int, L: int) -> np.ndarray:
-    candidate = data.get("model_assignment")
-    if candidate is None:
-        candidate = data.get("reliability_impl")
-    if candidate is None:
-        candidate = data.get("models", data.get("degradation", "unknown"))
-    arr = np.asarray(candidate, dtype=object)
-    if arr.ndim == 0 or arr.size == 1:
-        return np.full((F, L), str(arr.reshape(-1)[0]), dtype=object)
-    if arr.shape == (L,):
-        return np.tile(arr.reshape(1, L), (F, 1)).astype(object)
-    if arr.shape == (F, L):
-        return arr.astype(object)
-    label = "/".join(str(value) for value in arr.ravel())
-    return np.full((F, L), label, dtype=object)
+    """The model name of each cell, from the key ``model``; "unknown" if it is missing."""
+    value = data.get("model")
+    if value is None:
+        return np.full((F, L), "unknown", dtype=object)
+    arr = np.asarray(value, dtype=object)
+    if arr.shape != (F, L):
+        raise ValueError(f"model has shape {arr.shape}; expected {(F, L)}")
+    return arr
 
 
 def _component_names(data: dict[str, Any], L: int) -> list[str]:
     names = data.get("component_names")
     if names is None:
         return [f"Component {l + 1}" for l in range(L)]
-    if isinstance(names, str):
-        names = [names]
+    if not isinstance(names, list):
+        raise ValueError(f"component_names is not a list; got {names!r}")
     if len(names) != L:
         raise ValueError(f"component_names has length {len(names)}; expected {L}")
     return [str(name) for name in names]
@@ -707,42 +683,21 @@ def _component_names(data: dict[str, Any], L: int) -> list[str]:
 
 def _component_row_label(view: dict[str, Any], i: int, l: int) -> str:
     component = view["component_names"][l]
-    model = _model_abbreviation(view["models"][i, l])
-    return f"Vehicle {i + 1} — {component}\n{model}"
+    return f"Train {i + 1} — {component}\n{view['models'][i, l]}"
 
 
-def _model_abbreviation(value: Any) -> str:
-    text = str(value).lower()
-
-    if "gamma" in text:
-        return "Gamma"
-
-    if ("rain" in text or "remaining" in text or text == "exact"):
-        return "Remaining-life"
-
-    return str(value)
-
-
-def _unique_models(model_grid: np.ndarray) -> list[str]:
+def _unique_values(value: Any) -> list[str]:
+    """The distinct strings of a string or a nested list, in order of first appearance."""
+    if value is None:
+        return []
+    if not isinstance(value, list):
+        return [str(value)]
     seen: list[str] = []
-    for value in model_grid.ravel():
-        label = _model_abbreviation(value)
-        if label not in seen:
-            seen.append(label)
+    for item in value:
+        for text in _unique_values(item):
+            if text not in seen:
+                seen.append(text)
     return seen
-
-
-def _cell_grid(value: Any, F: int, L: int, name: str) -> np.ndarray:
-    arr = np.asarray(value, dtype=float)
-    if arr.ndim == 0 or arr.size == 1:
-        return np.full((F, L), float(arr.reshape(-1)[0]))
-    if arr.shape == (L,):
-        return np.tile(arr.reshape(1, L), (F, 1))
-    if arr.shape == (F,):
-        return np.tile(arr.reshape(F, 1), (1, L))
-    if arr.shape == (F, L):
-        return arr
-    raise ValueError(f"{name} has shape {arr.shape}; expected scalar, ({L},), ({F},), or ({F}, {L})")
 
 
 def _optional_array(data: dict[str, Any], key: str, shape: tuple[int, ...]) -> np.ndarray:
@@ -754,65 +709,38 @@ def _optional_array(data: dict[str, Any], key: str, shape: tuple[int, ...]) -> n
     return arr
 
 
-def _legacy_h1(value: Any, T: int) -> int:
-    if isinstance(value, (list, tuple)) and len(value) == 2:
-        return int(value[0])
-    return int(value) if value is not None else T // 2
-
-
 def _resolve_plot_path(plot_file_path: str | None) -> Path:
     path = Path("output.png" if plot_file_path is None else plot_file_path)
     return path.with_suffix(".png") if path.suffix == "" else path
 
 
-def _read_input(input_file: Path) -> dict[str, Any]:
-    extension = input_file.suffix.lower()
-    if extension in {".yaml", ".yml"}:
-        return yaml.safe_load(input_file.read_text(encoding="utf-8"))
-    if extension == ".json":
-        return json.loads(input_file.read_text(encoding="utf-8"))
-    if extension in {".h5", ".hdf5"}:
-        return _read_hdf5(input_file)
-    raise ValueError(f"Unsupported input file type: {extension}")
+def _read_presolve_log(input_file: Path) -> dict[str, int]:
+    """Presolved counts from the Gurobi log ``runner.out`` beside the result file.
 
-
-def _read_solution_input(input_file: Path) -> dict[str, Any]:
-    """Read a solution and supplement it with Gurobi presolve statistics.
-
-    New result files may save these counts as ``presolved_performance``.  For
-    older archived runs, Gurobi's ``runner.out`` is the only source of the
-    presolved rows and columns, so parse that sibling file when necessary.
+    Empty if there is no such file or it has no presolve lines (spec, "Summary panel").
     """
-    data = _read_input(input_file)
-    performance = data.get("performance") or {}
-    if (
-        data.get("presolved_performance")
-        or performance.get("presolved_performance")
-        or performance.get("presolved_model")
-    ):
-        return data
-
     log_path = input_file.parent / "runner.out"
     if not log_path.is_file():
-        return data
-
-    presolved = _parse_gurobi_presolve(
+        return {}
+    return _parse_gurobi_presolve(
         log_path.read_text(encoding="utf-8", errors="replace")
     )
-    if presolved:
-        data["presolved_performance"] = presolved
-    return data
 
 
 def _parse_gurobi_presolve(log_text: str) -> dict[str, int]:
-    """Extract the main presolved model size from a Gurobi text log."""
-    model_match = re.search(
+    """Extract the presolved model size from a Gurobi text log.
+
+    The main solve is the last one in the log (the warm-start completion and the
+    relaxed copy run before it), so the last "Presolved:" line is used.
+    """
+    model_matches = list(re.finditer(
         r"^Presolved:\s*([\d,]+)\s+rows,\s*([\d,]+)\s+columns(?:,.*)?$",
         log_text,
         flags=re.MULTILINE,
-    )
-    if model_match is None:
+    ))
+    if not model_matches:
         return {}
+    model_match = model_matches[-1]
 
     following_text = log_text[model_match.end() :]
     types_match = re.search(
@@ -837,31 +765,6 @@ def _parse_gurobi_presolve(log_text: str) -> dict[str, int]:
     if types_match.group(3) is not None:
         result["binary_variables"] = count(types_match.group(3))
     return result
-
-
-def _read_hdf5(path: Path) -> dict[str, Any]:
-    try:
-        import h5py
-    except ImportError as exc:
-        raise ImportError(
-            "Reading HDF5 result files requires the optional 'h5py' package."
-        ) from exc
-
-    data: dict[str, Any] = {}
-    with h5py.File(path, "r") as handle:
-        for key, value in handle.attrs.items():
-            if isinstance(value, bytes):
-                value = value.decode("utf-8")
-            if isinstance(value, str) and value[:1] in {"{", "["}:
-                try:
-                    value = json.loads(value)
-                except json.JSONDecodeError:
-                    pass
-            data[key] = value.tolist() if isinstance(value, np.ndarray) else value
-        for key, dataset in handle.items():
-            value = dataset[()]
-            data[key] = value.tolist() if isinstance(value, np.ndarray) else value
-    return data
 
 
 def _number(value: Any) -> str:

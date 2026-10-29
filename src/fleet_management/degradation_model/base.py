@@ -289,83 +289,165 @@ def _append_final_progress(model) -> None:
         records[-1] = record
 
 
-def apply_binary_warm_start(ctx: FleetModel, result: dict | None) -> dict:
-    """Map a previous schedule onto the current horizon as a Gurobi MIP start.
+WARM_START_MODES = ("start", "hint", "both")
 
-    Initialization steps retain their index. Operating steps repeat the old H2
-    schedule cyclically, allowing a solved shorter horizon to seed a longer
-    candidate. Only discrete schedule/action variables are started; Gurobi
-    reconstructs all continuous degradation states from the constraints.
+
+def _check_warm_start_mode(mode) -> None:
+    """``ValueError`` unless ``mode`` is in ``WARM_START_MODES`` (spec, "Interface and Reports")."""
+    if mode not in WARM_START_MODES:
+        raise ValueError(f"warm_start_mode must be 'start', 'hint' or 'both'; got {mode!r}.")
+
+
+def _source_horizon(source: dict) -> tuple[int, int]:
+    """``H1`` and ``H2`` of a warm-start source: integers >= 1, else ``ValueError``.
+
+    A number with zero fractional part, such as ``3.0``, is accepted; ``2.7`` and a flag
+    are not (the rule of the integer input keys).
     """
-    diagnostics = {"applied": False, "values": 0, "source_horizon": None}
-    if not result or result.get("x") is None:
-        return diagnostics
+    values = []
+    for key in ("H1", "H2"):
+        value = source.get(key)
+        integral = (
+            isinstance(value, (int, float, np.integer, np.floating))
+            and not isinstance(value, (bool, np.bool_))
+            and math.isfinite(value)
+            and float(value).is_integer()
+            and value >= 1
+        )
+        if not integral:
+            raise ValueError(
+                "a warm-start source must carry the integers 'H1' and 'H2' (both >= 1); "
+                f"got {key}={value!r}."
+            )
+        values.append(int(value))
+    return values[0], values[1]
 
-    old_h1 = int(result.get("H1", ctx.H1))
-    old_h2 = int(result.get("H2", max(1, np.asarray(result["x"]).shape[-1] - old_h1)))
-    x_old = np.asarray(result["x"], dtype=float)
-    m_old = None if result.get("m") is None else np.asarray(result["m"], dtype=float)
-    r_old = None if result.get("r") is None else np.asarray(result["r"], dtype=float)
 
-    def old_step(k: int) -> int:
-        if k < ctx.H1 and k < old_h1:
-            return k
-        return old_h1 + ((max(0, k - ctx.H1)) % old_h2)
+def warm_start_day(k: int, H1: int, source_H1: int, source_H2: int) -> int:
+    """Source day (0-based) whose values day ``k`` takes (spec, "Day Mapping", Eq. d_daymap).
+
+    The initialization days keep their index while both horizons have them. Every
+    later day repeats the operating days of the source cyclically.
+    """
+    if k < min(H1, source_H1):
+        return k
+    return source_H1 + max(0, k - H1) % source_H2
+
+
+def apply_binary_warm_start(ctx: FleetModel, source: dict | None, mode: str = "start") -> dict:
+    """Map a source onto the horizon of the model as values of the binary variables.
+
+    Spec, "Interface and Reports", "Day Mapping" and "Start, Hints and Completion".
+    ``source`` carries ``x`` ``(F', M'+1, T')``, the integers ``H1`` and ``H2`` with
+    ``T' = H1 + H2``, and may carry ``m`` and ``r`` ``(F', L', T')``. Day ``k`` takes
+    the values of the source day ``warm_start_day`` (Eq. d_daymap), rounded to the
+    nearest integer, for the indices that the source and the model both have. The
+    mode ``"start"`` sets ``Start``, ``"hint"`` sets ``VarHintVal`` and ``"both"``
+    sets both. ``x`` takes the value of ``x'``; ``x^m`` that of ``m'`` (``0`` if the
+    source has no ``m``); ``x^r`` that of ``r'``. The selector ``n`` takes
+    ``max(0, 1 - x^m - x^r)``, or ``0`` if one of them is ``1``. A source without ``x``
+    has no effect. Gurobi reconstructs the continuous variables.
+
+    Returns the report ``warm_start`` without ``completion``: ``applied``, ``values``
+    (the variables that got a value), ``mode`` and ``source_horizon``. Raises
+    ``ValueError`` for an unknown mode, for ``H1`` or ``H2`` that are not integers >= 1,
+    and for ``x``, ``m`` or ``r`` whose shape is not three axes with ``T'`` days.
+    """
+    _check_warm_start_mode(mode)
+    if not source or source.get("x") is None:
+        return {"applied": False, "values": 0, "mode": None, "source_horizon": None}
+    H1_src, H2_src = _source_horizon(source)
+    T_src = H1_src + H2_src
+    x_src = np.asarray(source["x"], dtype=float)
+    if x_src.ndim != 3 or x_src.shape[2] != T_src:
+        raise ValueError(
+            f"'x' of a warm-start source must have the shape (F', M'+1, {T_src}); "
+            f"got {x_src.shape}."
+        )
+    m_src = None if source.get("m") is None else np.asarray(source["m"], dtype=float)
+    r_src = None if source.get("r") is None else np.asarray(source["r"], dtype=float)
+    for key, array in (("m", m_src), ("r", r_src)):
+        if array is not None and (array.ndim != 3 or array.shape[2] != T_src):
+            raise ValueError(
+                f"'{key}' of a warm-start source must have the shape (F', L', {T_src}); "
+                f"got {array.shape}."
+            )
+
+    def set_value(var, value: float) -> None:
+        if mode in ("start", "both"):
+            var.Start = value
+        if mode in ("hint", "both"):
+            var.VarHintVal = value
 
     values = 0
     for k in range(ctx.T):
-        source_k = old_step(k)
-        if source_k >= x_old.shape[-1]:
-            continue
-        for i in range(min(ctx.F, x_old.shape[0])):
-            for j in range(min(ctx.M + 1, x_old.shape[1])):
-                ctx.x[i, j, k].Start = float(round(x_old[i, j, source_k]))
+        day = warm_start_day(k, ctx.H1, H1_src, H2_src)
+        for i in range(min(ctx.F, x_src.shape[0])):
+            for j in range(min(ctx.M + 1, x_src.shape[1])):
+                set_value(ctx.x[i, j, k], float(round(x_src[i, j, day])))
                 values += 1
             for l in range(ctx.L):
-                if m_old is not None and i < m_old.shape[0] and l < m_old.shape[1]:
-                    m_value = float(round(m_old[i, l, source_k]))
-                    ctx.m_rep[i, l, k].Start = m_value
-                    values += 1
-                else:
+                if m_src is None:
                     m_value = 0.0
-                r_value = 0.0
-                if ctx.allow_replacement and r_old is not None:
-                    if i < r_old.shape[0] and l < r_old.shape[1]:
-                        r_value = float(round(r_old[i, l, source_k]))
-                        ctx.r_rep[i, l, k].Start = r_value
-                        values += 1
+                elif i < m_src.shape[0] and l < m_src.shape[1]:
+                    m_value = float(round(m_src[i, l, day]))
+                else:
+                    m_value = None
+                if ctx.r_rep is None:
+                    r_value = 0.0
+                elif r_src is not None and i < r_src.shape[0] and l < r_src.shape[1]:
+                    r_value = float(round(r_src[i, l, day]))
+                else:
+                    r_value = None
+                if m_value is not None:
+                    set_value(ctx.m_rep[i, l, k], m_value)
+                    values += 1
+                if r_value is not None and ctx.r_rep is not None:
+                    set_value(ctx.r_rep[i, l, k], r_value)
+                    values += 1
                 if (i, l, k) in ctx.nb:
-                    ctx.nb[i, l, k].Start = max(
-                        0.0, 1.0 - m_value - r_value
-                    )
+                    if m_value is not None and r_value is not None:
+                        n_value = max(0.0, 1.0 - m_value - r_value)
+                    elif m_value == 1.0 or r_value == 1.0:
+                        n_value = 0.0
+                    else:
+                        continue
+                    set_value(ctx.nb[i, l, k], n_value)
                     values += 1
 
-    diagnostics.update({
-        "applied": values > 0,
-        "values": values,
-        "source_horizon": {"H1": old_h1, "H2": old_h2},
-    })
-    return diagnostics
+    return {"applied": values > 0, "values": values, "mode": mode,
+            "source_horizon": [H1_src, H2_src]}
 
 
 def complete_binary_warm_start(
     model: gp.Model,
-    result: dict | None,
-    diagnostics: dict,
+    source: dict | None,
+    report: dict,
+    mode: str = "start",
 ) -> dict:
-    """Complete a greedy discrete start by solving its fixed-binary model.
+    """Complete a discrete start by solving its fixed-binary model.
+
+    Spec, "Start, Hints and Completion".
 
     Gurobi can attempt to complete a partial MIP start itself, but that effort
     is deliberately limited and may reject a feasible discrete schedule before
     reconstructing the many continuous degradation and product variables.  A
-    greedy start may therefore request this explicit phase: copy the complete
-    model, fix every initialized integer variable, solve the remaining model,
-    and copy the resulting full solution back through ``Start`` attributes.
+    source may therefore request this explicit phase (``complete_binary_start``,
+    as the greedy heuristic does): copy the complete model, fix every binary
+    variable that has a ``Start`` value, solve the remaining model within
+    ``completion_time_limit`` of the source, and copy the resulting full solution
+    back through ``Start`` attributes.
+
+    The completion runs only in the modes ``"start"`` and ``"both"``, and only if
+    the mapping set at least one value (``report["applied"]``). Otherwise the status
+    stays ``"not_requested"``; ``requested`` is always the flag of the source. An
+    unknown mode raises ``ValueError``.
 
     The original model is never relaxed.  A completed start is therefore a
     feasible point of exactly the model that will subsequently be optimized.
     """
-    requested = bool(result and result.get("complete_binary_start", False))
+    _check_warm_start_mode(mode)
+    requested = bool(source and source.get("complete_binary_start", False))
     completion = {
         "requested": requested,
         "status": "not_requested",
@@ -374,9 +456,9 @@ def complete_binary_warm_start(
         "runtime_seconds": None,
         "iis_constraints": [],
     }
-    diagnostics["completion"] = completion
-    if not requested or not diagnostics.get("applied", False):
-        return diagnostics
+    report["completion"] = completion
+    if not (requested and mode in ("start", "both") and report.get("applied", False)):
+        return report
 
     model.update()
     fixed = model.copy()
@@ -401,7 +483,7 @@ def complete_binary_warm_start(
     fixed.Params.LogToConsole = 0
     fixed.Params.LogFile = ""
     fixed.Params.TimeLimit = float(
-        result.get("completion_time_limit", 60.0)
+        source.get("completion_time_limit", 60.0)
     )
     fixed.optimize()
     completion["runtime_seconds"] = float(fixed.Runtime)
@@ -435,7 +517,7 @@ def complete_binary_warm_start(
             completion["iis_constraints"] = (rows + general)[:50]
 
     fixed.dispose()
-    return diagnostics
+    return report
 
 
 def apply_relaxation_warm_start(
@@ -445,11 +527,13 @@ def apply_relaxation_warm_start(
 ) -> dict:
     """Solve an optional phase-I feasibility relaxation and copy a MIP start.
 
+    Spec, "Relaxation Start".
+
     Gurobi relaxes linear rows with an L1 violation objective while retaining
     integrality and the model's general constraints. The relaxed solution is
-    *not* reported as feasible for the original problem: only its discrete
-    values are copied as hints, and the original model must still establish a
-    valid incumbent.
+    *not* reported as feasible for the original problem: its integer values become
+    ``Start`` values, and the original model must still establish a valid
+    incumbent. The relaxed copy is disposed of before the function returns.
     """
     diagnostics = {
         "enabled": True,
@@ -470,6 +554,7 @@ def apply_relaxation_warm_start(
     diagnostics["runtime_seconds"] = float(relaxed.Runtime)
     diagnostics["status"] = status_string(relaxed.Status)
     if int(relaxed.SolCount) <= 0:
+        relaxed.dispose()
         return diagnostics
 
     diagnostics["relaxation_objective"] = float(relaxed.ObjVal)
@@ -484,6 +569,7 @@ def apply_relaxation_warm_start(
         variable.Start = float(round(source.X))
         copied += 1
     diagnostics["values_copied"] = copied
+    relaxed.dispose()
     return diagnostics
 
 
@@ -1254,26 +1340,17 @@ def solve_mixed(cfg, *, warm_start=None, warm_start_mode: str = "start") -> dict
     builder registered for its model. The run options are ``cfg.options``. The
     result is the dictionary of the spec ("Result Dictionary"), reports included.
     """
-    if warm_start_mode not in ("start", "hint", "both"):
-        raise ValueError(
-            f"warm_start_mode must be 'start', 'hint' or 'both'; got {warm_start_mode!r}."
-        )
-    has_source = warm_start is not None and warm_start.get("x") is not None
-    if has_source and warm_start_mode != "start":
-        raise NotImplementedError(
-            f"warm_start_mode {warm_start_mode!r} is not implemented yet; only 'start' is."
-        )
+    _check_warm_start_mode(warm_start_mode)
 
     backend_start = time.perf_counter()
     opts = resolve_run_options(cfg)
     construction_start = time.perf_counter()
     ctx = build_fleet(cfg, opts)
     ctx.model.update()
-    warm_start_diagnostics = apply_binary_warm_start(ctx, warm_start)
+    warm_start_diagnostics = apply_binary_warm_start(ctx, warm_start, warm_start_mode)
     warm_start_diagnostics = complete_binary_warm_start(
-        ctx.model, warm_start, warm_start_diagnostics
+        ctx.model, warm_start, warm_start_diagnostics, warm_start_mode
     )
-    warm_start_diagnostics["mode"] = warm_start_mode if has_source else None
     relaxation_diagnostics = {
         "enabled": False,
         "status": "disabled",

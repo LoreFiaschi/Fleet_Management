@@ -1,35 +1,42 @@
-"""Exact post-solve validation for modular Gamma tail-bound schedules.
+"""Exact validator of the Gamma model (spec, section "Validators of the Gamma Model").
 
-The validator is independent of the optimization formulation.  It replays the
-saved decisions using the original shape-rate Gamma inputs, evaluates the exact
-tail of every accumulated history with the Moschopoulos series, and checks
+The validator replays the saved schedule with the exact Gamma inputs of the cells:
 
-    exact tail upper bound <= solver Gamma bound <= epsilon.
+1. the true damage of a cell is a list of independent Gamma terms (shape, rate), updated by
+   the event of each day; a damage without a rate is a known constant ``c``;
+2. a repair multiplies the rate of the repairable terms by ``1 / (1 - rho)`` and removes
+   them for ``rho = 1``; under ARD1 the repaired terms join the frozen part of the anchor;
+3. the tail ``Pr(D_k > tau)`` is ``Pr(terms > tau - c)``, by the Moschopoulos series;
+4. its upper bound (partial sum plus remaining mixture mass) must be at most ``epsilon``;
+5. the saved mean and the saved anchor must be at least the exact means.
 
-Initial and replacement states are alternative history seeds. An ARD-inf
-repair with remaining fraction ``c = 1-rho`` transforms every surviving term as
-
-    Gamma(A, beta) -> Gamma(A, beta/c).
-
-The shape is unchanged and the mean contracts by ``c``. ARD1 transforms only
-terms accumulated since the previous action, then freezes the repaired terms as
-the new history floor. A replacement discards the complete previous history and
-becomes the new ARD1 floor. No Gurobi objects or constraints are inspected.
+No Gurobi object is read. Indices of a report are 0-based array indices.
 """
 
 from __future__ import annotations
 
-from dataclasses import dataclass
-import json
-from pathlib import Path
+import math
 import time
+from dataclasses import dataclass
+from pathlib import Path
 from typing import Any
 
 import numpy as np
-from scipy.stats import gamma as gamma_distribution
-import yaml
 
-from fleet_management.config import FleetConfig, load_config
+from fleet_management.config import FleetConfig, _integer
+from fleet_management.degradation_model.gamma_utils.gamma_replay_validator import (
+    _array,
+    _binary,
+    _check_report_path,
+    _check_tolerance,
+    _event,
+    _finish,
+    _increments,
+    _read_pair,
+    _record,
+    _schedule_violations,
+    gamma_cells,
+)
 from fleet_management.degradation_model.gamma_utils.gamma_tail_bound import (
     moschopoulos_tail_probability,
 )
@@ -69,70 +76,34 @@ class ExactGammaTerm:
         }
 
 
-def _required_array(result: dict, name: str, shape: tuple[int, ...]) -> np.ndarray:
-    if result.get(name) is None:
-        raise ValueError(f"result does not contain required array {name!r}.")
-    value = np.asarray(result[name], dtype=float)
-    if value.shape != shape:
-        raise ValueError(f"result {name!r} has shape {value.shape}; expected {shape}.")
-    if np.any(~np.isfinite(value)):
-        raise ValueError(f"result {name!r} contains non-finite values.")
-    return value
-
-
-def _binary_decisions(value: np.ndarray, name: str, tolerance: float) -> np.ndarray:
-    rounded = np.rint(value)
-    error = float(np.max(np.abs(value - rounded)))
-    bounds_error = max(float(np.max(-value)), float(np.max(value - 1.0)), 0.0)
-    if max(error, bounds_error) > tolerance:
-        raise ValueError(
-            f"result decision array {name!r} is not binary within tolerance; "
-            f"maximum error={max(error, bounds_error):.3e}."
-        )
-    return rounded.astype(np.int64)
-
-
-def _phase_value(operating, transitory, i: int, l: int, j: int, k: int,
-                 H1: int, H2: int) -> float:
-    if k < H1:
-        if transitory is not None:
-            return float(transitory[i, l, j, k])
-        return float(operating[i, l, j, k % H2])
-    return float(operating[i, l, j, (k - H1) % H2])
-
-
-def _seed_term(mean: float, rate: float | None, source: str,
-               step: int) -> list[ExactGammaTerm]:
+def _seed(mean: float, rate: float, source: str, step: int) -> tuple[list[ExactGammaTerm], float]:
+    """Initial or replacement damage: ``(terms, constant)``; a damage without a rate is a constant."""
     if mean <= 0.0:
-        return []
-    if rate is None or not np.isfinite(rate) or rate <= 0.0:
-        raise ValueError(f"positive {source} mean requires a finite positive rate.")
-    return [ExactGammaTerm(mean * rate, rate, source, step)]
+        return [], 0.0
+    if math.isnan(rate):
+        return [], float(mean)                         # spec, step 2
+    return [ExactGammaTerm(mean * rate, rate, source, step)], 0.0
 
 
-def _exact_tail(history: list[ExactGammaTerm], threshold: float,
-                convolution_tolerance: float,
-                max_series_terms: int):
-    if not history:
-        return {
-            "estimate": 0.0,
-            "upper_bound": 0.0,
-            "remaining_mass": 0.0,
-            "series_terms": 0,
-        }
-    convolution = moschopoulos_tail_probability(
-        shapes=[term.shape for term in history],
-        rates=[term.rate for term in history],
-        threshold=threshold,
+def _exact_tail(terms: list[ExactGammaTerm], constant: float, tau: float,
+                convolution_tolerance: float, max_series_terms: int) -> dict[str, Any]:
+    """``Pr(sum of the terms + constant > tau)``: estimate, upper bound, remaining mass, series terms."""
+    if not terms:
+        value = 1.0 if constant > tau else 0.0
+        return {"estimate": value, "upper_bound": value, "remaining_mass": 0.0,
+                "series_terms": 0}
+    if constant >= tau:                               # the terms are positive
+        return {"estimate": 1.0, "upper_bound": 1.0, "remaining_mass": 0.0,
+                "series_terms": 0}
+    tail = moschopoulos_tail_probability(
+        shapes=[term.shape for term in terms],
+        rates=[term.rate for term in terms],
+        threshold=tau - constant,
         tolerance=convolution_tolerance,
         max_series_terms=max_series_terms,
     )
-    return {
-        "estimate": convolution.estimate,
-        "upper_bound": convolution.upper_bound,
-        "remaining_mass": convolution.remaining_mass,
-        "series_terms": convolution.series_terms,
-    }
+    return {"estimate": tail.estimate, "upper_bound": tail.upper_bound,
+            "remaining_mass": tail.remaining_mass, "series_terms": tail.series_terms}
 
 
 def validate_gamma_tail_bound_schedule(
@@ -145,417 +116,163 @@ def validate_gamma_tail_bound_schedule(
     include_steps: bool = False,
     raise_on_failure: bool = False,
 ) -> dict[str, Any]:
-    """Replay and certify every Gamma cell in a modular solver result.
+    """Replay the saved schedule with exact Gamma terms and certify every day of every Gamma cell.
 
-    The exact probability used for conservativeness is the numerical
-    convolution's certified upper bound, not only its partial-series estimate.
-    A failed signed check sets ``report["valid"]`` to ``False`` and, when
-    ``raise_on_failure`` is true, raises ``AssertionError``.
+    A day passes if the upper bound of the exact tail is at most ``epsilon + tolerance``,
+    the saved mean is at least the exact mean ``E D_k - tolerance`` and, under ARD1, the
+    saved anchor is at least the exact mean of the frozen part ``- tolerance``. Under ARD1
+    the initial damage splits at the starting anchor ``anchor_mu_0``: a frozen part of mean
+    ``anchor_mu_0`` and a repairable part. The report holds the keys of the replay report,
+    the slack ``epsilon`` minus the upper bound, the worst step, the remaining mass and the
+    series counts; ``steps`` only with ``include_steps``. A series that does not converge
+    within ``max_series_terms`` raises ``RuntimeError``.
     """
-
-    if tolerance <= 0.0:
-        raise ValueError("tolerance must be positive.")
+    _check_tolerance(tolerance)
     if not 0.0 < convolution_tolerance < 1.0:
         raise ValueError("convolution_tolerance must lie in (0, 1).")
+    max_series_terms = _integer(max_series_terms, "max_series_terms")
     if max_series_terms <= 0:
         raise ValueError("max_series_terms must be positive.")
+    started = time.perf_counter()
+    F, M, L, T = cfg.F, cfg.M, cfg.L, cfg.T
+    states = (F, L, T)
+    cells = gamma_cells(cfg, result)
+    ard1 = [(i, l) for i, l in cells if str(cfg.repair_model[i, l]) == "ard1"]
 
-    validation_start = time.perf_counter()
+    x = _binary(result, "x", (F, M + 1, T), tolerance)
+    m = _binary(result, "m", states, tolerance)
+    r = _binary(result, "r", states, tolerance, optional=True)
+    mu = _array(result, "mu", states, cells)
+    g_mu = _array(result, "g_mu", states, ard1) if ard1 else None
+    mu_inc, beta_inc = _increments(cfg)
+    global_violations = _schedule_violations(cfg, result, x, m, r)
 
-    F, L, M, T = cfg.F, cfg.L, cfg.M, cfg.T
-    gamma_cells = [
-        (i, l)
-        for i in range(F)
-        for l in range(L)
-        if str(cfg.model[i, l]) == "gamma"
-    ]
-    if not gamma_cells:
-        raise ValueError("configuration contains no Gamma cells to validate.")
-
-    if result.get("x") is None:
-        raise ValueError("result contains no incumbent solution arrays.")
-    x = _binary_decisions(
-        _required_array(result, "x", (F, M + 1, T)), "x", tolerance
-    )
-    m = _binary_decisions(
-        _required_array(result, "m", (F, L, T)), "m", tolerance
-    )
-    r = _binary_decisions(
-        _required_array(result, "r", (F, L, T)), "r", tolerance
-    )
-    saved_mu = _required_array(result, "mu", (F, L, T))
-    saved_shape = _required_array(result, "gamma_shape_bound", (F, L, T))
-    saved_tail = _required_array(result, "gamma_tail_bound", (F, L, T))
-    common_rates = _required_array(result, "gamma_beta_bound", (F, L))
-    ard1_cells = [
-        (i, l)
-        for i, l in gamma_cells
-        if str(cfg.repair_model[i, l]) == "ard1"
-    ]
-    saved_latch = (
-        _required_array(result, "gamma_mean_latch", (F, L, T))
-        if ard1_cells else None
-    )
-
-    if cfg.gamma_beta is None:
-        raise ValueError("Gamma validation requires exact operating gamma_beta rates.")
-    beta_operating = np.asarray(cfg.gamma_beta, dtype=float)
-    beta_transitory = (
-        None
-        if cfg.gamma_beta_trans is None
-        else np.asarray(cfg.gamma_beta_trans, dtype=float)
-    )
-
-    global_violations: list[str] = []
-    if str(result.get("backend", "")) != "modular":
-        global_violations.append("result backend is not modular")
-    if int(result.get("T", -1)) != T:
-        global_violations.append("result horizon T does not match configuration")
-    if cfg.gamma_beta_bound is not None:
-        beta_error = max(
-            abs(common_rates[i, l] - float(cfg.gamma_beta_bound[i, l]))
-            for i, l in gamma_cells
-        )
-        if beta_error > tolerance:
-            global_violations.append(
-                f"saved common rates differ from configuration by {beta_error:.3e}"
-            )
-
-    steps: list[dict[str, Any]] = []
+    maxima = dict.fromkeys(("reliability", "tracked_mean", "mean_anchor"), 0.0)
     violations: list[dict[str, Any]] = []
-    cell_histories: list[dict[str, Any]] = []
-    minimum_margin = float("inf")
-    minimum_slack = float("inf")
-    maximum_mean_error = 0.0
-    maximum_latch_error = 0.0
-    maximum_saved_tail_error = 0.0
-    maximum_remaining_mass = 0.0
-    maximum_terms = 0
-    total_series_terms = 0
-    exact_tail_evaluations = 0
-    nonempty_convolutions = 0
+    steps: list[dict[str, Any]] = []
+    repairs = replacements = 0
     exact_tail_seconds = 0.0
-    repairs = 0
-    replacements = 0
-    worst_margin_step: dict[str, Any] | None = None
-    worst_slack_step: dict[str, Any] | None = None
+    exact_tail_evaluations = total_series_terms = maximum_series_terms_used = 0
+    maximum_remaining_mass = 0.0
+    minimum_slack = math.inf
+    worst_reliability = None
 
-    for i, l in gamma_cells:
-        repair_model = str(cfg.repair_model[i, l])
-        if repair_model not in {"ardinf", "ard1"}:
-            raise ValueError(
-                f"Gamma cell (i={i}, l={l}) has unsupported repair_model "
-                f"{repair_model!r}."
-            )
-        beta_0 = None if cfg.gamma_beta_0 is None else float(cfg.gamma_beta_0[i, l])
-        beta_new = (
-            None if cfg.gamma_beta_new is None else float(cfg.gamma_beta_new[i, l])
-        )
-        # ARD1 keeps an exact partition: frozen terms form the damage floor at
-        # the last action, while active terms are repairable at the next action.
-        # The initial distribution is active, matching the solver latch g_-1=0.
-        frozen_history: list[ExactGammaTerm] = []
-        active_history = _seed_term(
-            float(cfg.mu_0[i, l]), beta_0, "initial", -1
-        )
-        events: list[dict[str, Any]] = []
+    def check(i, l, k, event, field, expected, saved, error):
+        maxima[field] = max(maxima[field], error)
+        if error > tolerance:
+            violations.append(_record(i, l, k, event, field, expected, saved, error))
 
+    for i, l in cells:
+        anchored = str(cfg.repair_model[i, l]) == "ard1"
+        remaining = max(0.0, 1.0 - float(cfg.rho[i, l]))     # config accepts rho up to 1 + 1e-12
+        beta_0, beta_new = float(cfg.gamma_beta_0[i, l]), float(cfg.gamma_beta_new[i, l])
+        mu_0, tau, eps = float(cfg.mu_0[i, l]), float(cfg.tau[i, l]), float(cfg.epsilon[i, l])
+        if anchored:                                  # the starting anchor splits the initial damage
+            g_0 = float(cfg.anchor_mu_0[i, l])
+            frozen, c_frozen = _seed(g_0, beta_0, "initial_anchor", -1)
+            active, c_active = _seed(mu_0 - g_0, beta_0, "initial", -1)
+        else:
+            frozen, c_frozen = [], 0.0
+            active, c_active = _seed(mu_0, beta_0, "initial", -1)
         for k in range(T):
-            repair = bool(m[i, l, k])
-            replacement = bool(r[i, l, k])
-            mission_indices = np.flatnonzero(x[i, 1:, k])
-            reasons: list[str] = []
-
-            if repair and replacement:
-                reasons.append("repair and replacement selected simultaneously")
-            if (repair or replacement) and mission_indices.size:
-                reasons.append("maintenance and mission selected simultaneously")
-
-            mission: int | None = None
-            if replacement:
+            event = _event(x, m, r, i, l, k)
+            if event == "replacement":
                 replacements += 1
-                replacement_history = _seed_term(
-                    float(cfg.replacement_mu[i, l]), beta_new, "replacement", k
-                )
-                if repair_model == "ard1":
-                    frozen_history = replacement_history
-                    active_history = []
+                seed, c_seed = _seed(float(cfg.replacement_mu[i, l]), beta_new, "replacement", k)
+                if anchored:
+                    frozen, c_frozen, active, c_active = seed, c_seed, [], 0.0
                 else:
-                    frozen_history = []
-                    active_history = replacement_history
-                event = "replacement"
-            elif repair:
+                    frozen, c_frozen, active, c_active = [], 0.0, seed, c_seed
+            elif event == "repair":                   # rate / (1 - rho); removed for rho = 1
                 repairs += 1
-                remaining = 1.0 - float(cfg.rho[i, l])
-                if remaining < -tolerance or remaining > 1.0 + tolerance:
-                    reasons.append("repair remaining fraction lies outside [0,1]")
-                elif repair_model == "ard1":
-                    if remaining > tolerance:
-                        frozen_history.extend(
-                            term.after_ardinf(remaining)
-                            for term in active_history
-                        )
-                    active_history = []
+                repaired = [] if remaining == 0.0 else [t.after_ardinf(remaining) for t in active]
+                if anchored:
+                    frozen, c_frozen = frozen + repaired, c_frozen + remaining * c_active
+                    active, c_active = [], 0.0
                 else:
-                    history_before = frozen_history + active_history
-                    frozen_history = []
-                    active_history = (
-                        [] if remaining <= tolerance else [
-                            term.after_ardinf(remaining)
-                            for term in history_before
-                        ]
-                    )
-                event = "repair"
-            elif mission_indices.size:
-                if mission_indices.size != 1:
-                    reasons.append("more than one mission selected")
-                mission = int(mission_indices[0])
-                mean_increment = _phase_value(
-                    cfg.mu, cfg.mu_trans, i, l, mission, k, cfg.H1, cfg.H2
-                )
-                rate_increment = _phase_value(
-                    beta_operating,
-                    beta_transitory,
-                    i,
-                    l,
-                    mission,
-                    k,
-                    cfg.H1,
-                    cfg.H2,
-                )
-                active_history.append(
-                    ExactGammaTerm(
-                        mean_increment * rate_increment,
-                        rate_increment,
-                        f"mission_{mission + 1}",
-                        k,
-                    )
-                )
-                event = "mission"
-            else:
-                event = "idle"
+                    active, c_active = repaired, remaining * c_active
+            elif event == "mission":                  # one term per mission flown
+                for j0 in np.flatnonzero(x[i, 1:, k]):
+                    mean, rate = float(mu_inc[i, l, j0, k]), float(beta_inc[i, l, j0, k])
+                    if mean > 0.0:
+                        active.append(ExactGammaTerm(mean * rate, rate, f"mission_{j0 + 1}", k))
 
-            history = frozen_history + active_history
+            terms = frozen + active
+            constant = c_frozen + c_active
+            clock = time.perf_counter()
+            tail = _exact_tail(terms, constant, tau, convolution_tolerance, max_series_terms)
+            exact_tail_seconds += time.perf_counter() - clock
+            if tail["series_terms"] > 0:
+                exact_tail_evaluations += 1
+            total_series_terms += tail["series_terms"]
+            maximum_series_terms_used = max(maximum_series_terms_used, tail["series_terms"])
+            maximum_remaining_mass = max(maximum_remaining_mass, tail["remaining_mass"])
 
-            exact_tail_start = time.perf_counter()
+            exact_mean = constant + sum(t.mean for t in terms)
+            frozen_mean = c_frozen + sum(t.mean for t in frozen)
+            upper = tail["upper_bound"]
+            slack = eps - upper
+            saved = float(mu[i, l, k])
+            check(i, l, k, event, "reliability", eps, upper, max(0.0, upper - eps))
+            check(i, l, k, event, "tracked_mean", exact_mean, saved, max(0.0, exact_mean - saved))
+            saved_anchor = None
+            if anchored:
+                saved_anchor = float(g_mu[i, l, k])
+                check(i, l, k, event, "mean_anchor", frozen_mean, saved_anchor,
+                      max(0.0, frozen_mean - saved_anchor))
 
-            exact = _exact_tail(
-                history,
-                float(cfg.tau[i, l]),
-                convolution_tolerance,
-                max_series_terms,
-            )
-            exact_tail_seconds += time.perf_counter() - exact_tail_start
-            exact_tail_evaluations += 1
-            nonempty_convolutions += int(bool(history))
-
-            exact_mean = float(sum(term.mean for term in history))
-            mean_error = abs(float(saved_mu[i, l, k]) - exact_mean)
-            exact_latch_mean = float(sum(term.mean for term in frozen_history))
-            latch_error = (
-                abs(float(saved_latch[i, l, k]) - exact_latch_mean)
-                if repair_model == "ard1" else 0.0
-            )
-            bound_shape = float(saved_shape[i, l, k])
-            bound_rate = float(common_rates[i, l])
-            if bound_shape < -tolerance or bound_rate <= 0.0:
-                reasons.append("invalid saved bounding shape or rate")
-                calculated_bound_tail = float("nan")
-            elif bound_shape <= 0.0:
-                calculated_bound_tail = 0.0
-            else:
-                calculated_bound_tail = float(
-                    gamma_distribution.sf(
-                        float(cfg.tau[i, l]),
-                        a=bound_shape,
-                        scale=1.0 / bound_rate,
-                    )
-                )
-            tail_serialization_error = abs(
-                float(saved_tail[i, l, k]) - calculated_bound_tail
-            )
-            margin = calculated_bound_tail - float(exact["upper_bound"])
-            slack = float(cfg.epsilon[i, l]) - calculated_bound_tail
-
-            if mean_error > tolerance:
-                reasons.append(f"physical mean mismatch {mean_error:.3e}")
-            if latch_error > tolerance:
-                reasons.append(f"ARD1 mean-latch mismatch {latch_error:.3e}")
-            if tail_serialization_error > tolerance:
-                reasons.append(
-                    f"saved bound-tail mismatch {tail_serialization_error:.3e}"
-                )
-            if margin < -tolerance:
-                reasons.append(f"non-conservative tail margin {margin:.3e}")
-            if slack < -tolerance:
-                reasons.append(f"reliability violation {-slack:.3e}")
-
-            history_snapshot = [term.as_dict() for term in history]
             step = {
-                "i": i,
-                "l": l,
-                "k": k,
-                "event": event,
-                "mission": None if mission is None else mission + 1,
-                "term_count": len(history),
-                "exact_mean": exact_mean,
-                "saved_mean": float(saved_mu[i, l, k]),
-                "mean_error": mean_error,
-                "repair_model": repair_model,
-                "frozen_term_count": len(frozen_history),
-                "active_term_count": len(active_history),
-                "exact_latch_mean": exact_latch_mean,
-                "saved_latch_mean": (
-                    float(saved_latch[i, l, k])
-                    if repair_model == "ard1" else None
-                ),
-                "latch_error": latch_error,
-                "exact_tail_estimate": float(exact["estimate"]),
-                "exact_tail_upper_bound": float(exact["upper_bound"]),
-                "convolution_remaining_mass": float(exact["remaining_mass"]),
-                "convolution_series_terms": int(exact["series_terms"]),
-                "bound_shape": bound_shape,
-                "bound_rate": bound_rate,
-                "bound_tail": calculated_bound_tail,
-                "saved_bound_tail": float(saved_tail[i, l, k]),
-                "conservativeness_margin": margin,
+                "i": i, "l": l, "k": k, "event": event, "epsilon": eps,
+                "constant": constant, "exact_mean": exact_mean, "saved_mean": saved,
+                "frozen_mean": frozen_mean if anchored else None,
+                "saved_anchor": saved_anchor,
+                "exact_tail_estimate": tail["estimate"],
+                "exact_tail_upper_bound": upper,
+                "remaining_mass": tail["remaining_mass"],
+                "series_terms": tail["series_terms"],
                 "reliability_slack": slack,
-                "passed": not reasons,
             }
+            if include_steps or slack < minimum_slack:
+                step["terms"] = ([{**t.as_dict(), "part": "frozen"} for t in frozen]
+                                 + [{**t.as_dict(), "part": "active"} for t in active])
+            if slack < minimum_slack:                 # the first step with the smallest slack
+                minimum_slack, worst_reliability = slack, step
             if include_steps:
-                steps.append({**step, "history": history_snapshot})
-            if reasons:
-                violations.append({**step, "reasons": reasons, "history": history_snapshot})
-            events.append({
-                "k": k,
-                "event": event,
-                "mission": None if mission is None else mission + 1,
-            })
+                steps.append(step)
 
-            if margin < minimum_margin:
-                minimum_margin = margin
-                worst_margin_step = {**step, "history": history_snapshot}
-            if slack < minimum_slack:
-                minimum_slack = slack
-                worst_slack_step = {**step, "history": history_snapshot}
-            maximum_mean_error = max(maximum_mean_error, mean_error)
-            maximum_latch_error = max(maximum_latch_error, latch_error)
-            maximum_saved_tail_error = max(
-                maximum_saved_tail_error, tail_serialization_error
-            )
-            maximum_remaining_mass = max(
-                maximum_remaining_mass, float(exact["remaining_mass"])
-            )
-            maximum_terms = max(maximum_terms, int(exact["series_terms"]))
-            total_series_terms += int(exact["series_terms"])
-
-        cell_histories.append({"i": i, "l": l, "events": events})
-
-    valid = not global_violations and not violations
-
-    validation_wall_seconds = time.perf_counter() - validation_start
-
-    report: dict[str, Any] = {
-        "valid": valid,
-        "solver_status": str(result.get("status", "unknown")),
-        "backend": result.get("backend"),
-        "dimensions": {
-            "F": F,
-            "M": M,
-            "L": L,
-            "H1": cfg.H1,
-            "H2": cfg.H2,
-            "T": T,
-        },
-        "gamma_cells": len(gamma_cells),
-        "gamma_ard1_cells": len(ard1_cells),
-        "transitions_checked": len(gamma_cells) * T,
+    report = {
+        "validator": "Gamma exact validator",
+        "valid": not global_violations and not violations,
+        "solver_status": str(result.get("status") or "unknown"),   # read_result: None if absent
+        "dimensions": {"F": F, "M": M, "L": L, "H1": cfg.H1, "H2": cfg.H2, "T": T},
+        "gamma_cells": len(cells),
+        "gamma_ard1_cells": len(ard1),
+        "transitions_checked": len(cells) * T,
         "repairs": repairs,
         "replacements": replacements,
-        "minimum_conservativeness_margin": minimum_margin,
-        "minimum_reliability_slack": minimum_slack,
-        "maximum_mean_error": maximum_mean_error,
-        "maximum_latch_error": maximum_latch_error,
-        "maximum_saved_tail_error": maximum_saved_tail_error,
+        "maximum_errors": maxima,
         "global_violations": global_violations,
         "violations": violations,
-        "worst_conservativeness": worst_margin_step,
-        "worst_reliability": worst_slack_step,
-        "cell_histories": cell_histories,
-        "numerics": {
-            "convolution_tolerance": convolution_tolerance,
-            "maximum_remaining_mass": maximum_remaining_mass,
-            "maximum_series_terms_used": maximum_terms,
-            "total_series_terms": total_series_terms,
-            "mean_series_terms_per_nonempty_history": (
-                total_series_terms / nonempty_convolutions
-                if nonempty_convolutions
-                else 0.0
-            ),
-            "max_series_terms": max_series_terms,
-        },
-        "timing": {
-            "validation_wall_seconds": validation_wall_seconds,
-            "exact_tail_seconds": exact_tail_seconds,
-            "replay_and_reporting_seconds": max(
-                0.0,
-                validation_wall_seconds - exact_tail_seconds,
-            ),
-            "exact_tail_evaluations": exact_tail_evaluations,
-            "nonempty_convolutions": nonempty_convolutions,
-        },
+        "timing": {"validation_wall_seconds": time.perf_counter() - started,
+                   "exact_tail_seconds": exact_tail_seconds},
+        "minimum_reliability_slack": minimum_slack,
+        "worst_reliability": worst_reliability,
+        "maximum_remaining_mass": maximum_remaining_mass,
+        "maximum_series_terms_used": maximum_series_terms_used,
+        "total_series_terms": total_series_terms,
+        "exact_tail_evaluations": exact_tail_evaluations,
     }
     if include_steps:
         report["steps"] = steps
-
-    if raise_on_failure and not valid:
-        raise AssertionError(
-            "exact Gamma schedule validation failed: "
-            f"{len(global_violations)} global and {len(violations)} step violations; "
-            f"minimum tail margin={minimum_margin:.3e}."
-        )
-    return report
+    return _finish(report, None, raise_on_failure)
 
 
-def _read_mapping(path: Path) -> dict:
-    suffix = path.suffix.lower()
-    if suffix in {".yaml", ".yml"}:
-        value = yaml.safe_load(path.read_text(encoding="utf-8"))
-    elif suffix == ".json":
-        value = json.loads(path.read_text(encoding="utf-8"))
-    else:
-        raise ValueError("exact Gamma file validation currently supports YAML and JSON.")
-    if not isinstance(value, dict):
-        raise ValueError(f"{path} does not contain a mapping.")
-    return value
-
-
-def validate_gamma_tail_bound_files(
-    input_path: str | Path,
-    result_path: str | Path,
-    report_path: str | Path | None = None,
-    **kwargs,
-) -> dict[str, Any]:
-    """Load a public input/result pair, validate it, and optionally save a report."""
-
-    input_file = Path(input_path)
-    result_file = Path(result_path)
-    if not input_file.is_file():
-        raise FileNotFoundError(input_file)
-    if not result_file.is_file():
-        raise FileNotFoundError(result_file)
-    cfg = load_config(_read_mapping(input_file))
-    report = validate_gamma_tail_bound_schedule(
-        cfg, _read_mapping(result_file), **kwargs
-    )
-    if report_path is not None:
-        destination = Path(report_path)
-        if destination.suffix.lower() in {".yaml", ".yml"}:
-            destination.write_text(
-                yaml.safe_dump(report, sort_keys=False), encoding="utf-8"
-            )
-        elif destination.suffix.lower() == ".json":
-            destination.write_text(json.dumps(report, indent=2), encoding="utf-8")
-        else:
-            raise ValueError("validation report path must end in .yaml, .yml, or .json.")
-    return report
+def validate_gamma_tail_bound_files(input_path: str | Path, result_path: str | Path,
+                                    report_path: str | Path | None = None,
+                                    **kwargs) -> dict[str, Any]:
+    """File version (spec, "Common rules"): input and result paths; the report as YAML or JSON."""
+    destination = _check_report_path(report_path)         # before any reading
+    raise_on_failure = kwargs.pop("raise_on_failure", False)
+    cfg, result = _read_pair(input_path, result_path)
+    report = validate_gamma_tail_bound_schedule(cfg, result, **kwargs)
+    return _finish(report, destination, raise_on_failure)     # write, then raise
