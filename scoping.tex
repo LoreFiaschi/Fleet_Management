@@ -2536,6 +2536,40 @@ Three independent missions of equal mean, with total mean $\tau/q$, give $\Pr(D 
 The CVaR cap is $0.141\,\tau$ there.
 At $\varepsilon = 0.01$ and $\eta$ from $0.05$ to $10$, the CVaR cap $\bar\mu$ is $0.93$ to $0.59$ times $\tau/q$.
 
+\paragraph{Computation of the inverse Gaussian cap.}
+The cap~$\bar\mu$ is computed once per component, before the model is built.
+Its numerical choices have the following reasons.
+\begin{itemize}[nosep]
+  \item \textbf{Distribution function.} $F_Z$ is a sum of two positive terms, and $\ln F_Z$ is computed from their logarithms.
+    So the sum loses no digits, and the factor $e^{2/\eta}$ of~\eqref{eq:ig_cdf} does not overflow when $\eta$ is small.
+  \item \textbf{Survival function.} $1 - F_Z$ is a difference of two positive terms, and $\ln(1 - F_Z)$ is computed from their logarithms.
+    The subtraction $1 - F_Z$ would lose the relative accuracy when $\varepsilon$ is small, because $F_Z$ is then close to~$1$ at the quantile.
+  \item \textbf{Quantile.} The quantile is the root of $\ln\Pr(Z > e^u) = \ln\varepsilon$ in $u = \ln q$.
+    The root search \texttt{brentq} of SciPy (a scientific library of the Python language) finds it on an interval $[-50, \ln b]$.
+    By Cantelli's inequality~\eqref{eq:cantelli_surrogate} with $\operatorname{Var} Z = \eta$, the right end satisfies $\Pr(Z > b) \le \varepsilon/2$.
+    So the function changes sign on the interval.
+    The derivation is in Appendix~\ref{drv:ig_bracket}, page~\pageref{drv:ig_bracket}.
+  \item \textbf{Tail mean.} The closed form $\mathbb{E}[Z;\, Z > q] = F_Z(1/q)$ needs no numerical integration, and it is evaluated in logarithms too.
+  \item \textbf{Accuracy of the quantile.} The root search is more accurate than the quantile function \texttt{invgauss.isf} of SciPy.
+    The table gives the relative error of the survival function at each computed quantile, against a survival function computed with $60$ significant digits.
+    \begin{center}
+    \small
+    \begin{tabular}{@{}lcc@{}}
+    \toprule
+     & \texttt{invgauss.isf} & root search \\
+    \midrule
+    $\eta = 10^{-6}$, $\varepsilon = 0.5$ & $1.6 \cdot 10^{-6}$ & $2 \cdot 10^{-13}$ \\
+    $\eta = 10^{-3}$, $\varepsilon = 10^{-12}$ & $1.4 \cdot 10^{-5}$ & $5 \cdot 10^{-14}$ \\
+    \bottomrule
+    \end{tabular}
+    \end{center}
+  \item \textbf{Checks.} On a grid of $11$ values of~$\eta$ from $10^{-3}$ to $10^{3}$ and $9$ values of~$\varepsilon$ from $10^{-6}$ to $0.9$, the quantile agrees with \texttt{invgauss.isf} to a relative $2.2 \cdot 10^{-12}$.
+    On the same grid the closed-form tail mean agrees with a numerical integral to $4 \cdot 10^{-14}$.
+    For $\eta$ from $10^{-6}$ to $10^{6}$ and $\varepsilon$ from $10^{-12}$ to $0.999$, the computation never fails, and every cap lies in $(0, \tau/q]$.
+    A Monte Carlo sample of $2 \cdot 10^{6}$ draws of~$Z$ gives the conditional tail mean $2.61699$ against the computed $\bar q = 2.61568$ at $\eta = 0.5$ and $\varepsilon = 0.1$.
+    At $\eta = 2$ and $\varepsilon = 0.05$ it gives $5.76704$ against $5.76507$.
+\end{itemize}
+
 \paragraph{Gamma: a sharp cap on the mean.}
 The formulation lets each mission of a Gamma component have its own rate: an increment of mean $m > 0$ and rate~$\beta$ has the law $\mathrm{Ga}(\beta m, \beta)$.
 The initial damage and each replacement draw are Gamma terms with their own rates, or known constants.
@@ -2634,6 +2668,48 @@ The proof is in Appendix~\ref{prf:prop:gamma_safe}, page~\pageref{prf:prop:gamma
 The cap $A_1$ is computed once per component, before the model is built, by bisection on~$A$ with an inner maximum over~$c$.
 Three facts justify the computation, and $w(A_1) \le \varepsilon$ holds at the returned value.
 The derivation is in Appendix~\ref{drv:gamma_computation}, page~\pageref{drv:gamma_computation}.
+
+The numerical choices of the computation have the following reasons.
+\begin{itemize}[nosep]
+  \item \textbf{One-rate cap.} A bisection on the first argument of~$Q$ finds the exact one-rate cap~$\hat A$, the root of $Q(\hat A, t) = \varepsilon$.
+    Its interval keeps $Q \le \varepsilon$ at the lower end and $Q > \varepsilon$ at the upper end, and the bisection returns the lower end.
+    So $Q(\hat A, t) \le \varepsilon$, and the numerical error lies on the safe side.
+  \item \textbf{Grid and its extensions.} The maximum over~$c$ starts from a logarithmic grid of $401$ values of~$c$.
+    When the best grid point is the smallest value of the grid, the maximum may lie below the grid.
+    A new grid of $401$ values then covers the next factor~$100$ below, at most $10$ times.
+    After that the computation stops with an error: a maximum below the last grid would be underestimated, and the cap would be too large.
+  \item \textbf{Golden-section search.} A golden-section search shrinks an interval around a single peak by the factor $0.618$ per step.
+    The function of~$c$ has a single peak, by the second of the three facts.
+    So $60$ steps between the neighbours of the best grid point reduce the interval by the factor $0.618^{60} \approx 3 \cdot 10^{-13}$.
+    The search returns the largest value found, so it never returns less than the best grid value.
+  \item \textbf{Tolerances and cost.} The bisection for~$\hat A$ stops at a relative width $10^{-12}$, and the bisection on~$A$ at $10^{-9}$.
+    Each step of the bisection on~$A$ computes $w$ once.
+    One cap takes about $30$\,ms and about $16$ evaluations of~$w$.
+  \item \textbf{Levels of at least one half.} For $\varepsilon \ge 1/2$ the test $w(A) \le \varepsilon$ holds without computing~$w$, because $w(A) < 1/2$ for every $A < t$.
+    Near $A = t$ the maximum over~$c$ moves towards $c \to 0$, where $Q$ approaches~$1/2$, so the grid would need many extensions.
+    The bisection returns a value close to~$t$: $A_1/t = 0.999999999069$ at $\varepsilon = 0.5$.
+  \item \textbf{Cache.} The cap is computed once for each pair $(t, \varepsilon)$ in a run and then reused.
+    The input check of the replacement state and the row of the model use the same cap, and components with the same pair share it.
+    So every use after the first costs nothing.
+  \item \textbf{Accuracy.} The table compares the computation with independent ones.
+    The brute force evaluates $20{,}001$ values of $s = t/c$, refines the best one and bisects on~$A$ to $10^{-13}$.
+    \begin{center}
+    \small
+    \begin{tabular}{@{}llllc@{}}
+    \toprule
+    Value & Reference & $\varepsilon$ & $t$ & Largest difference \\
+    \midrule
+    $\hat A$ & \texttt{brentq}, tolerance $10^{-15}$ & $10^{-6}$ to $0.99$ & $10^{-6}$ to $10^{4}$ & $8.8 \cdot 10^{-13}$ (relative) \\
+    $A_1$ & brute force & $0.001$ to $0.3$ & $10^{-4}$ to $1000$ & $6.7 \cdot 10^{-10}$ \\
+    $A_1$ & brute force & $10^{-6}$ and $10^{-8}$ & & $2.2 \cdot 10^{-10}$ \\
+    $A_1$ & brute force & $0.3$ to $0.499$ & $10^{-6}$ to $10^{4}$ & $7.4 \cdot 10^{-10}$ \\
+    \bottomrule
+    \end{tabular}
+    \end{center}
+    In the last row no grid reaches its last extension.
+    At nine pairs with $A_1 < \hat A$, $w(A_1)/\varepsilon = 1.000000000$ and $w\bigl(A_1 (1 + 10^{-6})\bigr)/\varepsilon = 1.000001$.
+    So the computed cap is safe, and a cap larger by a relative $10^{-6}$ is not.
+\end{itemize}
 
 \paragraph{The sharp cap and the exact one-rate cap.}
 $\hat A$ is the exact cap of a single Gamma law of rate~$\beta^*$, and $A_1 \le \hat A$, because $c = 1$ is in the maximum.
@@ -3664,7 +3740,10 @@ Each item below gives a rule and, after the dash, its reason.
   \item Every key is known, and every required key is present. --- A misspelled or missing key must not change the problem without a message.
   \item Each value has one of the shapes of its key. --- Silent broadcasting by the array library (the automatic extension of an array to a larger shape) could read a value for another component.
   \item At a component where a key applies, every entry is a finite number, or a string for a selector. --- A missing value at a component must not take a default silently.
+  \item At the three keys without a default (the optional variance cap and the rates of the initial and the replacement damage), \texttt{null} at a component means that the key is not given there. --- These keys can be given at some components of a model and not at others, and an array needs an entry at every component; for example, the optional variance cap at one Gaussian component only.
   \item An unknown value of a selector is an error at every component, also where the reliability row is linear and the form is ignored. --- Reading an unknown value as \texttt{exact} would turn a linear model into a nonconvex one without a message.
+  \item Selector values are case sensitive, like key names. --- Older inputs name the law $\text{ARD}_\infty$ with the value \texttt{ARD1} (Section~\ref{sec:spec_changelog}); a comparison that ignores the case would read it as \texttt{ard1}, the other law, without a message.
+  \item An integer key accepts a number with zero fractional part, such as $3.0$, and refuses any other number, such as $2.5$, and a flag. --- Numerical tools often write integers as floating-point numbers, above all in HDF5 files (a binary file format for numerical data); a flag is not a number, although Python reads it as the integer $0$ or~$1$.
 \end{itemize}
 
 \paragraph{Sizes and selectors.}
@@ -3732,6 +3811,16 @@ Each item below gives a rule and, after the dash, its reason.
   \item All costs are finite and non-negative. --- A negative cost would reward a depot day, a repair, a replacement or damage.
 \end{itemize}
 
+\paragraph{Tolerance of the checks.}
+\begin{itemize}[nosep]
+  \item A non-strict inequality $a \le b$ passes when it holds up to $10^{-12}\max(1, |a|, |b|)$. --- The rounding of floating-point numbers can break an exact comparison on valid data.
+    For example, with $s = 5$ and $\mu_0 = 0.14$, the Chernoff initial value $K_0 = 0.7$ fails $K_0 \ge s\mu_0$ without a tolerance, because $5 \cdot 0.14 = 0.7000000000000001$ in floating point.
+    The rounding error grows with the size of the numbers, so the tolerance is relative; the term~$1$ keeps the tolerance $10^{-12}$ near~$0$.
+  \item A strict inequality has no tolerance. --- It excludes its boundary on purpose: for example, a component with $\mu_0 = \tau$ has failed already.
+  \item A negative value of the run option \texttt{mip\_gap} (the relative gap at which Gurobi stops) that passes through the tolerance is stored as~$0$. --- Gurobi refuses a negative gap.
+    Other values that pass through the tolerance reach the model unchanged, for example an initial variance of $-10^{-13}$; the feasibility tolerance of Gurobi, $10^{-6}$, absorbs them.
+\end{itemize}
+
 \subsection{Outputs}
 \label{sec:impl_outputs}
 
@@ -3748,6 +3837,17 @@ Each item below gives a rule and, after the dash, its reason.
     Otherwise it is larger by $C_D$ times that slack.
   \item \textbf{Result file.}
     The extension and the directory of the result file are checked before the model is solved, so that a long solve is not lost.
+  \item \textbf{Numbers that are not finite.}
+    YAML and JSON files (two plain-text data formats) write NaN (not a number), $+\infty$ and $-\infty$ as \texttt{null}.
+    Standard JSON has no notation for these values, and the two text formats follow one rule.
+    HDF5 files store floating-point numbers in binary form and keep these values.
+  \item \textbf{Objective without a value.}
+    HDF5 has no \texttt{null}, so an HDF5 file does not store the objective of a solve without a solution.
+    Every reader treats a missing key as \texttt{null}, so the file carries the same information as a YAML or JSON file.
+  \item \textbf{One reader.}
+    One function, \texttt{read\_result}, reads a result file of every format for every tool: the schedule plot, the validators and the dashboards.
+    These tools need the same reading rules, for example NaN at a \texttt{null} entry of an array, so the rules have one implementation.
+    The function sits in the module of the writers, so the rules for writing and for reading a result file are in one place.
 \end{itemize}
 
 \subsection{Horizon sweeps}
@@ -3794,10 +3894,15 @@ A warm start changes the time of a solve, not the model: it does not change the 
     \end{itemize}
     When the source has the same sizes $F$, $M$, $L$, the mapped schedule copies whole days of the source, so it keeps the one-activity rows, the mission coverage and the depot-day rows of every day.
     It need not satisfy the dynamics or the loop rows of the new horizons.
+  \item \textbf{Invalid source.} A source whose horizons are not integers of at least~$1$, or whose arrays do not have the days of these horizons on their last axis, raises an error.
+    The day mapping needs the horizons of the source, and values taken from the new problem in their place would map the days wrongly without a message.
   \item \textbf{Start.} A start sets values of the binaries only.
     Gurobi tries to complete it by itself, with limited effort, and discards a start that it cannot make feasible.
     The greedy heuristic returns its start also when its loop pass counts failures, and it requests the completion of the specification.
     That completion can then end with the status \texttt{infeasible}, with an irreducible infeasible subset of rows.
+  \item \textbf{Completion report.} In the mode \texttt{hint} the completion never runs, although the greedy heuristic requests it.
+    The report then gives the status \texttt{not\_requested}, the status of every completion that does not run, so no further status is needed.
+    Its flag \texttt{requested} still shows the request of the source.
   \item \textbf{Hints.} Gurobi uses hints to guide its heuristics and its branching during the whole solve.
     A hint needs no feasible point, so it also helps when the mapped schedule does not fit the horizons of the problem and Gurobi discards it as a start.
   \item \textbf{Relaxation start.} The relaxed solution need not be a feasible point of the original model.
@@ -3805,6 +3910,38 @@ A warm start changes the time of a solve, not the model: it does not change the 
   \item \textbf{Greedy heuristic.} The heuristic builds a schedule that tries to satisfy the rows of the model.
     It does not try to give a low cost.
     After its construction pass the missions are fixed, so the components are independent except through the depot days of a member.
+    \begin{itemize}[nosep]
+      \item \textbf{Rows in the excess.} The excess of a component counts the violations of the reliability row, of its side row and of the optional variance cap.
+        The tracked values are at least the reference values (Proposition~\ref{prop:domination}), and each of these rows sets upper limits on them.
+        So a schedule whose reference trajectory breaks one of these rows has no feasible completion.
+      \item \textbf{Reference trajectory.} The excess is computed on the reference trajectory.
+        This test is stricter than the one-sided rows, because the reference trajectory of a feasible schedule can violate the loop row (Section~\ref{sec:acceptance}).
+        In a Gaussian test case the heuristic counts one failure, and the same schedule is feasible for the rows of the model.
+      \item \textbf{Wiener components.} A free day is an operating day on which the member flies no mission and the component has no intervention.
+        At a Wiener component the heuristic tries a repair and a replacement on every free day, and it keeps the intervention with the smaller excess.
+        At the components of the other models it tries repairs first, and a replacement only when no repair lowers the excess.
+        The Wiener variance falls only at a replacement (Section~\ref{sec:loop_replacements}), so a repair placed first can take the last free day of a component that needs a replacement.
+        Example: a Wiener test case with $H = [2, 2]$.
+        A repair on day~$4$ removes the excess of the mean and takes the only free day; the excess of the variance remains, and each of the two members counts one failure.
+        A replacement on that day removes both excesses.
+      \item \textbf{Report.} The report gives the largest ratio of a reference mean to its threshold on the final trajectory of each component.
+        So the ratio describes the schedule that the heuristic returns.
+    \end{itemize}
+\end{itemize}
+
+\subsection{Plots}
+\label{sec:impl_plots}
+
+\begin{itemize}[nosep]
+  \item \textbf{Readers.} The schedule plot reads its file with the reader of the result files (Section~\ref{sec:impl_outputs}), and the sweep plot reads its reports with the input reader.
+    A file whose data are not a mapping raises the type error of the reader, so every way of reading a file has one error for this case.
+  \item \textbf{Result without models.} A result file without the key of the models is plotted, and each row shows the model ``unknown''.
+    Older result files lack this key, and every solve writes it.
+  \item \textbf{Counts from the Gurobi log.} The summary panel of the schedule plot takes the presolved numbers of rows and variables from the last line ``Presolved'' of the Gurobi log.
+    The completion of a warm start and the relaxation start solve their own copies of the model before the main solve, and they write to the same log.
+    So the last such line belongs to the main solve.
+  \item \textbf{Sweep without cases.} A sweep report whose list of cases is empty raises an error.
+    There is nothing to plot, and a sweep writes its first report only after its first case.
 \end{itemize}
 
 \subsection{Validation tools}
@@ -3815,18 +3952,55 @@ A warm start changes the time of a solve, not the model: it does not change the 
     The solver objective contains the variable~$u$, which can lie above this maximum in a solution that is not optimal.
     So the check is one-sided: it tests that the reported objective is not below the cost of the reported solution, and it does not test optimality.
   \item \textbf{Loop checks.} They use the saved tracked states, which satisfy the loop rows, and not the reference trajectory: the reference trajectory of a feasible schedule can violate the loop row (Section~\ref{sec:acceptance}).
+  \item \textbf{Scope of the structural validator.} It checks the binaries, the assignment and depot-day rows, the loop rows of every tracked statistic and anchor, and the objective.
+    It does not check the dynamics rows or the reliability rows; the dashboards show the reliability rows as margins.
+  \item \textbf{Fixed list of checks.} The report always lists the eight loop checks, with the violation~$0$ where the result holds no number for the statistic.
+    So every report has the same $14$ checks, or $13$ for a result without the array of idle days.
+  \item \textbf{Incomplete results.} A result with the schedule but without another solution array, the damage penalty or the objective raises an error.
+    No solve writes such a result, and without the error the report would hold NaN, which the JSON writer refuses.
   \item \textbf{Margins in the dashboards.} A margin of at least the negative tolerance means that the row holds.
     The exact form is used also when the solve used a linear form, so the margin shows the true slack.
+    At a row with a side row, the margin is the smaller of the two slacks, because the row holds if and only if both relations hold.
+    The slack of the quadratic relation alone can be positive when the side row fails: a Gaussian component with $\mu = 1.2$, $\tau = 1$ and $v = 0$ has $(\tau - \mu)^2 = 0.04 > 0$.
+    The two slacks have different units.
     The margins of components with different models and bounds are not comparable in size.
     Only their signs are comparable.
+  \item \textbf{Model of the result.} The dashboards and the Gamma validators raise an error when the model of a component in the result differs from the input.
+    The structural validator does not compare the models.
+    The margins and the Gamma validators need the parameters that the input gives for the model of each component, and the structural validator needs no model.
+  \item \textbf{Tolerance of the dashboards.} The tolerance is at least $10^{-12}$, because the Gamma validators that the dashboards run need a positive tolerance.
+  \item \textbf{Start of the dashboards.} The entry script draws the page only when Python runs it as its main program.
+    It imports Streamlit (a Python library for web dashboards) only inside the functions that draw.
+    The command \texttt{streamlit run} executes the script as the main program, so the page is drawn.
+    An import of the script, by the package or by a test, draws nothing and needs no Streamlit, which is an optional part of the installation.
+  \item \textbf{Repair cost in the replay Gamma validator.} The check of the repair cost uses the saved means and anchors, not the reference values.
+    This is the row of the model, and at binary points the saved difference between the mean and the anchor is at least the reference difference, under both repair laws.
+    So the check on the saved values also implies the check on the reference values.
   \item \textbf{Exact Gamma validator.} It computes the tail $\Pr(D_k > \tau)$ of the sum of the terms with the Moschopoulos series.
     \begin{itemize}[nosep]
-      \item The series writes the law of a sum of independent Gamma variables with different rates as a mixture of Gamma laws with non-negative weights.
+      \item \textbf{Mixture.} The series writes the law of a sum of independent Gamma variables with different rates as a mixture of Gamma laws with non-negative weights.
         When all rates are equal, the tail is the Gamma tail.
-      \item The partial sum of the series is a lower bound of the tail, so adding the mixture weight that remains gives a certified upper bound.
-      \item The saved means may be larger than the exact ones, because they are upper bounds.
+      \item \textbf{Certified bound.} The partial sum of the series is a lower bound of the tail, so adding the mixture weight that remains gives a certified upper bound.
+      \item \textbf{Saved means.} The saved means may be larger than the exact ones, because they are upper bounds.
+      \item \textbf{Initial damage under $\text{ARD}_1$.} The initial damage is split at the starting anchor into a part that no repair reduces and a part that the repairs reduce.
+        Otherwise a repair could bring the damage below its level after the last intervention, which the law $\text{ARD}_1$ excludes.
+      \item \textbf{Cost.} The number of terms of the series grows with the ratio of the largest to the smallest rate.
+        Frequent repairs under $\text{ARD}_\infty$ make this ratio large, because each repair multiplies the rates of the repaired terms by $1/(1-\rho)$.
+        Example: one term repaired $2$, $4$, $6$, $8$ and $10$ times at $\rho = 0.5$, beside a new term, needs $151$, $725$, about $3{,}000$, about $12{,}400$ and $49{,}884$ terms.
+        One tail then takes about $2$\,s after $8$ repairs and about $31$\,s after~$10$.
+        From $11$ repairs the series needs more than $100{,}000$ terms, the default limit, and the validator stops with an error.
+      \item \textbf{Precision.} The series stops when the mixture weight that remains falls below the convolution tolerance, $10^{-12}$ by default.
+        Its sums use the extended precision of NumPy, the numerical library of Python: $80$ bits on Linux, and the usual $64$ bits on Windows.
+        With $80$ bits the series can reach a convolution tolerance near $10^{-19}$.
+        With $64$ bits the remaining weight is understated by $2 \cdot 10^{-15}$ to $9 \cdot 10^{-15}$ after $2$, $4$ and $6$ repairs in the example above.
+        This is about $1\,\%$ of the default convolution tolerance, and far below the default tolerance $10^{-8}$ with which a day passes.
+        The convolution tolerance has no lower limit: a value that the series cannot reach ends in an error.
     \end{itemize}
   \item \textbf{Monte Carlo validator.} Its result is an empirical stress test and not a proof: zero failures in $n$ runs does not show that the true failure rate is below $1/n$.
+    It raises no error for a violation of the schedule rows.
+    The mode \texttt{both} runs the replay and the Monte Carlo validators together, and it reports the schedule through the replay validator.
+  \item \textbf{Settings of the Gamma validators.} An unknown key in the input block of these settings raises an error.
+    The input checks test only that the block is a mapping, so a misspelled key, such as \texttt{repetition} for \texttt{repetitions}, would otherwise be ignored without a message.
 \end{itemize}
 
 \subsection{Package and inputs}
@@ -3836,6 +4010,12 @@ A warm start changes the time of a solve, not the model: it does not change the 
   \item \textbf{Modules.}
     The package has one module per task.
     The shared Gurobi model and the registry of component builders are in one module, and each degradation model has its own module.
+  \item \textbf{Modules without Gurobi.}
+    The inverse Gaussian and Gamma modules compute their caps with NumPy and SciPy only, and they import the module of the shared Gurobi model only when Gurobi is installed.
+    So each cap lives in the module of its model.
+    The input check of the replacement state calls the same cap function as the row, also on a computer without Gurobi.
+    The rainflow module loads in the same way, so the constants of its reliability rows can be tested without Gurobi.
+    Without Gurobi these modules register no builder.
   \item \textbf{One route for every fleet.}
     Every fleet, whatever its models, goes through the same route: no model has a separate solver.
     Every builder defines the tracked mean on every day for each of its components, because the damage penalty and the output read it.
@@ -4025,6 +4205,12 @@ Their horizon has $2H$ days, and the second $H$ days are the schedule to repeat.
   \item The reliability level, the tangent point, the repair cost and the replacement cost are set per cell.
   \item The specification covers the horizon sweeps, the warm starts, the schedule plot and the validators.
   \item The input keys follow one table, and unknown or old keys raise an error.
+  \item The input checks give every non-strict inequality the relative tolerance $10^{-12}\max(1, |a|, |b|)$, and they compare selector values with their case.
+    At a key without a default, \texttt{null} means that the key is not given at that cell.
+    YAML and JSON result files write every number that is not finite as \texttt{null}.
+  \item The specification fixes the numerical methods of the two caps: a root search in $\ln q$ for the inverse Gaussian quantile, and the grid, the golden-section search and the two bisections of the Gamma cap~$A_1$.
+  \item One function, \texttt{read\_result}, reads the result files for every tool.
+    The greedy heuristic tries a repair and a replacement on every free day of a Wiener cell.
 \end{itemize}
 
 \appendix
@@ -4724,6 +4910,19 @@ The two-point law
 lies below $\mu Z$ in the order of Definition~\ref{def:icx}, by Jensen's inequality, and exceeds~$\tau$ with probability at least~$\varepsilon'$.
 \end{proof}
 
+\phantomsection\label{drv:ig_bracket}
+\begin{proof}[Derivation of the search interval of the inverse Gaussian quantile]
+The right end of the interval in $u = \ln q$ is $\ln b$, with
+\begin{equation}
+  b = 1 + \sqrt{\eta\,(2/\varepsilon - 1)} > 1.
+\end{equation}
+$Z$ has the mean~$1$ and the variance~$\eta$, so Cantelli's inequality~\eqref{eq:cantelli_surrogate} at the level~$b$ gives
+\begin{equation}
+  \Pr(Z > b) \le \frac{\eta}{\eta + (b-1)^2} = \frac{\eta}{\eta + \eta\,(2/\varepsilon - 1)} = \frac{\varepsilon}{2} < \varepsilon.
+\end{equation}
+Therefore $\ln\Pr(Z > e^u) - \ln\varepsilon < 0$ at $u = \ln b$, and the quantile satisfies $q < b$.
+\end{proof}
+
 \phantomsection\label{prf:lem:gamma_class}
 \begin{proof}[Proof of Lemma~\ref{lem:gamma_class}]
 Since the last replacement (or day~$0$),
@@ -4895,6 +5094,7 @@ Three facts justify the computation.
     The inverse routine \texttt{gammaincinv} solves for the second argument and does not apply.
   \item The function $c \mapsto Q(A/c, t/c)$ tends to~$0$ as $c \to 0$ and has a single peak on $(0, 1]$.
     With $r = A/t$ and $s = t/c$, the function is $s \mapsto Q(rs, s)$ on $s \ge t$. A single peak of this function on $s \in [10^{-12}, 10^{8}]$ was checked numerically for $r$ from $10^{-5}$ to $0.999$, which covers the bisection for $\varepsilon \ge 10^{-5}$.
+    A second check, on $200$ values of~$r$ from $10^{-10}$ to $10^{-5}$, found no second peak either.
     So a logarithmic grid of values of~$c$, refined by a golden-section search between the neighbours of the best grid point, finds the maximum.
   \item The bisection on~$A$ starts from the lower end $\varepsilon t$, which satisfies $w(\varepsilon t) \le \varepsilon$ by Markov's inequality $Q(a, x) \le a/x$.
     It returns the lower end of its last interval, so $w(A_1) \le \varepsilon$ holds at the returned value.
