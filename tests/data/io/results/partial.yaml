@@ -1,0 +1,8 @@
+# Covers read_result: a file with a few keys only; the key extra_key is outside the result table (dropped); every other key is missing (None).
+status: optimal
+F: 3
+M: 1
+L: 2
+extra_key: 5
+component_names: [Wheelset, Brake pad]
+tau: [[1.0, 1.0], [1.0, 1.0], [1.0, 1.0]]

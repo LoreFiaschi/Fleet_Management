@@ -14,13 +14,11 @@ component_names: [Battery]
 
 model: gamma
 repair_model: ardinf
-gamma_calibration_method: repeated_increment
 
 # One homogeneous mission increment type:
 # Delta D ~ Gamma(A=mu*beta=0.4, rate beta=20).
 mu: 0.02
 gamma_beta: 20.0
-gamma_beta_bound: 10.0
 
 # Zero initial and replacement seeds isolate repeated mission increments.
 mu_0: 0.0

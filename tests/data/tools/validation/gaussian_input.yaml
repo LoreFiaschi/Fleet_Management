@@ -1,0 +1,21 @@
+# Structural validator: two Gaussian cells, F=2, M=1, L=1, H=[1,2] (T=3); objective mode total (spec 2381-2445).
+F: 2
+M: 1
+L: 1
+H: [1, 2]
+component_names: [Wheelset]
+model: gaussian
+tau: 1.0
+epsilon: 0.05
+rho: 0.5
+mu_0: 0.1
+v_0: 0.0004
+# operating profile (L, M, H2): day 1 and day 2 use entry 1 (phase lookup, spec 438-449), day 3 uses entry 2
+mu: [[[0.2, 0.1]]]
+v: [[[0.001, 0.0005]]]
+C_M: 1.0
+C_R: 2.0
+C_rep: 10.0
+C_D: 1.5
+penalty_type: inf_norm
+verbose: 0

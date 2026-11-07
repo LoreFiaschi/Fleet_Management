@@ -1,0 +1,38 @@
+# Covers: rainflow cells, one component per tail bound (Markov, Cantelli, Hoeffding, Bernstein, Chernoff), each with its own keys.
+F: 3
+M: 1
+L: 5
+H: [2, 3]
+component_names: [Markov, Cantelli, Hoeffding, Bernstein, Chernoff]
+
+model: rainflow
+bound_method: [markov, cantelli, hoeffding, bernstein, chernoff]
+repair_model: ardinf
+
+tau: 1.0
+epsilon: [0.30, 0.10, 0.10, 0.10, 0.10]
+rho: 0.8
+
+mu_0: 0.15
+v_0: [null, 0.001, null, 0.001, null]
+support_0: [null, null, null, 0.10, null]
+R_0: [null, null, 0.01, null, null]
+replacement_mu: 0.04
+replacement_v: [null, 0.0001, null, 0.0001, null]
+support_new: [null, null, null, 0.03, null]
+R_new: [null, null, 0.0005, null, null]
+
+mu: 0.06
+v: [[null], [0.0001], [null], [0.0001], [null]]
+support: [[null], [null], [0.06], [0.06], [null]]
+cgf: [[null], [null], [null], [null], [0.32]]
+s_chernoff: [null, null, null, null, 5.0]
+
+C_M: 1.0
+C_R: 2.0
+C_rep: 10.0
+C_D: 1.0
+
+verbose: 0
+mip_gap: 0.01
+time_limit: 120

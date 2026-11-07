@@ -1,0 +1,20 @@
+# Gaussian, ardinf, exact reliability row, bigm; F=2, M=1, L=1, T=4.
+F: 2
+M: 1
+H: [2, 2]
+C_M: 1.0
+C_D: 0.0
+model: gaussian
+tau: 1.0
+epsilon: 0.05
+rho: 0.5
+mu_0: 0.1
+v_0: 0.0004
+C_R: 2.0
+C_rep: 5.0
+mu: 0.3
+v: 0.002
+verbose: 0
+mip_gap: 0
+time_limit: 60
+gurobi_params: {Threads: 1}

@@ -1,0 +1,12 @@
+# Schedule plot: no m and no r (read as zero), no component_names, status time_limit; F=1, M=1, L=2, H1=1, H2=1 (spec 2301-2303, 2334).
+status: time_limit
+F: 1
+M: 1
+L: 2
+H1: 1
+H2: 1
+tau: [[1.0, 1.0]]
+mu_0: [[0.0, 0.0]]
+mu: [[[0.2, 0.4], [0.3, 0.6]]]
+x:
+  - [[1, 0], [0, 1]]

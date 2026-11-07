@@ -1,0 +1,21 @@
+# Rainflow Chernoff, ardinf (linear row K - s tau <= ln eps).
+F: 2
+M: 1
+H: [2, 2]
+C_M: 1.0
+C_D: 0.0
+model: rainflow
+bound_method: chernoff
+tau: 1.0
+epsilon: 0.1
+rho: 0.5
+mu_0: 0.05
+s_chernoff: 5.0
+C_R: 2.0
+C_rep: 5.0
+mu: 0.1
+cgf: 0.8
+verbose: 0
+mip_gap: 0
+time_limit: 60
+gurobi_params: {Threads: 1}

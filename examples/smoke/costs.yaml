@@ -1,0 +1,33 @@
+# Covers: the cost report; the script solves it in the three objective modes and with both damage penalties. C_R is 0 at the second component.
+F: 3
+M: 1
+L: 2
+H: [2, 3]
+component_names: [Wheelset, Axle]
+
+model: [gaussian, inverse_gaussian]
+repair_model: ardinf
+
+tau: 1.0
+epsilon: 0.05
+rho: 0.8
+
+mu_0: 0.15
+v_0: 0.001
+replacement_mu: 0.04
+replacement_v: 0.0001
+
+mu: 0.06
+v: 0.0001
+eta: 0.15
+
+C_M: 1.0
+C_R: [2.0, 0.0]
+C_rep: [10.0, 6.0]
+C_D: 1.5
+penalty_type: inf_norm
+objective_mode: total
+
+verbose: 0
+mip_gap: 0.01
+time_limit: 120

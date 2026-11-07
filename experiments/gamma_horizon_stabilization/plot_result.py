@@ -10,7 +10,7 @@ from fleet_management import plot_horizon_sweep
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("report", help="Horizon-sweep YAML report")
-    parser.add_argument("output", help="Destination PNG/PDF/SVG path")
+    parser.add_argument("output", help="Destination PNG or PDF path")
     arguments = parser.parse_args()
     plot_horizon_sweep(arguments.report, arguments.output)
     print("plot:", arguments.output)

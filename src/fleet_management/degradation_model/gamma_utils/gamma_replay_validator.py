@@ -151,15 +151,15 @@ def _schedule_violations(cfg: FleetConfig, result: dict, x: np.ndarray, m: np.nd
     for i, l, k in np.argwhere((m == 1) & (r == 1)):
         out.append(f"cell (i={int(i)}, l={int(l)}) has a repair and a replacement "
                    f"on day k={int(k)}")
-    intervention = np.argwhere(m + r > 0)
-    for i, l, k in intervention:
-        if x[i, 1:, k].any():
+    for i, l, k in np.argwhere(m + r > 0):
+        with_mission = bool(x[i, 1:, k].any())
+        without_depot = x[i, 0, k] == 0
+        if with_mission or without_depot:
+            reasons = " and ".join(
+                (["with a mission"] if with_mission else [])
+                + (["without a depot day"] if without_depot else []))
             out.append(f"cell (i={int(i)}, l={int(l)}) has an intervention on day "
-                       f"k={int(k)} with a mission")
-    for i, l, k in intervention:
-        if x[i, 0, k] == 0:
-            out.append(f"cell (i={int(i)}, l={int(l)}) has an intervention on day "
-                       f"k={int(k)} without a depot day")
+                       f"k={int(k)} {reasons}")
     return out
 
 

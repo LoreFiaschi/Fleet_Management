@@ -13,9 +13,6 @@ from fleet_management import plot_horizon_sweep
 
 
 def main() -> None:
-    if plot_horizon_sweep.__module__ != "fleet_management.utils.mixed_plotter":
-        raise AssertionError("public horizon plot does not route to mixed_plotter.py")
-
     cases = []
     for H2, cost, bound, gap, runtime, continuous, integer, constraints, status in (
         (4, 0.911251, 0.911251, 0.0, 0.49, 104, 128, 576, "optimal"),

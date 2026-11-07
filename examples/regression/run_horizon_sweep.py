@@ -110,21 +110,22 @@ def main() -> None:
         "continuous   integer   linear rows   optimizer s"
     )
     for row in report["cases"]:
-        formulation = row["formulation"]
-        objective = row["J_op_average"]
-        bound = row["objective_bound"]
-        gap = row["mip_gap"]
-        gradient = row["relative_cost_gradient_per_H2"]
+        # A case that raised an error has None in every entry except the sizes.
+        formulation = row.get("formulation") or {}
+        objective = row.get("J_op_average")
+        bound = row.get("objective_bound")
+        gap = row.get("mip_gap")
+        gradient = row.get("relative_cost_gradient_per_H2")
         print(
             f"{row['H2']:>2}  {row['T']:>2}  "
             f"{_format_float(objective, 8, '.5f')}   "
             f"{_format_float(bound, 10, '.5f')}   "
             f"{_format_float(gap, 7, '.2%')}   "
             f"{_format_float(gradient, 10, '.3%')}   "
-            f"{formulation['continuous_variables']:>10}   "
-            f"{formulation['integer_variables']:>7}   "
-            f"{formulation['linear_constraints']:>11}   "
-            f"{row['optimizer_seconds']:>11.3f}"
+            f"{_format_integer(formulation.get('continuous_variables'), 10)}   "
+            f"{_format_integer(formulation.get('integer_variables'), 7)}   "
+            f"{_format_integer(formulation.get('linear_constraints'), 11)}   "
+            f"{_format_float(row.get('optimizer_seconds'), 11, '.3f')}"
         )
     print("report            :", arguments.output)
 
@@ -133,6 +134,12 @@ def _format_float(value, width: int, specification: str) -> str:
     if value is None:
         return f"{'-':>{width}}"
     return f"{format(float(value), specification):>{width}}"
+
+
+def _format_integer(value, width: int) -> str:
+    if value is None:
+        return f"{'-':>{width}}"
+    return f"{int(value):>{width}}"
 
 
 if __name__ == "__main__":

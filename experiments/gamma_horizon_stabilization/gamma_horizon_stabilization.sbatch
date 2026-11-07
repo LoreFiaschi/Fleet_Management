@@ -64,10 +64,6 @@ cp examples/regression/run_horizon_sweep.py "$RUN_DIR/run_horizon_sweep.py"
 cp pyproject.toml "$RUN_DIR/source_snapshot/pyproject.toml"
 cp src/fleet_management/horizon_sweep.py "$RUN_DIR/source_snapshot/horizon_sweep.py"
 cp src/fleet_management/degradation_model/base.py "$RUN_DIR/source_snapshot/base.py"
-cp src/fleet_management/degradation_model/gamma_utils/gamma_diagnostics.py \
-   "$RUN_DIR/source_snapshot/gamma_diagnostics.py"
-cp src/fleet_management/utils/mixed_plotter.py \
-   "$RUN_DIR/source_snapshot/mixed_plotter.py"
 
 {
     echo "experiment=gamma_horizon_stabilization"

@@ -1,0 +1,19 @@
+# Greedy heuristic, construction pass: three trains, two missions, mission order and train choice with ties, repairs above r tau (F = 3, M = 2, L = 1, H = [2, 1], mean 0 increments in the operating phase) (spec 2234-2243).
+F: 3
+M: 2
+L: 1
+H: [2, 1]
+model: gaussian
+tau: 1.0
+epsilon: 0.1
+rho: 0.5
+mu_0: [[0.1], [0.2], [0.0]]
+v_0: 0.0
+mu_trans: [[[0.30, 0.10], [0.50, 0.20]]]
+mu: [[[0.0], [0.0]]]
+v: [[[0.0], [0.0]]]
+C_M: 1.0
+C_R: 1.0
+C_rep: 5.0
+C_D: 0.0
+verbose: 0

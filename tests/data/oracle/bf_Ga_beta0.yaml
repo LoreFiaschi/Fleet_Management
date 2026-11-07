@@ -1,0 +1,22 @@
+# Gamma, ardinf, gamma_beta_0 and gamma_beta_new given (they enter the smallest rate).
+F: 2
+M: 1
+H: [2, 2]
+C_M: 1.0
+C_D: 0.0
+model: gamma
+tau: 1.0
+epsilon: 0.05
+rho: 0.5
+mu_0: 0.1
+replacement_mu: 0.02
+gamma_beta_0: 15.0
+gamma_beta_new: 18.0
+C_R: 2.0
+C_rep: 5.0
+gamma_beta: 20.0
+mu: 0.15
+verbose: 0
+mip_gap: 0
+time_limit: 60
+gurobi_params: {Threads: 1}

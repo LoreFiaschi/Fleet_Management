@@ -1,0 +1,18 @@
+# Sweeps: a list H of length three, refused with ValueError before the first case (spec 1957).
+F: 3
+M: 1
+L: 1
+H: [1, 2, 3]
+model: gaussian
+tau: 1.0
+epsilon: 0.05
+rho: 0.5
+mu_0: 0.1
+v_0: 0.0
+mu: 0.05
+v: 0.0001
+C_M: 1.0
+C_R: 1.0
+C_rep: 5.0
+C_D: 0.0
+verbose: 0

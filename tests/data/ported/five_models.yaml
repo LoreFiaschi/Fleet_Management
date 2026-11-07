@@ -1,0 +1,35 @@
+# Covers: one fleet with the five models (G, IG, W, Ga, RF Cantelli) and both repair laws, two trains, one mission, H = [1, 2].
+F: 2
+M: 1
+L: 5
+H: [1, 2]
+component_names: [Wheelset, Brake pad, Axle, Bearing, Damper]
+
+model: [gaussian, inverse_gaussian, wiener, gamma, rainflow]
+repair_model: [[ard1, ardinf, ard1, ardinf, ard1], [ardinf, ard1, ardinf, ard1, ardinf]]
+bound_method: [null, null, null, null, cantelli]
+
+tau: 1.0
+epsilon: 0.05
+rho: 0.5
+
+mu_0: 0.1
+v_0: 0.0001
+replacement_mu: 0.0
+replacement_v: 0.0
+
+mu: 0.05
+v: 0.0001
+sigma: 0.01
+eta: 0.2
+gamma_beta: 20.0
+
+C_M: 1.0
+C_R: 2.0
+C_rep: 5.0
+C_D: 0.5
+
+verbose: 0
+mip_gap: 0.01
+time_limit: 30
+gurobi_params: {Threads: 1}

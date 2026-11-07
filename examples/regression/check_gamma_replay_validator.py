@@ -43,14 +43,16 @@ def main() -> None:
             raise AssertionError("Gamma replay report was not written")
 
         corrupt = yaml.safe_load(result_path.read_text(encoding="utf-8"))
-        corrupt["mu"][0][0][0] += 0.01
+        # The saved states are upper bounds of the true moments (spec, Replay validator):
+        # only a saved mean below the replayed one is an error.
+        corrupt["mu"][0][0][0] -= 0.01
         corrupt_path.write_text(
             yaml.safe_dump(corrupt, sort_keys=False), encoding="utf-8"
         )
         rejected = validate_gamma_replay_files(INPUT, corrupt_path)
         if rejected["valid"]:
             raise AssertionError("Gamma replay accepted a corrupted mean state")
-        if rejected["maximum_errors"]["physical_mean"] < 0.009:
+        if rejected["maximum_errors"]["tracked_mean"] < 0.009:
             raise AssertionError("corrupted mean was not diagnosed")
 
         try:

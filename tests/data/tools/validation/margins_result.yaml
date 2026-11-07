@@ -1,0 +1,60 @@
+# Hand-written result for margins_input.yaml; the saved states are chosen, not derived (the margin reads saved states, spec 2476).
+# Margins by the table of spec 2479-2488 (tau = 1, kappa = ln(1/eps)), cell (train, component), days 1 and 2:
+#   (0,0) G,  eps .05, mu .30/.25, v .0014/.0010: kappa_G^2 = 1.6448536^2 = 2.7055435
+#         day 1: min{0.7^2 - 2.7055435*0.0014, 0.7} = 0.4862122 ; day 2: min{0.75^2 - 2.7055435*0.001, 0.75} = 0.5597945
+#   (0,1) IG, eta .15, eps .1: cap tau/E[Z|Z>q] = 0.5493234 ; margins cap - mu = 0.3493234, 0.4493234
+#   (0,2) Ga, beta* = 5, eps .1: cap A1(5, .1)/5 = 0.5538641 ; margins cap - mu
+#   (0,3) Mk, eps .1: eps tau - mu = 0.1-0.05 = 0.05, 0.1-0.04 = 0.06
+#   (0,4) Ca, eps .1 (kappa_C^2 = 9): 0.7^2 - 9*0.01 = 0.40 ; 0.8^2 - 9*0.005 = 0.595
+#   (1,0) Ho, eps .1 (kappa = ln 10 = 2.3025851): 0.7^2 - 1.1512925*0.02 = 0.4669741 ; 0.8^2 - 1.1512925*0.01 = 0.6284871
+#   (1,1) Be, b = 0.05, c = kappa b/3 = 0.0383764: (1-c-mu)^2 - c^2 - 2 kappa v = 0.4353520 (mu .3, v .0002) ;
+#         0.5781372 (mu .2, v .0001)
+#   (1,2) Ch, s = 5: ln(0.1) - (K - 5) = 2.2974149 (K .4) ; 2.3974149 (K .3)
+#   (1,3) W,  eps .05: 0.7^2 - 2.7055435*0.004 = 0.4791778 ; 0.75^2 - 2.7055435*0.002 = 0.5570889
+#   (1,4) G,  eps .05, mu .9, v .01: min{0.1^2 - 2.7055435*0.01, 0.1} = -0.0170554 (a violation) ;
+#         day 2 (mu .5, v .001): min{0.25 - 0.0027055, 0.5} = 0.2472945
+# Loop rows hold (day 2 <= day 1 in every saved quantity). Objective: 2 depot days, C_R = 0 (z null), C_D = 0.
+status: optimal
+objective: 2.0
+F: 2
+M: 1
+L: 5
+H: [1, 1]
+H1: 1
+H2: 1
+T: 2
+model:
+  - [gaussian, inverse_gaussian, gamma, rainflow, rainflow]
+  - [rainflow, rainflow, rainflow, wiener, gaussian]
+component_names: [Gaussian, InvGauss, Gamma, Markov, Cantelli]
+tau:
+  - [1.0, 1.0, 1.0, 1.0, 1.0]
+  - [1.0, 1.0, 1.0, 1.0, 1.0]
+x:
+  - [[0, 1], [1, 0]]
+  - [[1, 0], [0, 1]]
+m:
+  - [[0, 0], [0, 0], [0, 0], [0, 0], [0, 0]]
+  - [[0, 0], [0, 0], [0, 0], [0, 0], [0, 0]]
+r:
+  - [[0, 0], [0, 0], [0, 0], [0, 0], [0, 0]]
+  - [[0, 0], [0, 0], [0, 0], [0, 0], [0, 0]]
+idle:
+  - [[0, 1], [0, 1], [0, 1], [0, 1], [0, 1]]
+  - [[1, 0], [1, 0], [1, 0], [1, 0], [1, 0]]
+mu:
+  - [[0.30, 0.25], [0.20, 0.10], [0.20, 0.10], [0.05, 0.04], [0.30, 0.20]]
+  - [[0.30, 0.20], [0.30, 0.20], [0.10, 0.10], [0.30, 0.25], [0.90, 0.50]]
+v:
+  - [[0.0014, 0.0010], [null, null], [null, null], [null, null], [0.01, 0.005]]
+  - [[null, null], [0.0002, 0.0001], [null, null], [0.004, 0.002], [0.01, 0.001]]
+R:
+  - [[null, null], [null, null], [null, null], [null, null], [null, null]]
+  - [[0.02, 0.01], [null, null], [null, null], [null, null], [null, null]]
+K:
+  - [[null, null], [null, null], [null, null], [null, null], [null, null]]
+  - [[null, null], [null, null], [0.4, 0.3], [null, null], [null, null]]
+z:
+  - [[null, null], [null, null], [null, null], [null, null], [null, null]]
+  - [[null, null], [null, null], [null, null], [null, null], [null, null]]
+u: 1.9

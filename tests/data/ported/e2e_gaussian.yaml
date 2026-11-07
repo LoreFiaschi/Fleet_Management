@@ -1,0 +1,28 @@
+# Covers: source of the JSON and HDF5 inputs of the end-to-end tests; a Gaussian-only fleet, two trains, one mission, H = [1, 2].
+F: 2
+M: 1
+L: 1
+H: [1, 2]
+
+model: gaussian
+repair_model: ard1
+
+tau: 1.0
+epsilon: 0.05
+rho: 0.5
+
+mu_0: 0.1
+v_0: 0.0004
+
+mu: 0.05
+v: 0.0001
+
+C_M: 1.0
+C_R: 2.0
+C_rep: 5.0
+C_D: 0.0
+
+verbose: 0
+mip_gap: 0.01
+time_limit: 30
+gurobi_params: {Threads: 1}

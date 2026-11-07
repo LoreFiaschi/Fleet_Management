@@ -1,0 +1,16 @@
+# Sweep plot: stopping gap null, so a mark at the requested MIP gap of each case that has one; no F, M, L in fixed_dimensions, only L (spec 2370, 2376).
+input: examples/c.yaml
+objective: operating_average
+varied_parameter: H2
+fixed_dimensions: {L: 2}
+H1: 3
+stopping_rule:
+  enabled: true
+  maximum_mip_gap_for_stopping: null
+cases:
+  - {H2: 1, status: time_limit, J_op_average: 2.0, objective_bound: 1.0, mip_gap: 0.5, requested_mip_gap: 0.02,
+     formulation: {variables: 3, continuous_variables: 2, integer_variables: 1, linear_constraints: 4}}
+  - {H2: 2, status: optimal, J_op_average: 1.0, objective_bound: 1.0, mip_gap: 0.0, requested_mip_gap: 0.04,
+     formulation: {variables: 6, continuous_variables: 4, integer_variables: 2, linear_constraints: 8}}
+  - {H2: 3, status: time_limit, J_op_average: 1.2, objective_bound: 1.0, mip_gap: 0.1667, requested_mip_gap: null,
+     formulation: {variables: 9, continuous_variables: 6, integer_variables: 3, linear_constraints: 12}}

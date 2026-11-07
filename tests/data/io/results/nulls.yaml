@@ -1,0 +1,6 @@
+# Covers read_result: float64 keys read from YAML become float arrays; a null entry is NaN; integers become floats.
+status: optimal
+x: [[[1, 0, 1]]]
+v: [[[0.5, null, 1]]]
+step_costs: [1, 2, null]
+u: 0.4

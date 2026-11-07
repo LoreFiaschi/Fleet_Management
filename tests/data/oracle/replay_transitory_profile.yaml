@@ -1,0 +1,28 @@
+# Transitory profiles mu_trans and v_trans with distinct days, operating profile with distinct days; Gaussian and inverse Gaussian cells
+F: 3
+M: 1
+L: 2
+H: [2, 3]
+model: [gaussian, inverse_gaussian]
+repair_model: ardinf
+reliability_impl: exact
+tau: 1.0
+epsilon: 0.05
+eta: [null, 0.2]
+rho: [0.6, 0.5]
+mu_0: [0.10, 0.08]
+v_0: [0.0004, null]
+replacement_mu: 0.02
+replacement_v: [0.00004, null]
+mu: [[[0.20, 0.30, 0.25]], [[0.10, 0.15, 0.12]]]          # (L, M, H2)
+mu_trans: [[[0.35, 0.15]], [[0.18, 0.08]]]                # (L, M, H1)
+v: [[[0.001, 0.002, 0.0015]], [[null, null, null]]]       # (L, M, H2)
+v_trans: [[[0.003, 0.001]], [[null, null]]]               # (L, M, H1)
+C_M: 1.0
+C_R: [2.0, 1.5]
+C_rep: [6.0, 5.0]
+C_D: 0.5
+verbose: 0
+mip_gap: 0
+time_limit: 60
+gurobi_params: {Threads: 1}

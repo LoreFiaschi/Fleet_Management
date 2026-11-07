@@ -1,0 +1,21 @@
+# Gaussian, ardinf, objective_mode operating_average (z not built on the transitory days).
+F: 2
+M: 1
+H: [2, 2]
+C_M: 1.0
+C_D: 0.0
+model: gaussian
+tau: 1.0
+epsilon: 0.05
+rho: 0.5
+mu_0: 0.1
+v_0: 0.0004
+C_R: 2.0
+C_rep: 5.0
+mu: 0.3
+v: 0.002
+verbose: 0
+mip_gap: 0
+time_limit: 60
+gurobi_params: {Threads: 1}
+objective_mode: operating_average

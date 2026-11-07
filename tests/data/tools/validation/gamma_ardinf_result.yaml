@@ -1,0 +1,39 @@
+# Hand-written result for gamma_ardinf_input.yaml: valid schedule of the replay and exact validators (spec 1230-1241, 2525-2630).
+# Schedule: train 0: mission, repair, mission; train 1: repair, mission, replacement (events of the days, spec 2514).
+# Day map (Eq. gm_map, ardinf, rho = 0.5, mu_0 = 0.1, replacement_mu = 0; increments 0.05, 0.05, 0.06):
+#   train 0: 0.1+0.05 = 0.15 ; 0.5*0.15 = 0.075 ; 0.075+0.06 = 0.135   (loop: 0.135 <= 0.15)
+#   train 1: 0.5*0.1 = 0.05 ; 0.05+0.05 = 0.10 ; replacement 0          (loop: 0 <= 0.05)
+# z on repair days: rho*(mu_{k-1} - 0): 0.5*0.15 = 0.075 (train 0, day 2) and 0.5*0.1 = 0.05 (train 1, day 1).
+# Objective (total): depot days 3 -> 3 ; C_R z = 2*(0.075+0.05) = 0.25 ; C_rep = 10 ; u = 0.15, C_D u = 0.225 ; sum 13.475.
+status: optimal
+objective: 13.475
+F: 2
+M: 1
+L: 1
+H: [1, 2]
+H1: 1
+H2: 2
+T: 3
+model: [[gamma], [gamma]]
+component_names: [Pad]
+tau: [[1.0], [1.0]]
+mu_0: [[0.1], [0.1]]
+x:
+  - [[0, 1, 0], [1, 0, 1]]
+  - [[1, 0, 1], [0, 1, 0]]
+m:
+  - [[0, 1, 0]]
+  - [[1, 0, 0]]
+r:
+  - [[0, 0, 0]]
+  - [[0, 0, 1]]
+idle:
+  - [[0, 0, 0]]
+  - [[0, 0, 0]]
+mu:
+  - [[0.15, 0.075, 0.135]]
+  - [[0.05, 0.10, 0.0]]
+z:
+  - [[0.0, 0.075, 0.0]]
+  - [[0.05, 0.0, 0.0]]
+u: 0.15

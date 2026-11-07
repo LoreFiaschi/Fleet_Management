@@ -25,7 +25,8 @@ followed by four repetitions of the 12-week operating cycle gives the annual
 interpretation `4 + 4 * 12 = 52` weeks. The optimization model contains only
 `T = H1 + H2 = 16` periods.
 
-The `F=3` configuration was proven infeasible. The primary job therefore runs
+The `F=3` configuration was proven infeasible. Obtained with `main`'s
+formulation before the merge (November 2026). The primary job therefore runs
 the `F=4` retry as one Gurobi process with four threads. It may use up to 15
 hours 30 minutes inside one 16-hour Slurm allocation. If the 5% target is not
 reached, any feasible incumbent and its final bound remain reportable.

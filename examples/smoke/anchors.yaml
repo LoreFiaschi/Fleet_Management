@@ -1,0 +1,41 @@
+# Covers: repair law ard1 with starting anchors below the initial values (mean, variance, Hoeffding budget, Chernoff quantity).
+F: 3
+M: 1
+L: 4
+H: [2, 3]
+component_names: [Wheelset, Brake pad, Pantograph A, Pantograph B]
+
+model: [gaussian, gamma, rainflow, rainflow]
+bound_method: [null, null, hoeffding, chernoff]
+repair_model: ard1
+
+tau: 1.0
+epsilon: 0.05
+rho: 0.8
+
+mu_0: 0.15
+v_0: 0.001
+R_0: 0.01
+anchor_mu_0: 0.05
+anchor_v_0: 0.0004
+anchor_R_0: 0.002
+anchor_K_0: 0.30
+replacement_mu: 0.04
+replacement_v: 0.0001
+R_new: 0.0005
+
+mu: 0.06
+v: 0.0001
+support: 0.06
+cgf: 0.32
+s_chernoff: 5.0
+gamma_beta: 20.0
+
+C_M: 1.0
+C_R: 2.0
+C_rep: 10.0
+C_D: 1.0
+
+verbose: 0
+mip_gap: 0.01
+time_limit: 120

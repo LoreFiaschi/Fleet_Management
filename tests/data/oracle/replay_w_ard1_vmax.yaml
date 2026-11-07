@@ -1,0 +1,28 @@
+# Wiener cells, repair law ard1 (the mean has an anchor, the variance none), tangent form, with v_max_user
+F: 3
+M: 1
+L: 2
+H: [2, 3]
+model: wiener
+repair_model: ard1
+reliability_impl: tangent
+tangent_ref: 0.5
+tau: 1.0
+epsilon: 0.05
+sigma: [0.03, 0.04]
+rho: [0.6, 0.5]
+mu_0: [0.10, 0.15]
+v_0: 0.0012
+anchor_mu_0: [0.05, 0.10]
+v_max_user: [0.02, 0.03]
+replacement_mu: 0.02
+replacement_v: 0.0001
+mu: [[0.25], [0.30]]
+C_M: 1.0
+C_R: [2.0, 1.5]
+C_rep: [6.0, 5.0]
+C_D: 0.5
+verbose: 0
+mip_gap: 0
+time_limit: 60
+gurobi_params: {Threads: 1}

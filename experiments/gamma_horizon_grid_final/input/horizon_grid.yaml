@@ -43,10 +43,8 @@ v_trans: [0.00002, 0.000015]
 
 gamma_beta: 20.0
 gamma_beta_trans: 20.0
-gamma_beta_bound: 10.0
 gamma_beta_0: 20.0
 gamma_beta_new: 20.0
-gamma_calibration_method: repeated_increment
 
 # Component-specific maintenance, removed-damage and replacement costs.
 C_M: [1.0, 1.2]

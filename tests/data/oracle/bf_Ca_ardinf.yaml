@@ -1,0 +1,21 @@
+# Rainflow Cantelli, ardinf, exact row.
+F: 2
+M: 1
+H: [2, 2]
+C_M: 1.0
+C_D: 0.0
+model: rainflow
+bound_method: cantelli
+tau: 1.0
+epsilon: 0.2
+rho: 0.5
+mu_0: 0.1
+v_0: 0.001
+C_R: 2.0
+C_rep: 5.0
+mu: 0.2
+v: 0.005
+verbose: 0
+mip_gap: 0
+time_limit: 60
+gurobi_params: {Threads: 1}

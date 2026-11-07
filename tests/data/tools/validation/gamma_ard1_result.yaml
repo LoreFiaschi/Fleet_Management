@@ -1,0 +1,45 @@
+# Hand-written result for gamma_ard1_input.yaml: valid ard1 schedule (spec 734-779, 1230-1241, 2525-2630).
+# Schedule: train 0: mission, replacement, mission; train 1: repair, mission, replacement.
+# Day maps (ard1, rho = 0.5, mu_0 = 0.1, g_0 = 0.04, replacement value 0 for mean and anchor; increments 0.05, 0.05, 0.06):
+#   train 0: mu = 0.1+0.05 = 0.15 ; 0 (replacement) ; 0+0.06 = 0.06
+#            g  = 0.04 (no intervention) ; 0 (anchor = replacement value) ; 0
+#   train 1: day 1 repair: mu = (1-rho) 0.1 + rho g_0 = 0.05+0.02 = 0.07, anchor g = 0.07 ;
+#            day 2 mission: mu = 0.12, g = 0.07 ; day 3 replacement: mu = 0, g = 0.
+# Loop rows: mu_T <= mu_H1 (0.06<=0.15, 0<=0.07), g_T <= g_H1 (0<=0.04, 0<=0.07).
+# z on the one repair: rho*(mu_0 - g_0) = 0.5*(0.1-0.04) = 0.03 (train 1, day 1).
+# Objective (total): depot days 3 -> 3 ; C_R z = 0.06 ; replacements 2*10 = 20 ; u = 0.15, C_D u = 0.225 ; sum 23.285.
+status: optimal
+objective: 23.285
+F: 2
+M: 1
+L: 1
+H: [1, 2]
+H1: 1
+H2: 2
+T: 3
+model: [[gamma], [gamma]]
+component_names: [Pad]
+tau: [[1.0], [1.0]]
+mu_0: [[0.1], [0.1]]
+x:
+  - [[0, 1, 0], [1, 0, 1]]
+  - [[1, 0, 1], [0, 1, 0]]
+m:
+  - [[0, 0, 0]]
+  - [[1, 0, 0]]
+r:
+  - [[0, 1, 0]]
+  - [[0, 0, 1]]
+idle:
+  - [[0, 0, 0]]
+  - [[0, 0, 0]]
+mu:
+  - [[0.15, 0.0, 0.06]]
+  - [[0.07, 0.12, 0.0]]
+g_mu:
+  - [[0.04, 0.0, 0.0]]
+  - [[0.07, 0.07, 0.0]]
+z:
+  - [[0.0, 0.0, 0.0]]
+  - [[0.03, 0.0, 0.0]]
+u: 0.15

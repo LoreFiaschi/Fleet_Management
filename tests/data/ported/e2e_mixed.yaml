@@ -1,0 +1,31 @@
+# Covers: end-to-end solve and plot from a YAML file, a mixed fleet (G ard1 tangent, IG ardinf, Ga ard1), H = [1, 2].
+F: 2
+M: 1
+L: 3
+H: [1, 2]
+
+model: [gaussian, inverse_gaussian, gamma]
+repair_model: [ard1, ardinf, ard1]
+reliability_impl: [tangent, exact, exact]
+
+tau: 1.0
+epsilon: 0.05
+rho: 0.5
+
+mu_0: 0.1
+v_0: [0.0004, null, null]
+
+mu: 0.05
+v: 0.0001
+eta: [null, 0.2, null]
+gamma_beta: [null, null, 20.0]
+
+C_M: 1.0
+C_R: 2.0
+C_rep: 5.0
+C_D: 0.0
+
+verbose: 0
+mip_gap: 0.01
+time_limit: 30
+gurobi_params: {Threads: 1}

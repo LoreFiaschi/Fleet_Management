@@ -1,0 +1,21 @@
+# Rainflow Hoeffding, ardinf, exact row.
+F: 2
+M: 1
+H: [2, 2]
+C_M: 1.0
+C_D: 0.0
+model: rainflow
+bound_method: hoeffding
+tau: 1.0
+epsilon: 0.1
+rho: 0.5
+mu_0: 0.1
+R_0: 0.01
+C_R: 2.0
+C_rep: 5.0
+mu: 0.2
+support: 0.3
+verbose: 0
+mip_gap: 0
+time_limit: 60
+gurobi_params: {Threads: 1}

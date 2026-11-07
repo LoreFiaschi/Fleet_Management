@@ -1,0 +1,29 @@
+# Sweep plot, first report: F=3, M=1, L=2, H1=2 (key), stopping gap 0.05; cases H2=1..9 with hand-set status, J_op_average, bound, gap (spec 2345-2378).
+input: examples/a.yaml
+complete: true
+objective: operating_average
+varied_parameter: H2
+fixed_dimensions: {F: 3, M: 1, L: 2}
+H1: 2
+stopping_rule:
+  enabled: true
+  maximum_mip_gap_for_stopping: 0.05
+cases:
+  - {H2: 1, status: optimal, J_op_average: 5.0, objective_bound: 5.0, mip_gap: 0.0, requested_mip_gap: 0.01,
+     formulation: {variables: 15, continuous_variables: 10, integer_variables: 5, linear_constraints: 20}}
+  - {H2: 2, status: time_limit, J_op_average: 4.0, objective_bound: 3.5, mip_gap: 0.10, requested_mip_gap: 0.01,
+     formulation: {variables: 30, continuous_variables: 20, integer_variables: 10, linear_constraints: 40}}
+  - {H2: 3, status: infeasible, J_op_average: null, objective_bound: null, mip_gap: null, requested_mip_gap: 0.01,
+     formulation: {variables: 45, continuous_variables: 30, integer_variables: 15, linear_constraints: 60}}
+  - {H2: 4, status: "error: boom", J_op_average: null, objective_bound: null, mip_gap: null, requested_mip_gap: null,
+     formulation: {variables: 60, continuous_variables: 40, integer_variables: 20, linear_constraints: 80}}
+  - {H2: 5, status: optimal, J_op_average: 3.0, objective_bound: 3.0, mip_gap: 0.0, requested_mip_gap: 0.01,
+     formulation: {variables: 75, continuous_variables: 50, integer_variables: 25, linear_constraints: 100}}
+  - {H2: 6, status: optimal, J_op_average: 2.5, objective_bound: 2.5, mip_gap: 0.001, requested_mip_gap: 0.01,
+     formulation: {variables: 90, continuous_variables: 60, integer_variables: 30, linear_constraints: 120}}
+  - {H2: 7, status: time_limit, J_op_average: 3.0, objective_bound: 2.0, mip_gap: 0.30, requested_mip_gap: 0.01,
+     formulation: {variables: 105, continuous_variables: 70, integer_variables: 35, linear_constraints: 140}}
+  - {H2: 8, status: time_limit, J_op_average: 1.5, objective_bound: null, mip_gap: 0.40, requested_mip_gap: 0.01,
+     formulation: {variables: 120, continuous_variables: 80, integer_variables: 40, linear_constraints: 160}}
+  - {H2: 9, status: "error: boom", J_op_average: null, objective_bound: null, mip_gap: null, requested_mip_gap: null,
+     formulation: null}

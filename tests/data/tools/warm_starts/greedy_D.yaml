@@ -1,0 +1,20 @@
+# Greedy heuristic, construction pass with the repair law ard1: the proxy state is multiplied by (1 - rho) for every law; the threshold is strict (F = 2, M = 1, L = 1, H = [2, 1]) (spec 2241).
+F: 2
+M: 1
+L: 1
+H: [2, 1]
+model: gaussian
+repair_model: ard1
+tau: 1.0
+epsilon: 0.1
+rho: 0.5
+mu_0: 0.25
+v_0: 0.0
+mu_trans: [[[0.5, 0.125]]]
+mu: [[[0.0]]]
+v: [[[0.0]]]
+C_M: 1.0
+C_R: 1.0
+C_rep: 5.0
+C_D: 0.0
+verbose: 0

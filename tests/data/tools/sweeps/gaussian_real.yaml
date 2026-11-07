@@ -1,0 +1,20 @@
+# Sweeps: real solves; small Gaussian fleet (F = 3, M = 1, L = 1), H1 = 1, solves in under 2 s per case (spec 1949).
+F: 3
+M: 1
+L: 1
+H: [1, 2]
+model: gaussian
+tau: 1.0
+epsilon: 0.05
+rho: 0.5
+mu_0: 0.1
+v_0: 0.0
+mu: 0.05
+v: 0.0001
+C_M: 1.0
+C_R: 1.0
+C_rep: 5.0
+C_D: 0.0
+verbose: 0
+mip_gap: 0.1
+time_limit: 30

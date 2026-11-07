@@ -1,0 +1,21 @@
+# Warm starts: Gaussian fleet with zero increments (F = 2, M = 1, L = 1, H = [2, 3]) and all costs 0, so every schedule is feasible (spec 2137-2155, 2157-2178, 2180-2195, 2197-2204).
+F: 2
+M: 1
+L: 1
+H: [2, 3]
+model: gaussian
+tau: 1.0
+epsilon: 0.1
+rho: 0.5
+mu_0: 0.0
+v_0: 0.0
+mu: [[[0.0, 0.0, 0.0]]]
+v: [[[0.0, 0.0, 0.0]]]
+C_M: 0.0
+C_R: 0.0
+C_rep: 0.0
+C_D: 0.0
+verbose: 0
+mip_gap: 0.1
+time_limit: 20
+gurobi_params: {SolutionLimit: 1}

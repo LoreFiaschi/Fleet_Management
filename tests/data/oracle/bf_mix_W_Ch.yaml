@@ -1,0 +1,29 @@
+# Two components per train: Wiener ardinf and rainflow Chernoff ard1; H = [1, 2].
+F: 2
+M: 1
+H: [1, 2]
+C_M: 1.0
+C_D: 0.0
+L: 2
+model: [wiener, rainflow]
+repair_model: [ardinf, ard1]
+bound_method: [null, chernoff]
+tau: [1.0, 1.0]
+epsilon: [0.05, 0.1]
+rho: [0.5, 0.5]
+mu_0: [0.1, 0.05]
+v_0: [0.0004, null]
+s_chernoff: [null, 5.0]
+sigma: [0.05, null]
+C_R: [2.0, 2.0]
+C_rep: [5.0, 5.0]
+mu:
+- [0.3]
+- [0.1]
+cgf:
+- [null]
+- [0.8]
+verbose: 0
+mip_gap: 0
+time_limit: 60
+gurobi_params: {Threads: 1}

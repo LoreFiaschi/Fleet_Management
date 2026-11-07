@@ -417,7 +417,10 @@ def test_parallel_cases(tmp_path, monkeypatch):
     target = tmp_path / "sweep.yaml"
     table = {key: _T1[key] for key in (2, 3, 4)}
     stub = _patch(monkeypatch, table, delay={2: 0.3})
-    monkeypatch.setattr(horizon_sweep, "ProcessPoolExecutor", ThreadPoolExecutor)
+    monkeypatch.setattr(
+        horizon_sweep, "ProcessPoolExecutor",
+        lambda max_workers, mp_context=None: ThreadPoolExecutor(max_workers=max_workers),
+    )
     writes = _count_writes(monkeypatch)
     report = horizon_sweep.sweep_operating_horizons(
         path, [2, 3, 4], n_workers=3, output_path=target
@@ -530,7 +533,10 @@ def test_grid_passes_the_sweep_options(tmp_path, monkeypatch):
 def test_grid_with_parallel_cases(tmp_path, monkeypatch):
     path = _write_input(tmp_path)
     stub = _patch(monkeypatch, _GRID, j_init=_J_INIT)
-    monkeypatch.setattr(horizon_sweep, "ProcessPoolExecutor", ThreadPoolExecutor)
+    monkeypatch.setattr(
+        horizon_sweep, "ProcessPoolExecutor",
+        lambda max_workers, mp_context=None: ThreadPoolExecutor(max_workers=max_workers),
+    )
     report = horizon_sweep.sweep_horizon_grid(
         path, [2, 3], [2, 4], warm_start=False, n_workers=2
     )

@@ -1,0 +1,29 @@
+# Monte Carlo validator: a fleet with one Gamma cell (0,0) and three Gaussian cells, known initial damage; F=2, M=1, L=2, H=[1,2] (spec 2632-2680).
+F: 2
+M: 1
+L: 2
+H: [1, 2]
+component_names: [GammaPart, GaussPart]
+model:
+  - [gamma, gaussian]
+  - [gaussian, gaussian]
+tau: 1.0
+epsilon:
+  - [0.5, 0.05]
+  - [0.05, 0.05]
+rho: 0.5
+mu_0: 0.1
+v_0: 0.0004
+# no gamma_beta_0: the initial damage of the Gamma cell is the known constant 0.1
+# profiles (L, M, H2): component 1 is Gamma (mean 0.15 per mission, rate 2, shape 0.3), component 2 is Gaussian
+mu: [[[0.15, 0.15]], [[0.2, 0.2]]]
+# v has the shape (F, L, M): null at the Gamma cell (0,0) only
+v: [[[null], [0.001]], [[0.001], [0.001]]]
+gamma_beta:
+  - [2.0, null]
+  - [null, null]
+C_M: 1.0
+C_R: 0.0
+C_rep: 10.0
+C_D: 0.0
+verbose: 0

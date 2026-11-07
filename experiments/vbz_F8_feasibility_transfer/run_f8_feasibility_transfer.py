@@ -36,15 +36,11 @@ import yaml
 
 from fleet_management.config import load_config
 from fleet_management.degradation_model.base import (
+    _model_statistics as collect_gurobi_model_statistics,
     build_fleet,
     extract_solution,
     get_cell_builder,
     resolve_run_options,
-)
-from fleet_management.degradation_model.gamma_utils.gamma_diagnostics import (
-    collect_gurobi_model_statistics,
-    compare_estimate_with_actual,
-    estimate_gamma_formulation,
 )
 from fleet_management.solver import _save_results
 from fleet_management import validate_gamma_schedule_files
@@ -159,8 +155,11 @@ def _apply_binary_schedule(ctx, values: dict[str, np.ndarray], *, fixed: bool) -
                 assigned += 1
             for l in range(ctx.L):
                 _set_value(ctx.m_rep[i, l, k], values["m"][i, l, k], fixed=fixed)
-                _set_value(ctx.nb[i, l, k], values["nb"][i, l, k], fixed=fixed)
-                assigned += 2
+                assigned += 1
+                # the selector n exists only at the cells with encoding "indicator"
+                if (i, l, k) in ctx.nb:
+                    _set_value(ctx.nb[i, l, k], values["nb"][i, l, k], fixed=fixed)
+                    assigned += 1
                 if ctx.allow_replacement:
                     _set_value(ctx.r_rep[i, l, k], values["r"][i, l, k], fixed=fixed)
                     assigned += 1
@@ -177,7 +176,7 @@ def _first_solution_callback(holder: dict[str, float | None]):
 def _extract_full_result(ctx, cfg, *, construction_seconds: float,
                          optimizer_seconds: float, backend_start: float) -> dict:
     extraction_start = time.perf_counter()
-    out = extract_solution(ctx, cfg, ctx.model)
+    out = extract_solution(ctx, cfg)
     for name in sorted({str(value) for value in np.asarray(cfg.model).ravel()}):
         hook = getattr(get_cell_builder(name), "extract", None)
         if hook is not None:
@@ -195,34 +194,7 @@ def _extract_full_result(ctx, cfg, *, construction_seconds: float,
         "threads": int(ctx.model.Params.Threads),
         "seed": int(ctx.model.Params.Seed),
     })
-    if "gamma" in ctx.extras:
-        performance["gamma_calibration_seconds"] = float(sum(
-            ctx.extras["gamma"]["calibration_seconds"].values()
-        ))
-        formulation = estimate_gamma_formulation(
-            cfg, allow_replacement=ctx.allow_replacement,
-        )
-        formulation["actual_gurobi_model"] = {
-            key: performance[key]
-            for key in (
-                "variables", "continuous_variables", "integer_variables",
-                "binary_variables", "linear_constraints", "general_constraints",
-                "indicator_constraints", "quadratic_constraints", "nonzeros",
-            )
-        }
-        formulation["comparison"] = compare_estimate_with_actual(
-            formulation, formulation["actual_gurobi_model"],
-        )
-        out["gamma_formulation"] = formulation
-
-    out.update({
-        "backend": "modular",
-        "degradation": "mixed",
-        "models": cfg.models,
-        "model_assignment": cfg.model.astype(str).tolist(),
-        "component_names": list(cfg.component_names),
-        "performance": performance,
-    })
+    out["performance"] = performance
     return out
 
 

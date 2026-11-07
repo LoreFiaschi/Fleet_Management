@@ -1,0 +1,43 @@
+# Schedule plot: F=2, M=1, L=2, H1=2, H2=2; one field each of P, R, M1, D, I on hand-set days (spec 2282-2343).
+status: optimal
+objective: 12.5
+mip_gap: 0.0123
+bound: 12.3
+F: 2
+M: 1
+L: 2
+H1: 2
+H2: 2
+T: 4
+H: [2, 2]
+model: [[gaussian, gamma], [wiener, inverse_gaussian]]
+repair_model: [[ard1, ardinf], [ard1, ardinf]]
+component_names: [Pad, Door]
+tau: [[1.0, 2.0], [1.0, 1.0]]
+mu_0: [[0.0, 1.0], [0.5, 0.25]]
+# train 1 day 1 depot: Pad replaced (P), Door repaired (R); day 2 flies M1; day 3 depot (D, D); day 4 flies M1.
+# train 2 day 1 flies M1; day 2 idle (I, I); day 3 flies M1; day 4 depot: Pad repaired (R), Door without intervention (D).
+x:
+  - [[1, 0, 1, 0], [0, 1, 0, 1]]
+  - [[0, 0, 0, 1], [1, 0, 1, 0]]
+m:
+  - [[0, 0, 0, 0], [1, 0, 0, 0]]
+  - [[0, 0, 0, 1], [0, 0, 0, 0]]
+r:
+  - [[1, 0, 0, 0], [0, 0, 0, 0]]
+  - [[0, 0, 0, 0], [0, 0, 0, 0]]
+# mu / tau of cell (1,1): 0, 0.5, 1, 2 (above 1 is clipped); cell (1,2): 0, 0, 1, 1 (tau 2)
+mu:
+  - [[0.0, 0.5, 1.0, 2.0], [0.0, 0.0, 2.0, 2.0]]
+  - [[0.1, 0.2, 0.3, 0.4], [0.9, 0.8, 0.7, 0.6]]
+u: 2.0
+objective_mode: operating_average
+J_op_average: 3.25
+performance:
+  variables: 1234
+  continuous_variables: 1000
+  integer_variables: 234
+  binary_variables: 200
+  linear_constraints: 5678
+  branch_and_bound_nodes: 4321
+  gurobi_runtime_seconds: 1.5

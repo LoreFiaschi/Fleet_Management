@@ -1,0 +1,20 @@
+# Greedy heuristic, loop pass with the law ard1: the only repairs available do not lower the excess, so replacements are placed (F = 2, M = 1, L = 1, H = [1, 2]) (spec 2256-2257).
+F: 2
+M: 1
+L: 1
+H: [1, 2]
+model: gaussian
+repair_model: ard1
+tau: 1.0
+epsilon: 0.1
+rho: 0.5
+mu_0: [[0.5], [0.25]]
+v_0: 0.0
+mu_trans: [[[0.125]]]
+mu: [[[0.125, 0.125]]]
+v: [[[0.0, 0.0]]]
+C_M: 1.0
+C_R: 1.0
+C_rep: 5.0
+C_D: 0.0
+verbose: 0

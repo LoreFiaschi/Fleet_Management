@@ -1,7 +1,8 @@
 # Final transitory/operating horizon grid
 
 This experiment varies both the preparation horizon `H1` and repeatable
-operating horizon `H2` using the finalized explicit-idle formulation.
+operating horizon `H2` using the finalized explicit-idle formulation. This
+is `main`'s formulation before the merge (November 2026).
 
 The controlled two-line case has `F=4`, `M=2`, and `L=2` (one Gamma and one
 rainflow component). It uses tangent Cantelli reliability, ARD-infinity repair,

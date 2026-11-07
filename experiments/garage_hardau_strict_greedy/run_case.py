@@ -15,13 +15,16 @@ from fleet_management.solver import solve
 def _one_step_tangent_screen(cfg) -> dict:
     """Check whether each rainflow mission is feasible from its initial state."""
     failures = []
-    reference_fraction = float(cfg.options.get("tangent_ref", 0.5))
     for i in range(cfg.F):
         for l in range(cfg.L):
             if str(cfg.model[i, l]) != "rainflow":
                 continue
             if str(cfg.bound_method[i, l]) != "cantelli":
                 continue
+            if str(cfg.reliability_impl[i, l]) != "tangent":
+                continue
+            # tangent_ref is a cell value of the cells with the form "tangent"
+            reference_fraction = float(cfg.tangent_ref[i, l])
             tau = float(cfg.tau[i, l])
             epsilon = float(cfg.epsilon[i, l])
             coefficient = epsilon / (1.0 - epsilon)
@@ -100,7 +103,7 @@ def main() -> None:
         yaml.safe_dump(greedy, sort_keys=False), encoding="utf-8"
     )
 
-    use_start = report.feasible_assignment and report.repeatability_feasible
+    use_start = report.repeatability_feasible
     if use_start:
         # Leave enough room inside the 16-hour allocation for model building,
         # exact fixed-binary completion, extraction and archiving.

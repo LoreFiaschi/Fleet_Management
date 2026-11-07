@@ -34,9 +34,15 @@ if ! python -c "import gurobipy as gp; print(gp.gurobi.version()); m = gp.Model(
     exit 2
 fi
 
+# arguments select tests (for example: sbatch run_tests.sh tests/test_spec_inputs.py); none means the whole suite
+targets=("$@")
+if [ ${#targets[@]} -eq 0 ]; then
+    targets=(tests)
+fi
+
 # pytest may fail: keep its exit code instead of stopping the script
 rc=0
-python -m pytest tests -v -rA --junitxml="logs/tests_${SLURM_JOB_ID}.xml" || rc=$?
+python -m pytest "${targets[@]}" -v -rA --junitxml="logs/tests_${SLURM_JOB_ID}.xml" || rc=$?
 
 echo "END $(date) exit=$rc"
 exit "$rc"

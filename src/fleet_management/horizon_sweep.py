@@ -21,6 +21,7 @@ from concurrent.futures import ProcessPoolExecutor, as_completed
 from copy import deepcopy
 import inspect
 import logging
+import multiprocessing
 from pathlib import Path
 from typing import Iterable
 
@@ -759,7 +760,11 @@ def _sweep(
             if stopping_reason is not None:
                 break
     else:
-        with ProcessPoolExecutor(max_workers=settings["n_workers"]) as pool:
+        # "spawn": the parent may hold Gurobi threads, and a forked worker could deadlock.
+        with ProcessPoolExecutor(
+            max_workers=settings["n_workers"],
+            mp_context=multiprocessing.get_context("spawn"),
+        ) as pool:
             futures = {
                 pool.submit(
                     _solve_case, case_input(H2), None, settings["warm_start_mode"],

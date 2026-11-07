@@ -1,0 +1,16 @@
+# Schedule plot: first rule of the mark table and the threshold 0.5; F=1, M=2, L=1, H1=1, H2=4, no status, no model (spec 2300, 2320-2329).
+F: 1
+M: 2
+L: 1
+H1: 1
+H2: 4
+T: 5
+tau: [[1.0]]
+mu_0: [[0.0]]
+mu: [[[0.1, 0.2, 0.3, 0.4, 0.5]]]
+# day 1: depot with r=1 and m=1 -> P. day 2: mission 1 with m=1 -> R. day 3: x0=0.51, m=0.51, r=0.5 -> R.
+# day 4: x1=0.5 (counts 0), x2=0.51 -> M2. day 5: every entry 0.5 (counts 0) -> idle, I.
+x:
+  - [[1, 0, 0.51, 0, 0.5], [0, 1, 0, 0.5, 0.5], [0, 0, 0, 0.51, 0.5]]
+m: [[[1, 1, 0.51, 0, 0.5]]]
+r: [[[1, 0, 0.5, 0, 0]]]

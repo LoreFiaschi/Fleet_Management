@@ -1,0 +1,29 @@
+# Covers: inverse Gaussian and Gamma cells that start close to their mean cap, so the tracked mean must stop at the cap.
+F: 3
+M: 1
+L: 2
+H: [2, 3]
+component_names: [Axle, Brake pad]
+
+model: [inverse_gaussian, gamma]
+repair_model: ardinf
+
+tau: 1.0
+epsilon: 0.05
+rho: 0.8
+
+mu_0: [0.30, 0.45]
+replacement_mu: 0.02
+
+mu: [[0.07], [0.10]]
+eta: 0.3
+gamma_beta: 10.0
+
+C_M: 1.0
+C_R: 2.0
+C_rep: 10.0
+C_D: 1.0
+
+verbose: 0
+mip_gap: 0.01
+time_limit: 120

@@ -1,0 +1,26 @@
+# Covers: a Gamma-only fleet, two trains, one mission, two components with different repair laws, H = [2, 2]; mu_0 below the cap.
+F: 2
+M: 1
+L: 2
+H: [2, 2]
+
+model: gamma
+repair_model: [[ard1, ardinf], [ard1, ardinf]]
+
+tau: 1.0
+epsilon: 0.1
+rho: 0.5
+
+mu_0: 0.1
+mu: 0.15
+gamma_beta: 20.0
+
+C_M: 1.0
+C_R: 2.0
+C_rep: 5.0
+C_D: 0.5
+
+verbose: 0
+mip_gap: 0.0
+time_limit: 30
+gurobi_params: {Threads: 1}

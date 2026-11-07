@@ -1,0 +1,39 @@
+# Dashboard margins: ten cells, one for each row of the margin table (G, IG, Ga, Mk, Ca, Ho, Be, Ch, W, G); F=2, M=1, L=5, H=[1,1] (spec 2475-2488).
+F: 2
+M: 1
+L: 5
+H: [1, 1]
+component_names: [Gaussian, InvGauss, Gamma, Markov, Cantelli]
+model:
+  - [gaussian, inverse_gaussian, gamma, rainflow, rainflow]
+  - [rainflow, rainflow, rainflow, wiener, gaussian]
+bound_method:
+  - [null, null, null, markov, cantelli]
+  - [hoeffding, bernstein, chernoff, null, null]
+tau: 1.0
+epsilon:
+  - [0.05, 0.1, 0.1, 0.1, 0.1]
+  - [0.1, 0.1, 0.1, 0.05, 0.05]
+rho: 0.5
+mu_0: 0.1
+v_0:
+  - [0.0004, null, null, null, 0.0004]
+  - [null, 0.0004, null, 0.0004, 0.0004]
+support_0:
+  - [null, null, null, null, null]
+  - [null, 0.05, null, null, null]
+# profiles given as scalars are copied to every cell, mission and day, and read only where the key applies
+mu: 0.05
+v: 0.0001
+support: 0.05
+cgf: 0.3
+s_chernoff: 5.0
+eta: 0.15
+sigma: 0.03
+gamma_beta: 5.0
+gamma_beta_0: 5.0
+C_M: 1.0
+C_R: 0.0
+C_rep: 10.0
+C_D: 0.0
+verbose: 0

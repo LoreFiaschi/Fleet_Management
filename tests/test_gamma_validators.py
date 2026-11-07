@@ -201,10 +201,8 @@ def test_replay_global_violations():
     result = _result("A")
     result["m"][0, 0, 0] = 1.0      # a repair on a day with a mission and no depot day
     report = validate_gamma_replay_schedule(cfg, result)
-    assert "cell (i=0, l=0) has an intervention on day k=0 with a mission" in report[
-        "global_violations"]
-    assert "cell (i=0, l=0) has an intervention on day k=0 without a depot day" in report[
-        "global_violations"]
+    assert report["global_violations"] == [
+        "cell (i=0, l=0) has an intervention on day k=0 with a mission and without a depot day"]
     assert not report["valid"]
 
     result = _result("A")

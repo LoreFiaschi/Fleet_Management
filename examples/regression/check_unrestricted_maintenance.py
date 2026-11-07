@@ -16,10 +16,8 @@ def scenario() -> dict:
         "H": [2, 2],
         "model": "gamma",
         "repair_model": "ardinf",
-        "gamma_calibration_method": "repeated_increment",
         "mu": 0.01,
         "gamma_beta": 10.0,
-        "gamma_beta_bound": 10.0,
         "gamma_beta_0": 10.0,
         "gamma_beta_new": 10.0,
         "mu_0": 0.02,
@@ -43,7 +41,7 @@ def main() -> None:
     try:
         load_config(obsolete)
     except ValueError as error:
-        if "depot_capacity" not in str(error) or "removed" not in str(error):
+        if "depot_capacity" not in str(error) or "Remove it" not in str(error):
             raise AssertionError(f"unclear removed-option error: {error}") from error
     else:
         raise AssertionError("obsolete depot_capacity input was silently accepted")

@@ -1,0 +1,19 @@
+# Covers: inverse Gaussian cells with eta; no variance keys (spec 2753).
+F: 3
+M: 1
+L: 2
+H: [2, 3]
+model: inverse_gaussian
+tau: 1.0
+epsilon: 0.05
+rho: 0.8
+mu_0: 0.10
+mu: 0.30
+eta: [0.15, 0.20]
+C_M: 1.0
+C_R: 2.0
+C_rep: 10.0
+C_D: 1.0
+verbose: 0
+mip_gap: 0
+time_limit: 60

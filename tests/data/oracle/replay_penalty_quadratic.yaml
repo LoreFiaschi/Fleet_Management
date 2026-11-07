@@ -1,0 +1,27 @@
+# penalty_type quadratic (u = max over trains and days of the sum of mu squared), Gaussian cell with the exact form and an inverse Gaussian cell
+F: 3
+M: 1
+L: 2
+H: [2, 3]
+model: [gaussian, inverse_gaussian]
+repair_model: ardinf
+reliability_impl: exact
+tau: 1.0
+epsilon: 0.05
+eta: [null, 0.2]
+rho: [0.6, 0.5]
+mu_0: [0.10, 0.08]
+v_0: [0.0004, null]
+replacement_mu: 0.02
+replacement_v: [0.00004, null]
+mu: [[0.30], [0.15]]
+v: [[0.002], [null]]
+C_M: 1.0
+C_R: [2.0, 1.5]
+C_rep: [6.0, 5.0]
+C_D: 2.0
+penalty_type: quadratic
+verbose: 0
+mip_gap: 0
+time_limit: 60
+gurobi_params: {Threads: 1}

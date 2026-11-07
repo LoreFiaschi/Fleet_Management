@@ -1,0 +1,35 @@
+# Covers: Gaussian and rainflow (Cantelli) cells in the three forms of the reliability row, exact (train 1), tangent (train 2), pwl (train 3).
+F: 3
+M: 1
+L: 2
+H: [2, 3]
+component_names: [Wheelset, Pantograph]
+
+model: [gaussian, rainflow]
+bound_method: [null, cantelli]
+repair_model: ardinf
+reliability_impl: [[exact, exact], [tangent, tangent], [pwl, pwl]]
+encoding: bigm
+tangent_ref: 0.4
+pwl_points: 4
+
+tau: 1.0
+epsilon: 0.05
+rho: 0.8
+
+mu_0: 0.15
+v_0: 0.001
+replacement_mu: 0.04
+replacement_v: 0.0001
+
+mu: 0.06
+v: 0.0001
+
+C_M: 1.0
+C_R: 2.0
+C_rep: 10.0
+C_D: 1.0
+
+verbose: 0
+mip_gap: 0.01
+time_limit: 120

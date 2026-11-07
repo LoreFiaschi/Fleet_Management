@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import os
 import re
+import textwrap
 from collections.abc import Sequence
 from pathlib import Path
 from typing import Any
@@ -605,6 +606,9 @@ def _component_action_label(
     return "I", "idle"
 
 
+_STATISTICS_VALUE_WIDTH = 22      # characters per line of a value in the summary panel
+
+
 def _draw_statistics(ax, view: dict[str, Any]) -> None:
     data, performance = view["raw"], view["raw"].get("performance") or {}
     status = data.get("status")
@@ -651,12 +655,14 @@ def _draw_statistics(ax, view: dict[str, Any]) -> None:
     ax.set_title("Run summary", loc="left", fontweight="bold", pad=12)
     y = 0.96
     for label, value, colour in lines:
+        # A long value is wrapped at a fixed width; the next row moves down by the extra lines.
+        wrapped = textwrap.wrap(value, width=_STATISTICS_VALUE_WIDTH, break_long_words=False) or [""]
         ax.text(0.0, y, label, transform=ax.transAxes, fontsize=8.5,
                 color="#6b7280", va="top")
-        ax.text(0.70, y, value, transform=ax.transAxes, fontsize=8.5,
-                color=colour, va="top", wrap=True,
+        ax.text(0.70, y, "\n".join(wrapped), transform=ax.transAxes, fontsize=8.5,
+                color=colour, va="top", linespacing=1.15,
                 fontweight="bold" if label == "Status" else "normal")
-        y -= 0.058
+        y -= 0.058 + 0.044 * (len(wrapped) - 1)
 
 
 def _model_grid(data: dict[str, Any], F: int, L: int) -> np.ndarray:

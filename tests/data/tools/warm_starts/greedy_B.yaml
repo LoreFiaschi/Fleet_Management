@@ -1,0 +1,19 @@
+# Greedy heuristic, construction pass: all states equal, so every tie rule decides (mission ties go to the larger j, train ties to the smaller i) (F = 3, M = 2, L = 1, H = [1, 1]) (spec 2237-2239).
+F: 3
+M: 2
+L: 1
+H: [1, 1]
+model: gaussian
+tau: 1.0
+epsilon: 0.1
+rho: 0.5
+mu_0: 0.0
+v_0: 0.0
+mu_trans: [[[0.2], [0.2]]]
+mu: [[[0.0], [0.0]]]
+v: [[[0.0], [0.0]]]
+C_M: 1.0
+C_R: 1.0
+C_rep: 5.0
+C_D: 0.0
+verbose: 0

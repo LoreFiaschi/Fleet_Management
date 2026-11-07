@@ -1,0 +1,22 @@
+# Covers: Gamma cells; gamma_beta per mission (F, L, M); gamma_beta_0 at cell (0, 0) only; gamma_beta_new.
+F: 3
+M: 1
+L: 2
+H: [2, 3]
+model: gamma
+tau: 1.0
+epsilon: 0.05
+rho: 0.8
+mu_0: 0.10
+replacement_mu: 0.02
+mu: 0.30
+gamma_beta: [[[20.0], [25.0]], [[20.0], [25.0]], [[22.0], [30.0]]]
+gamma_beta_0: [[40.0, null], [null, null], [null, null]]
+gamma_beta_new: 40.0
+C_M: 1.0
+C_R: 2.0
+C_rep: 10.0
+C_D: 1.0
+verbose: 0
+mip_gap: 0
+time_limit: 60

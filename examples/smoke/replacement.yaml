@@ -1,0 +1,33 @@
+# Covers: replacement states (replacement_mu, replacement_v, Gamma gamma_beta_new) with cheap replacement and dear repair; the script adds the variants replacement_as_new and allow_replacement false.
+F: 3
+M: 1
+L: 4
+H: [2, 3]
+component_names: [Wheelset, Axle, Brake pad, Pantograph]
+
+model: [gaussian, wiener, gamma, rainflow]
+repair_model: ardinf
+
+tau: 1.0
+epsilon: 0.05
+rho: 0.8
+
+mu_0: 0.15
+v_0: 0.001
+replacement_mu: 0.05
+replacement_v: 0.0002
+gamma_beta_new: 30.0
+
+mu: 0.06
+v: 0.0001
+sigma: 0.02
+gamma_beta: 20.0
+
+C_M: 1.0
+C_R: 30.0
+C_rep: 1.0
+C_D: 1.0
+
+verbose: 0
+mip_gap: 0.01
+time_limit: 120

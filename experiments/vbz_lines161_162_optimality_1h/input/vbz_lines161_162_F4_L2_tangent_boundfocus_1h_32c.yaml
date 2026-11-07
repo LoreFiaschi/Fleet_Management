@@ -38,10 +38,8 @@ v_trans: [0.0003, 0.0002]
 
 gamma_beta: 20.0
 gamma_beta_trans: 20.0
-gamma_beta_bound: 10.0
 gamma_beta_0: 20.0
 gamma_beta_new: 20.0
-gamma_calibration_method: repeated_increment
 
 C_M: 1.0
 C_R: 0.5

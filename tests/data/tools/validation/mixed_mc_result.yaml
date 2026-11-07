@@ -1,0 +1,49 @@
+# Hand-written result for mixed_mc_input.yaml: train 0 flies mission 1 on all three days, train 1 is idle; no intervention.
+# Gamma cell (0,0): mu = 0.1+0.15 = 0.25 ; 0.40 ; 0.55 (Eq. gm_map). Its damage is the constant 0.1 plus
+#   Gamma(0.3, 2) terms, so on day k the damage is 0.1 + Gamma(0.3 k, 2) (all rates equal), and it only grows.
+# Gaussian cells (Eq. g_map_mu, g_map_v; v_0 = 0.0004):
+#   (0,1): mu = 0.1+0.2 = 0.3 ; 0.5 ; 0.7 ;  v = 0.0004+0.001 = 0.0014 ; 0.0024 ; 0.0034
+#   (1,0) and (1,1): idle train, no change: mu = 0.1 ; v = 0.0004
+# Costs: no depot day, C_R = 0 (z is null), C_D = 0: objective 0.
+#   u (inf_norm): train 0: day 1 0.25+0.3 = 0.55, day 2 0.40+0.5 = 0.90, day 3 0.55+0.7 = 1.25 ; train 1: 0.2 ; u = 1.25.
+status: optimal
+objective: 0.0
+F: 2
+M: 1
+L: 2
+H: [1, 2]
+H1: 1
+H2: 2
+T: 3
+model:
+  - [gamma, gaussian]
+  - [gaussian, gaussian]
+component_names: [GammaPart, GaussPart]
+tau:
+  - [1.0, 1.0]
+  - [1.0, 1.0]
+mu_0:
+  - [0.1, 0.1]
+  - [0.1, 0.1]
+x:
+  - [[0, 0, 0], [1, 1, 1]]
+  - [[0, 0, 0], [0, 0, 0]]
+m:
+  - [[0, 0, 0], [0, 0, 0]]
+  - [[0, 0, 0], [0, 0, 0]]
+r:
+  - [[0, 0, 0], [0, 0, 0]]
+  - [[0, 0, 0], [0, 0, 0]]
+idle:
+  - [[0, 0, 0], [0, 0, 0]]
+  - [[0, 0, 0], [0, 0, 0]]
+mu:
+  - [[0.25, 0.40, 0.55], [0.3, 0.5, 0.7]]
+  - [[0.1, 0.1, 0.1], [0.1, 0.1, 0.1]]
+v:
+  - [[null, null, null], [0.0014, 0.0024, 0.0034]]
+  - [[0.0004, 0.0004, 0.0004], [0.0004, 0.0004, 0.0004]]
+z:
+  - [[null, null, null], [null, null, null]]
+  - [[null, null, null], [null, null, null]]
+u: 1.25

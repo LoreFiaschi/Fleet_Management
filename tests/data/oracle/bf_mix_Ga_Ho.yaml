@@ -1,0 +1,28 @@
+# Two components per train: Gamma ard1 and rainflow Hoeffding ardinf; H = [1, 2].
+F: 2
+M: 1
+H: [1, 2]
+C_M: 1.0
+C_D: 0.0
+L: 2
+model: [gamma, rainflow]
+repair_model: [ard1, ardinf]
+bound_method: [null, hoeffding]
+tau: [1.0, 1.0]
+epsilon: [0.05, 0.1]
+rho: [0.5, 0.5]
+mu_0: [0.1, 0.1]
+R_0: [null, 0.01]
+C_R: [2.0, 2.0]
+C_rep: [5.0, 5.0]
+gamma_beta: [20.0, null]
+mu:
+- [0.15]
+- [0.2]
+support:
+- [null]
+- [0.3]
+verbose: 0
+mip_gap: 0
+time_limit: 60
+gurobi_params: {Threads: 1}

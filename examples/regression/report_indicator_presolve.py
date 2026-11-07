@@ -212,11 +212,9 @@ def audit_case(
         raw["H"] = [int(h1), int(h2)]
 
     cfg = load_config(raw)
-    opts = resolve_run_options(
-        cfg,
-        verbose=0,
-        relaxation_warm_start=False,
-    )
+    opts = resolve_run_options(cfg)
+    opts["verbose"] = 0
+    opts["relaxation_warm_start"] = False
     context = build_fleet(cfg, opts, model_name=f"indicator_audit_{path.stem}")
     original_model = context.model
     original_model.update()

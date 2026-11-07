@@ -1,0 +1,19 @@
+# Greedy heuristic, construction pass: two components, the key of the train choice is the largest ratio first, then the sum of the ratios (F = 2, M = 1, L = 2, H = [1, 1]) (spec 2238-2239).
+F: 2
+M: 1
+L: 2
+H: [1, 1]
+model: gaussian
+tau: 1.0
+epsilon: 0.1
+rho: 0.5
+mu_0: [[0.3, 0.3], [0.3, 0.0]]
+v_0: 0.0
+mu_trans: [[[0.1]], [[0.1]]]
+mu: [[[0.0]], [[0.0]]]
+v: [[[0.0]], [[0.0]]]
+C_M: 1.0
+C_R: 1.0
+C_rep: 5.0
+C_D: 0.0
+verbose: 0

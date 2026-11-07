@@ -56,8 +56,6 @@ gamma_beta_trans:
   -
     - [[15.0, 10.0]]
     - [[10.0, 10.0]]
-gamma_beta_bound: [10.0, 10.0]
-gamma_calibration_method: repeated_increment
 gamma_beta_0:
   - [14.0, 10.0]
   - [12.0, 10.0]
@@ -70,9 +68,9 @@ C_M: 0.05
 C_R: 0.0
 C_D: 20.0
 C_rep: 5.0
-C_P: 0.0
 
 allow_replacement: true
-replacement_as_new: true
+# The Gamma cells use replacement_mu = 0.001; the rainflow cells use 0.
+replacement_as_new: false
 mip_gap: 0.0
 verbose: 0

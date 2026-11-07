@@ -8,12 +8,10 @@ H: [4, 4]
 component_names: [Battery]
 model: gamma
 repair_model: ardinf
-gamma_calibration_method: repeated_increment
 
 # Homogeneous mission increment: Delta D ~ Gamma(mu*beta=0.4, beta=20).
 mu: 0.02
 gamma_beta: 20.0
-gamma_beta_bound: 10.0
 
 # Zero seed isolates the repeated operating-horizon increments.
 mu_0: 0.0

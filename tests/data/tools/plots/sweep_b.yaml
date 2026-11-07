@@ -1,0 +1,25 @@
+# Sweep plot, second report: sizes in fixed_dimensions (with H1=2), no stopping rule; competes with sweep_a.yaml for H2=1,2,4,6,7,8 (spec 2368-2370).
+input: examples/b.yaml
+complete: true
+objective: operating_average
+varied_parameter: H2
+fixed_dimensions: {F: 3, M: 1, L: 2, H1: 2}
+cases:
+  # H2=1: no solution; loses against the case of sweep_a with a solution.
+  - {H2: 1, status: time_limit, J_op_average: null, objective_bound: 9.0, mip_gap: null, requested_mip_gap: 0.01,
+     formulation: {variables: 17, continuous_variables: 11, integer_variables: 6, linear_constraints: 21}}
+  # H2=2: J equal to sweep_a's (isclose), larger bound 3.9 against 3.5: this case is kept.
+  - {H2: 2, status: optimal, J_op_average: 4.000000000001, objective_bound: 3.9, mip_gap: 0.025, requested_mip_gap: 0.01,
+     formulation: {variables: 34, continuous_variables: 22, integer_variables: 12, linear_constraints: 42}}
+  # H2=4: the case of sweep_a is an error row without solution: this case is kept.
+  - {H2: 4, status: time_limit, J_op_average: 3.5, objective_bound: 3.0, mip_gap: 0.20, requested_mip_gap: 0.01,
+     formulation: {variables: 68, continuous_variables: 44, integer_variables: 24, linear_constraints: 84}}
+  # H2=6: same J and same bound as sweep_a: the earlier report (sweep_a) is kept.
+  - {H2: 6, status: optimal, J_op_average: 2.5, objective_bound: 2.5, mip_gap: 0.002, requested_mip_gap: 0.01,
+     formulation: {variables: 102, continuous_variables: 66, integer_variables: 36, linear_constraints: 126}}
+  # H2=7: smaller J (2.0 against 3.0): this case is kept.
+  - {H2: 7, status: time_limit, J_op_average: 2.0, objective_bound: 1.5, mip_gap: 0.25, requested_mip_gap: 0.01,
+     formulation: {variables: 119, continuous_variables: 77, integer_variables: 42, linear_constraints: 147}}
+  # H2=8: same J as sweep_a, which has no bound: this case, with a bound, is kept.
+  - {H2: 8, status: time_limit, J_op_average: 1.5, objective_bound: 1.0, mip_gap: 0.35, requested_mip_gap: 0.01,
+     formulation: {variables: 136, continuous_variables: 88, integer_variables: 48, linear_constraints: 168}}

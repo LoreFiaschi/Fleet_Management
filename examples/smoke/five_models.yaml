@@ -1,0 +1,41 @@
+# Covers: one fleet with Gaussian, inverse Gaussian, Wiener, Gamma and rainflow cells, repair laws ardinf and ard1 mixed, H = [2, 4].
+F: 3
+M: 1
+L: 5
+H: [2, 4]
+component_names: [Wheelset, Axle, Brake pad, Bearing, Pantograph]
+
+model: [gaussian, inverse_gaussian, wiener, gamma, rainflow]
+repair_model: [[ardinf, ardinf, ardinf, ardinf, ardinf],
+               [ard1, ard1, ard1, ard1, ard1],
+               [ardinf, ard1, ardinf, ard1, ard1]]
+
+tau: 1.0
+epsilon: 0.05
+rho: 0.8
+
+mu_0: 0.15
+v_0: 0.001
+replacement_mu: 0.04
+replacement_v: 0.0001
+
+mu: 0.06
+v: 0.0001
+sigma: 0.02
+eta: 0.15
+gamma_beta: 20.0
+
+C_M: 1.0
+C_R: 2.0
+C_rep: 10.0
+C_D: 1.0
+
+verbose: 0
+mip_gap: 0.01
+time_limit: 120
+
+# read by the Gamma validators only (scenario gamma_validators)
+validation:
+  mode: stochastic
+  repetitions: 20000
+  random_seed: 20261107
