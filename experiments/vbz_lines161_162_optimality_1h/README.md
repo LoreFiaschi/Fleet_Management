@@ -5,7 +5,7 @@ its physical input. It uses four vehicles, two missions, one Gamma component,
 one rainflow component, `H1=4`, `H2=12`, tangent-Cantelli reliability with
 `tangent_ref=0.32`, ARD-infinity repair, and no replacement.
 
-Relative to the archived tangent run, the optimizer allocation and search
+Relative to the archived tangent run (`main`'s formulation before the merge, November 2026), the optimizer allocation and search
 strategy change:
 
 - `MIPFocus=3` prioritizes improvement of the dual bound;

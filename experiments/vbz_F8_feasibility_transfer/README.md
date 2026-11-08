@@ -26,7 +26,7 @@ schedule after a formulation change.
 ## Contents
 
 - `inputs/`: matched F6 and F8 inputs;
-- `starts/`: the previously obtained feasible F6 result;
+- `starts/`: the feasible F6 result obtained with `main`'s formulation before the merge (November 2026);
 - `run_f8_feasibility_transfer.py`: experiment-only runner;
 - `vbz_F8_feasibility_transfer.sbatch`: Euler job;
 - `runs/`: per-job evidence and a downloadable archive.

@@ -10,7 +10,7 @@ one-hour solver limit.  The run is sequential so both cases receive all 32
 allocated CPUs.  The existing progress callback records incumbent and bound
 trajectories for later comparison.
 
-The greedy constructor reports any mission that would require an artificial
-vehicle.  The F=4, M=2 comparison is expected to require none.  A nonzero count
-is the explicit trigger for a separate penalized-artificial-vehicle model; it
-is not silently treated as a feasible schedule of the original problem.
+The greedy constructor reports whether its schedule meets the loop rows
+(`repeatability_feasible`).  The F=4, M=2 comparison is expected to meet them.
+The run stops with an error if they fail; the schedule is not silently treated
+as a feasible schedule of the original problem.
