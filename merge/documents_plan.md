@@ -145,6 +145,10 @@ Status (8 Nov 2026): done, commit 6971b16 on `merge/lore-into-main` (reports `st
 
 ## Step 6. Clean-up
 
+Status (8 Nov 2026): done, commit aa78cea on `merge/lore-into-main`. The static records are in `archive/merge-2026/`
+(with a `README.md`); the transitory records and `ASSESSMENT.md` went to the Recycle Bin and stay in git history at
+commit 18c8a64 (branch `lore`). `EULER.md` stays untracked (user, 8 Nov 2026).
+
 - `ASSESSMENT.md`: local copy to the Recycle Bin, removed from git (item "Documents").
 - `Things to change.txt`: the merge line goes once the merge is done (the list shows the current state only).
 - `merge/` and `lore-vs-main.md`: kept until the merge is done (user, 25 Oct 2026); then moved to an archive folder in

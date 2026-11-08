@@ -14,7 +14,7 @@ Status (28 Oct 2026): WP0 to WP3 done. Worktree `C:\Users\utente\Documents\GitHu
   reviews in `wp7_plan_sweeps.md`, `wp7_plan_plots.md`, `wp7_plan_validator.md`, `wp7_plan_gamma_validators.md`.
 
 No local installs (the user's choice); Claude commits on that branch at each commit point. WP8 done, commit 8cf16c1 (7 Nov 2026); step 3 (code against the spec, `step3/`) done, commit 6a22bd3 (8 Nov 2026); step 4 (README, CLAUDE.md, the
-experiment READMEs) done, commit 6971b16 (8 Nov 2026). Next: step 6, the clean-up: split and rules in
+experiment READMEs) done, commit 6971b16 (8 Nov 2026); lore's spec and scoping merged into the branch, commit d06ebc0; step 6 (the clean-up: static records to `archive/merge-2026/`, the rest removed) done, commit aa78cea (8 Nov 2026). `main` fast-forwarded to aa78cea and pushed, with `lore` at 18c8a64 (user's choice, 8 Nov 2026). The merge is done. The worktree went to the Recycle Bin and the branch `merge/lore-into-main` was deleted (user, 8 Nov 2026); its commits are on `main`. WP8: split and rules in
 [`wp8_interface.md`](wp8_interface.md); four planners (`io`, `oracle`, `tools`, `legacy`); own test inputs, so `lore`'s
 `input/` folder is no longer needed; Gurobi runs on Euler (`EULER.md`).
 For step 4 (README): the quick start still reads `input/data.yaml`, which WP8 removed (old keys); use
