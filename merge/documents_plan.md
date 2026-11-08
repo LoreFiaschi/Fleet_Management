@@ -94,6 +94,9 @@ user's agreement. No document is edited yet.
 
 ## Step 4. `README.md` and the other Markdown files
 
+Status (8 Nov 2026): done, commit 6971b16 on `merge/lore-into-main` (reports `step4_readme_report.md`,
+`step4_claude_md_report.md`, `step4_markdown_report.md`; Claude reviewed the README and `CLAUDE.md` and corrected them).
+
 - **`README.md`**: rewritten for the merged package. Base: `main`'s outline (it documents the tools), plus `lore`'s
   sections "Status", "Running the tests" and "Further documentation".
 

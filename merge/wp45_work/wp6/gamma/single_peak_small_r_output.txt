@@ -1,0 +1,7 @@
+r in [1e-10, 1e-5], 200 values: 0 with more than one sign change of the slope
+eps=1e-06 t=0.01: A_1=3.552475908e-08 brute force 3.552475909e-08 rel diff 2.2e-10
+eps=1e-06 t=1.0: A_1=4.558197658e-06 brute force 4.558197658e-06 rel diff 6.8e-14
+eps=1e-06 t=30.0: A_1=8.463625627 brute force 8.463625627 rel diff 3.7e-13
+eps=1e-08 t=0.01: A_1=3.552478234e-10 brute force 3.552478234e-10 rel diff 4.2e-11
+eps=1e-08 t=1.0: A_1=4.558218705e-08 brute force 4.558218705e-08 rel diff 2.3e-13
+eps=1e-08 t=30.0: A_1=5.541444606 brute force 5.541444606 rel diff 3.9e-13

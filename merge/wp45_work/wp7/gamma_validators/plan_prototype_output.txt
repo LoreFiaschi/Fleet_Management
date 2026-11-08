@@ -1,0 +1,25 @@
+A replay maxima {'tracked_mean': '0.0e+00', 'mean_anchor': '0.0e+00', 'removed_mean': '0.0e+00', 'cap': '0.0e+00', 'repeatability': '0.0e+00'} violations []
+  A k=0 mission     upper=0.0013837850247628773 diff=0.0e+00 mean=0.5 frozen=0.2 terms=[(6.0, 20.0, 'a')]
+  A k=1 repair      upper=4.1705283832418601e-09 diff=0.0e+00 mean=0.35 frozen=0.35 terms=[(6.0, 40.0, 'f')]
+  A k=2 mission     upper=0.015106503928459346 diff=2.8e-16 mean=0.65 frozen=0.35 terms=[(6.0, 40.0, 'f'), (6.0, 20.0, 'a')]
+  A k=3 replacement upper=0 diff=0.0e+00 mean=0.1 frozen=0.1 terms=[]
+  train1 uppers ['0', '0', '0', '0'] Q(4,20)= 3.203719780476998e-06
+B replay maxima {'tracked_mean': '0.0e+00', 'removed_mean': '0.0e+00', 'cap': '0.0e+00', 'repeatability': '0.0e+00'} violations []
+  B k=0 mission     upper=0.0013837850247628773 diff=0.0e+00 mean=0.5 frozen=0.0 terms=[(6.0, 20.0, 'a')]
+  B k=1 repair      upper=1.3507272658311747e-10 diff=0.0e+00 mean=0.25 frozen=0.0 terms=[(6.0, 40.0, 'a')]
+  B k=2 mission     upper=0.0042209224829624489 diff=2.9e-16 mean=0.55 frozen=0.0 terms=[(6.0, 40.0, 'a'), (6.0, 20.0, 'a')]
+  B k=3 replacement upper=0 diff=0.0e+00 mean=0.1 frozen=0.0 terms=[]
+  train1 uppers ['0', '0', '0', '0'] Q(4,20)= 3.203719780476998e-06
+C replay maxima {'tracked_mean': '0.0e+00', 'mean_anchor': '0.0e+00', 'removed_mean': '0.0e+00', 'cap': '0.0e+00', 'repeatability': '0.0e+00'} violations []
+  C k=0 mission     upper=0.0049954123083075777 diff=0.0e+00 mean=0.5 frozen=0.05 terms=[(1.0, 20.0, 'f'), (3.0, 20.0, 'a'), (6.0, 20.0, 'a')]
+  C k=1 repair      upper=1.0539649259026404e-06 diff=5.1e-14 mean=0.275 frozen=0.275 terms=[(1.0, 20.0, 'f'), (3.0, 40.0, 'f'), (6.0, 40.0, 'f')]
+  C k=2 mission     upper=0.0091163479272279285 diff=1.3e-16 mean=0.575 frozen=0.275 terms=[(1.0, 20.0, 'f'), (3.0, 40.0, 'f'), (6.0, 40.0, 'f'), (6.0, 20.0, 'a')]
+  C k=3 replacement upper=4.5010166480121303e-11 diff=0.0e+00 mean=0.1 frozen=0.1 terms=[(3.0, 30.0, 'f')]
+  train1 uppers ['3.20372e-06', '3.20372e-06', '3.20372e-06', '3.20372e-06'] Q(4,20)= 3.203719780476998e-06
+A mu (0, 0, 2) 0.64 -> [(0, 0, 2, 'mission', 'tracked_mean', 0.6499999999999999, 0.64, 0.009999999999999898)]
+A z (0, 0, 1) 0.1 -> [(0, 0, 1, 'repair', 'removed_mean', 0.15, 0.1, 0.04999999999999999)]
+A mu (0, 0, 2) 0.8 -> [(0, 0, 2, 'mission', 'cap', 0.7445173245655496, 0.8, 0.0554826754344504)]
+A mu (0, 0, 3) 0.4 -> [(0, 0, 3, 'replacement', 'repeatability', 0.35, 0.4, 0.050000000000000044)]
+A mu (0, 0, 2) 0.7 -> []
+B rho=1: [0.0013837850247628773, 0.0, 7.190884052842894e-05, 0.0] Q(6,20)= 7.190884052842894e-05
+CP: 0.02951304960703993 0.07571079374983006 1.0

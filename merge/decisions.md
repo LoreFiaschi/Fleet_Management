@@ -28,14 +28,27 @@ Status: all 30 divergences decided (26 Oct 2026).
   the characteristic life, not the median; the variance ratio of the two Miner interpretations is a direct
   computation, and Cauchy--Schwarz only bounds it by the number of days. Moved blocks and their places: `spec_scoping_map.md`. Spec
   sources: the fragments and `spec_drafts/claude_*.tex`, joined by `spec_drafts/assemble.py`; copy
-  `spec_assembled.tex` to `spec/spec.tex` with CRLF. The spec work is committed (f898c6a); the scoping structure pass
-  is not.
-- **Step 2, code:** plan in [`code_plan.md`](code_plan.md). WP0 to WP2 done on the branch `merge/lore-into-main`
-  (worktree `C:\Users\utente\Documents\GitHub\Fleet_Management-merge`, commit ed6694c; list in `wp1_removals.md`).
-  Next: WP3 (merge of `lore` into the branch) after the user reads the spec and commits `lore`'s finished work; then
-  WP4 and WP5.
-- **Pending actions of the user:** read the spec and the scoping document; commit `lore`'s work (spec, scoping
-  document, `merge/`); copy `lore`'s `test/` and `input/` folders into the repository (item "Tests and test inputs").
+  `spec_assembled.tex` to `spec/spec.tex` with CRLF. The spec and scoping work is committed on `lore` (68ec120).
+- **Step 2, code:** plan in [`code_plan.md`](code_plan.md). WP0 to WP3 done on the branch `merge/lore-into-main`
+  (worktree `C:\Users\utente\Documents\GitHub\Fleet_Management-merge`, commits ed6694c and 5f29660; list in
+  `wp1_removals.md`). WP3 merged `lore` at 68ec120. Conflicts were resolved toward `main`'s code: `README.md` and
+  `solver.py` from `main`; `lore`'s plotter removed (item "Plotting"). `lore`'s builders are in
+  `src/fleet_management/models/` and `src/fleet_management/maintenance/`, as sources for WP6; no module of `main`
+  imports them. **WP4 and WP5 done (29 Oct 2026), commit 5c8de19**: Opus plans, Sonnet executors, Opus reviews
+  (`wp4_wp5_interface.md`; `wp4_plan.md` and `wp5_plan.md`, each with its review in section 7). 73 tests of WP4 pass
+  here; `tests/test_base.py` needs Gurobi. The local tools of both packages (test runner, gurobipy stub, linear
+  emulator of gurobipy) are copied in `merge/wp45_work/` (final versions, after the reviews).
+  **WP6 done (29 Oct 2026), commit 0421e80**: five builders, three Opus plans and reviews (`wp6_interface.md`,
+  `wp6_plan_giw.md`, `wp6_plan_gamma.md`, `wp6_plan_rainflow.md`); local tools copied to `merge/wp45_work/wp6/`. The spec
+  on `lore` holds the reviewers' sentences (cap methods, package layout). **WP7 done (29 Oct 2026), commit 7e35db4**: sweeps, warm starts, plots,
+  validators, public API; four Opus plans and reviews (`wp7_interface.md`, `wp7_plan_*.md`); local tools in
+  `merge/wp45_work/wp7/`. The reviewers' spec sentences are in the spec on `lore` (54 pages, clean build;
+  record `spec_wp7_insertions.md`). The reasons the WP4 to WP7 reviewers moved out of the spec are in `scoping.tex`
+  (92 pages, clean build; record `scoping_notes_wp4_wp7.md`, 29 Oct 2026).
+  WP8 (tests) done, commit 8cf16c1 (7 Nov 2026), `wp8_interface.md`, results in `wp8_defects.md`: WP8 writes its own inputs (user, 7 Nov 2026), so
+  `lore`'s `input/` folder is no longer needed; Gurobi runs on Euler.
+- **Pending actions of the user:** read the spec and the scoping document; copy `lore`'s `test/` and `input/` folders
+  into the repository (item "Tests and test inputs").
 - Documents plan: [`documents_plan.md`](documents_plan.md), agreed by the user on 26 Oct 2026.
 
 - **Purpose.** This file records the user's choice for each divergence between the branches `lore` and `main`.
@@ -482,6 +495,11 @@ The order follows the dependencies: the foundations first, then the formulation,
     - Exact: `Φ(s̄) = (0.35, 0.00225)`, whose variance exceeds 0; rejected as well.
   - The one-component claim holds for the whole-state law. With the since-last law the anchor is a second tracked
     quantity, and the claim is not proven.
+  - **Check of 8 Nov 2026** (`wp45_work/wp8/tightness_check.md`; Claude verified three cases): the one-component claim
+    above needs a further condition, no replacement on day `H1` (as `scoping.tex` states, section "What the one-sided
+    rows accept", Proposition "Acceptance" (b)). Over the 42 brute-force fleets of WP8 (176 912 schedules): no unsafe
+    schedule is accepted; 1512 safe schedules are refused, every one checked with a replacement on day `H1`, which fixes
+    the start of the repetition at the replacement value. It changes the optimum in 1 of 42 cases (1.3 against 1.6).
 - **The flag** (Claude's check of feasibility): one-sided rows work with indicator constraints too. Example:
   `n_k = 1 ⇒ s_k >= s_{k-1} + δ_k`; `m_k = 1 ⇒ s_k >= (1-rho)·s_{k-1} + rho·g_{k-1}`; `r_k = 1 ⇒ s_k = s_new`.
   The anchor rows stay equalities (`g_k = s_k` on an intervention day), as on `lore`. Gurobi accepts inequalities in
@@ -514,6 +532,25 @@ The order follows the dependencies: the foundations first, then the formulation,
   - `spec/spec.tex`: the one-sided rows in both forms; the slack-robustness remark extended to every model and to
     the since-last law; the answer to the user's condition above (never unsafe; may reject a truly safe schedule only
     when tracked quantities move in opposite directions); the meaning of the reported states and costs (upper bounds).
+
+### Start of the repetition (tighter loop rows)
+
+- **Finding** (8 Nov 2026, WP8 tightness check, `wp45_work/wp8/tightness_check.md`): the one-sided rows accept no unsafe
+  schedule but refuse safe ones with a replacement on day `H1`, since the replacement fixes `s_{H1}` and the loop row
+  `s_T <= s_{H1}` cannot use a higher start (1512 of 176 912 schedules; on the exact trajectories one of them costs 1.3
+  against the optimum 1.6). `scoping.tex` already lists this case (section "What the one-sided rows accept").
+- **Proposal** (Claude's derivation): for every cell, tracked quantity `s` and anchor `g`, a start-of-repetition variable
+  `y^s >= s_{H1}` (and `y^g >= g_{H1}`); the rows of day `H1 + 1` read `y` in place of the values of day `H1`; the loop
+  rows read `s_T <= y^s`, `g_T <= y^g`. Safe by the same induction: the true state at the start of every repetition is
+  at most `y`. It accepts every schedule the current rows accept.
+- **Options offered**: adopt it as the formulation (recommended); an input option; a to-do item.
+- **Decision (8 Nov 2026, chosen in the answer menu)**: adopt it as the formulation (a first answer, "to-do item", was a
+  typo, said the user).
+- **Implemented**: commit 6a22bd3 on `merge/lore-into-main` (8 Nov 2026); plan `merge/step3/start_of_repetition_plan.md`.
+- **Check after the change** (8 Nov 2026, task Y2, `wp45_work/wp8/tightness_check.md`): all 1512 refused safe schedules are
+  accepted, and still no unsafe one. The optimum is unchanged in all 42 cases: the "1.3 against 1.6" of the finding
+  was the cost along the exact trajectory, while the model charges the repair and damage costs on the tracked states
+  (upper bounds), on which the newly accepted schedules cost 1.6 or more.
 
 ### States covered by the loop constraint
 
@@ -1556,3 +1593,11 @@ Questions raised by the four writers of spec version 1.0 (26 Oct 2026; their not
     `main`'s code, as decided.
   - Item "Encoding of the dynamics": the claim "with one tracked quantity and the whole-state law, it rejects none"
     needs the hypothesis that the cell is not replaced on day `H1` (writer A's counterexample).
+- **From the WP4 plan (29 Oct 2026, chosen in the answer menu; written into `spec_drafts/fragments_C.tex` and
+  `spec/spec.tex` on `lore`, not yet merged into the merge branch)**:
+  - `null` at a cell means "not given at this cell" for the three keys without a default: `v_max_user`,
+    `gamma_beta_0`, `gamma_beta_new`.
+  - Checks: a non-strict inequality passes up to `1e-12·max(1, |a|, |b|)`; selector values are case sensitive; an
+    integer key accepts `3.0` and refuses `2.5` and a flag.
+  - Result files: `NaN` and `±inf` are `null` in YAML and JSON; HDF5 keeps them; HDF5 does not store
+    `objective = None`.

@@ -1,0 +1,15 @@
+{
+  "file": "src/fleet_management/config.py, degradation_model/gaussian.py, degradation_model/wiener.py, degradation_model/inverse_gaussian.py (worktree Fleet_Management-merge); new tests/test_step3_inputs.py",
+  "changes_implemented": [
+    {"change_id": "M2", "description": "config.py _run_options: removed the bool-to-int conversion of verbose; _integer now raises ValueError for true/false."},
+    {"change_id": "M3", "description": "config.py: added sentinel _ABSENT; load_config passes data.get('component_names', _ABSENT); _component_names gives default names only for an absent key, so null raises ValueError naming 'component_names'."},
+    {"change_id": "M16", "description": "kappa_G computed as -ndtri(eps): config.py _derive (kappa_g) and _quad_coefficients (1/ndtri(eps)**2), gaussian.py, wiener.py."},
+    {"change_id": "M17", "description": "inverse_gaussian.py _ig_unit_log_sf: if second - first >= -1e-16 return -inf (log1p would hit -1). ig_mean_cap now finite for (1,1e-16), (0.01,1e-16), (1,1e-18); value for eps=0.05 unchanged (0.23714775097188218)."}
+  ],
+  "tests": {
+    "new_file": "tests/test_step3_inputs.py: 19 passed",
+    "before": {"test_spec_inputs": "83 passed", "test_spec_checks": "350 passed", "test_config": "57 passed", "test_inverse_gaussian": "2 passed, 9 skipped", "test_oracle_unit": "144 passed", "test_gaussian, test_wiener": "module skipped (no gurobipy)"},
+    "after": {"test_spec_inputs": "83 passed", "test_spec_checks": "350 passed", "test_config": "57 passed", "test_inverse_gaussian": "2 passed, 9 skipped", "test_oracle_unit": "144 passed", "test_gaussian, test_wiener": "module skipped (no gurobipy)"}
+  },
+  "notes": "No older test asserted the old M2/M3 behaviour. Line endings kept: config.py is CRLF (1017 CRs, 1017 lines, before and after); the other three files are LF. greedy_warm_start.py and validation/dashboard_inspector.py also use ndtri(1 - eps) but are outside my files; not changed. Gaussian and Wiener builders cannot be run locally (no gurobipy); their edit is one expression."
+}

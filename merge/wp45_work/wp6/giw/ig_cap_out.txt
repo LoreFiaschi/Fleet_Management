@@ -1,0 +1,17 @@
+grid 11 x 9: max rel. diff of q vs invgauss.isf = 2.23e-12
+max rel. diff of the tail mean F(1/q) vs quadrature = 4.02e-14
+
+cost of the CVaR cap against lore's cap tau/q, eps = 0.01 (decisions.md: 9.8, 18.2, 22.5 %)
+  eta=0.1: 9.8 %
+  eta=0.5: 18.2 %
+  eta=1.0: 22.5 %
+
+Monte Carlo check of E[Z | Z > q] (2e6 draws)
+  eta=0.5 eps=0.1: tau/cap = 2.61568, sample mean of Z > q = 2.61699, sample Pr(Z > q) = 0.10002
+  eta=2.0 eps=0.05: tau/cap = 5.76507, sample mean of Z > q = 5.76704, sample Pr(Z > q) = 0.04984
+
+reference values (tau, eta, epsilon) -> q, mu_bar, lore's tau/q
+  (1.0, 0.5, 0.1): q = 1.8859953361, mu_bar = 0.3823093163, tau/q = 0.5302240047
+  (1.0, 0.1, 0.01): q = 1.9488253601, mu_bar = 0.4627586840, tau/q = 0.5131296115
+  (2.0, 2.0, 0.05): q = 3.5525960458, mu_bar = 0.3469170694, tau/q = 0.5629685937
+  (1.0, 1.0, 0.2): q = 1.4478879168, mu_bar = 0.3923663771, tau/q = 0.6906611958

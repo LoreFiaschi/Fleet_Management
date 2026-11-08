@@ -1,0 +1,139 @@
+
+# ===========================================================================
+# Helpers for the cell builders: rows
+# ===========================================================================
+# A builder's ``add_cell`` calls these for one cell, in this order:
+# ``add_selector_rows``, ``add_quantity_rows`` once per tracked quantity ("mu"
+# first), the reliability rows, ``add_repair_cost_rows``.
+def mission_count(ctx: FleetModel, i: int, k: int):
+    """Number of missions flown by train ``i`` on day index ``k``."""
+    return gp.quicksum(ctx.x[i, j, k] for j in range(1, ctx.M + 1))
+
+
+def day_increment(ctx: FleetModel, i: int, l: int, k: int, key: str,
+                  *, squared: bool = False):
+    """Day increment of profile ``key`` of cell ``(i, l)`` on day index ``k``.
+
+    The sum over the missions ``j`` of ``x[i, j, k]`` times the profile value
+    after the phase lookup (Eq. c_phase), or its square if ``squared``. Terms
+    with value zero are left out.
+    """
+    terms = []
+    for j in range(1, ctx.M + 1):
+        value = ctx.increment(key, i, j, l, k)
+        if not math.isfinite(value):
+            raise ValueError(
+                f"increment {key!r} is not finite at cell (i={i}, l={l}), "
+                f"mission {j}, day {k + 1}"
+            )
+        if squared:
+            value = value * value
+        if value != 0.0:
+            terms.append(value * ctx.x[i, j, k])
+    return gp.quicksum(terms)
+
+
+def add_selector_rows(ctx: FleetModel, i: int, l: int) -> None:
+    """``n + x^m + x^r = 1`` at an indicator cell (Eq. a_ind_sum); nothing at a big-M cell."""
+    if str(ctx.encoding_of[i, l]) != "indicator":
+        return
+    md = ctx.model
+    for k in range(ctx.T):
+        xm = ctx.m_rep[i, l, k]
+        if ctx.r_rep is None:
+            md.addConstr(ctx.nb[i, l, k] + xm == 1, name=f"sel_{i}_{l}_{k}")
+        else:
+            md.addConstr(ctx.nb[i, l, k] + xm + ctx.r_rep[i, l, k] == 1,
+                         name=f"sel_{i}_{l}_{k}")
+
+
+def add_quantity_rows(ctx: FleetModel, i: int, l: int, q: str, increments,
+                      *, repair_keeps_state: bool = False) -> None:
+    """All generic rows of the tracked quantity ``q`` of cell ``(i, l)``, every day.
+
+    The dynamics in the cell's encoding, the replacement rows (if replacement is
+    allowed), the anchor rows (at an ard1 cell) and the loop rows of the state and
+    of its anchor. ``increments[k]`` is the day increment of day index ``k``.
+    ``repair_keeps_state`` is for the Wiener variance: repair factor 1, no anchor,
+    and in the big-M form one row replaces the carry and repair rows (Eq. w_vrow).
+    """
+    md, T = ctx.model, ctx.T
+    S, G = ctx.state_vars[q], ctx.anchor_vars[q]
+    big_m = _cell_value(ctx.state_range[q], i, l, f"range_{q}")
+    start = _cell_value(ctx.initial[q], i, l, f"initial {q}")
+    rho = float(ctx.rho[i, l])
+    a = 1.0 if repair_keeps_state else repair_factor(q, rho)
+    anchored = (not repair_keeps_state) and str(ctx.repair_of[i, l]) == "ard1"
+    if anchored and (i, l, 0) not in G:
+        raise ValueError(
+            f"anchor of {q!r} missing at cell (i={i}, l={l}); call add_state_vars in prepare"
+        )
+    g_start = _cell_value(ctx.anchor_start[q], i, l, f"starting anchor {q}") if anchored else None
+    s_new = _cell_value(ctx.replacement[q], i, l, f"replacement {q}") if ctx.allow_replacement else None
+    indicator = str(ctx.encoding_of[i, l]) == "indicator"
+    if indicator and (i, l, 0) not in ctx.nb:
+        raise ValueError(
+            f"selector missing at cell (i={i}, l={l}); call add_selector_vars in prepare"
+        )
+    if len(increments) != T:
+        raise ValueError(f"increments of {q!r} must hold {T} entries, got {len(increments)}")
+
+    for k in range(T):
+        s = S[i, l, k]
+        s_prev = start if k == 0 else S[i, l, k - 1]
+        xm = ctx.m_rep[i, l, k]
+        xr = ctx.r_rep[i, l, k] if ctx.allow_replacement else 0.0
+        if anchored:
+            g = G[i, l, k]
+            g_prev = g_start if k == 0 else G[i, l, k - 1]
+            psi = a * s_prev + (1.0 - a) * g_prev      # Eq. a_psi, ard1
+        else:
+            psi = a * s_prev                           # Eq. a_psi, ardinf
+
+        if not indicator:
+            if repair_keeps_state:
+                # Eq. w_vrow
+                md.addConstr(s >= s_prev + increments[k] - big_m * xr,
+                             name=f"{q}_carry_{i}_{l}_{k}")
+            else:
+                # Eq. a_bigm_carry, a_bigm_repair
+                md.addConstr(s >= s_prev + increments[k] - big_m * (xm + xr),
+                             name=f"{q}_carry_{i}_{l}_{k}")
+                md.addConstr(s >= psi - big_m * (1 - xm),
+                             name=f"{q}_repair_{i}_{l}_{k}")
+            if ctx.allow_replacement:
+                # Eq. a_bigm_repl
+                md.addConstr(s >= s_new - big_m * (1 - xr),
+                             name=f"{q}_repl_lb_{i}_{l}_{k}")
+                md.addConstr(s <= s_new + big_m * (1 - xr),
+                             name=f"{q}_repl_ub_{i}_{l}_{k}")
+            if anchored:
+                # Eq. a_bigm_anchor
+                e = xm + xr
+                md.addConstr(g - s <= big_m * (1 - e), name=f"g{q}_set_lb_{i}_{l}_{k}")
+                md.addConstr(s - g <= big_m * (1 - e), name=f"g{q}_set_ub_{i}_{l}_{k}")
+                md.addConstr(g - g_prev <= big_m * e, name=f"g{q}_keep_lb_{i}_{l}_{k}")
+                md.addConstr(g_prev - g <= big_m * e, name=f"g{q}_keep_ub_{i}_{l}_{k}")
+        else:
+            n = ctx.nb[i, l, k]
+            # Eq. a_ind_state
+            md.addGenConstrIndicator(n, True, s >= s_prev + increments[k],
+                                     name=f"{q}_carry_{i}_{l}_{k}")
+            md.addGenConstrIndicator(xm, True, s >= psi,
+                                     name=f"{q}_repair_{i}_{l}_{k}")
+            if ctx.allow_replacement:
+                md.addGenConstrIndicator(xr, True, s == s_new,
+                                         name=f"{q}_repl_{i}_{l}_{k}")
+            if anchored:
+                # Eq. a_ind_anchor
+                md.addGenConstrIndicator(n, True, g == g_prev, name=f"g{q}_keep_{i}_{l}_{k}")
+                md.addGenConstrIndicator(xm, True, g == s, name=f"g{q}_setm_{i}_{l}_{k}")
+                if ctx.allow_replacement:
+                    md.addGenConstrIndicator(xr, True, g == s, name=f"g{q}_setr_{i}_{l}_{k}")
+
+    # Eq. a_loop
+    md.addConstr(S[i, l, T - 1] <= S[i, l, ctx.H1 - 1], name=f"loop_{q}_{i}_{l}")
+    if anchored:
+        md.addConstr(G[i, l, T - 1] <= G[i, l, ctx.H1 - 1], name=f"loop_g{q}_{i}_{l}")
+
+

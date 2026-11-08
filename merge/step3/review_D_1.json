@@ -1,0 +1,129 @@
+{
+  "reviewer_id": "D1",
+  "area": "D, plots and validation tools",
+  "status": "complete; every file of the area read in full; the Moschopoulos series checked against numerical quadrature (5 cases, agreement to 1e-12); the sweep plot run on one and on two reports",
+  "issues": [
+    {
+      "id": "D1-1",
+      "type": "wrong_logic",
+      "severity": "medium",
+      "spec_reference": "spec.tex 2374: \"a size that the reports do not give is left out\"; 2359: reports \"must agree in F, M, L, H1\"; 2373: \"H1 is its entry H1 [of fixed_dimensions] if present, otherwise the key H1\".",
+      "location": "src/fleet_management/utils/plotter.py:119-152 (_merge_horizon_sweep_reports) and :199 (_normalise_horizon_sweep)",
+      "description": "With two or more reports that give no H1 (neither in fixed_dimensions nor as a key), the merged report holds the key \"H1\": None (line 152). Line 199 then evaluates int(report.get(\"H1\", 0)): the key exists with value None, so the default 0 is not used and int(None) raises TypeError. The default of case.get(\"T\", ...) is evaluated even when the case has a key T, and the value T is never used afterwards. Checked: one report without H1 plots; the same report plus a second one raises \"TypeError: int() argument must be a string, a bytes-like object or a real number, not 'NoneType'\". The spec says the title simply leaves out H1. The same crash occurs for a single report with the key H1 set to null. Decisive code line: \"\\\"T\\\": int(case.get(\\\"T\\\", int(report.get(\\\"H1\\\", 0)) + int(case[\\\"H2\\\"]))),\".",
+      "suggested_fix": "Delete the key \"T\" from the row (it is not used), or compute it only when H1 is not None. A test: two reports without H1 must give a plot titled \"Operating-horizon sweep (F=.., M=.., L=..)\"."
+    },
+    {
+      "id": "D1-2",
+      "type": "wrong_logic",
+      "severity": "low",
+      "spec_reference": "spec.tex 2380, panel (b): \"Relative MIP gap in percent of the feasible cases, each value written beside its point; a case without a feasible solution is marked at the top of the panel\".",
+      "location": "src/fleet_management/utils/plotter.py:348-373 (panel b); also :285-288 (line of panel a)",
+      "description": "Only points of feasible cases are drawn (scatter of optimal and limited), but the grey line (line 351, gap_percent over all of h2) and the text labels (loop of lines 362-373, which tests only mip_gap is not None) use every case. A case that is not feasible (status infeasible, unbounded or inf_or_unbounded) with a non-null mip_gap gets a label and a line segment, and no point; it is also marked by the red cross at the top. Panel (a) has the same effect: line 288 joins all costs, including a case with a cost and a status that is not feasible. The effect appears only for hand-made or checkpoint reports, because solve gives null for mip_gap without a solution.",
+      "suggested_fix": "Mask gap_percent and costs with `feasible` (np.where(feasible, ..., nan)) before plotting the line, and annotate only rows with has_feasible."
+    },
+    {
+      "id": "D1-3",
+      "type": "partial_implementation",
+      "severity": "low",
+      "spec_reference": "spec.tex 2372: \"For equal H2 the plot keeps the case with a solution ..., then the smaller J_op/H2, then the larger objective bound ... a remaining tie keeps the case of the earlier report in the list.\"",
+      "location": "src/fleet_management/utils/plotter.py:114-117",
+      "description": "The rule is applied only across reports. `if len(reports) == 1: return reports[0]` skips it, so one report that holds two cases with the same H2 (for example the rows of two sweeps written to one file) draws both. The spec states the rule for equal H2 without a condition on the number of reports. The same report in a list of two reports is reduced to one case per H2.",
+      "suggested_fix": "Run the selection loop also for one report, or state in the spec that the selection applies between reports only."
+    },
+    {
+      "id": "D1-4",
+      "type": "undocumented_behaviour",
+      "severity": "low",
+      "spec_reference": "spec.tex 2379, panel (a): \"best feasible case\"; 2372 states the tie rule of the selection only.",
+      "location": "src/fleet_management/utils/plotter.py:226-233, 304-312",
+      "description": "The best feasible case is min(feasible_rows, key=cost) over the rows sorted by H2: a tie goes to the smaller H2, and equality is exact. The selection of lines 165-166 uses numpy.isclose instead, so two costs that are close but not equal give the best feasible mark to the smaller one. Only that case gets a written value besides the proven ones. The spec says neither which tie rule nor which equality applies. The computed best_proven_row is never drawn (the spec marks proven cases, not the best proven one).",
+      "suggested_fix": "Add to the spec: \"The best feasible case has the smallest J_op/H2; on exactly equal values, the smaller H2.\" Or use isclose in both places."
+    },
+    {
+      "id": "D1-5",
+      "type": "undocumented_behaviour",
+      "severity": "low",
+      "spec_reference": "spec.tex 2318-2346 (layout and panel of the schedule plot) and 2370-2382 (content of the sweep plot).",
+      "location": "src/fleet_management/utils/plotter.py:253-419 (sweep), :504-590 and :609-665 (schedule)",
+      "description": "Elements that the spec does not state: (1) schedule plot: the figure title \"Fleet-management result overview\", the plot title \"Schedule and tracked mean degradation\", the axis labels, the line \"Counts from\" is stated but the wrapping of long values at 22 characters is not; the dashed line and the labels \"transitory\" and \"operating\" are drawn only if 0 < H1 < T (line 562), while the spec draws them without condition; (2) sweep plot: a grey line joining the points of panels (a) and (b), a footnote \"Lines connect sampled horizons only ...\", the panel titles, a grid, and a legend; (3) the status text shows underscores as spaces (\"time limit\"). The spec says it must hold what the code does.",
+      "suggested_fix": "Add one sentence per plot listing these elements, or remove the footnote and the conditions that the spec does not give."
+    },
+    {
+      "id": "D1-6",
+      "type": "wrong_logic",
+      "severity": "low",
+      "spec_reference": "spec.tex 2459: \"A button loads the pair\"; 2494: \"The tab Validation shows the report of check_result with the sidebar tolerance\"; 2506: \"The validators run with the sidebar tolerance\".",
+      "location": "src/fleet_management/validator_dashboard.py:36-50; validation/dashboard_inspector.py:184-198, 299; validation/dashboard_gamma.py:61-83",
+      "description": "The loading function runs check_result, the margin table and the Gamma validators with the tolerance that the sidebar holds at the click on \"Load\", and stores the result in st.session_state['loaded']. A later change of the tolerance reruns the script but does not recompute: the pages read state['tol'] (line 299 of the inspector) and the stored report. The sidebar value and the shown tolerance differ until the user presses Load again. The spec says the tolerance of the sidebar is used. The code also asks for a new Load when only the mode changes (line 47-49), which the spec does not state.",
+      "suggested_fix": "Either recompute `holds`, the Validation report and the validators when the tolerance changes, or state in the spec that the tolerance and the mode are read at the click on \"Load\"."
+    },
+    {
+      "id": "D1-7",
+      "type": "undocumented_behaviour",
+      "severity": "low",
+      "spec_reference": "spec.tex 2486 (margin of Ga: \"A_1(beta* tau, eps)/beta* - mu\"), 2561 (error field cap: \"mu - A_1(beta* tau, eps)/beta*\"), 2502 (cap of the mean tab). The row without a rate is stated only at 1285-1287: \"A cell in which no term has a rate has the row mu_k <= tau\".",
+      "location": "src/fleet_management/degradation_model/gamma.py:152-156 (mean_cap); validation/dashboard_inspector.py:47-64 (reliability_caps); gamma_utils/gamma_replay_validator.py:107-125 (gamma_cell_caps)",
+      "description": "For a Gamma cell in which no term has a rate, smallest_rate returns None and mean_cap returns tau. The margin table, the replay field cap and the cap of the Gamma tab then use tau. The three places of the validation chapter give the formula with beta* only, so a reader finds an undefined beta*. The code is consistent with the row of the model, which is the right behaviour; the validation spec does not say it.",
+      "suggested_fix": "Add to the margin table and to the field cap: \"cap = tau if no term has a rate (Section dyn_gamma, Smallest rate)\"."
+    },
+    {
+      "id": "D1-8",
+      "type": "undocumented_behaviour",
+      "severity": "low",
+      "spec_reference": "spec.tex 2621-2624: the exact validator raises RuntimeError \"the series does not reach convolution_tolerance within max_series_terms terms\"; 2607-2609 (series, bound).",
+      "location": "src/fleet_management/degradation_model/gamma_utils/gamma_tail_bound.py:76-80, 120-124, 134-143, 115",
+      "description": "Further failures and values that the spec does not state: (1) RuntimeError when the initial weight exp(sum shape_q ln(rate_q/rate_max)) underflows (checked: shapes 1e4 and 5 with rates 1e4 and 2e4*0.999 raise \"The Moschopoulos initial mixture weight underflowed\"); on Windows numpy.longdouble is float64, so underflow starts at about e^-745, so about 745 units of total shape times ln(rate ratio). (2) The series is never stopped at term 0: for unequal rates the loop needs term 1, so max_series_terms=1 raises even when the first weight already leaves a mass below the tolerance. (3) ValueError for a nonpositive or non-finite shape, rate or threshold. (4) The upper bound is cut at 1. (5) Rates are \"equal\" if numpy.allclose with rtol 1e-13 and atol 0 holds, and then the Gamma tail is used (series_terms is 1, counted as one exact_tail_evaluation, although no series ran).",
+      "suggested_fix": "Extend the Errors table: RuntimeError also \"the initial mixture weight underflows\"; state the equal-rate test (rtol 1e-13) and that such a tail counts one term."
+    },
+    {
+      "id": "D1-9",
+      "type": "partial_implementation",
+      "severity": "low",
+      "spec_reference": "spec.tex 2515: \"File version. It takes an input path, a result path and report_path (default None)\", under \"These rules hold for each validator of this subsection\"; 243: the exported list gives no file version of the Monte Carlo validator.",
+      "location": "src/fleet_management/degradation_model/gamma_utils/gamma_stochastic_validator.py:86-261 (no *_files function); __init__.py:9-33",
+      "description": "The replay, the exact validator and the dispatcher have a file version. The Monte Carlo validator has none; it can be reached from files only through validate_gamma_schedule_files with mode \"stochastic\". The common rule of the spec says each validator has one, and the spec section of the Monte Carlo validator shows only the schedule signature. The spec contradicts itself; the code follows the signature list.",
+      "suggested_fix": "Write in the common rules: \"The Monte Carlo validator has no file version; use validate_gamma_schedule_files with mode='stochastic'.\""
+    },
+    {
+      "id": "D1-10",
+      "type": "undocumented_behaviour",
+      "severity": "low",
+      "spec_reference": "spec.tex 2458-2506 (dashboards).",
+      "location": "src/fleet_management/validator_dashboard.py:34-38; validation/dashboard_inspector.py:242, 335-338, 311, 353; validation/dashboard_gamma.py:143, 138, 198-203",
+      "description": "Elements that the spec does not state: default file names \"input.yaml\" and \"output.yaml\"; a black line after day H1 in the margin heatmap and in the tail heatmap; a table of largest mu and smallest margin per train under the plot of Component comparison; the Reliability table sorted by margin; the tail heatmap colour clipped at the largest epsilon of the Gamma cells (vmax) so that values above it share one colour; the buttons \"Download as CSV\" (the spec says only \"with an export\" for Raw data, and states no export in the Gamma mode); the table of tracked mean and cap with the columns margin and holds; the Overview line \"Models\" that names a rainflow cell with its bound (\"rainflow (markov)\").",
+      "suggested_fix": "List these elements in the spec, one line per tab."
+    },
+    {
+      "id": "D1-11",
+      "type": "partial_implementation",
+      "severity": "low",
+      "spec_reference": "spec.tex 2469: Overview shows \"largest mu/tau\"; 2476: Raw data shows \"the data, with an export\".",
+      "location": "src/fleet_management/validation/dashboard_inspector.py:133-145 (overview), :110-130 (margin_table), :351-354",
+      "description": "largest_mu_over_tau is table['mu_over_tau'].max(), and the table holds only the cells and days with a margin (rows with NaN margin are dropped). A cell whose margin is NaN (for example a Gaussian cell without v in the result, or an unknown rainflow bound) is left out of the maximum, though its mu/tau exists; with no row at all the value is NaN and the page prints \"nan\". The tab Raw data shows that table, not the data of the result; the spec does not say which data. The same table feeds \"number of reliability violations\", where the exclusion follows the spec (NaN entries are left out).",
+      "suggested_fix": "Compute the largest mu/tau on result['mu'] / tau for all cells, and state in the spec that Raw data is the margin table."
+    },
+    {
+      "id": "D1-12",
+      "type": "partial_implementation",
+      "severity": "low",
+      "spec_reference": "spec.tex 2706: \"An argument that is None takes the value of the key of the same name in the input block validation, otherwise its default.\"",
+      "location": "src/fleet_management/degradation_model/gamma_utils/gamma_stochastic_validator.py:279-283",
+      "description": "values[key] = argument if argument is not None else block.get(key, default). A block key that is present with value null (YAML null) gives None, not the default: mode: null raises \"mode must be one of ...\", repetitions: null raises \"'repetitions' must be an integer (got None)\"; maximum_schedule_failure_rate: null is accepted because its default is None. The spec does not say whether a null value of a key counts as \"the key is given\". In the same module, a block that holds values of the stochastic keys is not validated when the mode is deterministic.",
+      "suggested_fix": "Either treat a null block value as absent (block.get(key) if not None else default) or state in the spec that a null value is an error."
+    },
+    {
+      "id": "D1-13",
+      "type": "undocumented_behaviour",
+      "severity": "low",
+      "spec_reference": "spec.tex 2568-2575, 2626-2634, 2676-2684, 2702.",
+      "location": "gamma_utils/gamma_replay_validator.py:287-301; gamma_tail_validator.py:224-264; gamma_stochastic_validator.py:237-260, 329-335",
+      "description": "Report content not in the key tables: replay and exact reports write solver_status \"unknown\" when the result has no status; a step of the exact report has frozen_mean None outside ARD1, and each record of terms has the keys shape, rate, mean, source, created_step, repairs and part (\"frozen\" or \"active\"); the worst step carries terms also when include_steps is False; the Monte Carlo report has the key tolerance (the spec lists it among the \"arguments used\", which is consistent); the report of mode \"both\" has the keys validator (\"Gamma replay and Monte Carlo validators\") and mode (\"both\"); the record of excluded_cells has the fixed reason \"no unique sampling distribution is specified\"; worst_time_step is 0-based (the spec says so in Indices). Ties of the worst step go to the first day (np.argmax).",
+      "suggested_fix": "Add these keys and values to the report tables of the spec."
+    }
+  ],
+  "checked_without_finding": [
+    "Structural validator: error table, order of the checks, every violation formula, the recomputed objective in the three modes, report keys (spec 2396-2449).",
+    "Margin formulas of the nine rows (G, W, IG, Ga, Mk, Ca, Ho, Be, Ch) against spec 2484-2491 and Eqs. g_row, ig_row, gm_row, rf_*; kappa, kappa_C and c = kappa*b/3 as defined at spec 338-340 and 1523.",
+    "Replay validator: reference trajectory, five error fields, event, global violations, record keys (spec 2540-2566); exact validator: term update, constants, pass rule (2596-2619); Moschopoulos recurrence and stopping rule against quadrature (agreement to 1e-12 in 5 cases, bound at or above the value in all); Monte Carlo: repair law, replacement, Clopper-Pearson (Beta(f+1, n-f), 1 if f = n), argument checks, pass rule; dispatcher modes and None rule; summary panel counts, presolve log rule (last Presolved line, first Variable types line after it)."
+  ]
+}

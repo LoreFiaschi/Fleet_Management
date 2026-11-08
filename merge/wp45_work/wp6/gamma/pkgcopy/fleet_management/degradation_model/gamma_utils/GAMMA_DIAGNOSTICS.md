@@ -1,0 +1,239 @@
+# Gamma complexity and timing diagnostics
+
+The current modular Gamma workflow has three computational stages. They must
+be interpreted separately because they have different complexity drivers.
+
+| Stage | Purpose | Main complexity driver |
+|---|---|---|
+| Offline calibration | Construct repeated-increment common-rate bounding shapes | Gamma cells, distinct increment types, and safe repetition counts |
+| Gurobi formulation | Optimize assignments and maintenance | Vehicles, missions, components, Gamma cells, and horizon length |
+| State replay | Check that the saved schedule reproduces the solver states | Gamma cells and time steps |
+
+Generate the diagnostic report for the uniform Gamma, mixed ARD-infinity, and
+mixed ARD1 Gamma/rainflow fixtures with:
+
+```powershell
+python .\examples\regression\report_gamma_complexity.py `
+    --output .\results\gamma_complexity.yaml
+```
+
+The report is intentionally self-describing. Formulation counts are
+deterministic for the same input and code version. Wall times, iterations,
+work units and branch-and-bound nodes depend on the machine, Gurobi version and
+parameter settings; they are measurements rather than regression constants.
+
+## Offline repeated-increment calibration
+
+For one Gamma vehicle/component cell, let increment type `q` have exact
+distribution
+
+```text
+X_q ~ Gamma(alpha_q, beta_q),    alpha_q = mu_q * beta_q.
+```
+
+The current calibration first determines the largest safe repetition count
+within the finite planning horizon:
+
+```text
+m_q* = max {m <= n_q_max : P(sum(r=1..m) X_qr > tau) <= epsilon}.
+```
+
+It then selects one common rate for the cell,
+
+```text
+0 < beta* <= min_q beta_q,
+```
+
+and finds a bounding shape `alpha_q*` such that, for every repetition count
+`m = 1, ..., m_q*`,
+
+```text
+P(Gamma(m*alpha_q*, beta*) > tau)
+    >= P(Gamma(m*alpha_q, beta_q) > tau).
+```
+
+The calibrated shapes can therefore be accumulated linearly in Gurobi at the
+common rate. Calibration is performed before model construction; no Gamma CDF,
+convolution, or calibration optimization is evaluated inside Gurobi.
+
+The guarantee is specific to the configured threshold, rates, and finite
+horizon. Changing `tau`, `epsilon`, an exact Gamma rate, or the horizon requires
+recalibration. The repeated-increment construction checks repetitions of each
+identified increment type. It must not be described as full stochastic
+dominance at every threshold or as an unrestricted-horizon guarantee.
+
+The main report fields are:
+
+- `method`: expected to be `repeated_increment` for the current formulation.
+- `increment_opportunities`: mission/time increment entries before compression.
+- `increment_types`: distinct increment profiles calibrated for the Gamma cells.
+- `minimum_safe_count` and `maximum_safe_count`: range of the calculated `m_q*` values.
+- `common_rates`: distinct calibrated `beta*` values used by the cells.
+- `minimum_bounded_increment_shape` and `maximum_bounded_increment_shape`: range of calibrated `alpha_q*` values.
+- `tail_constraints`: number of repeated-count inequalities checked during calibration.
+- `calibration_seconds`: total calibration wall time.
+
+Nonzero initial and replacement states are calibrated as seed states and are
+reported separately where the selected fixture uses them.
+
+## Gamma Gurobi formulation counts
+
+Let `N_gamma` be the number of Gamma vehicle/component cells,
+`N_gamma_ard1` the subset using ARD1, `T = H1 + H2`, and
+`I_replacement` equal one when replacement is enabled. Let `N_inf_product` and
+`N_ard1_product` be the Gamma cells using ARD-infinity and ARD1, respectively.
+Every Gamma cell uses product hulls, so `N_product` equals `N_gamma`.
+
+```text
+Gamma shape variables       = N_gamma * T
+ARD-inf removed-shape vars  = N_inf_product * T
+ARD-inf replacement vars    = 2*N_inf_product*T*I_replacement
+Gamma ARD1 latch variables  = 2 * N_gamma_ard1 * T
+ARD1 repairable-state vars  = 2 * N_ard1_product * T
+ARD1 replacement-state vars = 2*N_ard1_product*T*I_replacement
+ARD1 replacement-latch vars = 2*N_ard1_product*(T-1)*I_replacement
+ARD-inf product-hull rows   = N_inf_product
+                              *((8*T - 4) + I_replacement*(6*T - 4))
+ARD1 product-hull rows      = N_ard1_product
+                              *((11*T - 4) + I_replacement*(12*T - 10))
+Gamma Big-M dynamics rows   = 0
+Gamma reliability rows      = N_gamma * T
+Gamma repeatability rows    = 2*N_gamma
+Gamma maintenance rows      = N_gamma*T*(1 + 2*I_replacement)
+```
+
+The Gamma block introduces no indicator, general, or quadratic constraints.
+ARD-infinity is written as a direct state balance. Its removed physical damage
+and removed bounding shape are exact convex-hull linearizations of a bounded
+continuous state multiplied by the repair binary. When replacement is enabled,
+two further products select the previous physical mean and shape for removal
+before the replacement seed is added. This branch creates no no-intervention
+binary and no conditional state equalities. At the seed step the previous state
+is constant, so each product is an ordinary linear equality.
+
+ARD1 similarly uses direct balances, but its two repair products
+select `state - latch` rather than the complete previous state. The selected
+mean and shape are stored in bounded continuous auxiliaries. This branch also
+creates no no-intervention binary. Mean and bounding-shape repeatability remain;
+terminal repeatability is not imposed on the internal latch states. With
+replacement enabled, four more products select the complete previous mean and
+shape and the two previous latches. The previous states are removed, the
+replacement seed is added, and both latches are reset to that seed.
+
+Both Gamma repair models use state balances and exact binary-product hulls with
+and without replacement. A replacement selects and subtracts the complete
+previous state, then adds the calibrated replacement seed. Gamma therefore has
+no conditional Big-M equalities and creates no indicator constraints.
+
+The product-hull coefficients use time-dependent reachable bounds.
+Before either type of row is added, each Gamma cell receives safe upper bounds
+for physical expected damage, bounding shape, removed damage, and the ARD1
+latches. The bounds are an
+over-approximation of every possible schedule: normal operation adds the largest
+available increment at each step, repair cannot increase a state, and
+replacement applies the replacement seed. Physical expected damage is clipped
+by `tau`, while bounding shape is clipped by `A_max`. This changes variable
+bounds and product-hull coefficients without introducing additional variables
+or constraints. Solver output records one of:
+
+```text
+gamma_dynamics_formulation: ardinf_product_hull
+gamma_dynamics_formulation: ardinf_replacement_product_hull
+gamma_dynamics_formulation: ard1_product_hull
+gamma_dynamics_formulation: ard1_replacement_product_hull
+gamma_dynamics_formulation: no_replacement_product_hull
+gamma_dynamics_formulation: replacement_product_hull
+gamma_big_m_bound_strategy: time_dependent_reachable
+```
+
+The final field is retained as a backward-compatible name for existing result
+readers; it now describes the reachable-bound strategy used by the product
+hulls and does not imply that Gamma contains conditional Big-M rows.
+
+At fixed common rate, both ARD-infinity and ARD1 scale the Gamma bounding shape
+consistently with the physical-mean repair rule. ARD1 additionally stores the
+physical mean and bounding shape immediately after the latest intervention.
+Normal operation holds these latches, repair updates them, and replacement
+resets them.
+
+For the supplied uniform Gamma fixture, the known shared/Gamma subtotal is
+compared directly with the complete Gurobi model. In mixed fixtures, the
+remaining variables and constraints belong to the rainflow block. A transitory
+budget or other externally added row can also appear as a small remainder and
+should be identified explicitly rather than attributed to Gamma dynamics.
+
+## Lightweight state replay
+
+The public post-solve check replays the selected schedule from the input data.
+It recomputes the physical mean, calibrated bounding shape, removed damage and
+ARD1 latch states for every Gamma cell and time step, then compares them with
+the saved solver result. It also checks the Gamma reliability and repeatability
+inequalities.
+
+Main replay fields are:
+
+- `gamma_cells`: number of Gamma vehicle/component cells replayed.
+- `transitions_checked = N_gamma * T`.
+- `repairs` and `replacements`: interventions encountered in the schedule.
+- `maximum_errors`: largest differences between replayed and saved mean, shape,
+  removed-damage, latch, reliability and repeatability values.
+- `validation_wall_seconds` or `replay_seconds`: complete replay wall time,
+  depending on the report schema.
+
+The replay is a software-consistency check. It is intended to detect an
+incorrect transition, extraction error, or corrupted result file. It does not
+recompute an exact varying-rate failure probability and must not be presented
+as an independent probabilistic certificate of the calibrated surrogate.
+
+## Development-only numerical checks
+
+The repository retains convolution, quadrature and randomized property scripts
+as internal numerical evidence for the earlier general tail-bound work. They
+are useful for regression and research comparison, but they are not called by
+the public `solve()` workflow and their complexity is not part of normal
+post-solve replay. In particular, fields such as
+`minimum_conservativeness_margin`, `minimum_reliability_slack`, convolution
+series terms, and remaining mixture mass belong to those internal checks, not
+to the lightweight public validator.
+
+## Deterministic scalability sweeps
+
+Two separate diagnostics should be used for scalability:
+
+```powershell
+python .\examples\regression\run_formulation_size_sweep.py `
+    .\input\gamma_horizon_euler.yaml `
+    .\results\gamma_formulation_sweep.yaml
+
+python .\examples\regression\run_horizon_sweep.py `
+    .\input\gamma_horizon_euler.yaml `
+    .\results\gamma_horizon_sweep.yaml `
+    --h2-range 2 32 `
+    --stop-on-gradient `
+    --gradient-tolerance 0.001 `
+    --maximum-stopping-gap 0.05 `
+    --transitory-budget 10
+```
+
+The formulation-size sweep varies `F`, `M`, `L`, and `T` one at a time and
+records deterministic variable and constraint counts. These one-at-a-time
+slopes describe the selected baseline only because the general formulation
+contains interaction terms such as `F*M*T` and `F*L*T`.
+
+The horizon sweep keeps `F`, `M`, `L`, and `H1` fixed while varying `H2`. It
+reports formulation size, calibration time, optimizer time, node count, the
+operating objective `J_op/H2`, its best bound and the relative MIP gap. The
+operating-average model is deliberately single-objective so this bound and gap
+certify the same quantity that is compared across horizons.
+
+With gradient stopping enabled, the sweep continues in increasing `H2` until
+the relative operating-cost gradient per added unit of `H2` is sufficiently
+flat for the requested number of consecutive comparisons, or becomes positive.
+Only adjacent cases that are optimal or satisfy the configured maximum MIP gap
+may trigger the stop; otherwise the sweep continues to the hard upper horizon.
+`best_proven_H2` is selected only from optimal cases whose reported MIP gap is
+at most numerical tolerance. `best_feasible_H2` may
+include a time-limit result and must be reported with its bound and MIP gap; a
+lower feasible value is not proof of a better operating horizon.
+The report is checkpointed after every completed case, so a cluster wall-time
+termination preserves all horizons that finished before the interruption.

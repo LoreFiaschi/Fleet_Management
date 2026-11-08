@@ -1,0 +1,7 @@
+n=2 terms=    58 new=1.510650392845934e-02 old=1.510650392845935e-02 diff=1.7e-18 t_new=0.001s t_old=0.028s
+n=4 terms=    61 new=9.116347927227922e-03 old=9.116347927227928e-03 diff=6.9e-18 t_new=0.002s t_old=0.027s
+n=3 terms=   151 new=3.891738228880710e-02 old=3.891738228880710e-02 diff=0.0e+00 t_new=0.002s t_old=0.066s
+n=5 terms=   725 new=7.263520164602343e-02 old=7.263520164602510e-02 diff=1.7e-15 t_new=0.009s t_old=3.518s
+n=7 terms=  3055 new=8.400799707285693e-02 t_new=0.116s (old not run)
+8 repairs: terms=12416 upper=8.706383e-02 t_new=1.96s
+10 repairs: terms=49884 upper=8.784154e-02 t_new=31.47s

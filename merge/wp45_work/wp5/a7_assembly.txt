@@ -1,0 +1,42 @@
+def _load_builders(names) -> None:
+    """Import the module of each model in ``names`` so that it registers its cell builder.
+
+    The module is ``fleet_management.degradation_model.<name>``. Done lazily to
+    avoid a circular import (the modules import this one). A model without a
+    module is reported by ``get_cell_builder``.
+    """
+    for name in names:
+        if name in CELL_BUILDERS:
+            continue
+        module = f"fleet_management.degradation_model.{name}"
+        try:
+            importlib.import_module(module)
+        except ModuleNotFoundError as error:
+            if error.name != module:
+                raise
+
+
+def build_fleet(cfg, opts: dict, model_name: str = "fleet_management") -> FleetModel:
+    """Shared skeleton + one block of rows per cell, in the building order of the spec."""
+    present = sorted({str(m) for m in np.asarray(cfg.model).ravel()})
+    _load_builders(present)
+    for name in present:
+        get_cell_builder(name)           # fails before any Gurobi object exists
+
+    ctx = build_context(cfg, opts, model_name)
+
+    # per-model preparation (variables of the model's own quantities, solver flags)
+    for name in present:
+        get_cell_builder(name).prepare(ctx, cfg, ctx.cells_of(name), opts)
+
+    # objective and the rows that do not depend on the model
+    build_objective(ctx, cfg, opts)
+    add_assignment_rows(ctx)
+    add_depot_rows(ctx)
+    add_damage_penalty_rows(ctx, str(cfg.penalty_type))
+
+    # per-cell blocks
+    for i in range(cfg.F):
+        for l in range(cfg.L):
+            dispatch_cell(ctx, i, l)
+    return ctx

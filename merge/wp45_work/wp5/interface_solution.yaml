@@ -1,0 +1,230 @@
+status: optimal
+objective: 5.625
+mip_gap: 0.0
+bound: 5.625
+F: 2
+M: 1
+L: 1
+H1: 2
+H2: 2
+T: 4
+H:
+- 2
+- 2
+model:
+- - gaussian
+- - gaussian
+component_names:
+- Component 1
+tau:
+- - 1.0
+- - 1.0
+mu_0:
+- - 0.2
+- - 0.2
+v_0:
+- - 0.0
+- - 0.0
+repair_model: ard1
+reliability_impl: tangent
+encoding: bigm
+objective_mode: total
+x:
+- - - 0.0
+    - 1.0
+    - 0.0
+    - 1.0
+  - - 1.0
+    - 0.0
+    - 1.0
+    - 0.0
+- - - 0.0
+    - 0.0
+    - 0.0
+    - 0.0
+  - - 0.0
+    - 1.0
+    - 0.0
+    - 1.0
+m:
+- - - 0.0
+    - 1.0
+    - 0.0
+    - 0.0
+- - - 0.0
+    - 0.0
+    - 0.0
+    - 0.0
+r:
+- - - -0.0
+    - 0.0
+    - 0.0
+    - 1.0
+- - - -0.0
+    - -0.0
+    - -0.0
+    - 0.0
+idle:
+- - - 0.0
+    - 0.0
+    - 0.0
+    - 0.0
+- - - 0.0
+    - 0.0
+    - 0.0
+    - 0.0
+mu:
+- - - 0.5
+    - 0.35
+    - 0.6499999999999999
+    - 0.09999999999999998
+- - - 0.2
+    - 0.2
+    - 0.2
+    - 0.2
+v:
+- - - 0.01
+    - 0.0025
+    - 0.06088745603777451
+    - 0.0
+- - - 0.0
+    - 0.0
+    - 0.0
+    - 0.0
+z:
+- - - 0.0
+    - 0.15
+    - 0.0
+    - 0.0
+- - - 0.0
+    - 0.0
+    - 0.0
+    - 0.0
+R:
+- - - null
+    - null
+    - null
+    - null
+- - - null
+    - null
+    - null
+    - null
+K:
+- - - null
+    - null
+    - null
+    - null
+- - - null
+    - null
+    - null
+    - null
+g_mu:
+- - - 0.2
+    - 0.35
+    - 0.35
+    - 0.09999999999999998
+- - - 0.2
+    - 0.2
+    - 0.2
+    - 0.2
+g_v:
+- - - 0.0
+    - 0.0025
+    - 0.0025
+    - 0.0
+- - - 0.0
+    - 0.0
+    - 0.0
+    - 0.0
+g_R:
+- - - null
+    - null
+    - null
+    - null
+- - - null
+    - null
+    - null
+    - null
+g_K:
+- - - null
+    - null
+    - null
+    - null
+- - - null
+    - null
+    - null
+    - null
+u: 0.6499999999999999
+step_costs:
+- 0.0
+- 1.3
+- 0.0
+- 4.0
+J_initialization: 1.3
+J_op: 4.0
+J_op_average: 2.0
+peak_damage: 0.6499999999999999
+damage_penalty: 0.32499999999999996
+operating_objective: 2.325
+J_total: 5.625
+component_costs:
+  C_M: 1.0
+  C_D: 0.5
+  C_R:
+  - - 2.0
+  - - 2.0
+  C_rep:
+  - - 3.0
+  - - 3.0
+performance:
+  gurobi_version: 0.0.0
+  variables: 73
+  continuous_variables: 41
+  integer_variables: 32
+  binary_variables: 32
+  linear_constraints: 188
+  general_constraints: 0
+  indicator_constraints: 0
+  quadratic_constraints: 0
+  nonzeros: 568
+  solutions_found: 1
+  gurobi_runtime_seconds: 0.0
+  branch_and_bound_nodes: 0.0
+  simplex_iterations: 0.0
+  barrier_iterations: 0.0
+  work_units: 0.0
+  model_construction_seconds: 0.003782400002819486
+  optimizer_call_seconds: 0.006562000002304558
+  solution_extraction_seconds: 0.00033490000350866467
+  backend_wall_seconds: 0.01078149999375455
+  requested_time_limit_seconds: 60.0
+  requested_mip_gap: 0.0
+  threads: 0
+  seed: 0
+optimization_progress:
+- runtime_seconds: 0.0
+  incumbent: 5.625
+  best_bound: 5.625
+  relative_gap: 0.0
+  nodes: 0.0
+  solutions: 1
+warm_start:
+  applied: true
+  values: 32
+  source_horizon:
+    H1: 2
+    H2: 2
+  completion:
+    requested: false
+    status: not_requested
+    fixed_integer_variables: 0
+    values_copied: 0
+    runtime_seconds: null
+    iis_constraints: []
+  mode: start
+relaxation_warm_start:
+  enabled: false
+  status: disabled
+  relaxation_objective: null
+  values_copied: 0
+  runtime_seconds: null

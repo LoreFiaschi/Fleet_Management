@@ -1,0 +1,68 @@
+def build_context(cfg, opts: dict, model_name: str = "fleet_management") -> FleetModel:
+    """Create the Gurobi model, the shared variables, and the context object.
+
+    Step 1 of the building order (spec, "Cell-Builder Interface"). ``z`` is built
+    only at cells with ``C_R > 0``, on the days whose cost enters the objective;
+    ``u`` only if ``C_D > 0``. The per-cell arrays are read from ``cfg``.
+    """
+    F, L, M = cfg.F, cfg.L, cfg.M
+    H1, H2, T = cfg.H1, cfg.H2, cfg.T
+    allow_replacement = bool(cfg.allow_replacement)
+
+    md = gp.Model(model_name)
+    md.Params.OutputFlag = int(opts["verbose"])
+    apply_performance_params(md, opts["time_limit"], opts["mip_gap"],
+                             opts["fast"], opts["gurobi_params"])
+
+    x = md.addVars(F, M + 1, T, vtype=GRB.BINARY, name="x")
+    m_rep = md.addVars(F, L, T, vtype=GRB.BINARY, name="m")
+    r_rep = md.addVars(F, L, T, vtype=GRB.BINARY, name="r") if allow_replacement else None
+    mu_var = md.addVars(F, L, T, lb=0.0, name="mu")
+    for i in range(F):
+        for l in range(L):
+            for k in range(T):
+                mu_var[i, l, k].UB = float(cfg.tau[i, l])
+
+    C_R = np.asarray(cfg.C_R, dtype=float)
+    z_keys = [(i, l, k) for i in range(F) for l in range(L) if C_R[i, l] > 0
+              for k in cost_days(str(opts["objective_mode"]), H1, T)]
+    z_var = md.addVars(z_keys, lb=0.0, name="z") if z_keys else gp.tupledict()
+    u_var = md.addVar(lb=0.0, name="u") if float(cfg.C_D) > 0 else None
+
+    profiles = {}
+    for key in ("mu", "v", "support", "cgf", "gamma_beta"):
+        operating = getattr(cfg, key, None)
+        if operating is not None:
+            transitory = getattr(cfg, key + "_trans", None)
+            profiles[key] = (
+                np.asarray(operating, dtype=float),
+                None if transitory is None else np.asarray(transitory, dtype=float),
+            )
+
+    def floats(table):
+        return {q: np.asarray(values, dtype=float) for q, values in table.items()}
+
+    ctx = FleetModel(
+        model=md, F=F, H1=H1, H2=H2, M=M, L=L, T=T,
+        x=x, m_rep=m_rep, r_rep=r_rep, mu_var=mu_var, z_var=z_var, u_var=u_var,
+        model_of=np.asarray(cfg.model, dtype=str),
+        repair_of=np.asarray(cfg.repair_model, dtype=str),
+        bound_of=np.asarray(cfg.bound_method, dtype=str),
+        impl_of=np.asarray(cfg.reliability_impl, dtype=str),
+        encoding_of=np.asarray(cfg.encoding, dtype=str),
+        tau=np.asarray(cfg.tau, dtype=float), eps=np.asarray(cfg.epsilon, dtype=float),
+        rho=np.asarray(cfg.rho, dtype=float),
+        tangent_ref=np.asarray(cfg.tangent_ref, dtype=float),
+        initial=floats({"mu": cfg.mu_0, "v": cfg.v_0, "R": cfg.R_0, "K": cfg.cgf_0}),
+        replacement=floats({"mu": cfg.replacement_mu, "v": cfg.replacement_v,
+                            "R": cfg.R_new, "K": cfg.cgf_new}),
+        anchor_start=floats({"mu": cfg.anchor_mu_0, "v": cfg.anchor_v_0,
+                             "R": cfg.anchor_R_0, "K": cfg.anchor_K_0}),
+        state_range=floats({"mu": cfg.range_mu, "v": cfg.range_v,
+                            "R": cfg.range_R, "K": cfg.range_K}),
+        allow_replacement=allow_replacement, pwl_points=int(cfg.pwl_points),
+        opts=dict(opts), profiles=profiles,
+    )
+    ctx.state_vars = {"mu": mu_var, "v": {}, "R": {}, "K": {}}
+    ctx.anchor_vars = {q: {} for q in TRACKED_QUANTITIES}
+    return ctx

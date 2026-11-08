@@ -1,0 +1,25 @@
+{
+  "file": "src/fleet_management/degradation_model/gamma_utils/gamma_tail_bound.py; src/fleet_management/greedy_warm_start.py; src/fleet_management/validation/dashboard_inspector.py; tests/test_step3_series.py (new)",
+  "changes_implemented": [
+    {
+      "change_id": "M13",
+      "description": "moschopoulos_tail_probability no longer raises on underflow of the first weight. The recursion runs on u_k = w_k / C (u_0 = 1) with a running log scale (rescale when u_k > 1e100); each w_k = exp(log C + log_scale + log u_k) is formed in log scale. Sums stay in numpy.longdouble; stopping rule, upper bound = tail + remaining mass, equal-rates shortcut and the RuntimeError on max_series_terms are unchanged. Also: complement = 1 - ratios, ratios = 1 - complement (consistent pair) and index_gamma[k] = shapes . complement**k (np.power), instead of a running product, because the running product's rounding error (about k*eps) shifted the total mass by about alpha*eps = 1e-12 and kept the remaining mass above the tolerance at shapes 2000/3000."
+    },
+    {
+      "change_id": "M16",
+      "description": "ndtri(1 - eps) replaced by -ndtri(eps) in greedy_warm_start.py (_cell_rows, c2) and dashboard_inspector.py (reliability_margins, kg2). Line endings kept (greedy CRLF 424 before and after; the other two files LF, 0 CR)."
+    }
+  ],
+  "tests": {
+    "new_file": "tests/test_step3_series.py: 20 passed, 0 failed (large shapes at 4 thresholds against quad; unchanged old cases; equal-rates shortcut; max_series_terms RuntimeError; margins and greedy c2 at eps 0.05).",
+    "before_after": {
+      "test_gamma_validators": "60 passed before, 60 after",
+      "test_spec_validation": "131 passed + 2 known runner failures (test_dispatcher_files, test_public_api_exports_validate) before and after",
+      "test_spec_warm_starts": "17 passed, 18 skipped before and after",
+      "test_warm_start": "12 passed, 20 skipped before and after",
+      "test_validator_dashboards": "14 passed before and after",
+      "check_gamma_convolution_quadrature.py": "PASS before and after (worst abs error 1.57e-12, max terms 554)"
+    }
+  },
+  "notes": "Large case (shapes 2000, 3000; rates 1, 0.3): about 8156 terms, 0.5 s per call; upper bound agrees with the quad reference within 1.1e-12 at the four thresholds. Old small cases: estimate and upper bound change by at most 1e-13 absolute (relative up to 2e-11 at 5e-3, 5e-8 at the 2.7e-7 tail upper bound, because remaining mass 1 - sum p_k is a cancellation quantity of size 1e-12 with float64 noise 1e-16 to 1e-14); the request of 1e-12 relative is met for the estimate in 8 of 10 cases, and everything is within the 1e-12 truncation tolerance in absolute terms; the new values are the more consistent ones (mass of weights consistent with ratios). The test uses abs=1e-12. The last two old cases take 792 instead of 793 terms. dashboard_inspector.py already held another coder's uncommitted edit in overview(); left untouched. The unrequested script check_gamma_tail_bound.py was started and stopped (not needed)."
+}

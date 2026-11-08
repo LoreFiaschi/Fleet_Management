@@ -1,0 +1,93 @@
+_SOLUTION_KEYS = ("x", "m", "r", "idle", "mu", "v", "z", "R", "K",
+                  "g_mu", "g_v", "g_R", "g_K", "u")
+_COST_KEYS = ("step_costs", "J_initialization", "J_op", "J_op_average", "peak_damage",
+              "damage_penalty", "operating_objective", "J_total",
+              "projected_evaluation_cost", "evaluation_objective", "component_costs")
+
+
+def _read_values(variables, shape) -> np.ndarray:
+    """Values of a dict of variables keyed by index tuples; ``NaN`` where a key is absent."""
+    values = np.full(shape, np.nan)
+    for key, var in variables.items():
+        values[key] = var.X
+    return values
+
+
+def extract_solution(ctx: FleetModel, cfg) -> dict:
+    """The result dictionary of the spec ("Result Dictionary") without the reports.
+
+    ``solve_mixed`` adds ``performance``, ``optimization_progress``, ``warm_start``
+    and ``relaxation_warm_start``, and calls each builder's ``extract`` hook. The
+    solution arrays and the cost report are ``None`` if Gurobi found no solution.
+    """
+    md = ctx.model
+    F, M, L, T, H1, H2 = ctx.F, ctx.M, ctx.L, ctx.T, ctx.H1, ctx.H2
+    model = np.asarray(cfg.model).astype(str)
+    try:
+        bound = float(md.ObjBound)
+    except (AttributeError, gp.GurobiError):
+        bound = None
+
+    out = {
+        "status": status_string(md.Status),
+        "objective": None, "mip_gap": None, "bound": bound,
+        "F": F, "M": M, "L": L, "H1": H1, "H2": H2, "T": T, "H": cfg.H,
+        "model": model.tolist(),
+        "component_names": list(cfg.component_names),
+        "tau": np.asarray(cfg.tau, dtype=float),
+        "mu_0": np.asarray(cfg.mu_0, dtype=float),
+        "v_0": np.asarray(cfg.v_0, dtype=float),
+        "bound_method": collapse_selector(
+            np.where(model == "rainflow", cfg.bound_method, ""), empty_as_none=True),
+        "repair_model": collapse_selector(cfg.repair_model),
+        "reliability_impl": collapse_selector(cfg.reliability_impl),
+        "encoding": collapse_selector(cfg.encoding),
+        "objective_mode": ctx.opts["objective_mode"],
+        "evaluation_horizon": ctx.opts["evaluation_horizon"],
+    }
+    if int(md.SolCount) == 0:
+        out.update({key: None for key in _SOLUTION_KEYS + _COST_KEYS})
+        return out
+
+    out["objective"] = float(md.ObjVal)
+    try:
+        out["mip_gap"] = float(md.MIPGap)
+    except (AttributeError, gp.GurobiError):
+        out["mip_gap"] = None
+
+    shape = (F, L, T)
+    x = _read_values(ctx.x, (F, M + 1, T))
+    m = _read_values(ctx.m_rep, shape)
+    r = _read_values(ctx.r_rep, shape) if ctx.r_rep is not None else np.zeros(shape)
+    mu = _read_values(ctx.mu_var, shape)
+    z = _read_values(ctx.z_var, shape)
+    g_mu = _read_values(ctx.anchor_vars["mu"], shape)
+    out.update({
+        "x": x, "m": m, "r": r,
+        "idle": x[:, 0, :][:, None, :] - m - r,
+        "mu": mu,
+        "v": _read_values(ctx.state_vars["v"], shape),
+        "z": z,
+        "R": _read_values(ctx.state_vars["R"], shape),
+        "K": _read_values(ctx.state_vars["K"], shape),
+        "g_mu": g_mu,
+        "g_v": _read_values(ctx.anchor_vars["v"], shape),
+        "g_R": _read_values(ctx.anchor_vars["R"], shape),
+        "g_K": _read_values(ctx.anchor_vars["K"], shape),
+    })
+
+    if str(ctx.opts["objective_mode"]) == "operating_average":
+        # z is not built on the transitory days; Eq. c_zpost
+        C_R = np.asarray(cfg.C_R, dtype=float)
+        ard1 = np.asarray(cfg.repair_model).astype(str) == "ard1"
+        z[:, :, :H1] = np.where(
+            C_R[:, :, None] > 0,
+            transitory_repair_cost(mu, g_mu, m, ctx.initial["mu"], ctx.anchor_start["mu"],
+                                   ctx.rho, ard1, H1),
+            np.nan,
+        )
+
+    out["u"] = peak_damage(mu, str(cfg.penalty_type))
+    out.update(cost_report(x, r, z, float(cfg.C_M), cfg.C_R, cfg.C_rep, float(cfg.C_D),
+                           out["u"], H1, H2, ctx.opts["evaluation_horizon"]))
+    return out

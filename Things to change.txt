@@ -22,6 +22,8 @@
 
 - Scoping, implementation details (moved from scoping.tex, 28 Oct 2026): Provide the details to run an actual simulation of the system.
 
+- Exact Gamma validator: a cheaper certified tail bound when a component is repaired many times. The exact series grows with the number of repairs: about 2 s per tail after 8 repairs, and from about 11 repairs it needs more than 100,000 terms and stops with an error (merge/wp7_plan_gamma_validators.md, question Q6; added 29 Oct 2026).
+
 Research directions (from ASSESSMENT.md, 7 Jul 2026):
 
 - Rolling-horizon deployment: re-solve with observed states as condition-monitoring data arrive; the loop constraint becomes a terminal safety envelope.
@@ -33,3 +35,7 @@ Research directions (from ASSESSMENT.md, 7 Jul 2026):
 - Decomposition for scale: components couple only through the assignment variables (Benders or Dantzig-Wolfe: an assignment master, per-component reliability subproblems).
 
 - Policy baseline: compare against simple condition-based threshold policies.
+
+- Big-M constants near the limits of epsilon (step 3 of the merge, item M31 of merge/step3/merged_review.md, 8 Nov 2026): the natural ranges used as big-M grow without bound as epsilon approaches 0.5 at Gaussian and Wiener cells and 1 at rainflow Cantelli and Hoeffding cells (1.6e7*tau^2 at epsilon = 0.4999), so a binary within Gurobi's integrality tolerance could switch a row off. Study tighter big-M constants (the largest value the reliability row allows on the cell) or an input limit on epsilon.
+
+- To discuss (user, 8 Nov 2026): the numerical tolerance of the validators. The default of a check is derived from the Gurobi tolerances of the input (FeasibilityTol + IntFeasTol x M_s for a tracked quantity with natural range M_s; IntFeasTol for binaries; FeasibilityTol for a probability), because a binary that Gurobi accepts within IntFeasTol inside a big-M row can move a tracked state by IntFeasTol x M_s. Open: whether to polish the solution instead (fix the rounded binaries and re-solve the continuous part), which would allow the default FeasibilityTol; and whether chained rows can add up these gaps over many days (merge/step3/merged_review.md, item M19).

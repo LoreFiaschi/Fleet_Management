@@ -1,0 +1,113 @@
+{
+  "status": "infeasible",
+  "objective": null,
+  "F": 2,
+  "M": 1,
+  "L": 1,
+  "H1": 2,
+  "H2": 2,
+  "T": 4,
+  "H": [
+    2,
+    2
+  ],
+  "model": [
+    [
+      "gaussian"
+    ],
+    [
+      "gaussian"
+    ]
+  ],
+  "component_names": [
+    "Component 1"
+  ],
+  "tau": [
+    [
+      1.0
+    ],
+    [
+      1.0
+    ]
+  ],
+  "mu_0": [
+    [
+      0.2
+    ],
+    [
+      0.2
+    ]
+  ],
+  "v_0": [
+    [
+      0.0
+    ],
+    [
+      0.0
+    ]
+  ],
+  "repair_model": "ard1",
+  "reliability_impl": "tangent",
+  "encoding": "bigm",
+  "objective_mode": "total",
+  "performance": {
+    "gurobi_version": "0.0.0",
+    "variables": 73,
+    "continuous_variables": 41,
+    "integer_variables": 32,
+    "binary_variables": 32,
+    "linear_constraints": 188,
+    "general_constraints": 0,
+    "indicator_constraints": 0,
+    "quadratic_constraints": 0,
+    "nonzeros": 568,
+    "solutions_found": 0,
+    "gurobi_runtime_seconds": 0.0,
+    "branch_and_bound_nodes": 0.0,
+    "simplex_iterations": 0.0,
+    "barrier_iterations": 0.0,
+    "work_units": 0.0,
+    "model_construction_seconds": 0.0033764000036171637,
+    "optimizer_call_seconds": 0.003082900002482347,
+    "solution_extraction_seconds": 6.399999983841553e-05,
+    "backend_wall_seconds": 0.006599599997571204,
+    "requested_time_limit_seconds": 60.0,
+    "requested_mip_gap": 0.0,
+    "threads": 0,
+    "seed": 0
+  },
+  "optimization_progress": [
+    {
+      "runtime_seconds": 0.0,
+      "incumbent": null,
+      "best_bound": null,
+      "relative_gap": null,
+      "nodes": 0.0,
+      "solutions": 0
+    }
+  ],
+  "warm_start": {
+    "applied": true,
+    "values": 32,
+    "source_horizon": {
+      "H1": 2,
+      "H2": 2
+    },
+    "completion": {
+      "requested": false,
+      "status": "not_requested",
+      "fixed_integer_variables": 0,
+      "values_copied": 0,
+      "runtime_seconds": null,
+      "iis_constraints": []
+    },
+    "mode": "start"
+  },
+  "relaxation_warm_start": {
+    "enabled": false,
+    "status": "disabled",
+    "relaxation_objective": null,
+    "values_copied": 0,
+    "runtime_seconds": null
+  }
+}

@@ -1,0 +1,94 @@
+
+
+def add_repair_cost_rows(ctx: FleetModel, i: int, l: int) -> None:
+    """Lower rows of the repair cost ``z`` at cell ``(i, l)`` (Eq. a_z).
+
+    ``z_k >= rho (mu_{k-1} - g_{k-1}) - rho tau (1 - x^m_k)`` with ``g = 0`` at an
+    ardinf cell, on every day that has a ``z``. Nothing is built at a cell without
+    ``z``; there is no row on a replacement day.
+    """
+    md = ctx.model
+    days = [k for k in range(ctx.T) if (i, l, k) in ctx.z_var]
+    if not days:
+        return
+    ard1 = str(ctx.repair_of[i, l]) == "ard1"
+    rho, tau = float(ctx.rho[i, l]), float(ctx.tau[i, l])
+    G = ctx.anchor_vars["mu"]
+    mu_start = _cell_value(ctx.initial["mu"], i, l, "initial mu")
+    if ard1:
+        if (i, l, 0) not in G:
+            raise ValueError(
+                f"anchor of 'mu' missing at cell (i={i}, l={l}); call add_state_vars in prepare"
+            )
+        g_start = _cell_value(ctx.anchor_start["mu"], i, l, "starting anchor mu")
+    for k in days:
+        mu_prev = mu_start if k == 0 else ctx.mu_var[i, l, k - 1]
+        g_prev = (g_start if k == 0 else G[i, l, k - 1]) if ard1 else 0.0
+        md.addConstr(
+            ctx.z_var[i, l, k] >= rho * (mu_prev - g_prev) - rho * tau * (1 - ctx.m_rep[i, l, k]),
+            name=f"z_{i}_{l}_{k}",
+        )
+
+
+def add_upper_cap_rows(ctx: FleetModel, i: int, l: int, q: str, cap, *, name: str) -> None:
+    """``state_vars[q] <= cap`` on every day (the linear reliability rows)."""
+    cap = float(cap)
+    for k in range(ctx.T):
+        ctx.model.addConstr(ctx.state_vars[q][i, l, k] <= cap, name=f"{name}_{i}_{l}_{k}")
+
+
+def add_quadratic_reliability_rows(ctx: FleetModel, i: int, l: int, q: str,
+                                   *, c2: float, c1: float, mu_side: float) -> None:
+    """Reliability row ``chi <= f(mu)`` and side row ``mu <= mu_side``, every day.
+
+    ``chi = state_vars[q]`` and ``f(mu) = c2 (tau - mu)^2 + c1 (tau - mu)``
+    (Eq. a_quad), in the form ``impl_of[i, l]``: ``exact``, ``tangent`` (at
+    ``tangent_ref * tau``, Eq. a_tangent) or ``pwl`` (``pwl_points`` segments,
+    Eqs. a_pwl_sum, a_pwl_seg, a_pwl_cap; one tangent at ``tau / 2`` for a single
+    point). The caller sets ``NonConvex`` for the exact form.
+    """
+    md, T = ctx.model, ctx.T
+    chi, mu_var = ctx.state_vars[q], ctx.mu_var
+    tau = float(ctx.tau[i, l])
+    c2, c1, mu_side = float(c2), float(c1), float(mu_side)
+    form = str(ctx.impl_of[i, l])
+    P = int(ctx.pwl_points)
+    if form not in ("exact", "tangent", "pwl"):
+        raise ValueError(f"unknown reliability_impl {form!r} at cell (i={i}, l={l})")
+
+    def f(m):
+        return c2 * (tau - m) ** 2 + c1 * (tau - m)
+
+    def df(m):
+        return -2.0 * c2 * (tau - m) - c1
+
+    for k in range(T):
+        md.addConstr(mu_var[i, l, k] <= mu_side, name=f"rel_side_{i}_{l}_{k}")
+
+    if form == "pwl" and P >= 2:
+        if (i, l, 0, 0) not in ctx.pwl_w:
+            raise ValueError(
+                f"segment binaries missing at cell (i={i}, l={l}); call add_pwl_vars in prepare"
+            )
+        for k in range(T):
+            mu = mu_var[i, l, k]
+            md.addConstr(gp.quicksum(ctx.pwl_w[i, l, k, p] for p in range(P)) == 1,
+                         name=f"rel_seg_{i}_{l}_{k}")                       # Eq. a_pwl_sum
+            for p in range(P):
+                lo, hi, mid = p * tau / P, (p + 1) * tau / P, (p + 0.5) * tau / P
+                w = ctx.pwl_w[i, l, k, p]
+                md.addGenConstrIndicator(w, True, mu >= lo, name=f"rel_lo_{i}_{l}_{k}_{p}")
+                md.addGenConstrIndicator(w, True, mu <= hi, name=f"rel_hi_{i}_{l}_{k}_{p}")
+                md.addGenConstrIndicator(w, True, chi[i, l, k] <= f(mid) + df(mid) * (mu - mid),
+                                         name=f"rel_cap_{i}_{l}_{k}_{p}")   # Eq. a_pwl_seg, a_pwl_cap
+    elif form == "exact":
+        for k in range(T):
+            mu = mu_var[i, l, k]
+            md.addQConstr(chi[i, l, k] <= c2 * (tau - mu) * (tau - mu) + c1 * (tau - mu),
+                          name=f"rel_{i}_{l}_{k}")                          # Eq. a_quad
+    else:
+        mu_r = tau / 2.0 if form == "pwl" else _cell_value(ctx.tangent_ref, i, l, "tangent_ref") * tau
+        for k in range(T):
+            md.addConstr(chi[i, l, k] <= f(mu_r) + df(mu_r) * (mu_var[i, l, k] - mu_r),
+                         name=f"rel_{i}_{l}_{k}")                           # Eq. a_tangent
+

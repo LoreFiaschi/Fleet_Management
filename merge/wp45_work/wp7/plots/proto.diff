@@ -1,0 +1,555 @@
+0a1,8
+> """The schedule plot and the sweep plot (spec, "Plotting API and Layout").
+> 
+> ``plot_management`` draws a result file of ``solve`` as a grid of cells and days with a
+> summary panel. ``plot_horizon_sweep`` draws one or more reports of
+> ``sweep_operating_horizons`` over H2. Result files and reports are read with
+> ``config.read_input``, the reader of every input path (spec, "Format Rules").
+> """
+> 
+3d10
+< import json
+14c21,22
+< import yaml
+---
+> 
+> from fleet_management.config import read_input
+20,21c28
+<     "replacement": "#8b5cf6", "mixed_intervention": "#dc2626",
+<     "depot": "#111827",
+---
+>     "replacement": "#8b5cf6", "depot": "#111827",
+22a30
+> REQUIRED_RESULT_KEYS = ("F", "M", "L", "H1", "H2", "tau", "mu_0", "mu", "x")
+25,26c33,34
+< def plot_mixed_management(input_file_path: str, plot_file_path: str | None = None) -> None:
+<     """Plot a saved solver result as a schedule/degradation overview.
+---
+> def plot_management(input_file_path: str, plot_file_path: str | None = None) -> None:
+>     """Plot a result file of ``solve`` (spec, "Schedule Plot").
+28,32c36,38
+<     Each vehicle/time cell is split into one strip per component, coloured by
+<     physical expected damage divided by the failure threshold. Mission, idle,
+<     repair and replacement decisions are annotated separately. A side panel
+<     records the dimensions, degradation models, solve outcome and useful
+<     formulation/performance statistics.
+---
+>     One row per cell (train, component), one column per day after the column
+>     "initial"; the colour is the tracked mean over the failure threshold, the mark of
+>     a day is P, R, M_j, D or I. A side panel summarises the run.
+54c60,63
+<     _draw_solution(_normalise_solution(_read_solution_input(input_file)), plot_path)
+---
+>     view = _normalise_solution(read_input(input_file), _read_presolve_log(input_file))
+>     figure = _draw_solution(view)
+>     figure.savefig(plot_path, dpi=170, bbox_inches="tight")
+>     plt.close(figure)
+96c105
+<     reports = [_read_input(report_path) for report_path in report_paths]
+---
+>     reports = [read_input(report_path) for report_path in report_paths]
+98c107,109
+<     _draw_horizon_sweep(_normalise_horizon_sweep(merged_report), plot_path)
+---
+>     figure = _draw_horizon_sweep(_normalise_horizon_sweep(merged_report))
+>     figure.savefig(plot_path, dpi=170, bbox_inches="tight")
+>     plt.close(figure)
+163c174,176
+<     maximum_stopping_gap = float(stopping_rule.get("maximum_mip_gap_for_stopping", 0.05))
+---
+>     maximum_stopping_gap = _optional_float(
+>         stopping_rule.get("maximum_mip_gap_for_stopping")
+>     )
+173a187,190
+>         has_feasible = (
+>             cost is not None
+>             and status not in {"infeasible", "inf_or_unbounded", "unbounded"}
+>         )
+180a198
+>             "requested_mip_gap": _optional_float(case.get("requested_mip_gap")),
+194,200c212,213
+<             "has_feasible": (
+<                 cost is not None
+<                 and status not in {"infeasible", "inf_or_unbounded", "unbounded"}
+<             ),
+<             "is_proven": (
+<                 status == "optimal"
+<             ),
+---
+>             "has_feasible": has_feasible,
+>             "is_proven": has_feasible and status == "optimal",
+234c247,248
+< def _draw_horizon_sweep(view: dict[str, Any], plot_path: Path) -> None:
+---
+> def _draw_horizon_sweep(view: dict[str, Any]):
+>     """Return the figure of the sweep plot: panels (a), (b), (c) of the spec."""
+271c285
+<                     label="proven optimal", zorder=3)
+---
+>                     label="proven (optimal)", zorder=3)
+274c288
+<                     label="feasible", zorder=3)
+---
+>                     label="feasible, not proven", zorder=3)
+281c295
+<             label="no feasible solution found", zorder=4,
+---
+>             label="no feasible solution", zorder=4,
+309,312c323,326
+<     gap_tolerance_percent = (100.0 * view["maximum_mip_gap_for_stopping"])
+<     finite_gaps = feasible & np.isfinite(gaps)
+<     if np.any(finite_gaps):
+<         gap_percent = 100.0 * gaps
+---
+>     # Reference of panel (b): the stopping gap if it is a number, otherwise the
+>     # requested MIP gap of each case.
+>     if view["maximum_mip_gap_for_stopping"] is not None:
+>         stopping_percent = 100.0 * view["maximum_mip_gap_for_stopping"]
+314,319c328,329
+<             gap_tolerance_percent,
+<             color="#15803d",
+<             linestyle="--",
+<             linewidth=1.3,
+<             label=f"{gap_tolerance_percent:g}% MIP-gap tolerance",
+<             zorder=2,
+---
+>             stopping_percent, color="#15803d", linestyle="--", linewidth=1.3,
+>             label=f"{stopping_percent:g}% stopping gap", zorder=2,
+321,329c331,342
+< 
+<         gap_ax.plot(
+<             h2,
+<             gap_percent,
+<             color="#9ca3af",
+<             linewidth=1.2,
+<             zorder=1,
+<         )
+< 
+---
+>     else:
+>         requested = [
+>             (row["H2"], 100.0 * row["requested_mip_gap"]) for row in rows
+>             if row["requested_mip_gap"] is not None
+>         ]
+>         if requested:
+>             gap_ax.scatter(
+>                 [h for h, _ in requested], [g for _, g in requested],
+>                 s=160, marker="_", color="#15803d", linewidth=1.6,
+>                 label="requested MIP gap", zorder=2,
+>             )
+>     finite_gaps = feasible & np.isfinite(gaps)
+336c349
+<             label="proven optimal", zorder=3,
+---
+>             label="proven (optimal)", zorder=3,
+341c354
+<             label="time-limited feasible", zorder=3,
+---
+>             label="feasible, not proven", zorder=3,
+357c370
+<             label="no feasible solution; gap undefined", zorder=4,
+---
+>             label="no feasible solution", zorder=4,
+385,387c398,399
+<     figure.suptitle("Operating-horizon sweep", x=0.02, y=0.975, ha="left",
+<                     fontsize=16, fontweight="bold")
+<     figure.text(0.02, 0.925, dimensions, fontsize=9, color="#4b5563")
+---
+>     figure.suptitle(f"Operating-horizon sweep ({dimensions})", x=0.02, y=0.975,
+>                     ha="left", fontsize=16, fontweight="bold")
+398,399c410
+<     figure.savefig(plot_path, dpi=170, bbox_inches="tight")
+<     plt.close(figure)
+---
+>     return figure
+419,421c430,435
+< def _normalise_solution(data: dict[str, Any]) -> dict[str, Any]:
+<     required = ("F", "M", "mu_0", "mu", "x")
+<     missing = [key for key in required if data.get(key) is None]
+---
+> def _normalise_solution(data: dict[str, Any], presolved: dict[str, int]) -> dict[str, Any]:
+>     """Check a result mapping against the spec's shapes and build the view of the plot.
+> 
+>     ``presolved`` holds the counts parsed from ``runner.out``, or is empty.
+>     """
+>     missing = [key for key in REQUIRED_RESULT_KEYS if data.get(key) is None]
+424,425c438
+<             "The result does not contain a plottable feasible case; missing "
+<             + ", ".join(missing)
+---
+>             "The result has no plottable solution; missing keys: " + ", ".join(missing)
+428c441,443
+<     F, M, L = int(data["F"]), int(data["M"]), int(data.get("L", 1))
+---
+>     F, M, L = int(data["F"]), int(data["M"]), int(data["L"])
+>     H1, H2 = int(data["H1"]), int(data["H2"])
+>     tau = np.asarray(data["tau"], dtype=float)
+432,438c447,450
+<     if mu_0.ndim == 1:
+<         mu_0 = mu_0[:, None]
+<     if mu.ndim == 2:
+<         mu = mu[:, None, :]
+<     if mu_0.shape != (F, L):
+<         raise ValueError(f"mu_0 has shape {mu_0.shape}; expected {(F, L)}")
+<     if mu.shape[:2] != (F, L):
+---
+>     for name, value in (("tau", tau), ("mu_0", mu_0)):
+>         if value.shape != (F, L):
+>             raise ValueError(f"{name} has shape {value.shape}; expected {(F, L)}")
+>     if mu.ndim != 3 or mu.shape[:2] != (F, L):
+440,441c452,456
+< 
+<     T = int(mu.shape[-1])
+---
+>     T = int(mu.shape[2])
+>     if data.get("T") is not None and int(data["T"]) != T:
+>         raise ValueError(f"mu has {T} days; the key T is {data['T']}")
+>     if H1 + H2 != T:
+>         raise ValueError(f"H1 + H2 must equal T; got {H1} + {H2} != {T}")
+444,445d458
+<     threshold = data.get("alpha") if data.get("alpha") is not None else data.get("tau", 1.0)
+<     tau = _cell_grid(threshold, F, L, "alpha/tau")
+449,453d461
+<     H1 = int(data.get("H1", _legacy_h1(data.get("H"), T)))
+<     H2 = int(data.get("H2", T - H1))
+<     if H1 + H2 != T:
+<         raise ValueError(f"H1 + H2 must equal T; got {H1} + {H2} != {T}")
+< 
+457,492c465,470
+<     # Prefer the counts recorded from Gurobi's presolved model when they are
+<     # available.  Older result files fall back to the original model counts.
+<     performance = data.get("performance") or {}
+<     actual = (data.get("gamma_formulation") or {}).get(
+<         "actual_gurobi_model"
+<     ) or {}
+<     presolved = (
+<         data.get("presolved_performance")
+<         or performance.get("presolved_performance")
+<         or performance.get("presolved_model")
+<         or {}
+<     )
+<     variable_counts = presolved if presolved else performance
+< 
+<     variables = variable_counts.get(
+<         "variables", performance.get("variables", actual.get("variables"))
+<     )
+<     continuous_variables = variable_counts.get(
+<         "continuous_variables",
+<         performance.get(
+<             "continuous_variables", actual.get("continuous_variables")
+<         ),
+<     )
+<     integer_variables = variable_counts.get(
+<         "integer_variables",
+<         performance.get("integer_variables", actual.get("integer_variables")),
+<     )
+<     linear_rows = variable_counts.get(
+<         "linear_rows",
+<         variable_counts.get(
+<             "linear_constraints",
+<             performance.get(
+<                 "linear_constraints", actual.get("linear_constraints")
+<             ),
+<         ),
+<     )
+---
+>     # Counts of the summary panel: the presolved counts of runner.out if that log
+>     # exists, otherwise the counts of the original model in ``performance``.
+>     if presolved:
+>         counts, counts_source = presolved, "runner.out (presolved)"
+>     else:
+>         counts, counts_source = data.get("performance") or {}, "performance"
+501,510c479,487
+<         "variables": variables,
+<         "continuous_variables": continuous_variables,
+<         "integer_variables": integer_variables,
+<         "linear_rows": linear_rows,
+<         "formulation_scope": "presolved" if presolved else "original",
+<         # Count component actions, not distinct vehicle visits.  If two
+<         # components are repaired during the same depot visit, this is two
+<         # repaired components.
+<         "repaired_components": int(np.count_nonzero(m > 0.5)),
+<         "replaced_components": int(np.count_nonzero(r > 0.5)),
+---
+>         "variables": counts.get("variables"),
+>         "continuous_variables": counts.get("continuous_variables"),
+>         "integer_variables": counts.get("integer_variables"),
+>         "linear_rows": counts.get("linear_constraints"),
+>         "counts_source": counts_source,
+>         # Count component actions, not train visits: two components repaired on
+>         # the same depot day are two repairs.
+>         "repairs": int(np.count_nonzero(m > 0.5)),
+>         "replacements": int(np.count_nonzero(r > 0.5)),
+514c491,492
+< def _draw_solution(view: dict[str, Any], plot_path: Path) -> None:
+---
+> def _draw_solution(view: dict[str, Any]):
+>     """Return the figure of the schedule plot: the grid and the summary panel."""
+553c531
+<     ax.set_xticklabels(["initial", *range(T)], rotation=45 if T > 12 else 0,
+---
+>     ax.set_xticklabels(["initial", *range(1, T + 1)], rotation=45 if T > 12 else 0,
+560,562c538,540
+<     ax.set_xlabel("Time step")
+<     ax.set_ylabel("Vehicle and component model")
+<     ax.set_title("Schedule and physical expected damage", loc="left", pad=42,
+---
+>     ax.set_xlabel("Day")
+>     ax.set_ylabel("Train and component")
+>     ax.set_title("Schedule and tracked mean degradation", loc="left", pad=42,
+574c552
+<             (H1 + 1) / 2, 1.015, "initialization",
+---
+>             (H1 + 1) / 2, 1.015, "transitory",
+586c564
+<     fig.colorbar(scalar, ax=ax, label="physical mean / failure threshold",
+---
+>     fig.colorbar(scalar, ax=ax, label="tracked mean / failure threshold",
+589,590c567
+<                for label, colour in (("M$_j$ mission", ACTION_COLOURS["mission"]),
+<                                      ("I idle", ACTION_COLOURS["idle"]),
+---
+>                for label, colour in (("P replacement", ACTION_COLOURS["replacement"]),
+592c569,571
+<                                      ("P replacement", ACTION_COLOURS["replacement"]))]
+---
+>                                      ("M$_j$ mission $j$", ACTION_COLOURS["mission"]),
+>                                      ("D depot, no intervention", ACTION_COLOURS["depot"]),
+>                                      ("I idle train", ACTION_COLOURS["idle"]))]
+598,599c577
+<     fig.savefig(plot_path, dpi=170, bbox_inches="tight")
+<     plt.close(fig)
+---
+>     return fig
+605c583
+<     """Return the action applied to one vehicle-component cell."""
+---
+>     """Return the mark of cell (i, l) on day index k: the first rule that applies."""
+612a591,592
+>     if view["x"][i, 0, k] > 0.5:
+>         return "D", "depot"
+618,620c598,603
+<     status = str(data.get("status", "unknown"))
+<     status_colour = {"optimal": "#15803d", "time_limit": "#b45309",
+<                      "infeasible": "#b91c1c"}.get(status, "#374151")
+---
+>     status = data.get("status")
+>     if status is None:
+>         status_text, status_colour = "unknown", "#374151"
+>     else:
+>         status_text = str(status).replace("_", " ")
+>         status_colour = "#15803d" if status == "optimal" else "#b45309"
+622c605
+<         ("Status", status.replace("_", " "), status_colour),
+---
+>         ("Status", status_text, status_colour),
+626,627c609,611
+<         ("Models", ", ".join(_unique_models(view["models"])), "#111827"),
+<         ("Repair", _compact(data.get("repair_model")), "#111827"),
+---
+>         ("Models", ", ".join(_unique_values(view["models"].tolist())), "#111827"),
+>         ("Repair laws", ", ".join(_unique_values(data.get("repair_model"))) or "-",
+>          "#111827"),
+634,642c618
+<     scope = view.get("formulation_scope", "original")
+<     variable_label = (
+<         "Presolved variables" if scope == "presolved" else "Original variables"
+<     )
+<     row_label = (
+<         "Presolved linear rows"
+<         if scope == "presolved"
+<         else "Original linear rows"
+<     )
+---
+>     lines.append(("Counts from", view["counts_source"], "#111827"))
+644c620
+<         (variable_label, "variables"),
+---
+>         ("Variables", "variables"),
+647c623
+<         (row_label, "linear_rows"),
+---
+>         ("Linear rows", "linear_rows"),
+658,659c634,635
+<         ("Repaired components", str(view["repaired_components"]), "#111827"),
+<         ("Replaced components", str(view["replaced_components"]), "#111827"),
+---
+>         ("Repairs", str(view["repairs"]), "#111827"),
+>         ("Replacements", str(view["replacements"]), "#111827"),
+672,677d647
+<     ax.text(0.0, max(0.02, y - 0.02),
+<             "Cell colour shows the physical expected-damage state.\n"
+<             "Gamma reliability uses a separate bounding-shape state.",
+<             transform=ax.transAxes, fontsize=7.7, color="#4b5563", va="top",
+<             bbox={"boxstyle": "round,pad=0.45", "facecolor": "#f3f4f6",
+<                   "edgecolor": "#d1d5db"})
+681,694c651,658
+<     candidate = data.get("model_assignment")
+<     if candidate is None:
+<         candidate = data.get("reliability_impl")
+<     if candidate is None:
+<         candidate = data.get("models", data.get("degradation", "unknown"))
+<     arr = np.asarray(candidate, dtype=object)
+<     if arr.ndim == 0 or arr.size == 1:
+<         return np.full((F, L), str(arr.reshape(-1)[0]), dtype=object)
+<     if arr.shape == (L,):
+<         return np.tile(arr.reshape(1, L), (F, 1)).astype(object)
+<     if arr.shape == (F, L):
+<         return arr.astype(object)
+<     label = "/".join(str(value) for value in arr.ravel())
+<     return np.full((F, L), label, dtype=object)
+---
+>     """The model name of each cell, from the key ``model``; "unknown" if it is missing."""
+>     value = data.get("model")
+>     if value is None:
+>         return np.full((F, L), "unknown", dtype=object)
+>     arr = np.asarray(value, dtype=object)
+>     if arr.shape != (F, L):
+>         raise ValueError(f"model has shape {arr.shape}; expected {(F, L)}")
+>     return arr
+710,718c674
+<     model = _model_abbreviation(view["models"][i, l])
+<     return f"Vehicle {i + 1} — {component}\n{model}"
+< 
+< 
+< def _model_abbreviation(value: Any) -> str:
+<     text = str(value).lower()
+< 
+<     if "gamma" in text:
+<         return "Gamma"
+---
+>     return f"Train {i + 1} — {component}\n{view['models'][i, l]}"
+720,721d675
+<     if ("rain" in text or "remaining" in text or text == "exact"):
+<         return "Remaining-life"
+723,726c677,682
+<     return str(value)
+< 
+< 
+< def _unique_models(model_grid: np.ndarray) -> list[str]:
+---
+> def _unique_values(value: Any) -> list[str]:
+>     """The distinct strings of a string or a nested list, in order of first appearance."""
+>     if value is None:
+>         return []
+>     if not isinstance(value, list):
+>         return [str(value)]
+728,731c684,687
+<     for value in model_grid.ravel():
+<         label = _model_abbreviation(value)
+<         if label not in seen:
+<             seen.append(label)
+---
+>     for item in value:
+>         for text in _unique_values(item):
+>             if text not in seen:
+>                 seen.append(text)
+735,747d690
+< def _cell_grid(value: Any, F: int, L: int, name: str) -> np.ndarray:
+<     arr = np.asarray(value, dtype=float)
+<     if arr.ndim == 0 or arr.size == 1:
+<         return np.full((F, L), float(arr.reshape(-1)[0]))
+<     if arr.shape == (L,):
+<         return np.tile(arr.reshape(1, L), (F, 1))
+<     if arr.shape == (F,):
+<         return np.tile(arr.reshape(F, 1), (1, L))
+<     if arr.shape == (F, L):
+<         return arr
+<     raise ValueError(f"{name} has shape {arr.shape}; expected scalar, ({L},), ({F},), or ({F}, {L})")
+< 
+< 
+757,762d699
+< def _legacy_h1(value: Any, T: int) -> int:
+<     if isinstance(value, (list, tuple)) and len(value) == 2:
+<         return int(value[0])
+<     return int(value) if value is not None else T // 2
+< 
+< 
+768,793c705,706
+< def _read_input(input_file: Path) -> dict[str, Any]:
+<     extension = input_file.suffix.lower()
+<     if extension in {".yaml", ".yml"}:
+<         return yaml.safe_load(input_file.read_text(encoding="utf-8"))
+<     if extension == ".json":
+<         return json.loads(input_file.read_text(encoding="utf-8"))
+<     if extension in {".h5", ".hdf5"}:
+<         return _read_hdf5(input_file)
+<     raise ValueError(f"Unsupported input file type: {extension}")
+< 
+< 
+< def _read_solution_input(input_file: Path) -> dict[str, Any]:
+<     """Read a solution and supplement it with Gurobi presolve statistics.
+< 
+<     New result files may save these counts as ``presolved_performance``.  For
+<     older archived runs, Gurobi's ``runner.out`` is the only source of the
+<     presolved rows and columns, so parse that sibling file when necessary.
+<     """
+<     data = _read_input(input_file)
+<     performance = data.get("performance") or {}
+<     if (
+<         data.get("presolved_performance")
+<         or performance.get("presolved_performance")
+<         or performance.get("presolved_model")
+<     ):
+<         return data
+---
+> def _read_presolve_log(input_file: Path) -> dict[str, int]:
+>     """Presolved counts from the Gurobi log ``runner.out`` beside the result file.
+794a708,709
+>     Empty if there is no such file or it has no presolve lines (spec, "Summary panel").
+>     """
+797,799c712,713
+<         return data
+< 
+<     presolved = _parse_gurobi_presolve(
+---
+>         return {}
+>     return _parse_gurobi_presolve(
+802,804d715
+<     if presolved:
+<         data["presolved_performance"] = presolved
+<     return data
+808,809c719,724
+<     """Extract the main presolved model size from a Gurobi text log."""
+<     model_match = re.search(
+---
+>     """Extract the presolved model size from a Gurobi text log.
+> 
+>     The main solve is the last one in the log (the warm-start completion and the
+>     relaxed copy run before it), so the last "Presolved:" line is used.
+>     """
+>     model_matches = list(re.finditer(
+813,814c728,729
+<     )
+<     if model_match is None:
+---
+>     ))
+>     if not model_matches:
+815a731
+>     model_match = model_matches[-1]
+840,864d755
+< 
+< 
+< def _read_hdf5(path: Path) -> dict[str, Any]:
+<     try:
+<         import h5py
+<     except ImportError as exc:
+<         raise ImportError(
+<             "Reading HDF5 result files requires the optional 'h5py' package."
+<         ) from exc
+< 
+<     data: dict[str, Any] = {}
+<     with h5py.File(path, "r") as handle:
+<         for key, value in handle.attrs.items():
+<             if isinstance(value, bytes):
+<                 value = value.decode("utf-8")
+<             if isinstance(value, str) and value[:1] in {"{", "["}:
+<                 try:
+<                     value = json.loads(value)
+<                 except json.JSONDecodeError:
+<                     pass
+<             data[key] = value.tolist() if isinstance(value, np.ndarray) else value
+<         for key, dataset in handle.items():
+<             value = dataset[()]
+<             data[key] = value.tolist() if isinstance(value, np.ndarray) else value
+<     return data

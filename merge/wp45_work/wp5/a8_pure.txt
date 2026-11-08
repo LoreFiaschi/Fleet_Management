@@ -1,0 +1,80 @@
+def collapse_selector(arr, *, empty_as_none: bool = False):
+    """A per-cell (F, L) selector array: one string if every cell agrees, else a nested list.
+
+    The result holds Python strings only, no NumPy objects. With ``empty_as_none``
+    an empty string becomes ``None`` (spec, "Result Dictionary").
+    """
+    values = [[str(v) for v in row] for row in np.asarray(arr)]
+    if empty_as_none:
+        values = [[None if v == "" else v for v in row] for row in values]
+    flat = {v for row in values for v in row}
+    if len(flat) == 1:
+        return next(iter(flat))
+    return values
+
+
+def transitory_repair_cost(mu, g_mu, m, mu_0, anchor_mu_0, rho, ard1, H1: int) -> np.ndarray:
+    """Repair cost ``z`` on the transitory days, computed after the solve (Eq. c_zpost).
+
+    Returns an array ``(F, L, H1)``: ``rho (mu_{k-1} - g_{k-1})`` on a repair day,
+    ``0`` otherwise, with ``g = 0`` at an ardinf cell and the initial values at
+    the first day.
+    """
+    mu, g_mu, m = (np.asarray(a, dtype=float) for a in (mu, g_mu, m))
+    mu_0, anchor_mu_0 = np.asarray(mu_0, dtype=float), np.asarray(anchor_mu_0, dtype=float)
+    out = np.zeros(mu.shape[:2] + (H1,))
+    for k in range(H1):
+        mu_prev = mu_0 if k == 0 else mu[:, :, k - 1]
+        g_prev = anchor_mu_0 if k == 0 else g_mu[:, :, k - 1]
+        g_prev = np.where(ard1, g_prev, 0.0)
+        out[:, :, k] = np.where(m[:, :, k] > 0.5, rho * (mu_prev - g_prev), 0.0)
+    return out
+
+
+def peak_damage(mu, penalty_type: str) -> float:
+    """The value of ``u`` recomputed from ``mu`` (Eq. c_u)."""
+    mu = np.asarray(mu, dtype=float)
+    if penalty_type == "inf_norm":
+        return float(np.max(np.sum(mu, axis=1)))
+    if penalty_type == "quadratic":
+        return float(np.max(np.sum(mu * mu, axis=1)))
+    raise ValueError(f"penalty_type must be 'inf_norm' or 'quadratic'; got {penalty_type!r}.")
+
+
+def cost_report(x, r, z, C_M, C_R, C_rep, C_D, u, H1: int, H2: int, evaluation_horizon) -> dict:
+    """The cost report of the result, from the arrays of the solution.
+
+    Eqs. a_daycost and a_phases on ``x``, ``r`` and ``z`` (zero where ``NaN``),
+    and ``P_E`` of Eq. d_projected for ``evaluation_horizon``, if given.
+    """
+    C_R, C_rep = np.asarray(C_R, dtype=float), np.asarray(C_rep, dtype=float)
+    z0 = np.where(np.isnan(z), 0.0, z)
+    T = x.shape[2]
+    step_costs = np.zeros(T)
+    for k in range(T):
+        step_costs[k] = (C_M * x[:, 0, k].sum()
+                         + (C_R * z0[:, :, k]).sum()
+                         + (C_rep * r[:, :, k]).sum())
+    J_init = float(step_costs[:H1].sum())
+    J_op = float(step_costs[H1:].sum())
+    J_op_average = J_op / H2
+    u, C_D = float(u), float(C_D)
+    penalty = C_D * u
+    if evaluation_horizon is None:
+        projected = evaluation = None
+    else:
+        projected = J_init + (int(evaluation_horizon) - H1) * J_op_average
+        evaluation = projected + penalty
+    return {
+        "step_costs": step_costs,
+        "J_initialization": J_init,
+        "J_op": J_op,
+        "J_op_average": J_op_average,
+        "peak_damage": u,
+        "damage_penalty": penalty,
+        "operating_objective": J_op_average + penalty,
+        "J_total": J_init + J_op + penalty,
+        "projected_evaluation_cost": projected,
+        "evaluation_objective": evaluation,
+        "component_costs": {"C_M": float(C_M), "C_D": C_D, "C_R": C_R, "C_rep": C_rep},
+    }

@@ -1,0 +1,20 @@
+{
+  "file": "src/fleet_management/utils/plotter.py; src/fleet_management/validation/dashboard_inspector.py; tests/test_step3_plots.py (new)",
+  "changes_implemented": [
+    {"change_id": "M6", "description": "plotter.py: dropped the unused row key T (the int(None) crash); H1 is read only where given, the title skips None sizes. Two reports without H1 now plot."},
+    {"change_id": "M7", "description": "plotter.py _draw_horizon_sweep: costs and gaps are NaN for cases without a feasible solution (grey lines break there); gap labels only for feasible cases. Marks of infeasible cases unchanged."},
+    {"change_id": "M8", "description": "plotter.py _merge_horizon_sweep_reports: the selection runs also for one report (earlier case wins a tie). A malformed single report is still passed to the normaliser, so its error messages are unchanged."},
+    {"change_id": "M11", "description": "dashboard_inspector.py overview: largest_mu_over_tau is the maximum of result mu / tau over all finite cells and days (NaN if none), not of the margin table."}
+  ],
+  "tests": {
+    "new_file": "tests/test_step3_plots.py: 4 tests (M6, M7, M8, M11); 0 of 4 pass on the old code, 4 of 4 on the new.",
+    "before_after (runner, no pytest)": {
+      "test_spec_plots": "77/0 -> 77/0 (passed/failed)",
+      "test_plotter": "20/0 -> 20/0",
+      "test_spec_validation": "131/2 -> 131/2 (test_dispatcher_files, test_public_api_exports_validate: failed before too, runner stubs the package)",
+      "test_validator_dashboards": "14/0 -> 14/0"
+    }
+  },
+  "png": "C:/Users/utente/AppData/Local/Temp/claude/97949f6cddfa4b53/ccdc4317-924c-4e98-951b-d5a88989e5f4/scratchpad/step3/coder3/sweep_noh1.png",
+  "notes": "plotter.py is CRLF (791 -> 801 lines, 801 CR); dashboard_inspector.py and the new test are LF. test_spec_plots needs plot_horizon_sweep on the stubbed package, so I ran it with a copy of the runner (run_t3.py) in the scratchpad that sets those two names. The new test imports from fleet_management.utils.plotter so it runs under both runners."
+}

@@ -1,10 +1,25 @@
 # Code of the merged package: plan
 
-Status (26 Oct 2026): agreed by the user for WP0 to WP2, which are done: worktree
-`C:\Users\utente\Documents\GitHub\Fleet_Management-merge`, branch `merge/lore-into-main`, commit ed6694c (65 files
-removed, egg-info untracked, `.gitignore` and `pyproject.toml`; details in `wp1_removals.md`). No local installs (the
-user's choice); Claude commits on that branch at each commit point. Next: WP3 after the user reads the spec and commits
-`lore`'s finished work; WP4 and WP5 after that.
+Status (28 Oct 2026): WP0 to WP3 done. Worktree `C:\Users\utente\Documents\GitHub\Fleet_Management-merge`, branch
+`merge/lore-into-main`:
+- WP0 to WP2, commit ed6694c: 65 files removed, egg-info untracked, `.gitignore` and `pyproject.toml`; details in
+  `wp1_removals.md`.
+- WP3, commit 5f29660: `lore` merged at 68ec120. `README.md` and `solver.py` resolved to `main`'s version; `lore`'s
+  plotter removed. `lore`'s builders are in `src/fleet_management/models/` and `src/fleet_management/maintenance/`.
+
+- WP4 and WP5, commit 5c8de19: plans, executor work and reviews in `wp4_plan.md` and `wp5_plan.md`.
+- WP6, commit 0421e80: the five cell builders; `lore`'s `models/` and `maintenance/` and the two old Gamma tests
+  removed. Plans and reviews in `wp6_plan_giw.md`, `wp6_plan_gamma.md`, `wp6_plan_rainflow.md`.
+- WP7, commit 7e35db4: sweeps, warm starts, plots, validators, public API; 17 dropped files removed. Plans and
+  reviews in `wp7_plan_sweeps.md`, `wp7_plan_plots.md`, `wp7_plan_validator.md`, `wp7_plan_gamma_validators.md`.
+
+No local installs (the user's choice); Claude commits on that branch at each commit point. WP8 done, commit 8cf16c1 (7 Nov 2026); step 3 (code against the spec, `step3/`) done, commit 6a22bd3 (8 Nov 2026); step 4 (README, CLAUDE.md, the
+experiment READMEs) done, commit 6971b16 (8 Nov 2026). Next: step 6, the clean-up: split and rules in
+[`wp8_interface.md`](wp8_interface.md); four planners (`io`, `oracle`, `tools`, `legacy`); own test inputs, so `lore`'s
+`input/` folder is no longer needed; Gurobi runs on Euler (`EULER.md`).
+For step 4 (README): the quick start still reads `input/data.yaml`, which WP8 removed (old keys); use
+`examples/smoke/mixed_example.yaml` (the spec example). The README also states the validators' tolerance rule (item M19 of
+`merge/step3/merged_review.md`; user, 8 Nov 2026: *"state this fact in the final spec and readme"*).
 
 - **Purpose.** How the code of the merged package is built from `main`: the work packages, their order, what each
   needs before it starts, and who does it.
@@ -54,6 +69,12 @@ user's choice); Claude commits on that branch at each commit point. Next: WP3 af
   done, because they touch different files; WP4 first fixes the fields of `FleetConfig`, which WP5 reads. WP6 runs one
   agent per builder file, in parallel. WP7 runs one agent per tool, in parallel.
 - **Models of the agents.** Opus for WP4 to WP7 (formulation and tools); Sonnet for WP1 and WP2 (narrow tasks with a
-  precise list).
+  precise list). For WP4 and WP5 (user, 28 Oct 2026: *"Make these opus agents plan what to do. Then use sonnet agents
+  to execute. Then the opus agents revise"*): an Opus agent plans each package, Sonnet agents carry out the plan, and
+  the same Opus agent reviews and corrects the result. Interface and file ownership:
+  [`wp4_wp5_interface.md`](wp4_wp5_interface.md). The same workflow for WP6 (user, 29 Oct 2026), with three
+  planners (G, IG and W; Gamma; rainflow): [`wp6_interface.md`](wp6_interface.md). WP7 likewise, with four planners
+  (sweeps and warm starts; plots and public API; validator and dashboards; Gamma validators):
+  [`wp7_interface.md`](wp7_interface.md).
 - **Checks of each package.** The agent writes unit tests with the package; Claude reviews the diff against the spec
   sections before the commit point. Step 3 (the `spec-alignment` skill) then checks the whole code and the README.

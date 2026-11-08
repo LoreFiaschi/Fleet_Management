@@ -1,0 +1,94 @@
+sizes 3 2 2 2 3 5
+step_costs [0.0, 1.042, 19.0, 19.0, 19.0]
+J_init 1.042 J_op 57.0 u 0.56
+objective total np.float64(58.882000000000005)
+objective operating_average np.float64(19.84)
+objective evaluation_total np.float64(533.8820000000001)
+loop mu max excess -0.06999999999999999
+loop v max excess -0.00036
+loop R max excess all NaN
+loop K max excess -0.4600000000000001
+loop g_mu max excess -0.030000000000000002
+loop g_v max excess -0.00016
+loop g_R max excess all NaN
+loop g_K max excess -0.4600000000000001
+mu
+[[[0.19  0.24  0.02  0.08  0.13 ]
+  [0.14  0.21  0.02  0.06  0.13 ]]
+
+ [[0.21  0.27  0.33  0.02  0.08 ]
+  [0.15  0.19  0.23  0.02  0.06 ]]
+
+ [[0.09  0.09  0.14  0.19  0.02 ]
+  [0.14  0.112 0.182 0.252 0.02 ]]]
+v
+[[[5.0e-04 6.0e-04 4.0e-05 1.4e-04 2.4e-04]
+  [    nan     nan     nan     nan     nan]]
+
+ [[1.4e-03 2.3e-03 3.2e-03 4.0e-05 9.4e-04]
+  [    nan     nan     nan     nan     nan]]
+
+ [[4.0e-04 4.0e-04 5.0e-04 6.0e-04 4.0e-05]
+  [    nan     nan     nan     nan     nan]]]
+K
+[[[ nan  nan  nan  nan  nan]
+  [ nan  nan  nan  nan  nan]]
+
+ [[ nan  nan  nan  nan  nan]
+  [ nan  nan  nan  nan  nan]]
+
+ [[ nan  nan  nan  nan  nan]
+  [0.7  0.56 0.94 1.32 0.1 ]]]
+g_mu
+[[[0.1   0.1   0.02  0.02  0.02 ]
+  [0.06  0.06  0.02  0.02  0.02 ]]
+
+ [[  nan   nan   nan   nan   nan]
+  [0.05  0.05  0.05  0.02  0.02 ]]
+
+ [[0.05  0.05  0.05  0.05  0.02 ]
+  [0.1   0.112 0.112 0.112 0.02 ]]]
+g_v
+[[[2.e-04 2.e-04 4.e-05 4.e-05 4.e-05]
+  [   nan    nan    nan    nan    nan]]
+
+ [[   nan    nan    nan    nan    nan]
+  [   nan    nan    nan    nan    nan]]
+
+ [[2.e-04 2.e-04 2.e-04 2.e-04 4.e-05]
+  [   nan    nan    nan    nan    nan]]]
+g_K
+[[[ nan  nan  nan  nan  nan]
+  [ nan  nan  nan  nan  nan]]
+
+ [[ nan  nan  nan  nan  nan]
+  [ nan  nan  nan  nan  nan]]
+
+ [[ nan  nan  nan  nan  nan]
+  [0.5  0.56 0.56 0.56 0.1 ]]]
+z
+[[[0.    0.    0.    0.    0.   ]
+  [0.    0.    0.    0.    0.   ]]
+
+ [[0.    0.    0.    0.    0.   ]
+  [0.    0.    0.    0.    0.   ]]
+
+ [[0.    0.    0.    0.    0.   ]
+  [0.    0.028 0.    0.    0.   ]]]
+IG cap (0, 1) np.float64(0.49234697216756246)
+Gamma beta* 20.0 cap 0.6726905060677382
+Bernstein b 0.05 c 0.03837641821656743
+margins
+[[[0.654747228 0.575976674 0.960291778 0.846021224 0.75625067 ]
+  [0.352346972 0.282346972 0.472346972 0.432346972 0.362346972]]
+
+ [[0.620312239 0.52667725  0.440242261 0.960291778 0.843856789]
+  [0.522690506 0.482690506 0.442690506 0.652690506 0.612690506]]
+
+ [[0.756412851 0.756412851 0.671289976 0.5911671   0.884998013]
+  [1.997414907 2.137414907 1.757414907 1.377414907 2.597414907]]]
+min margin 0.28234697216756244 (np.int64(0), np.int64(1), np.int64(1))
+max mu/tau 0.33
+yaml keys 51 x equal True R all NaN True H [2, 3] bound_method [[None, None], [None, None], ['bernstein', 'chernoff']] objective 533.8820000000001
+json keys 51 x equal True R all NaN True H [2, 3] bound_method [[None, None], [None, None], ['bernstein', 'chernoff']] objective 533.8820000000001
+h5 keys 51 x equal True R all NaN True H [2, 3] bound_method [[None, None], [None, None], ['bernstein', 'chernoff']] objective 533.8820000000001

@@ -34,3 +34,17 @@ literature/
 agentic/
 .claude/
 bkp/
+
+# LaTeX build files (the PDF of the scoping document at the root stays tracked)
+*.aux
+*.bbl
+*.blg
+*.log
+*.out
+*.toc
+*.fls
+*.fdb_latexmk
+*.synctex.gz
+
+# Private notes of the user (Euler access); never tracked
+EULER.md

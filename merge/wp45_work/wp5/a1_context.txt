@@ -1,0 +1,89 @@
+# ===========================================================================
+# Shared context
+# ===========================================================================
+TRACKED_QUANTITIES = ("mu", "v", "R", "K")   # mean, variance, Hoeffding R, Chernoff K
+
+
+def phase_day(k: int, H1: int, H2: int, has_transitory: bool) -> tuple[bool, int]:
+    """Phase lookup of day index ``k`` (spec day ``k + 1``), Eq. c_phase.
+
+    Returns ``(use_transitory, h)``: whether the transitory profile is read, and
+    the index ``h`` on the day axis of the profile that is read.
+    """
+    if k < H1:
+        return (True, k) if has_transitory else (False, k % H2)
+    return (False, (k - H1) % H2)
+
+
+@dataclass
+class FleetModel:
+    """Everything the per-cell builders need, built once and passed around.
+
+    The shared variables, the per-cell arrays read from ``cfg``, the increment
+    accessor and the run options are filled by ``build_context``. The state
+    variables, anchors, selectors and segment binaries of the model-specific
+    quantities are filled by the helpers that a builder's ``prepare`` calls.
+    """
+    # --- structure ---
+    model: gp.Model
+    F: int; H1: int; H2: int; M: int; L: int; T: int
+    # --- shared decision variables ---
+    x: gp.tupledict                        # assignment (F, M+1, T); j = 0 depot
+    m_rep: gp.tupledict                    # repair x^m (F, L, T)
+    r_rep: Optional[gp.tupledict]          # replacement x^r (F, L, T) or None
+    mu_var: gp.tupledict                   # shared mean (F, L, T), [0, tau]
+    z_var: gp.tupledict                    # removed damage z, cells with C_R > 0
+    u_var: Optional[gp.Var]                # damage penalty u, None if C_D == 0
+    # --- per-cell (F, L) selectors ---
+    model_of: np.ndarray                   # cfg.model
+    repair_of: np.ndarray                  # cfg.repair_model
+    bound_of: np.ndarray                   # cfg.bound_method
+    impl_of: np.ndarray                    # cfg.reliability_impl
+    encoding_of: np.ndarray                # cfg.encoding
+    # --- per-cell (F, L) parameters ---
+    tau: np.ndarray                        # threshold
+    eps: np.ndarray                        # cfg.epsilon
+    rho: np.ndarray                        # repair efficiency
+    tangent_ref: np.ndarray                # tangent point, as a fraction of tau
+    initial: Dict[str, np.ndarray]         # q -> mu_0, v_0, R_0, cgf_0
+    replacement: Dict[str, np.ndarray]     # q -> replacement_mu, replacement_v, R_new, cgf_new
+    anchor_start: Dict[str, np.ndarray]    # q -> anchor_mu_0, anchor_v_0, anchor_R_0, anchor_K_0
+    state_range: Dict[str, np.ndarray]     # q -> natural range M_s (range_mu, ...)
+    # --- options and profiles ---
+    allow_replacement: bool
+    pwl_points: int
+    opts: dict                             # the run options
+    profiles: dict                         # key -> (operating, transitory or None)
+    # --- filled by the helpers of the builders' prepare hooks ---
+    state_vars: dict = field(default_factory=dict)    # q -> {(i, l, k): Var}
+    anchor_vars: dict = field(default_factory=dict)   # q -> {(i, l, k): Var}, ard1 cells
+    nb: dict = field(default_factory=dict)            # (i, l, k) -> selector n
+    pwl_w: dict = field(default_factory=dict)         # (i, l, k, p) -> segment binary w
+    # free-form per-model storage
+    extras: dict = field(default_factory=dict)
+
+    # --- helpers ---
+    def cells_of(self, model_name: str):
+        """All (i, l) cells whose degradation model is ``model_name``."""
+        return [(i, l) for i in range(self.F) for l in range(self.L)
+                if str(self.model_of[i, l]) == model_name]
+
+    def all_cells(self):
+        return [(i, l) for i in range(self.F) for l in range(self.L)]
+
+    def increment(self, key: str, i: int, j: int, l: int, k: int) -> float:
+        """Increment of profile ``key`` for train ``i``, activity ``j``,
+        component ``l`` and day index ``k``, after the phase lookup (Eq. c_phase).
+
+        ``j = 0`` is the depot and adds no increment; mission ``j`` is read at
+        position ``j - 1`` of the profile.
+        """
+        if j == 0:
+            return 0.0
+        try:
+            operating, transitory = self.profiles[key]
+        except KeyError:
+            raise KeyError(f"profile {key!r} is not in the input") from None
+        use_transitory, h = phase_day(k, self.H1, self.H2, transitory is not None)
+        source = transitory if use_transitory else operating
+        return float(source[i, l, j - 1, h])
