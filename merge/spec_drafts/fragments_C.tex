@@ -152,7 +152,7 @@ The symbols $\mu^{\inc}_{i\ell jk}$, $v^{\inc}_{i\ell jk}$, $b^{\inc}_{i\ell jk}
 \optrow{\texttt{progress\_interval\_seconds}}{number}{$5.0$}{Minimum time between two records of the progress report (Section~\ref{sec:output_reports})}
 \optrow{\texttt{relaxation\_warm\_start}}{flag}{\texttt{false}}{If \texttt{true} and no other warm start is applied, a relaxation start is computed (Section~\ref{sec:warm_starts})}
 \optrow{\texttt{relaxation\_time\_limit}}{number}{$60.0$}{Time limit of the relaxation start, in seconds}
-\optrow{\texttt{validation}}{mapping}{none}{Settings of the Gamma validators (Section~\ref{sec:validation_gamma}): \texttt{mode}, \texttt{repetitions}, \texttt{random\_seed}, \texttt{maximum\_schedule\_failure\_rate}, \texttt{confidence\_level}, \texttt{batch\_size}; \texttt{solve} does not read it}
+\optrow{\texttt{validation}}{mapping}{none}{Settings of the validators (Section~\ref{sec:validation_gamma}): \texttt{mode}, \texttt{repetitions}, \texttt{random\_seed}, \texttt{maximum\_schedule\_failure\_rate}, \texttt{confidence\_level}, \texttt{batch\_size}, \texttt{tolerance}; the key \texttt{tolerance} is the numerical tolerance of every check of the structural validator and of the Gamma validators (Section~\ref{sec:validation_tolerance}); \texttt{solve} does not read it}
 \tabend
 
 No input key selects a warm start from a previous result (Section~\ref{sec:warm_starts}).
@@ -260,6 +260,7 @@ A non-strict inequality $a \le b$ (or $a \ge b$) passes when it holds up to $10^
 \begin{itemize}[leftmargin=1.5em]
   \item \texttt{objective\_mode} is \texttt{total}, \texttt{operating\_average} or \texttt{evaluation\_total}; in the last mode \texttt{evaluation\_horizon} is given. If \texttt{evaluation\_horizon} is given, in any mode, it is an integer $E > H_1$.
   \item \texttt{mip\_gap} $\ge 0$; a value below $0$ that passes through the tolerance is set to $0$, because Gurobi refuses a negative gap; \texttt{time\_limit}, \texttt{progress\_interval\_seconds} and \texttt{relaxation\_time\_limit} are $> 0$; \texttt{gurobi\_params} and \texttt{validation} are mappings; \texttt{fast}, \texttt{relaxation\_warm\_start}, \texttt{allow\_replacement} and \texttt{replacement\_as\_new} are flags.
+  \item If \texttt{validation.tolerance} is given and not \texttt{null}, it is a finite number $> 0$; otherwise a \texttt{ValueError} names \texttt{validation.tolerance}.
   \item $C_M$, $C_D$, $C_{R,i\ell}$ and $C_{\mathrm{rep},i\ell}$ are finite and $\ge 0$.
 \end{itemize}
 

@@ -6,3 +6,6 @@ CLAUDE*
 build/*
 bkp/*
 */*.pdf
+
+# Private notes of the user (Euler access); never tracked
+EULER.md

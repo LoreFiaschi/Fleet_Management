@@ -551,7 +551,7 @@ The symbols $\mu^{\inc}_{i\ell jk}$, $v^{\inc}_{i\ell jk}$, $b^{\inc}_{i\ell jk}
 \optrow{\texttt{progress\_interval\_seconds}}{number}{$5.0$}{Minimum time between two records of the progress report (Section~\ref{sec:output_reports})}
 \optrow{\texttt{relaxation\_warm\_start}}{flag}{\texttt{false}}{If \texttt{true} and no other warm start is applied, a relaxation start is computed (Section~\ref{sec:warm_starts})}
 \optrow{\texttt{relaxation\_time\_limit}}{number}{$60.0$}{Time limit of the relaxation start, in seconds}
-\optrow{\texttt{validation}}{mapping}{none}{Settings of the Gamma validators (Section~\ref{sec:validation_gamma}): \texttt{mode}, \texttt{repetitions}, \texttt{random\_seed}, \texttt{maximum\_schedule\_failure\_rate}, \texttt{confidence\_level}, \texttt{batch\_size}; \texttt{solve} does not read it}
+\optrow{\texttt{validation}}{mapping}{none}{Settings of the validators (Section~\ref{sec:validation_gamma}): \texttt{mode}, \texttt{repetitions}, \texttt{random\_seed}, \texttt{maximum\_schedule\_failure\_rate}, \texttt{confidence\_level}, \texttt{batch\_size}, \texttt{tolerance}; the key \texttt{tolerance} is the numerical tolerance of every check of the structural validator and of the Gamma validators (Section~\ref{sec:validation_tolerance}); \texttt{solve} does not read it}
 \tabend
 
 No input key selects a warm start from a previous result (Section~\ref{sec:warm_starts}).
@@ -659,6 +659,7 @@ A non-strict inequality $a \le b$ (or $a \ge b$) passes when it holds up to $10^
 \begin{itemize}[leftmargin=1.5em]
   \item \texttt{objective\_mode} is \texttt{total}, \texttt{operating\_average} or \texttt{evaluation\_total}; in the last mode \texttt{evaluation\_horizon} is given. If \texttt{evaluation\_horizon} is given, in any mode, it is an integer $E > H_1$.
   \item \texttt{mip\_gap} $\ge 0$; a value below $0$ that passes through the tolerance is set to $0$, because Gurobi refuses a negative gap; \texttt{time\_limit}, \texttt{progress\_interval\_seconds} and \texttt{relaxation\_time\_limit} are $> 0$; \texttt{gurobi\_params} and \texttt{validation} are mappings; \texttt{fast}, \texttt{relaxation\_warm\_start}, \texttt{allow\_replacement} and \texttt{replacement\_as\_new} are flags.
+  \item If \texttt{validation.tolerance} is given and not \texttt{null}, it is a finite number $> 0$; otherwise a \texttt{ValueError} names \texttt{validation.tolerance}.
   \item $C_M$, $C_D$, $C_{R,i\ell}$ and $C_{\mathrm{rep},i\ell}$ are finite and $\ge 0$.
 \end{itemize}
 
@@ -2547,6 +2548,26 @@ The tools check a saved result against its input. They do not call the optimiser
 \end{itemize}
 The dashboards and the validators of the Gamma model take the model of each cell from the result key \texttt{model}. The structural validator does not read this key.
 
+\subsection{Tolerance of the checks}
+\label{sec:validation_tolerance}
+
+A binary that Gurobi accepts within \texttt{IntFeasTol} inside a big-M row can move a tracked state by $\texttt{IntFeasTol} \times M_s$, with $M_s$ the natural range of the state at the cell (Section~\ref{sec:encoding}); the defaults below allow for it.
+The structural validator and the Gamma validators resolve the tolerance of each check in this order:
+\begin{enumerate}[nosep,label=\arabic*.]
+  \item The explicit argument (\texttt{tol} or \texttt{tolerance}), if it is not \texttt{None}: one value for every check.
+  \item Else the key \texttt{tolerance} of the input block \texttt{validation} (Section~\ref{sec:run_options}), a finite number $> 0$: one value for every check.
+  \item Else a default per check, from \texttt{FeasibilityTol} and \texttt{IntFeasTol} of \texttt{gurobi\_params} (names matched without regard to case; if absent, Gurobi's defaults $10^{-6}$ and $10^{-5}$), by the table below.
+\end{enumerate}
+
+\tabstart{p{7.0cm}p{8.0cm}}{Check on & Default tolerance}
+\rejrow{a tracked quantity, an anchor, a start value, $z$, the cap of a cell}{$\texttt{FeasibilityTol} + \texttt{IntFeasTol} \cdot M_s$, with $M_s$ the natural range of the quantity at the cell; $\texttt{FeasibilityTol}$ where the range is not defined}
+\rejrow{binaries}{\texttt{IntFeasTol}}
+\rejrow{a probability or a cost}{\texttt{FeasibilityTol}}
+\tabend
+
+A check over several cells passes when no cell exceeds its own tolerance.
+The dashboards pass the tolerance of their sidebar as the explicit argument.
+
 \subsection{Structural Validator}
 \label{sec:validation_structural}
 
@@ -2554,7 +2575,7 @@ Checks the saved schedule and objective of a result against the input. The repor
 
 \begin{lstlisting}[language=Python]
 validate(input_path, results_path, validation_path="validation.yaml",
-         tol=1e-6) -> dict
+         tol=None) -> dict
 \end{lstlisting}
 
 \blockhead{Arguments}
@@ -2562,7 +2583,7 @@ validate(input_path, results_path, validation_path="validation.yaml",
 \typerow{\texttt{input\_path}}{required}{Input file}
 \typerow{\texttt{results\_path}}{required}{Result file}
 \typerow{\texttt{validation\_path}}{\texttt{"validation.yaml"}}{Report file: \texttt{.yaml}, \texttt{.yml} or \texttt{.json}; no extension gets \texttt{.yaml}; the folder is created}
-\typerow{\texttt{tol}}{\texttt{1e-6}}{Tolerance of the checks}
+\typerow{\texttt{tol}}{\texttt{None}}{Tolerance of the checks: one value for every check; \texttt{None} applies the resolution of Section~\ref{sec:validation_tolerance}}
 \tabend
 
 \blockhead{Errors}
@@ -2575,7 +2596,7 @@ validate(input_path, results_path, validation_path="validation.yaml",
 \blockhead{Checks}
 \begin{itemize}[nosep]
   \item \textbf{Status rule.} The status is not a check. A feasible incumbent is validated like an optimal solution, and the report echoes the status.
-  \item \textbf{Pass rule.} A check passes if its violation is at most \texttt{tol}.
+  \item \textbf{Pass rule.} A check passes if no cell has a violation above its tolerance (Section~\ref{sec:validation_tolerance}). The checks \texttt{binary}, \texttt{one\_activity}, \texttt{mission\_coverage}, \texttt{depot\_gating} and \texttt{idle} use the tolerance for binaries, the checks \texttt{loop\_}$q$ the tolerance of a tracked quantity at the cell, and \texttt{objective} the tolerance for a cost. The violation of a check is its largest violation over the cells, and its tolerance is the tolerance at that cell.
 \end{itemize}
 
 \tabstart{p{2.6cm}p{7.2cm}p{5.2cm}}{Check & Condition & Violation}
@@ -2590,14 +2611,14 @@ validate(input_path, results_path, validation_path="validation.yaml",
 
 The recomputed objective is Eq.~\eqref{eq:a_objective} in the objective mode of the input, with the day cost of Eq.~\eqref{eq:a_daycost} on the saved $x$, $z$ ($0$ where \texttt{NaN}) and $x^r$, the costs of the input, and the saved $u$.
 
-The key \texttt{y\_}$q$ counts as saved if it holds at least one number. A difference of the table that is not a number is skipped. The report lists the checks in the order of the table. The eight checks \texttt{loop\_}$q$ are always listed; a check whose key is absent, or has no pair of numbers at days $H_1$ and $T$, has violation $0$. The internal function \texttt{check\_result(cfg, result, tol=1e-6) -> dict} runs the checks, and the errors on sizes, shapes and arrays, on a \texttt{FleetConfig} and a result dictionary, and returns the report without writing it; \texttt{validate} and the dashboards call it.
+The key \texttt{y\_}$q$ counts as saved if it holds at least one number. A difference of the table that is not a number is skipped. The report lists the checks in the order of the table. The eight checks \texttt{loop\_}$q$ are always listed; a check whose key is absent, or has no pair of numbers at days $H_1$ and $T$, has violation $0$. The internal function \texttt{check\_result(cfg, result, tol=None) -> dict} runs the checks, and the errors on sizes, shapes and arrays, on a \texttt{FleetConfig} and a result dictionary, and returns the report without writing it; \texttt{validate} and the dashboards call it.
 
 \blockhead{Report keys}
 \tabstart{p{5.2cm}p{9.8cm}}{Key & Content}
 \rejrow{\texttt{status}}{status of the result, echoed}
 \rejrow{\texttt{solver\_objective}, \texttt{recomputed\_objective}}{saved objective $o$ and recomputed objective $r$}
-\rejrow{\texttt{tolerance}}{value of \texttt{tol}}
-\rejrow{\texttt{checks}}{a list of records with \texttt{name}, \texttt{passed}, \texttt{violation} and \texttt{tolerance}}
+\rejrow{\texttt{tolerance}}{the single value (argument \texttt{tol}, else the key \texttt{tolerance} of \texttt{validation}), or, if the defaults per check apply, the mapping \texttt{\{FeasibilityTol, IntFeasTol\}} of the two Gurobi tolerances in use}
+\rejrow{\texttt{checks}}{a list of records with \texttt{name}, \texttt{passed}, \texttt{violation} (the largest over the cells) and \texttt{tolerance} (at the cell of that violation)}
 \rejrow{\texttt{passed}}{true if all checks passed}
 \rejrow{\texttt{max\_violation}}{maximum violation}
 \tabend
@@ -2674,7 +2695,7 @@ These rules hold for each validator of this subsection.
 \begin{itemize}[nosep]
   \item \textbf{Inputs.} A validator takes the normalised configuration \texttt{cfg} (\texttt{load\_config}) and the result dictionary. It returns a report of plain Python types.
   \item \textbf{File version.} The replay validator, the exact validator and the dispatcher have a file version. It takes an input path, a result path and \texttt{report\_path} (default \texttt{None}). It writes the report as YAML or JSON and creates the folder. The Monte Carlo validator has no file version; the file version of the dispatcher with mode \texttt{"stochastic"} serves it.
-  \item \textbf{Tolerance.} \texttt{tolerance} (default $10^{-8}$) must be positive.
+  \item \textbf{Tolerance.} \texttt{tolerance} (default \texttt{None}) must be positive if it is given. With \texttt{None}, the key \texttt{tolerance} of the block \texttt{validation} applies if present, else the defaults per check (Section~\ref{sec:validation_tolerance}). A check over several cells passes when no cell exceeds its own tolerance. The report key \texttt{tolerance} is the single value, or the mapping \texttt{\{FeasibilityTol, IntFeasTol\}}.
   \item \textbf{Gamma cells.} The Gamma cells are the cells whose entry of the result key \texttt{model} is \texttt{gamma}; this key must have the shape $F \times L$ and equal the input key \texttt{model}.
   \item \textbf{Event of a day.} The event of a cell on day $k$ is \texttt{"replacement"} if $x^r_{i\ell k} = 1$, else \texttt{"repair"} if $x^m_{i\ell k} = 1$, else \texttt{"mission"} if train $i$ flies a mission, else \texttt{"idle"}. Every validator applies it, also on a day with a global violation.
   \item \textbf{Indices.} In a report, \texttt{i}, \texttt{l} and \texttt{k} are 0-based array indices; \texttt{k} is day $k+1$.
@@ -2683,7 +2704,7 @@ These rules hold for each validator of this subsection.
 
 \blockhead{Errors}
 \tabstart{p{3.4cm}p{11.6cm}}{Exception & Raised when}
-\rejrow{\texttt{ValueError}}{\texttt{report\_path} has another suffix than YAML or JSON; \texttt{cfg} has no Gamma cell; the result has no key \texttt{model}, or its \texttt{model} has another shape than $F \times L$ or differs from the input at a cell; a required array is missing, has a wrong shape, or has a non-finite entry at a cell where it is read (an entry $\pm\infty$ of \texttt{z} at a Gamma cell raises; an entry \texttt{NaN} of \texttt{z} means that the row is not built, and is skipped); an array that must be binary is not within \texttt{tolerance} of $\{0,1\}$}
+\rejrow{\texttt{ValueError}}{\texttt{report\_path} has another suffix than YAML or JSON; \texttt{cfg} has no Gamma cell; the result has no key \texttt{model}, or its \texttt{model} has another shape than $F \times L$ or differs from the input at a cell; a required array is missing, has a wrong shape, or has a non-finite entry at a cell where it is read (an entry $\pm\infty$ of \texttt{z} at a Gamma cell raises; an entry \texttt{NaN} of \texttt{z} means that the row is not built, and is skipped); an array that must be binary is not within the tolerance for binaries of $\{0,1\}$}
 \rejrow{\texttt{AssertionError}}{\texttt{raise\_on\_failure=True} and the report has \texttt{valid = false}}
 \tabend
 
@@ -2692,7 +2713,7 @@ These rules hold for each validator of this subsection.
 It reads \texttt{x}, \texttt{m}, \texttt{r} (optional), \texttt{mu}, \texttt{z} and, for $\ARDone$ cells, \texttt{g\_mu}. It also reads \texttt{y\_mu} and, for $\ARDone$ cells, \texttt{y\_g\_mu} if the result has them; each must have the shape $F \times L$.
 
 \begin{lstlisting}[language=Python]
-validate_gamma_replay_schedule(cfg, result, *, tolerance=1e-8,
+validate_gamma_replay_schedule(cfg, result, *, tolerance=None,
                                raise_on_failure=False) -> dict
 validate_gamma_replay_files(input_path, result_path, report_path=None,
                             **kwargs) -> dict
@@ -2711,7 +2732,7 @@ validate_gamma_replay_files(input_path, result_path, report_path=None,
   \item For each Gamma cell and day $k$, compute the reference trajectory of $\mu$ and $g^{\mu}$ (Section~\ref{sec:encoding}) from the saved schedule, starting at $\mu_0$ and, under $\ARDone$, at the starting anchor $g^{\mu}_0$, with the replacement value of the cell.
   \item Set the event of the day: \texttt{"replacement"}, \texttt{"repair"}, \texttt{"mission"} or \texttt{"idle"}.
   \item Compute the errors of the fields below.
-  \item If an error is above \texttt{tolerance}, add a record \texttt{i}, \texttt{l}, \texttt{k}, \texttt{event}, \texttt{field}, \texttt{expected}, \texttt{saved}, \texttt{error} to \texttt{violations}.
+  \item If an error is above the tolerance of its cell (the tolerance of a tracked quantity at the cell, for all five fields), add a record \texttt{i}, \texttt{l}, \texttt{k}, \texttt{event}, \texttt{field}, \texttt{expected}, \texttt{saved}, \texttt{error} to \texttt{violations}.
 \end{enumerate}
 
 \blockhead{Error fields}
@@ -2736,6 +2757,8 @@ In a record, \texttt{expected} is the reference value, the cap (\texttt{cap}), o
 \rejrow{\texttt{transitions\_checked}}{number of Gamma cells times $T$}
 \rejrow{\texttt{repairs}, \texttt{replacements}}{the days with the event \texttt{"repair"} or \texttt{"replacement"}, counted over the Gamma cells only (one per cell and day)}
 \rejrow{\texttt{maximum\_errors}}{the largest error of each field}
+\rejrow{\texttt{tolerance}}{the single value, or the mapping \texttt{\{FeasibilityTol, IntFeasTol\}}}
+\rejrow{\texttt{maximum\_error\_tolerances}}{for each field of \texttt{maximum\_errors}, the tolerance at the cell of its largest error}
 \rejrow{\texttt{global\_violations}, \texttt{violations}}{the global violations, the violations}
 \rejrow{\texttt{timing}}{the record with \texttt{validation\_wall\_seconds}}
 \tabend
@@ -2745,7 +2768,7 @@ In a record, \texttt{expected} is the reference value, the cap (\texttt{cap}), o
 Module \texttt{gamma\_utils.gamma\_tail\_validator}, not exported.
 
 \begin{lstlisting}[language=Python]
-validate_gamma_tail_bound_schedule(cfg, result, *, tolerance=1e-8,
+validate_gamma_tail_bound_schedule(cfg, result, *, tolerance=None,
     convolution_tolerance=1e-12, max_series_terms=100000,
     include_steps=False, raise_on_failure=False) -> dict
 validate_gamma_tail_bound_files(input_path, result_path, report_path=None,
@@ -2778,11 +2801,11 @@ For each Gamma cell and day $k = 1,\ldots,T$:
 \blockhead{Pass rule}
 A day passes if:
 \begin{itemize}[nosep]
-  \item the upper bound is at most $\varepsilon_{i\ell} + \texttt{tolerance}$;
-  \item the saved mean is at least $\mathbb{E}D_k - \texttt{tolerance}$;
-  \item under $\ARDone$, the saved anchor is at least the exact mean of the frozen part minus \texttt{tolerance}.
+  \item the upper bound is at most $\varepsilon_{i\ell}$ plus the tolerance for a probability;
+  \item the saved mean is at least $\mathbb{E}D_k$ minus the tolerance of a tracked quantity at the cell;
+  \item under $\ARDone$, the saved anchor is at least the exact mean of the frozen part minus the tolerance of a tracked quantity at the cell.
 \end{itemize}
-\texttt{valid} is true if there is no global violation (step 1 of the replay validator) and every day passes. A failed condition adds a record with the keys of the replay record, with field \texttt{reliability} (\texttt{expected} $\varepsilon_{i\ell}$, \texttt{saved} the upper bound), \texttt{tracked\_mean} (\texttt{expected} $\mathbb{E}D_k$) or \texttt{mean\_anchor} (\texttt{expected} the exact mean of the frozen part); \texttt{maximum\_errors} has these three fields.
+\texttt{valid} is true if there is no global violation (step 1 of the replay validator) and every day passes. A failed condition adds a record with the keys of the replay record, with field \texttt{reliability} (\texttt{expected} $\varepsilon_{i\ell}$, \texttt{saved} the upper bound), \texttt{tracked\_mean} (\texttt{expected} $\mathbb{E}D_k$) or \texttt{mean\_anchor} (\texttt{expected} the exact mean of the frozen part); \texttt{maximum\_errors} has these three fields, and the keys \texttt{tolerance} and \texttt{maximum\_error\_tolerances} are those of the replay report.
 
 \blockhead{Errors}
 \tabstart{p{3.4cm}p{11.6cm}}{Exception & Raised when}
@@ -2808,7 +2831,7 @@ The schedule is fixed, and only Gamma cells are sampled.
 \begin{lstlisting}[language=Python]
 validate_gamma_stochastic_schedule(cfg, result, *, repetitions=100000,
     random_seed=20260908, maximum_schedule_failure_rate=None,
-    confidence_level=0.95, batch_size=20000, tolerance=1e-8,
+    confidence_level=0.95, batch_size=20000, tolerance=None,
     raise_on_failure=False) -> dict
 \end{lstlisting}
 
@@ -2830,7 +2853,7 @@ In each of \texttt{repetitions} runs:
   \item On a replacement, draw the damage of the replacement part and, under $\ARDone$, set $g$ to it.
   \item After each day, record whether $D > \tau$.
 \end{enumerate}
-The validator raises no error for a global violation of the schedule; it applies the event of each day. The arguments used are \texttt{repetitions}, \texttt{random\_seed}, \texttt{maximum\_schedule\_failure\_rate}, \texttt{confidence\_level}, \texttt{batch\_size} and \texttt{tolerance}.
+The validator raises no error for a global violation of the schedule; it applies the event of each day. The tolerance is used only for the binaries (the tolerance for binaries). The arguments used are \texttt{repetitions}, \texttt{random\_seed}, \texttt{maximum\_schedule\_failure\_rate}, \texttt{confidence\_level}, \texttt{batch\_size} and \texttt{tolerance}.
 
 \blockhead{Definitions}
 \begin{itemize}[nosep,leftmargin=1.5em]
@@ -2858,7 +2881,7 @@ Runs the validators that \texttt{mode} selects.
 \begin{lstlisting}[language=Python]
 validate_gamma_schedule(cfg, result, *, mode=None, repetitions=None,
     random_seed=None, maximum_schedule_failure_rate=None,
-    confidence_level=None, batch_size=None, tolerance=1e-8,
+    confidence_level=None, batch_size=None, tolerance=None,
     raise_on_failure=False) -> dict
 validate_gamma_schedule_files(input_path, result_path, report_path=None,
                               **kwargs) -> dict
@@ -2871,14 +2894,14 @@ validate_gamma_schedule_files(input_path, result_path, report_path=None,
 \tabend
 
 \begin{itemize}[nosep]
-  \item \textbf{None rule.} An argument that is \texttt{None} takes the value of the key of the same name in the input block \texttt{validation} (Section~\ref{sec:run_options}), otherwise its default. A key of the block whose value is \texttt{null} counts as absent. The direct call of a validator function does not read the block.
+  \item \textbf{None rule.} An argument that is \texttt{None} takes the value of the key of the same name in the input block \texttt{validation} (Section~\ref{sec:run_options}), otherwise its default; for \texttt{tolerance} the default is the resolution of Section~\ref{sec:validation_tolerance}. A key of the block whose value is \texttt{null} counts as absent. The direct call of a validator function does not read the block.
   \item \textbf{Default.} The default of \texttt{mode} is \texttt{"deterministic"}.
   \item \textbf{Reports.} In mode \texttt{"deterministic"} the report is the replay report with the key \texttt{mode}. In mode \texttt{"stochastic"} it is the Monte Carlo report. In mode \texttt{"both"} it also has the keys \texttt{validator} (``Gamma replay and Monte Carlo validators'') and \texttt{mode}. The validators run without raising; \texttt{raise\_on\_failure} applies to the report of the dispatcher.
 \end{itemize}
 
 \blockhead{Errors}
 \tabstart{p{3.4cm}p{11.6cm}}{Exception & Raised when}
-\rejrow{\texttt{ValueError}}{\texttt{mode} has another value (values are case sensitive); the input block \texttt{validation} has a key other than \texttt{mode}, \texttt{repetitions}, \texttt{random\_seed}, \texttt{maximum\_schedule\_failure\_rate}, \texttt{confidence\_level}, \texttt{batch\_size}}
+\rejrow{\texttt{ValueError}}{\texttt{mode} has another value (values are case sensitive); the input block \texttt{validation} has a key other than \texttt{mode}, \texttt{repetitions}, \texttt{random\_seed}, \texttt{maximum\_schedule\_failure\_rate}, \texttt{confidence\_level}, \texttt{batch\_size}, \texttt{tolerance}}
 \tabend
 
 \section{Input File Schema}\label{sec:schema}

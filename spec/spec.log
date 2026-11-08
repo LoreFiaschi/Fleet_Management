@@ -1,4 +1,4 @@
-This is pdfTeX, Version 3.141592653-2.6-1.40.27 (MiKTeX 25.4) (preloaded format=pdflatex 2025.7.24)  8 NOV 2026 11:38
+This is pdfTeX, Version 3.141592653-2.6-1.40.27 (MiKTeX 25.4) (preloaded format=pdflatex 2025.7.24)  8 NOV 2026 12:26
 entering extended mode
  restricted \write18 enabled.
  %&-line parsing enabled.
@@ -1009,7 +1009,9 @@ LaTeX Font Info:    Font shape `OT1/cmtt/bx/n' in size <10.95> not available
 
 [14]
 
-[15] [16]
+[15]
+
+[16]
 
 [17]
 
@@ -1057,17 +1059,27 @@ LaTeX Font Info:    Font shape `OT1/cmtt/bx/n' in size <10.95> not available
 
 [48]
 
-[49]
+[49] [50]
+LaTeX Font Info:    Trying to load font information for OMS+cmtt on input line 
+2620.
+LaTeX Font Info:    No file OMScmtt.fd. on input line 2620.
 
-[50]
+
+LaTeX Font Warning: Font shape `OMS/cmtt/m/n' undefined
+(Font)              using `OMS/cmsy/m/n' instead
+(Font)              for symbol `textbraceleft' on input line 2620.
+
+
 
 [51]
 
-[52] [53]
+[52]
 
-[54] [55]
+[53]
 
-[56]
+[54]
+
+[55] [56]
 
 [57]
 
@@ -1082,14 +1094,18 @@ LaTeX Font Info:    Font shape `OT1/cmtt/bx/n' in size <10.95> not available
 LaTeX2e <2025-06-01> patch level 1
 L3 programming layer <2025-07-11>
  ***********
+
+
+LaTeX Font Warning: Some font shapes were not available, defaults substituted.
+
 Package rerunfilecheck Info: File `spec.out' has not changed.
-(rerunfilecheck)             Checksum: 65EC7B62A9BA4FC2E7FF130FE6F6EDE0;11420.
+(rerunfilecheck)             Checksum: CDEB621C6F8E5F110E04CF8F38CEB7E9;11604.
  ) 
 Here is how much of TeX's memory you used:
- 28516 strings out of 468149
- 514670 string characters out of 5430598
- 1589564 words of memory out of 5000000
- 55907 multiletter control sequences out of 15000+600000
+ 28536 strings out of 468149
+ 514967 string characters out of 5430598
+ 1569656 words of memory out of 5000000
+ 55922 multiletter control sequences out of 15000+600000
  645660 words of font info for 213 fonts, out of 8000000 for 9000
  1141 hyphenation exceptions out of 8191
  102i,18n,107p,1195b,1983s stack positions out of 10000i,1000n,20000p,200000b,200000s
@@ -1117,9 +1133,9 @@ y8.pfb><C:/Users/utente/AppData/Local/Programs/MiKTeX/fonts/type1/public/amsfon
 ts/cm/cmti10.pfb><C:/Users/utente/AppData/Local/Programs/MiKTeX/fonts/type1/pub
 lic/amsfonts/cm/cmtt10.pfb><C:/Users/utente/AppData/Local/Programs/MiKTeX/fonts
 /type1/public/amsfonts/symbols/msbm10.pfb>
-Output written on spec.pdf (62 pages, 747322 bytes).
+Output written on spec.pdf (62 pages, 753279 bytes).
 PDF statistics:
- 1591 PDF objects out of 1728 (max. 8388607)
- 541 named destinations out of 1000 (max. 500000)
- 34933 words of extra memory for PDF output out of 35830 (max. 10000000)
+ 1607 PDF objects out of 1728 (max. 8388607)
+ 546 named destinations out of 1000 (max. 500000)
+ 34941 words of extra memory for PDF output out of 35830 (max. 10000000)
 

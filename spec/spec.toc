@@ -63,15 +63,16 @@
 \contentsline {subsection}{\numberline {12.1}Schedule Plot}{46}{subsection.12.1}%
 \contentsline {subsection}{\numberline {12.2}Sweep Plot}{48}{subsection.12.2}%
 \contentsline {section}{\numberline {13}Validation Tools}{49}{section.13}%
-\contentsline {subsection}{\numberline {13.1}Structural Validator}{49}{subsection.13.1}%
-\contentsline {subsection}{\numberline {13.2}Dashboards}{50}{subsection.13.2}%
-\contentsline {subsection}{\numberline {13.3}Validators of the Gamma Model}{52}{subsection.13.3}%
-\contentsline {subsubsection}{\numberline {13.3.1}Replay validator}{53}{subsubsection.13.3.1}%
-\contentsline {subsubsection}{\numberline {13.3.2}Exact validator}{54}{subsubsection.13.3.2}%
-\contentsline {subsubsection}{\numberline {13.3.3}Monte Carlo validator}{56}{subsubsection.13.3.3}%
-\contentsline {subsubsection}{\numberline {13.3.4}Dispatcher}{57}{subsubsection.13.3.4}%
-\contentsline {section}{\numberline {14}Input File Schema}{58}{section.14}%
-\contentsline {subsection}{\numberline {14.1}Format Rules}{58}{subsection.14.1}%
-\contentsline {subsection}{\numberline {14.2}HDF5 Layout}{58}{subsection.14.2}%
-\contentsline {subsection}{\numberline {14.3}Keys by Cell Type}{59}{subsection.14.3}%
-\contentsline {subsection}{\numberline {14.4}YAML Example (Mixed Models)}{59}{subsection.14.4}%
+\contentsline {subsection}{\numberline {13.1}Tolerance of the checks}{49}{subsection.13.1}%
+\contentsline {subsection}{\numberline {13.2}Structural Validator}{49}{subsection.13.2}%
+\contentsline {subsection}{\numberline {13.3}Dashboards}{51}{subsection.13.3}%
+\contentsline {subsection}{\numberline {13.4}Validators of the Gamma Model}{53}{subsection.13.4}%
+\contentsline {subsubsection}{\numberline {13.4.1}Replay validator}{54}{subsubsection.13.4.1}%
+\contentsline {subsubsection}{\numberline {13.4.2}Exact validator}{55}{subsubsection.13.4.2}%
+\contentsline {subsubsection}{\numberline {13.4.3}Monte Carlo validator}{57}{subsubsection.13.4.3}%
+\contentsline {subsubsection}{\numberline {13.4.4}Dispatcher}{58}{subsubsection.13.4.4}%
+\contentsline {section}{\numberline {14}Input File Schema}{59}{section.14}%
+\contentsline {subsection}{\numberline {14.1}Format Rules}{59}{subsection.14.1}%
+\contentsline {subsection}{\numberline {14.2}HDF5 Layout}{59}{subsection.14.2}%
+\contentsline {subsection}{\numberline {14.3}Keys by Cell Type}{60}{subsection.14.3}%
+\contentsline {subsection}{\numberline {14.4}YAML Example (Mixed Models)}{60}{subsection.14.4}%

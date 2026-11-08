@@ -546,7 +546,7 @@ The order follows the dependencies: the foundations first, then the formulation,
 - **Options offered**: adopt it as the formulation (recommended); an input option; a to-do item.
 - **Decision (8 Nov 2026, chosen in the answer menu)**: adopt it as the formulation (a first answer, "to-do item", was a
   typo, said the user).
-- **To implement**: `merge/step3/start_of_repetition_plan.md`.
+- **Implemented**: commit 6a22bd3 on `merge/lore-into-main` (8 Nov 2026); plan `merge/step3/start_of_repetition_plan.md`.
 - **Check after the change** (8 Nov 2026, task Y2, `wp45_work/wp8/tightness_check.md`): all 1512 refused safe schedules are
   accepted, and still no unsafe one. The optimum is unchanged in all 42 cases: the "1.3 against 1.6" of the finding
   was the cost along the exact trajectory, while the model charges the repair and damage costs on the tracked states

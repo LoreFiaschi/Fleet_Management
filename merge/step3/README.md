@@ -1,6 +1,6 @@
 # Step 3 of the merge: code against the spec (skill `spec-alignment`)
 
-Status (8 Nov 2026): phase 2 (reviews) in progress.
+Status (8 Nov 2026): phases 2 to 5 done (reviews, merge, the user's approval, fixes); the spec and scoping texts are written and built; Euler: 1930 passed, smoke 12 of 12, regression 6 of 6. Committed as 6a22bd3.
 
 - **Code**: worktree `C:\Users\utente\Documents\GitHub\Fleet_Management-merge`, branch `merge/lore-into-main`, commit
   47178b8. **Spec**: `C:\Users\utente\Documents\GitHub\Fleet_Management\spec\spec.tex` (2834 lines, 54 pages), the

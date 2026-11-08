@@ -13,11 +13,13 @@ Status (28 Oct 2026): WP0 to WP3 done. Worktree `C:\Users\utente\Documents\GitHu
 - WP7, commit 7e35db4: sweeps, warm starts, plots, validators, public API; 17 dropped files removed. Plans and
   reviews in `wp7_plan_sweeps.md`, `wp7_plan_plots.md`, `wp7_plan_validator.md`, `wp7_plan_gamma_validators.md`.
 
-No local installs (the user's choice); Claude commits on that branch at each commit point. WP8 done, commit 8cf16c1 (7 Nov 2026): split and rules in
+No local installs (the user's choice); Claude commits on that branch at each commit point. WP8 done, commit 8cf16c1 (7 Nov 2026); step 3 (code against the spec, `step3/`) done, commit 6a22bd3 (8 Nov 2026); step 4 (README, CLAUDE.md, the
+experiment READMEs) done, commit 6971b16 (8 Nov 2026). Next: step 6, the clean-up: split and rules in
 [`wp8_interface.md`](wp8_interface.md); four planners (`io`, `oracle`, `tools`, `legacy`); own test inputs, so `lore`'s
 `input/` folder is no longer needed; Gurobi runs on Euler (`EULER.md`).
 For step 4 (README): the quick start still reads `input/data.yaml`, which WP8 removed (old keys); use
-`examples/smoke/mixed_example.yaml` (the spec example).
+`examples/smoke/mixed_example.yaml` (the spec example). The README also states the validators' tolerance rule (item M19 of
+`merge/step3/merged_review.md`; user, 8 Nov 2026: *"state this fact in the final spec and readme"*).
 
 - **Purpose.** How the code of the merged package is built from `main`: the work packages, their order, what each
   needs before it starts, and who does it.
