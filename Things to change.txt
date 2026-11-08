@@ -8,13 +8,11 @@
 
 - Schedule-dependent Bernstein support
 
-- Merge the branches lore and main: write the choices recorded in merge/decisions.md into spec/spec.tex first, then into the code, then into scoping.tex and the README (plan: merge/documents_plan.md).
-
 - Extend the Monte Carlo replay validator (main's Gamma stochastic validator) to every degradation model.
 
-- Gamma: per-rate weights for cells whose missions have different Gamma rates, tighter than the sharp cap and still safe. First extend the sharp-cap theorem to several rate groups, then compute the weights offline (merge/decisions.md, item "Gamma formulation").
+- Gamma: per-rate weights for cells whose missions have different Gamma rates, tighter than the sharp cap and still safe. First extend the sharp-cap theorem to several rate groups, then compute the weights offline (archive/merge-2026/decisions.md, item "Gamma formulation").
 
-- Redesign the greedy warm-start heuristic so that it gives a good starting point, not only a feasible one (merge/decisions.md, item "Warm starts").
+- Redesign the greedy warm-start heuristic so that it gives a good starting point, not only a feasible one (archive/merge-2026/decisions.md, item "Warm starts").
 
 - Scoping, literature review (open items moved from scoping.tex, 28 Oct 2026): Degradation-aware fleet management; Similar applications; Novelties of the project and its placement in the literature.
 
@@ -22,9 +20,9 @@
 
 - Scoping, implementation details (moved from scoping.tex, 28 Oct 2026): Provide the details to run an actual simulation of the system.
 
-- Exact Gamma validator: a cheaper certified tail bound when a component is repaired many times. The exact series grows with the number of repairs: about 2 s per tail after 8 repairs, and from about 11 repairs it needs more than 100,000 terms and stops with an error (merge/wp7_plan_gamma_validators.md, question Q6; added 29 Oct 2026).
+- Exact Gamma validator: a cheaper certified tail bound when a component is repaired many times. The exact series grows with the number of repairs: about 2 s per tail after 8 repairs, and from about 11 repairs it needs more than 100,000 terms and stops with an error (merge/wp7_plan_gamma_validators.md at commit 18c8a64, question Q6; added 29 Oct 2026).
 
-Research directions (from ASSESSMENT.md, 7 Jul 2026):
+Research directions (from ASSESSMENT.md at commit 18c8a64, 7 Jul 2026):
 
 - Rolling-horizon deployment: re-solve with observed states as condition-monitoring data arrive; the loop constraint becomes a terminal safety envelope.
 
@@ -36,6 +34,6 @@ Research directions (from ASSESSMENT.md, 7 Jul 2026):
 
 - Policy baseline: compare against simple condition-based threshold policies.
 
-- Big-M constants near the limits of epsilon (step 3 of the merge, item M31 of merge/step3/merged_review.md, 8 Nov 2026): the natural ranges used as big-M grow without bound as epsilon approaches 0.5 at Gaussian and Wiener cells and 1 at rainflow Cantelli and Hoeffding cells (1.6e7*tau^2 at epsilon = 0.4999), so a binary within Gurobi's integrality tolerance could switch a row off. Study tighter big-M constants (the largest value the reliability row allows on the cell) or an input limit on epsilon.
+- Big-M constants near the limits of epsilon (step 3 of the merge, item M31 of archive/merge-2026/step3/merged_review.md, 8 Nov 2026): the natural ranges used as big-M grow without bound as epsilon approaches 0.5 at Gaussian and Wiener cells and 1 at rainflow Cantelli and Hoeffding cells (1.6e7*tau^2 at epsilon = 0.4999), so a binary within Gurobi's integrality tolerance could switch a row off. Study tighter big-M constants (the largest value the reliability row allows on the cell) or an input limit on epsilon.
 
-- To discuss (user, 8 Nov 2026): the numerical tolerance of the validators. The default of a check is derived from the Gurobi tolerances of the input (FeasibilityTol + IntFeasTol x M_s for a tracked quantity with natural range M_s; IntFeasTol for binaries; FeasibilityTol for a probability), because a binary that Gurobi accepts within IntFeasTol inside a big-M row can move a tracked state by IntFeasTol x M_s. Open: whether to polish the solution instead (fix the rounded binaries and re-solve the continuous part), which would allow the default FeasibilityTol; and whether chained rows can add up these gaps over many days (merge/step3/merged_review.md, item M19).
+- To discuss (user, 8 Nov 2026): the numerical tolerance of the validators. The default of a check is derived from the Gurobi tolerances of the input (FeasibilityTol + IntFeasTol x M_s for a tracked quantity with natural range M_s; IntFeasTol for binaries; FeasibilityTol for a probability), because a binary that Gurobi accepts within IntFeasTol inside a big-M row can move a tracked state by IntFeasTol x M_s. Open: whether to polish the solution instead (fix the rounded binaries and re-solve the continuous part), which would allow the default FeasibilityTol; and whether chained rows can add up these gaps over many days (archive/merge-2026/step3/merged_review.md, item M19).

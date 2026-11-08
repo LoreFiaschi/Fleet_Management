@@ -1524,7 +1524,7 @@ def test_least_solution_with_anchors():
     # X repaired on days 1 and 3 and flying on day 2 (a replacement instead of the day-3 repair is not used):
     # s_3 >= 0.5 s_2 + 0.5 g_2 = 0.5 (y + 0.05) + 0.5 y^g, y >= s_3 and y^g >= g_3 = s_3, so
     # s_3 >= 0.5 y + 0.5 y^g + 0.025 >= s_3 + 0.025: impossible (the repair cannot lower the state below its
-    # anchor, known defect of the ard1 repair, merge/decisions.md): the lower bounds climb by 0.025 per pass
+    # anchor, known defect of the ard1 repair, archive/merge-2026/decisions.md): the lower bounds climb by 0.025 per pass
     # and there is no solution.
     x, m, r = os_schedule([0, 1, 0], [1, 0, 1], [1, 0, 1], [0, 1, 0], [1, 0, 1], [0] * 3, [0] * 3, [0, 1, 0])
     ls = rm.least_solution(cfg, x, m, r)

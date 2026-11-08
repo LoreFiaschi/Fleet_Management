@@ -33,8 +33,8 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
     proofs, and the reasons for each choice.
   - Edit the two together: when a construction changes, its specification goes to the spec and
     its justification to the scoping document.
-- The merge records are in `merge/` (`decisions.md`, `reports/`) and `lore-vs-main.md`. They are
-  archived at the clean-up after the merge; do not rely on them for the current code.
+- The records of the merge of the branches `lore` and `main` are in `archive/merge-2026/`
+  (`decisions.md`, `reports/`, `lore-vs-main.md`). Do not rely on them for the current code.
 
 ## Commands
 
@@ -210,5 +210,4 @@ The steps of the spec section "Cell-Builder Interface":
 | `tests/reference_model.py` | the reference model ("oracle"): an independent numpy and scipy re-implementation of what a schedule means under the spec; the `test_oracle_*` files compare the package with it. It uses only `config.load_config` and `read_input` from the package |
 | `remote_smoke_test.py` | the smoke test (see Commands) |
 | `EULER.md` | in the working copy of the project only (not in this branch): the user's guide to the Euler cluster |
-| `ASSESSMENT.md` | a gap analysis from July 2026, written before all five models existed; superseded |
-| `merge/`, `lore-vs-main.md` | merge records; archived at the clean-up |
+| `archive/merge-2026/` | the kept records of the merge of `lore` and `main` (see its `README.md`). The working records of the merge, and `ASSESSMENT.md` (a gap analysis from July 2026), are in git history at commit 18c8a64 (branch `lore`) |

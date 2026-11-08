@@ -1439,7 +1439,7 @@ For each case the threshold~$\tau$ gives an exact tail $\Pr(D > \tau)$ close to 
   \item \textbf{Hoeffding and Markov.} With width~$1$, Hoeffding's bound exceeded the tail by a factor between $8$ and $6500$.
     It was close to Chernoff only for the two-point law with $\Pr(1) = 0.5$, whose variance is the largest that the width allows; in the other eight cases it was looser than Cantelli.
     Markov's bound exceeded the tail by a factor between $2200$ and $8600$.\footnote{This is a numerical illustration, not a proof.
-    The script \texttt{tail\_experiment.py} and its output are in the folder \texttt{merge/analysis/scripts/scoping\_checks} of the repository.
+    The script \texttt{tail\_experiment.py} and its output are in the folder \texttt{archive/merge-2026/analysis/scripts/\allowbreak scoping\_checks} of the repository.
     The exact tail comes from the Irwin--Hall formula (the exact law of a sum of uniform variables), from the binomial law, or from a lattice convolution with a relative error below $0.5\%$; no sampling is used.
     For the two-point laws the sum takes integer values, and the bounds are compared with $\Pr(D \ge \tau)$.
     The output also covers tails close to $10^{-2}$, $10^{-6}$ and $10^{-8}$: near $10^{-2}$ Bernstein was looser than Cantelli in four of the ten cases, and near $10^{-6}$ and $10^{-8}$ it was tighter in all cases.
@@ -1682,7 +1682,7 @@ So the relation
 is possible: the certified bound can rise slowly over the repetitions, and the inequality over one repetition does not carry over by induction.
 The derivation is in Appendix~\ref{drv:loopI_no_chain}, page~\pageref{drv:loopI_no_chain}.
 
-A concrete instance\footnote{The script \texttt{loop\_routeI\_instance.py} in the folder \texttt{merge/analysis/scripts/scoping\_checks} of the repository reproduces these numbers.} has $\tau = 10$, $b_\ell = 3$, $\rho = 0.5$, and an operating phase of one $\text{ARD}_\infty$ repair day followed by mission days with
+A concrete instance\footnote{The script \texttt{loop\_routeI\_instance.py} in the folder \texttt{archive/merge-2026/analysis/scripts/\allowbreak scoping\_checks} of the repository reproduces these numbers.} has $\tau = 10$, $b_\ell = 3$, $\rho = 0.5$, and an operating phase of one $\text{ARD}_\infty$ repair day followed by mission days with
 \begin{equation}
   \sum_j n_{ij}\mu_{\ell j} = 3,
   \qquad
@@ -1795,7 +1795,7 @@ Standard mixed-integer constructions can remove both, at a cost in binaries and 
   \item \textbf{Piecewise-linear tightening.} The formulation includes the second one, the piecewise-linear tightening, as the form \texttt{pwl} of its reliability rows (Section~\ref{sec:linear_forms}).
 \end{itemize}
 Neither refinement changes the loop argument of Section~\ref{sec:loop_routeI}.
-The moment condition~\eqref{eq:loop_moments} acts on the exactly tracked moments, and it does not depend on how tightly the certificate is enforced on them.\footnote{Every monotonicity and equivalence claim in this subsection, both worked examples and the comparison between the union and the intersection of the tangent regions are checked, symbolically or numerically, by the scripts \texttt{refine\_schedule\_support.py} and \texttt{refine\_pwl\_tightening.py}. The scripts and their outputs are in the folder \texttt{merge/analysis/scripts/scoping\_checks} of the repository.}
+The moment condition~\eqref{eq:loop_moments} acts on the exactly tracked moments, and it does not depend on how tightly the certificate is enforced on them.\footnote{Every monotonicity and equivalence claim in this subsection, both worked examples and the comparison between the union and the intersection of the tangent regions are checked, symbolically or numerically, by the scripts \texttt{refine\_schedule\_support.py} and \texttt{refine\_pwl\_tightening.py}. The scripts and their outputs are in the folder \texttt{archive/merge-2026/analysis/scripts/\allowbreak scoping\_checks} of the repository.}
 
 \paragraph{Schedule-dependent Bernstein support.}
 \begin{itemize}[nosep]
@@ -2206,7 +2206,7 @@ The failure probability $\Pr(D \ge 1)$ is then $0.153$ under~(II) and $2.5 \cdot
 The order reverses only at high damage.
 In the same example, the two probabilities are equal ($0.39$) at $M = 0.87$.
 For a larger $M$, (I) gives the larger probability.
-So neither interpretation is conservative in all cases.\footnote{The scripts and their outputs are in the folder \texttt{merge/analysis/scripts/scoping\_checks/miner} of the repository. They check the closed forms~\eqref{eq:miner_invmom}, the divergent sample variance at Weibull $k \le 2$, the exactness of~\eqref{eq:miner_quantile} along a schedule with repair and replacement, the chaining of~\eqref{eq:miner_loop_det}, the variance ratio and the example. The value under~(I) comes from a discretised convolution, which bounds it between $2.45 \cdot 10^{-7}$ and $2.46 \cdot 10^{-7}$.}
+So neither interpretation is conservative in all cases.\footnote{The scripts and their outputs are in the folder \texttt{archive/merge-2026/analysis/scripts/\allowbreak scoping\_checks/miner} of the repository. They check the closed forms~\eqref{eq:miner_invmom}, the divergent sample variance at Weibull $k \le 2$, the exactness of~\eqref{eq:miner_quantile} along a schedule with repair and replacement, the chaining of~\eqref{eq:miner_loop_det}, the variance ratio and the example. The value under~(I) comes from a discretised convolution, which bounds it between $2.45 \cdot 10^{-7}$ and $2.46 \cdot 10^{-7}$.}
 
 The choice is a question of identification.
 \begin{itemize}[nosep]
