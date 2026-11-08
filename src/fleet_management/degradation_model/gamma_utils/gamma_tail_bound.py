@@ -71,26 +71,38 @@ def moschopoulos_tail_probability(
     # is the largest rate, beta_ref.  Every ratio beta_i / beta_ref is in (0, 1].
     beta_ref = float(np.max(rate_array))
     ratios = rate_array / beta_ref
+    # The weights sum to 1 only if the ratios and their complements agree: the
+    # ratios are replaced by 1 - (1 - ratio), exact in floating point near 1, and
+    # the complements are raised to the power k directly (no running product, whose
+    # rounding error grows with k and shifts the total mass by about alpha * eps).
+    complement = 1.0 - ratios
+    ratios = 1.0 - complement
     log_initial_weight = float(np.dot(shape_array, np.log(ratios)))
-    initial_weight = np.exp(np.longdouble(log_initial_weight))
-    if initial_weight == 0.0:
-        raise RuntimeError(
-            "The Moschopoulos initial mixture weight underflowed. Split this "
-            "extreme convolution or use higher-precision offline arithmetic."
-        )
 
     # The mixture weights satisfy  w_k = (1/k) sum_{i=1..k} (i gamma_i) w_{k-i},
     # with  i gamma_i = sum_q shape_q (1 - ratio_q)^i.  Each step is one dot
     # product; the Gamma tails of the mixture are summed in blocks. The weights,
-    # the mass and the tail are kept in np.longdouble, as the loop that this one
-    # replaced: 80 bits where the platform has them (Linux), float64 on Windows.
+    # the mass and the tail are kept in np.longdouble: 80 bits where the platform
+    # has them (Linux), float64 on Windows.
+    #
+    # The first weight  C = exp(log_initial_weight)  can underflow (float64 on
+    # Windows: shapes of a few thousand). The recursion is linear in w, so it runs
+    # on  u_k = w_k / C  (u_0 = 1), whose size is tracked by a running log scale:
+    # the true value is  delta_k = u_k exp(log_scale), and the recursion rescales
+    # u whenever it exceeds 1e100. Each weight is formed in log scale,
+    # w_k = exp(log C + log_scale + log u_k), so it underflows only when it is
+    # itself negligible.
     shapes_ld = shape_array.astype(np.longdouble)
-    complement = (1.0 - ratios).astype(np.longdouble)
-    weights = np.empty(max_series_terms, dtype=np.longdouble)
+    complement = complement.astype(np.longdouble)
+    scaled = np.empty(max_series_terms, dtype=np.longdouble)        # u_k, at scale log_scale
+    weights = np.empty(max_series_terms, dtype=np.longdouble)       # w_k, true values
     index_gamma = np.empty(max_series_terms, dtype=np.longdouble)   # entry i: i * gamma_i
+    log_scale = np.longdouble(0.0)
+    log_c = np.longdouble(log_initial_weight)
+    scaled[0] = 1.0
+    initial_weight = np.exp(log_c)
     weights[0] = initial_weight
     index_gamma[0] = 0.0
-    power = np.ones_like(complement)
     argument = beta_ref * threshold
     accumulated_mass = initial_weight
     tail = initial_weight * np.longdouble(gammaincc(total_shape, argument))
@@ -98,9 +110,14 @@ def moschopoulos_tail_probability(
     zero, one = np.longdouble(0.0), np.longdouble(1.0)
 
     for k in range(1, max_series_terms):
-        power = power * complement
-        index_gamma[k] = np.dot(shapes_ld, power)
-        weights[k] = np.dot(index_gamma[1:k + 1], weights[k - 1::-1]) / k
+        index_gamma[k] = np.dot(shapes_ld, np.power(complement, k))
+        scaled[k] = np.dot(index_gamma[1:k + 1], scaled[k - 1::-1]) / k
+        if scaled[k] > 1e100:
+            factor = scaled[k]
+            scaled[:k + 1] /= factor
+            log_scale += np.log(factor)
+        weights[k] = (np.exp(log_c + log_scale + np.log(scaled[k]))
+                      if scaled[k] > 0.0 else zero)
         accumulated_mass += weights[k]
 
         remaining = max(zero, one - accumulated_mass)

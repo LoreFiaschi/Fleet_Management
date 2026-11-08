@@ -185,7 +185,9 @@ def _solve_fixed(base, cfg):
     for key, var in ctx.r_rep.items():
         var.LB = var.UB = 1.0 if key == (0, 0, 3) else 0.0
     states = (list(ctx.mu_var.values()) + list(ctx.anchor_vars["mu"].values())
-              + list(ctx.z_var.values()))
+              + list(ctx.z_var.values())
+              + [y for table in ctx.start_vars.values() for y in table.values()]
+              + [y for table in ctx.start_anchor_vars.values() for y in table.values()])
     ctx.model.setObjective(gp.quicksum(states), gp.GRB.MINIMIZE)
     ctx.model.optimize()
     return ctx

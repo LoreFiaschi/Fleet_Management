@@ -75,7 +75,9 @@ def _solve_fixed(data, schedule=_SCHEDULE):
     cfg, ctx = _build(data)
     _fix(ctx, schedule)
     states = (list(ctx.mu_var.values()) + list(ctx.state_vars["v"].values())
-              + list(ctx.z_var.values()))
+              + list(ctx.z_var.values())
+              + [y for table in ctx.start_vars.values() for y in table.values()]
+              + [y for table in ctx.start_anchor_vars.values() for y in table.values()])
     ctx.model.setObjective(gp.quicksum(states), gp.GRB.MINIMIZE)
     ctx.model.optimize()
     return ctx, base.extract_solution(ctx, cfg)

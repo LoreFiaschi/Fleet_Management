@@ -30,7 +30,8 @@ RESULT_KEYS = (
     "bound_method", "repair_model", "reliability_impl", "encoding",
     "objective_mode", "evaluation_horizon",
     "x", "m", "r", "idle", "mu", "v", "z", "R", "K",
-    "g_mu", "g_v", "g_R", "g_K", "u",
+    "g_mu", "g_v", "g_R", "g_K",
+    "y_mu", "y_v", "y_R", "y_K", "y_g_mu", "y_g_v", "y_g_R", "y_g_K", "u",
     "step_costs", "J_initialization", "J_op", "J_op_average",
     "peak_damage", "damage_penalty", "operating_objective", "J_total",
     "projected_evaluation_cost", "evaluation_objective", "component_costs",
@@ -40,6 +41,7 @@ RESULT_KEYS = (
 # Placement in an HDF5 result file (spec, "HDF5 Layout"). Every other key is an attribute.
 _HDF5_DATASET_KEYS = (
     "x", "mu", "v", "R", "K", "g_mu", "g_v", "g_R", "g_K",
+    "y_mu", "y_v", "y_R", "y_K", "y_g_mu", "y_g_v", "y_g_R", "y_g_K",
     "z", "m", "r", "idle", "step_costs", "tau", "mu_0", "v_0",
 )
 _HDF5_JSON_KEYS = (

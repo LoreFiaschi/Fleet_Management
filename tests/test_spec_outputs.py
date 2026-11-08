@@ -30,13 +30,15 @@ RESULT_KEYS = (
     "bound_method", "repair_model", "reliability_impl", "encoding",
     "objective_mode", "evaluation_horizon",
     "x", "m", "r", "idle", "mu", "v", "z", "R", "K",
-    "g_mu", "g_v", "g_R", "g_K", "u",
+    "g_mu", "g_v", "g_R", "g_K",
+    "y_mu", "y_v", "y_R", "y_K", "y_g_mu", "y_g_v", "y_g_R", "y_g_K", "u",
     "step_costs", "J_initialization", "J_op", "J_op_average",
     "peak_damage", "damage_penalty", "operating_objective", "J_total",
     "projected_evaluation_cost", "evaluation_objective", "component_costs",
     "performance", "optimization_progress", "warm_start", "relaxation_warm_start",
 )
-SOLUTION_KEYS = ("x", "m", "r", "idle", "mu", "v", "z", "R", "K", "g_mu", "g_v", "g_R", "g_K", "u")  # 1730-1740
+Y_KEYS = ("y_mu", "y_v", "y_R", "y_K", "y_g_mu", "y_g_v", "y_g_R", "y_g_K")   # start of the repetition, F x L
+SOLUTION_KEYS = ("x", "m", "r", "idle", "mu", "v", "z", "R", "K", "g_mu", "g_v", "g_R", "g_K") + Y_KEYS + ("u",)  # 1730-1740
 COST_KEYS = (
     "step_costs", "J_initialization", "J_op", "J_op_average", "peak_damage", "damage_penalty",
     "operating_objective", "J_total", "projected_evaluation_cost", "evaluation_objective", "component_costs",
@@ -53,6 +55,7 @@ PERFORMANCE_KEYS = (
 PROGRESS_KEYS = {"runtime_seconds", "incumbent", "best_bound", "relative_gap", "nodes", "solutions"}  # 1818-1820
 HDF5_DATASETS = (
     "x", "mu", "v", "R", "K", "g_mu", "g_v", "g_R", "g_K", "z", "m", "r", "idle", "step_costs", "tau", "mu_0", "v_0",
+    "y_mu", "y_v", "y_R", "y_K", "y_g_mu", "y_g_v", "y_g_R", "y_g_K",
 )  # 2741
 HDF5_ATTRIBUTES = (
     "status", "objective", "mip_gap", "F", "M", "L", "H", "H1", "H2", "T", "objective_mode", "u",
@@ -324,6 +327,9 @@ def test_result_keys_shapes_and_problem_entries(name, changes):
     for key in ("m", "r", "idle", "mu", "v", "z", "R", "K", "g_mu", "g_v", "g_R", "g_K"):
         assert isinstance(res[key], np.ndarray), key
         assert res[key].shape == (F, L, T), key
+    for key in Y_KEYS:
+        assert isinstance(res[key], np.ndarray), key
+        assert res[key].shape == (F, L), key
     assert np.asarray(res["step_costs"]).shape == (T,)
     assert res["bound"] is None or res["bound"] <= res["objective"] + 1e-6
     assert res["mip_gap"] >= 0
@@ -384,6 +390,9 @@ def test_nan_rules(name, changes):
                 nan = np.isnan(res[key][i, l, :])
                 assert nan.all() != has, (key, i, l)
                 assert nan.all() or not nan.any(), (key, i, l)
+            tracked_y = {"y_mu": True, **{f"y_{key}": has for key, has in tracked.items() if key not in ("z", "mu")}}
+            for key, has in tracked_y.items():           # the start of the repetition follows the same pattern
+                assert bool(np.isnan(res[key][i, l])) != has, (key, i, l)
 
 
 @pytest.mark.parametrize("name, changes", CASES)
@@ -614,11 +623,12 @@ def test_hdf5_layout_of_a_solved_fleet():
         assert _text(f.attrs["repair_model"]) == "ardinf"
         shapes = {key: (F, L, T) for key in HDF5_DATASETS}
         shapes.update({"x": (F, M + 1, T), "step_costs": (T,), "tau": (F, L), "mu_0": (F, L), "v_0": (F, L)})
+        shapes.update({key: (F, L) for key in Y_KEYS})
         for key in HDF5_DATASETS:
             assert key in f and key not in f.attrs, key
             assert f[key].dtype == np.float64, key
             assert f[key].shape == shapes[key], key
-        for key in ("R", "K", "g_mu", "g_v", "g_R", "g_K"):  # NaN kept at ardinf and non-rainflow cells
+        for key in ("R", "K", "g_mu", "g_v", "g_R", "g_K", "y_R", "y_K", "y_g_mu", "y_g_v", "y_g_R", "y_g_K"):  # NaN kept at ardinf and non-rainflow cells
             assert np.isnan(f[key][()]).all(), key
         assert not np.isnan(f["v"][()]).any()
         for key in HDF5_JSON:

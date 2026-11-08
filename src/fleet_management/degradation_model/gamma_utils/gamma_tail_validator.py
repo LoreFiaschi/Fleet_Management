@@ -40,6 +40,13 @@ from fleet_management.degradation_model.gamma_utils.gamma_replay_validator impor
 from fleet_management.degradation_model.gamma_utils.gamma_tail_bound import (
     moschopoulos_tail_probability,
 )
+from fleet_management.validation.tolerance import (
+    binary_tolerance,
+    cost_tolerance,
+    report_tolerance,
+    resolve_tolerance,
+    state_tolerance,
+)
 
 
 @dataclass(frozen=True)
@@ -110,7 +117,7 @@ def validate_gamma_tail_bound_schedule(
     cfg: FleetConfig,
     result: dict,
     *,
-    tolerance: float = 1e-8,
+    tolerance: float | None = None,
     convolution_tolerance: float = 1e-12,
     max_series_terms: int = 100_000,
     include_steps: bool = False,
@@ -120,7 +127,12 @@ def validate_gamma_tail_bound_schedule(
 
     A day passes if the upper bound of the exact tail is at most ``epsilon + tolerance``,
     the saved mean is at least the exact mean ``E D_k - tolerance`` and, under ARD1, the
-    saved anchor is at least the exact mean of the frozen part ``- tolerance``. Under ARD1
+    saved anchor is at least the exact mean of the frozen part ``- tolerance``. The tolerance
+    is ``tolerance`` if it is a number, else the key ``tolerance`` of the input block
+    ``validation``, else per check: ``FeasibilityTol`` for the reliability,
+    ``FeasibilityTol + IntFeasTol * range_mu`` at the cell for the means, ``IntFeasTol`` for
+    the binaries (``validation/tolerance.py``); the report keys ``tolerance`` and
+    ``maximum_error_tolerances`` give them. Under ARD1
     the initial damage splits at the starting anchor ``anchor_mu_0``: a frozen part of mean
     ``anchor_mu_0`` and a repairable part. The report holds the keys of the replay report,
     the slack ``epsilon`` minus the upper bound, the worst step, the remaining mass and the
@@ -128,6 +140,10 @@ def validate_gamma_tail_bound_schedule(
     within ``max_series_terms`` raises ``RuntimeError``.
     """
     _check_tolerance(tolerance)
+    single = resolve_tolerance(cfg, tolerance)
+    tol_binary = binary_tolerance(cfg, single)
+    tol_cell = state_tolerance(cfg, "mu", single)
+    tol_reliability = cost_tolerance(cfg, single)
     if not 0.0 < convolution_tolerance < 1.0:
         raise ValueError("convolution_tolerance must lie in (0, 1).")
     max_series_terms = _integer(max_series_terms, "max_series_terms")
@@ -139,15 +155,18 @@ def validate_gamma_tail_bound_schedule(
     cells = gamma_cells(cfg, result)
     ard1 = [(i, l) for i, l in cells if str(cfg.repair_model[i, l]) == "ard1"]
 
-    x = _binary(result, "x", (F, M + 1, T), tolerance)
-    m = _binary(result, "m", states, tolerance)
-    r = _binary(result, "r", states, tolerance, optional=True)
+    x = _binary(result, "x", (F, M + 1, T), tol_binary)
+    m = _binary(result, "m", states, tol_binary)
+    r = _binary(result, "r", states, tol_binary, optional=True)
     mu = _array(result, "mu", states, cells)
     g_mu = _array(result, "g_mu", states, ard1) if ard1 else None
     mu_inc, beta_inc = _increments(cfg)
     global_violations = _schedule_violations(cfg, result, x, m, r)
 
     maxima = dict.fromkeys(("reliability", "tracked_mean", "mean_anchor"), 0.0)
+    maxima_tolerance = {"reliability": tol_reliability,
+                        "tracked_mean": float(tol_cell[cells[0]]),
+                        "mean_anchor": float(tol_cell[cells[0]])}
     violations: list[dict[str, Any]] = []
     steps: list[dict[str, Any]] = []
     repairs = replacements = 0
@@ -158,8 +177,10 @@ def validate_gamma_tail_bound_schedule(
     worst_reliability = None
 
     def check(i, l, k, event, field, expected, saved, error):
-        maxima[field] = max(maxima[field], error)
-        if error > tolerance:
+        tol = tol_reliability if field == "reliability" else float(tol_cell[i, l])
+        if error > maxima[field]:
+            maxima[field], maxima_tolerance[field] = error, tol
+        if error > tol:
             violations.append(_record(i, l, k, event, field, expected, saved, error))
 
     for i, l in cells:
@@ -250,7 +271,9 @@ def validate_gamma_tail_bound_schedule(
         "transitions_checked": len(cells) * T,
         "repairs": repairs,
         "replacements": replacements,
+        "tolerance": report_tolerance(cfg, single),
         "maximum_errors": maxima,
+        "maximum_error_tolerances": maxima_tolerance,
         "global_violations": global_violations,
         "violations": violations,
         "timing": {"validation_wall_seconds": time.perf_counter() - started,

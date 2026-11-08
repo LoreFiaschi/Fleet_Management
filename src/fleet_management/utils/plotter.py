@@ -114,7 +114,14 @@ def plot_horizon_sweep(
 def _merge_horizon_sweep_reports(reports: list[dict[str, Any]]) -> dict[str, Any]:
     """Combine compatible sweep reports and retain one case per H2 value."""
     if len(reports) == 1:
-        return reports[0]
+        only = reports[0]
+        cases = only.get("cases") if isinstance(only, dict) else None
+        if not isinstance(cases, list) or not all(
+            isinstance(case, dict) and case.get("H2") is not None
+            for case in cases
+        ):
+            # Malformed: the normalisation step raises the specific error.
+            return only
 
     fixed = reports[0].get("fixed_dimensions") or {}
     H1 = fixed.get("H1", reports[0].get("H1"))
@@ -196,7 +203,6 @@ def _normalise_horizon_sweep(report: dict[str, Any]) -> dict[str, Any]:
         )
         rows.append({
             "H2": int(case["H2"]),
-            "T": int(case.get("T", int(report.get("H1", 0)) + int(case["H2"]))),
             "status": status,
             "cost": cost,
             "objective_bound": _optional_float(case.get("objective_bound")),
@@ -254,11 +260,16 @@ def _draw_horizon_sweep(view: dict[str, Any]):
     """Return the figure of the sweep plot: panels (a), (b), (c) of the spec."""
     rows = view["rows"]
     h2 = np.asarray([row["H2"] for row in rows], dtype=float)
+    feasible = np.asarray([row["has_feasible"] for row in rows], dtype=bool)
+    # Lines and labels of panels (a) and (b) use the cases with a feasible
+    # solution only; the other cases are masked with NaN.
     costs = np.asarray([
-        np.nan if row["cost"] is None else row["cost"] for row in rows
+        np.nan if row["cost"] is None or not row["has_feasible"]
+        else row["cost"] for row in rows
     ])
     gaps = np.asarray([
-        np.nan if row["mip_gap"] is None else row["mip_gap"] for row in rows
+        np.nan if row["mip_gap"] is None or not row["has_feasible"]
+        else row["mip_gap"] for row in rows
     ])
     continuous = np.asarray([
         np.nan if row["continuous_variables"] is None
@@ -278,7 +289,6 @@ def _draw_horizon_sweep(view: dict[str, Any]):
     cost_ax = figure.add_subplot(grid[:, 0])
     gap_ax = figure.add_subplot(grid[0, 1])
     formulation_ax = figure.add_subplot(grid[1, 1])
-    feasible = np.asarray([row["has_feasible"] for row in rows], dtype=bool)
     optimal = np.asarray([row["is_proven"] for row in rows], dtype=bool)
     limited = feasible & ~optimal
 
@@ -360,7 +370,7 @@ def _draw_horizon_sweep(view: dict[str, Any]):
             label="feasible, not proven", zorder=3,
         )
         for row in rows:
-            if row["mip_gap"] is None:
+            if row["mip_gap"] is None or not row["has_feasible"]:
                 continue
             gap_ax.annotate(
                 f"{100.0 * row['mip_gap']:.1f}%",

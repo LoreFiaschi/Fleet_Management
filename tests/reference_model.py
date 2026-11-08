@@ -712,8 +712,22 @@ def _events(m_cell, r_cell):
             for k in range(len(m_cell))]
 
 
+def _y_value(sol, key, i, l, default):
+    """The start of the repetition ``y`` of cell ``(i, l)`` in ``sol[key]`` (an ``F x L`` array), or ``default``
+    (the value on day ``H1``: the old rows) when the key is absent or ``None``."""
+    arr = sol.get(key)
+    return float(default) if arr is None else float(np.asarray(arr, dtype=float)[i, l])
+
+
 def row_violations(cfg, sol, tol=1e-6, bigm_tol=2e-5, quad_rel=1e-5):
     """Every row of the spec evaluated at the solution ``sol``; the list of the rows that fail.
+
+    Start of the repetition: ``sol`` may carry ``y_mu``, ``y_v``, ``y_R``, ``y_K``, ``y_g_mu``, ``y_g_v``,
+    ``y_g_R``, ``y_g_K`` (arrays ``F x L``, NaN where the cell does not track the quantity or anchor). Then
+    the start rows ``<q>_start`` (``y >= q`` on day ``H1``; ``g_<q>_start``), the rows of day ``H1 + 1``
+    (they read ``y`` instead of the values of day ``H1``: dynamics, anchor keep rows, repair cost) and the
+    loop rows ``<q>_loop`` (``q_T <= y_q``) are evaluated. A key that is absent (or ``None``) is replaced by
+    the value on day ``H1``: the start rows hold trivially and every row is the old one.
 
     ``sol`` is a mapping with the keys of the result dictionary: ``x`` ``(F, M+1, T)``, ``m``, ``r``
     (``r`` may be absent or ``None``), the tracked arrays ``mu``, ``v``, ``R``, ``K``, ``g_mu``,
@@ -780,7 +794,15 @@ def row_violations(cfg, sol, tol=1e-6, bigm_tol=2e-5, quad_rel=1e-5):
                 prev = ini[(i, l)]["init"][name]
                 gprev = ini[(i, l)]["anchor0"][name]
                 new = ini[(i, l)]["new"][name]
+                y_s = _y_value(sol, "y_" + name, i, l, s_arr[H1 - 1])
+                y_g = _y_value(sol, "y_g_" + name, i, l, g_arr[H1 - 1] if anchored else math.nan)
+                # start rows (spec: Start of the repetition): y >= s_{H1}, y^g >= g_{H1}
+                add(f"{name}_start", i, l, H1, s_arr[H1 - 1] - y_s, tol)
+                if anchored:
+                    add(f"g_{name}_start", i, l, H1, g_arr[H1 - 1] - y_g, tol)
                 for k in range(1, T + 1):
+                    if k == H1 + 1:             # the rows of day H1 + 1 read y, not the values of day H1
+                        prev, gprev = y_s, y_g
                     s, ev = s_arr[k - 1], events[k - 1]
                     if ev == "replace":
                         add(f"{name}_replace", i, l, k, abs(s - new), allowed)
@@ -797,10 +819,10 @@ def row_violations(cfg, sol, tol=1e-6, bigm_tol=2e-5, quad_rel=1e-5):
                             add(f"g_{name}_set", i, l, k, abs(g - s), allowed)
                         gprev = g
                     prev = s
-                # loop rows (Eq. a_loop)
-                add(f"{name}_loop", i, l, T, s_arr[T - 1] - s_arr[H1 - 1], allowed)
+                # loop rows (Eq. a_loop): back to y, the start of the repetition
+                add(f"{name}_loop", i, l, T, s_arr[T - 1] - y_s, allowed)
                 if anchored:
-                    add(f"g_{name}_loop", i, l, T, g_arr[T - 1] - g_arr[H1 - 1], allowed)
+                    add(f"g_{name}_loop", i, l, T, g_arr[T - 1] - y_g, allowed)
             # reliability row, its side row and the optional row
             if info["quadratic"]:
                 M_chi = c["M"][c["chi"]]
@@ -818,6 +840,8 @@ def row_violations(cfg, sol, tol=1e-6, bigm_tol=2e-5, quad_rel=1e-5):
                 rho, tau = c["rho"], c["tau"]
                 mu_arr = np.asarray(sol["mu"], dtype=float)[i, l]
                 g_arr = np.asarray(sol["g_mu"], dtype=float)[i, l] if law == "ard1" else None
+                y_mu = _y_value(sol, "y_mu", i, l, mu_arr[H1 - 1])
+                y_gmu = _y_value(sol, "y_g_mu", i, l, g_arr[H1 - 1] if law == "ard1" else 0.0)
                 for k in range(1, T + 1):
                     if mode == "operating_average" and k <= H1:
                         continue
@@ -826,6 +850,8 @@ def row_violations(cfg, sol, tol=1e-6, bigm_tol=2e-5, quad_rel=1e-5):
                         g_prev = ini[(i, l)]["anchor0"]["mu"] if k == 1 else g_arr[k - 2]
                     else:
                         g_prev = 0.0
+                    if k == H1 + 1:             # day H1 + 1 reads y (y^g = 0 under ardinf)
+                        mu_prev, g_prev = y_mu, (y_gmu if law == "ard1" else 0.0)
                     rhs = rho * (mu_prev - g_prev) - rho * tau * (1.0 - float(m[i, l, k - 1]))
                     add("z_row", i, l, k, rhs - z_arr[k - 1], tol + bigm_tol * rho * tau)
                     add("z_nonneg", i, l, k, -z_arr[k - 1], tol)
@@ -911,11 +937,16 @@ def best_reference(cfg, tol=1e-9):
 #   * anchors (Eq. a_anchor): ``g_k = s_k`` on an intervention day and ``g_k = g_{k-1}`` otherwise, read
 #     as the two lower bounds ``g_k >= s_k`` and ``s_k >= g_k``, respectively ``g_k >= g_{k-1}`` and
 #     ``g_{k-1} >= g_k``;
-#   * loop (Eq. a_loop):  s_{H1} >= s_T  for every tracked quantity and every anchor.
+#   * start of the repetition (spec: Start of the repetition): a variable ``y`` per tracked quantity and
+#     anchor with ``y >= s_{H1}`` (start row) and ``y >= s_T`` (the loop row ``s_T <= y`` read as a lower
+#     bound on ``y``); the rows of day ``H1 + 1`` read ``y`` instead of the values of day ``H1`` (they
+#     are the same monotone maps, applied to ``y``). A replacement on day ``H1`` fixes ``s_{H1}`` but not
+#     ``y``, which is why a schedule that replaces on day ``H1`` and then rises is accepted.
 # A set of rows of the form ``y_j >= f_j(y)`` with every ``f_j`` non-decreasing and the initial values
 # fixed has a least solution (the Knaster-Tarski fixed point, reached by Kleene iteration from any start
-# below it, here the exact trajectory); every solution of the set lies above the least one. A lower bound
-# on a fixed initial value (index 0) that exceeds it is a violation of an equality: "no solution".
+# below it, here the exact trajectory with ``y`` = its value on day ``H1``); every solution of the set lies
+# above the least one. A lower bound on a fixed initial value (index 0) that exceeds it is a violation of
+# an equality: "no solution".
 # The remaining rows are upper bounds on the tracked quantities: the other half of the replacement
 # equality (``s_k <= s_new``), the reliability rows, ``v <= v_max_user`` and the domains ``0 <= s <= M_s``.
 # Each reliability row is a cap on the mean (``mu <= cap``, ``mu <= side``) or a bound ``chi <= f(mu)``
@@ -931,11 +962,17 @@ _LEAST_DOMAIN_TOL = 1e-9
 
 def _least_quantity(s, g, q, events, law, new, Ms, H1, T, max_passes, tol):
     """Kleene iteration for one tracked quantity of one cell. ``s`` and ``g`` (or ``None``) are arrays of
-    length ``T + 1`` that start at the exact trajectory and are raised in place. Returns ``(ok, reason)``."""
+    length ``T + 2`` that start at the exact trajectory (index ``0..T``) and at ``y`` = the value on day
+    ``H1`` (index ``T + 1``, the start of the repetition), and are raised in place. The rows of day
+    ``H1 + 1`` read index ``T + 1``. Returns ``(ok, reason)``."""
     a, delta = q["a"], q["delta"]
     anchored = g is not None
     lim = Ms + _LEAST_DOMAIN_TOL
     state = {"max": 0.0}
+    Y = T + 1
+
+    def prev(k):                        # the index that the rows of day k read as "the previous day"
+        return Y if k == H1 + 1 else k - 1
 
     def rise(arr, k, val):
         if k == 0:                      # fixed initial value: a larger lower bound is a violation
@@ -951,26 +988,30 @@ def _least_quantity(s, g, q, events, law, new, Ms, H1, T, max_passes, tol):
     for _ in range(max_passes):
         state["max"] = 0.0
         for k in range(1, T + 1):
-            ev = events[k - 1]
+            ev, p = events[k - 1], prev(k)
             if ev == "replace":
                 ok = rise(s, k, new)
             elif ev == "repair":
-                ok = rise(s, k, a * s[k - 1] + ((1.0 - a) * g[k - 1] if anchored else 0.0))
+                ok = rise(s, k, a * s[p] + ((1.0 - a) * g[p] if anchored else 0.0))
             else:
-                ok = rise(s, k, s[k - 1] + delta[k - 1])
+                ok = rise(s, k, s[p] + delta[k - 1])
             if not ok:
                 return False, f"day {k}: lower bound above the range"
             if anchored:
                 if ev == "carry":
-                    ok = rise(g, k, g[k - 1]) and rise(g, k - 1, g[k])
+                    ok = rise(g, k, g[p]) and rise(g, p, g[k])
                 else:
                     ok = rise(g, k, s[k]) and rise(s, k, g[k])
                 if not ok:
                     return False, f"day {k}: anchor row"
-        if not rise(s, H1, s[T]) or (anchored and not rise(g, H1, g[T])):
+        # start rows (y >= s_{H1}) and loop rows (y >= s_T)
+        ok = rise(s, Y, s[H1]) and rise(s, Y, s[T])
+        if anchored:
+            ok = ok and rise(g, Y, g[H1]) and rise(g, Y, g[T])
+        if not ok:
             return False, "loop row"
         for k in range(T, 0, -1):       # anchors backwards along the carry days
-            if anchored and events[k - 1] == "carry" and not rise(g, k - 1, g[k]):
+            if anchored and events[k - 1] == "carry" and not rise(g, prev(k), g[k]):
                 return False, f"day {k}: anchor row"
         if state["max"] <= tol:
             return True, ""
@@ -980,7 +1021,8 @@ def _least_quantity(s, g, q, events, law, new, Ms, H1, T, max_passes, tol):
 def _least_cell(cfg, i, l, x, m, r, max_passes, tol):
     """The least one-sided solution of the cell ``(i, l)`` for the schedule (cached on the config by the
     train's activity row and the cell's binaries). Returns a dict: ``ok``, ``reason``, ``s`` (``name ->
-    array (T+1,)``), ``g`` (same, ``None`` where no anchor), ``z`` (``(T,)``, NaN if ``C_R = 0``)."""
+    array (T+1,)``), ``g`` (same, ``None`` where no anchor), ``y`` and ``gy`` (``name -> float``, the start
+    of the repetition; ``gy`` is ``None`` where no anchor), ``z`` (``(T,)``, NaN if ``C_R = 0``)."""
     cache = cfg.__dict__.setdefault("_oracle_least_cache", {})
     key = (i, l, x[i].tobytes(), m[i, l].tobytes(), r[i, l].tobytes(), max_passes, tol)
     hit = cache.get(key)
@@ -994,12 +1036,12 @@ def _least_cell(cfg, i, l, x, m, r, max_passes, tol):
     ini = initial_and_new(cfg)[(i, l)]
     ctx = {"x": x, "prof": _profiles(cfg)}
     events = _events(m[i, l], r[i, l])
-    res = {"ok": True, "reason": "", "s": {}, "g": {}, "z": None}
+    res = {"ok": True, "reason": "", "s": {}, "g": {}, "y": {}, "gy": {}, "z": None}
     for q in _QUANTITIES[info["kind"]](cfg, i, l, ctx):
         name = q["name"]
         anchored = q["anchored"] and law == "ard1"
-        s = np.empty(T + 1)
-        g = np.empty(T + 1) if anchored else None
+        s = np.empty(T + 2)             # index T + 1 holds y, the start of the repetition
+        g = np.empty(T + 2) if anchored else None
         s[0] = ini["init"][name]
         if anchored:
             g[0] = ini["anchor0"][name]
@@ -1009,9 +1051,13 @@ def _least_cell(cfg, i, l, x, m, r, max_passes, tol):
             s[k + 1] = sk
             if anchored:
                 g[k + 1] = gk
+        s[T + 1] = s[H1]
+        if anchored:
+            g[T + 1] = g[H1]
         ok, reason = _least_quantity(s, g, q, events, law, ini["new"][name], c["M"][name], H1, T,
                                      max_passes, tol)
-        res["s"][name], res["g"][name] = s, g
+        res["s"][name], res["g"][name] = s[:T + 1], (g[:T + 1] if anchored else None)
+        res["y"][name], res["gy"][name] = float(s[T + 1]), (float(g[T + 1]) if anchored else None)
         if not ok:
             res["ok"], res["reason"] = False, f"{name}: {reason}"
             break
@@ -1020,8 +1066,10 @@ def _least_cell(cfg, i, l, x, m, r, max_passes, tol):
         for name, s in res["s"].items():
             g = res["g"][name]
             Ms = c["M"][name]
-            if np.min(s) < -eps or np.max(s) > Ms + eps or \
-                    (g is not None and (np.min(g) < -eps or np.max(g) > Ms + eps)):
+            y, gy = res["y"][name], res["gy"][name]
+            if np.min(s) < -eps or np.max(s) > Ms + eps or not (-eps <= y <= Ms + eps) or \
+                    (g is not None and (np.min(g) < -eps or np.max(g) > Ms + eps
+                                        or not (-eps <= gy <= Ms + eps))):
                 res["ok"], res["reason"] = False, f"{name}: domain"
             for k in range(1, T + 1):
                 if events[k - 1] == "replace" and abs(s[k] - ini["new"][name]) > eps:
@@ -1039,8 +1087,11 @@ def _least_cell(cfg, i, l, x, m, r, max_passes, tol):
             gm = res["g"]["mu"] if law == "ard1" else None
             for k in range(1, T + 1):
                 if m[i, l, k - 1]:
-                    z[k - 1] = max(0.0, float(cfg.rho[i, l]) *
-                                   (res["s"]["mu"][k - 1] - (gm[k - 1] if gm is not None else 0.0)))
+                    if k == H1 + 1:         # the repair-cost row of day H1 + 1 reads y
+                        mu_prev, g_prev = res["y"]["mu"], (res["gy"]["mu"] if gm is not None else 0.0)
+                    else:
+                        mu_prev, g_prev = res["s"]["mu"][k - 1], (gm[k - 1] if gm is not None else 0.0)
+                    z[k - 1] = max(0.0, float(cfg.rho[i, l]) * (mu_prev - g_prev))
         res["z"] = z
     cache[key] = res
     return res
@@ -1051,7 +1102,9 @@ def least_solution(cfg, x, m, r=None, max_passes=10000, tol=1e-12, verify=True):
 
     Returns a dict: ``feasible`` (bool), ``reason`` (first failure, ``""`` if feasible), and, if feasible,
     the arrays ``(F, L, T+1)`` ``mu``, ``v``, ``R``, ``K``, ``g_mu``, ``g_v``, ``g_R``, ``g_K`` (NaN where
-    not tracked; index 0 holds the initial values), ``z`` (``(F, L, T)``, ``minimal_z`` of the least
+    not tracked; index 0 holds the initial values), the arrays ``(F, L)`` ``y_mu``, ``y_v``, ``y_R``,
+    ``y_K``, ``y_g_mu``, ``y_g_v``, ``y_g_R``, ``y_g_K`` (the start of the repetition, the least ``y`` with
+    ``y >= s_{H1}`` and ``y >= s_T``; NaN where not tracked), ``z`` (``(F, L, T)``, ``minimal_z`` of the least
     trajectory) and ``u`` (``u_value`` of its mean), and ``row_violations`` (the list returned by
     ``row_violations`` on the least solution with exact tolerances ``tol = 1e-9``, ``bigm_tol = quad_rel
     = 0``; empty if feasible). With ``verify = False`` the full ``row_violations`` pass is skipped
@@ -1065,6 +1118,8 @@ def least_solution(cfg, x, m, r=None, max_passes=10000, tol=1e-12, verify=True):
     out = {name: np.full((F, L, T + 1), np.nan) for name in
            ("mu", "v", "R", "K", "g_mu", "g_v", "g_R", "g_K")}
     z = np.zeros((F, L, T))
+    ys = {"y_" + name: np.full((F, L), np.nan) for name in
+          ("mu", "v", "R", "K", "g_mu", "g_v", "g_R", "g_K")}
     for i in range(F):
         for l in range(L):
             cell = _least_cell(cfg, i, l, x, m, r, max_passes, tol)
@@ -1073,9 +1128,12 @@ def least_solution(cfg, x, m, r=None, max_passes=10000, tol=1e-12, verify=True):
                         "row_violations": None}
             for name, s in cell["s"].items():
                 out[name][i, l] = s
+                ys["y_" + name][i, l] = cell["y"][name]
                 if cell["g"][name] is not None:
                     out["g_" + name][i, l] = cell["g"][name]
+                    ys["y_g_" + name][i, l] = cell["gy"][name]
             z[i, l] = cell["z"]
+    out.update(ys)
     out["z"] = z
     out["u"] = u_value(cfg, out["mu"])
     out["feasible"], out["reason"], out["row_violations"] = True, "", []
@@ -1083,6 +1141,7 @@ def least_solution(cfg, x, m, r=None, max_passes=10000, tol=1e-12, verify=True):
         sol = {"x": x, "m": m, "r": r, "z": z, "u": out["u"]}
         for name in ("mu", "v", "R", "K", "g_mu", "g_v", "g_R", "g_K"):
             sol[name] = out[name][..., 1:]
+            sol["y_" + name] = out["y_" + name]
         out["row_violations"] = row_violations(cfg, sol, tol=1e-9, bigm_tol=0.0, quad_rel=0.0)
         if out["row_violations"]:
             out["feasible"], out["reason"] = False, f"row {out['row_violations'][0].row}"

@@ -59,7 +59,7 @@ def test_valid_result_passes(tmp_path):
     assert report["status"] == "optimal"
     assert report["solver_objective"] == pytest.approx(533.882, rel=1e-12)
     assert report["recomputed_objective"] == pytest.approx(533.882, rel=1e-12)
-    assert report["tolerance"] == 1e-6
+    assert report["tolerance"] == {"FeasibilityTol": 1e-6, "IntFeasTol": 1e-5}   # the default: Gurobi's tolerances
     assert report["max_violation"] <= 1e-12
     assert yaml.safe_load((tmp_path / "validation.yaml").read_text(encoding="utf-8")) == report
 

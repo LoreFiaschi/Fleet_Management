@@ -45,7 +45,7 @@ class WienerCellBuilder:
         """Dynamics, replacement, anchor and loop rows; reliability rows; repair cost."""
         T = ctx.T
         tau = float(ctx.tau[i, l])
-        kappa = float(ndtri(1.0 - float(ctx.eps[i, l])))
+        kappa = -float(ndtri(float(ctx.eps[i, l])))
         sigma = float(ctx.extras[self.name]["sigma"][i, l])
         base.add_selector_rows(ctx, i, l)
         # Eqs. w_mu_carry ... w_anchor_keep

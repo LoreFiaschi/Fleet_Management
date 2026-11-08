@@ -824,6 +824,8 @@ def sweep_operating_horizons(
     source = Path(input_path)
     data = read_input(source)
     H1 = _horizon_H1(data)
+    if H1 < 1:
+        raise ValueError(f"H1 must be at least 1 (got {H1}); every case would fail.")
     settings = _check_sweep_arguments(
         H1, operating_horizons,
         output_path=output_path,

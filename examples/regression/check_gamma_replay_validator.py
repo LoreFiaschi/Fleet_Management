@@ -12,7 +12,6 @@ from fleet_management import solve, validate_gamma_replay_files
 
 HERE = Path(__file__).resolve().parent
 INPUT = HERE / "mixed_gamma_ard1_public.yaml"
-TOLERANCE = 1e-8
 
 
 def main() -> None:
@@ -35,10 +34,11 @@ def main() -> None:
             raise AssertionError("replay selected the wrong Gamma cells")
         if report["repairs"] < 1:
             raise AssertionError("ARD1 replay case contains no Gamma repair")
-        if max(report["maximum_errors"].values()) > TOLERANCE:
-            raise AssertionError(
-                f"valid replay has excessive error {report['maximum_errors']}"
-            )
+        for field, error in report["maximum_errors"].items():
+            if error > report["maximum_error_tolerances"][field]:
+                raise AssertionError(
+                    f"valid replay has excessive error {report['maximum_errors']}"
+                )
         if not report_path.is_file():
             raise AssertionError("Gamma replay report was not written")
 

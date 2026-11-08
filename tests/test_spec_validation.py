@@ -156,14 +156,14 @@ def test_validate_valid_pair_report(tmp_path):
     for key in REPORT_KEYS:
         assert key in report
     assert report["status"] == "optimal"
-    assert report["tolerance"] == 1e-6
+    assert report["tolerance"] == {"FeasibilityTol": 1e-6, "IntFeasTol": 1e-5}
     assert report["passed"] is True
     assert report["max_violation"] <= 1e-6
     # the checks in the order of the table (the file has the key idle, so idle is listed)
     assert [c["name"] for c in report["checks"]] == CHECK_ORDER
     for c in report["checks"]:
         assert set(["name", "passed", "violation", "tolerance"]) <= set(c)
-        assert c["passed"] is True and c["violation"] <= 1e-6 and c["tolerance"] == 1e-6
+        assert c["passed"] is True and c["violation"] <= 1e-6 and c["tolerance"] >= 1e-6
     # objective derived by hand in the result file: 1.1 + 12.3 + 0.45 = 13.85
     assert near(report["solver_objective"], 13.85)
     assert near(report["recomputed_objective"], 13.85, 1e-9)
@@ -565,7 +565,7 @@ def test_check_result_returns_report_without_writing(tmp_path):
     assert [c["name"] for c in report["checks"]] == CHECK_ORDER
     assert report["passed"] is True
     assert near(report["recomputed_objective"], 13.85)
-    assert report["tolerance"] == 1e-6
+    assert report["tolerance"] == {"FeasibilityTol": 1e-6, "IntFeasTol": 1e-5}
     assert sorted(p.name for p in tmp_path.iterdir()) == ["p_in.yaml", "p_res.yaml"]
     assert check_result(cfg, result, tol=0.5)["tolerance"] == 0.5
 

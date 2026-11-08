@@ -19,7 +19,7 @@ import warnings
 
 import numpy as np
 import pytest
-from scipy import special
+from scipy import optimize, special
 
 from fleet_management.config import load_config, read_input
 from fleet_management.degradation_model.gamma import mean_cap, sharp_cap
@@ -1428,17 +1428,21 @@ def os_schedule(x_fly, y_fly, x_dep, y_dep, x_rep, y_rep, x_repl, y_repl):
 
 def test_least_solution_rescues_a_schedule_that_breaks_the_loop_row():
     # Markov cells, ardinf, tau 1, eps 0.2 (cap mu <= 0.2), rho 0.5, mu_0 0.04, increment d = 0.05 per mission,
-    # H = [1, 2] (T = 3, loop row mu_3 <= mu_1). Train X flies days 1 and 3 and is repaired on day 2; train Y
-    # flies day 2 and is repaired on day 3 (Y idle on day 1).
-    # Exact trajectory of X: 0.04, 0.09, 0.5 * 0.09 = 0.045, 0.045 + 0.05 = 0.095 > mu_1 = 0.09: loop row broken.
-    # One-sided rows, with y = mu_1(X): mu_1 >= 0.04 + 0.05 and mu_1 >= mu_3, mu_2 >= 0.5 mu_1, mu_3 >= mu_2 + 0.05.
-    # The operating-phase map is y -> a y + d with a = 1 - rho = 0.5 (a mission, then a repair, then the next
-    # mission): its fixed point is y = a y + d, y = d / (1 - a) = 0.1. The Kleene iteration climbs from 0.09
-    # (0.095, 0.0975, ...) to y = 0.1 (below the cap 0.2). Least solution of X: mu = 0.04, 0.1, 0.05, 0.1.
-    # Y: y = mu_1(Y) >= 0.04; mu_2 >= y + 0.05; mu_3 >= 0.5 (y + 0.05) = 0.5 y + 0.025; mu_1 >= mu_3 gives
-    # y = 0.5 y + 0.025, y = 0.05 (a repair after one mission). Least solution of Y: 0.04, 0.05, 0.1, 0.05.
-    # z = rho mu_{k-1} on a repair day (ardinf, Eq. a_z): X day 2: 0.5 * 0.1 = 0.05; Y day 3: 0.5 * 0.1 = 0.05.
-    # u = max mu = 0.1 (inf_norm, C_D = 0 but u is still the value of Eq. a_u_inf).
+    # H = [1, 2] (T = 3, H1 = 1). Train X flies days 1 and 3 and is repaired on day 2; train Y flies day 2 and
+    # is repaired on day 3 (Y idle on day 1).
+    # Exact trajectory of X: 0.04, 0.09, 0.5 * 0.09 = 0.045, 0.045 + 0.05 = 0.095 > mu_1 = 0.09: the loop row,
+    # read with y = mu_1 (the old rule), is broken.
+    # Rows with the start of the repetition y: y >= mu_1, mu_1 >= 0.04 + 0.05, mu_2 >= 0.5 y (day 2 = H1 + 1
+    # reads y), mu_3 >= mu_2 + 0.05, y >= mu_3. The operating-phase map is y -> a y + d with a = 1 - rho = 0.5
+    # (a repair, then a mission): its fixed point is y = a y + d, y = d / (1 - a) = 0.1. The Kleene iteration
+    # climbs from 0.09 (0.095, 0.0975, ...) to y = 0.1 (below the cap 0.2). Day 1 is no longer pushed up by the
+    # loop row: mu_1 stays at 0.09. Least solution of X: mu = 0.04, 0.09, 0.05, 0.10 and y_mu = 0.10.
+    # Y: y >= mu_1 = 0.04 (idle); day 2 reads y: mu_2 >= y + 0.05; mu_3 >= 0.5 mu_2 = 0.5 y + 0.025; y >= mu_3
+    # gives y = 0.5 y + 0.025, y = 0.05 (a mission, then a repair). Least solution of Y: mu = 0.04, 0.04, 0.10,
+    # 0.05 and y_mu = 0.05.
+    # z = rho (the value read on the previous day) on a repair day (ardinf, Eq. a_z): X day 2 reads y = 0.1:
+    # 0.5 * 0.1 = 0.05; Y day 3 reads mu_2 = 0.1: 0.05. u = max mu = 0.1 (inf_norm, C_D = 0 but u is still the
+    # value of Eq. a_u_inf).
     cfg = make(BEST_BASE, epsilon=0.2)
     x, m, r = os_schedule([1, 0, 1], [0, 1, 0], [0, 1, 0], [0, 0, 1], [0, 1, 0], [0, 0, 1], [0] * 3, [0] * 3)
     traj = rm.reference_trajectory(cfg, x, m, r)
@@ -1451,17 +1455,21 @@ def test_least_solution_rescues_a_schedule_that_breaks_the_loop_row():
     assert [(v.row, v.i) for v in exact_rows] == [("mu_loop", 0), ("mu_loop", 1)]
     ls = rm.least_solution(cfg, x, m, r)
     assert ls["feasible"] and ls["row_violations"] == []
-    close(ls["mu"][0, 0], [0.04, 0.10, 0.05, 0.10], abs_=1e-10)
-    close(ls["mu"][1, 0], [0.04, 0.05, 0.10, 0.05], abs_=1e-10)
+    close(ls["mu"][0, 0], [0.04, 0.09, 0.05, 0.10], abs_=1e-10)
+    close(ls["mu"][1, 0], [0.04, 0.04, 0.10, 0.05], abs_=1e-10)
+    close(ls["y_mu"], [[0.10], [0.05]], abs_=1e-10)
+    assert np.isnan(ls["y_v"]).all() and np.isnan(ls["y_g_mu"]).all()          # mean only, ardinf
     close(ls["z"], [[[0.0, 0.05, 0.0]], [[0.0, 0.0, 0.05]]], abs_=1e-10)
     close(ls["u"], 0.1, abs_=1e-10)
-    close(rm.minimal_z(cfg, {"mu": ls["mu"], "g_mu": ls["g_mu"]}, m), ls["z"], abs_=1e-12)
-    # the least solution is below any other one-sided solution: a larger mu_1 is also accepted by the rows
-    # (it is not the least), checked through row_violations with mu_1(X) = 0.12.
+    close(rm.minimal_z(cfg, {"mu": ls["mu"], "g_mu": ls["g_mu"]}, m)[1], ls["z"][1], abs_=1e-12)
+    # the least solution is below any other one-sided solution: a larger start y = 0.12 (mu_1(X) = 0.12,
+    # mu_2 = 0.06, mu_3 = 0.12 <= y) is also accepted by the rows (it is not the least).
     sol = dict(x=x, m=m, r=r, z=ls["z"], u=ls["u"])
     for name in ("mu", "v", "R", "K", "g_mu", "g_v", "g_R", "g_K"):
         sol[name] = ls[name][..., 1:].copy()
+        sol["y_" + name] = ls["y_" + name].copy()
     sol["mu"][0, 0] = [0.12, 0.06, 0.12]
+    sol["y_mu"][0, 0] = 0.12
     sol["z"] = np.array(ls["z"])
     sol["z"][0, 0, 1] = 0.06
     sol["u"] = 0.12
@@ -1489,15 +1497,16 @@ ARD1_OS = dict(BEST_BASE, epsilon=0.5, repair_model="ard1", mu_0=[[0.08], [0.12]
 
 def test_least_solution_with_anchors():
     # Markov cells, ard1, eps 0.5 (cap mu <= 0.5), rho 0.5 (a = 0.5), d = 0.05, replacement value 0.10,
-    # mu_0 = 0.08 for X and 0.12 for Y, starting anchors g_0 = mu_0, H = [1, 2] (T = 3).
+    # mu_0 = 0.08 for X and 0.12 for Y, starting anchors g_0 = mu_0, H = [1, 2] (T = 3, H1 = 1).
     # X: day 1 repair (flying train Y), day 2 flies, day 3 replacement. Y: day 1 flies, day 2 replacement, day 3 flies.
     # Exact X: s_1 = 0.5 * 0.08 + 0.5 * 0.08 = 0.08, g_1 = 0.08; s_2 = 0.13, g_2 = 0.08; s_3 = 0.10, g_3 = 0.10.
-    # Loop rows: s_3 = 0.10 > s_1 = 0.08 and g_3 = 0.10 > g_1 = 0.08: broken.
-    # One-sided: day 1 is an intervention day, so g_1 = s_1 (two lower bounds) and both can rise: the loop rows
-    # s_1 >= s_3 = 0.10 and g_1 >= g_3 = 0.10 give s_1 = g_1 = 0.10; then s_2 >= s_1 + 0.05 = 0.15 (g_2 = g_1 = 0.10
-    # on a carry day); s_3 = 0.10 (replacement). Least solution of X: s = 0.08, 0.10, 0.15, 0.10 and
-    # g = 0.08, 0.10, 0.10, 0.10. Repair cost: z = rho max(0, mu_0 - g_0) = 0 (ard1, day 1 of X: mu_0 = g_0).
-    # Exact Y: s = 0.12, 0.17, 0.10, 0.15; g = 0.12, 0.12, 0.10, 0.10: both loop rows hold (0.15 <= 0.17, 0.10 <= 0.12).
+    # Start rows: y >= s_1 = 0.08, y^g >= g_1 = 0.08. Loop rows: y >= s_3 = 0.10 and y^g >= g_3 = 0.10 (replacement
+    # on day 3 sets s_3 = g_3 = 0.10). So y = y^g = 0.10. Day 2 (= H1 + 1) reads y and y^g: s_2 >= y + 0.05 = 0.15
+    # and the anchor keep rows give g_2 = y^g = 0.10. Day 1 is no longer pushed up by the loop rows.
+    # Least solution of X: s = 0.08, 0.08, 0.15, 0.10 and g = 0.08, 0.08, 0.10, 0.10; y_mu = y_g_mu = 0.10.
+    # Repair cost: z = rho max(0, mu_0 - g_0) = 0 (ard1, day 1 of X: mu_0 = g_0).
+    # Exact Y: s = 0.12, 0.17, 0.10, 0.15; g = 0.12, 0.12, 0.10, 0.10. Day 2 of Y is a replacement and reads no
+    # previous day, so Y is unchanged: y = max(s_1, s_3) = max(0.17, 0.15) = 0.17, y^g = max(g_1, g_3) = 0.12.
     cfg = make(ARD1_OS)
     x, m, r = os_schedule([0, 1, 0], [1, 0, 1], [1, 0, 1], [0, 1, 0], [1, 0, 0], [0] * 3, [0, 0, 1], [0, 1, 0])
     traj = rm.reference_trajectory(cfg, x, m, r)
@@ -1505,15 +1514,18 @@ def test_least_solution_with_anchors():
     close(traj["g_mu"][0, 0], [0.08, 0.08, 0.08, 0.10])
     ls = rm.least_solution(cfg, x, m, r)
     assert ls["feasible"] and ls["row_violations"] == []
-    close(ls["mu"][0, 0], [0.08, 0.10, 0.15, 0.10], abs_=1e-10)
-    close(ls["g_mu"][0, 0], [0.08, 0.10, 0.10, 0.10], abs_=1e-10)
+    close(ls["mu"][0, 0], [0.08, 0.08, 0.15, 0.10], abs_=1e-10)
+    close(ls["g_mu"][0, 0], [0.08, 0.08, 0.10, 0.10], abs_=1e-10)
     close(ls["mu"][1, 0], [0.12, 0.17, 0.10, 0.15], abs_=1e-10)
     close(ls["g_mu"][1, 0], [0.12, 0.12, 0.10, 0.10], abs_=1e-10)
+    close(ls["y_mu"], [[0.10], [0.17]], abs_=1e-10)
+    close(ls["y_g_mu"], [[0.10], [0.12]], abs_=1e-10)
     close(ls["z"], 0.0, abs_=1e-10)
     # X repaired on days 1 and 3 and flying on day 2 (a replacement instead of the day-3 repair is not used):
-    # s_3 >= 0.5 s_2 + 0.5 g_2 = 0.5 (s_1 + 0.05) + 0.5 s_1 = s_1 + 0.025 > s_1 = g_1 >= g_3 = s_3: the repair
-    # cannot lower the state below its anchor (known defect of the ard1 repair, merge/decisions.md), so the
-    # lower bounds climb by 0.025 per pass and there is no solution.
+    # s_3 >= 0.5 s_2 + 0.5 g_2 = 0.5 (y + 0.05) + 0.5 y^g, y >= s_3 and y^g >= g_3 = s_3, so
+    # s_3 >= 0.5 y + 0.5 y^g + 0.025 >= s_3 + 0.025: impossible (the repair cannot lower the state below its
+    # anchor, known defect of the ard1 repair, merge/decisions.md): the lower bounds climb by 0.025 per pass
+    # and there is no solution.
     x, m, r = os_schedule([0, 1, 0], [1, 0, 1], [1, 0, 1], [0, 1, 0], [1, 0, 1], [0] * 3, [0] * 3, [0, 1, 0])
     ls = rm.least_solution(cfg, x, m, r)
     assert not ls["feasible"] and "cell (0, 0)" in ls["reason"]
@@ -1544,7 +1556,119 @@ def test_best_onesided_tiny_input_by_hand():
     # one depot day (C_M = 1): 1.5; or a replacement on day 2: 1 + 3 = 4. The other train Y flies day 2 and
     # needs an intervention on day 3: a repair (mu_3 = 0.5 (y + 0.05) <= y, y = 0.05, cost 1 + 10 * 0.5 * 0.1 = 1.5,
     # where mu_2(Y) = y + 0.05 = 0.1) or a replacement (cost 4). Y on day 1: idle (cost 0). Best: 1.5 + 1.5 = 3.0.
+    # With the start of the repetition y, day 2 (= H1 + 1) reads y: X idle on day 1 and repaired on day 2 has the
+    # same fixed point y = 0.1 and z = 0.5 * 0.1 on day 2: the same cost 1.5; no schedule is cheaper.
     cfg = make(BEST_BASE, epsilon=0.2)
     ons = rm.best_onesided(cfg)
     close(ons["cost"], 3.0, abs_=1e-9)
     assert ons["exact"] and ons["cost"] <= rm.best_reference(cfg)["cost"] + 1e-12
+
+
+# ---------------------------------------------------------------------------
+# Start of the repetition (8 Nov 2026): the variable y, the rows of day H1 + 1 and the loop rows to y
+# ---------------------------------------------------------------------------
+# One mean (Markov cells), ardinf, tau 1, eps 0.5 (cap mu <= 0.5), rho 0.5, mu_0 = 0.1, mission increment 0.2,
+# replacement value 0, H = [1, 2] (T = 3, H1 = 1). Train X (0): replaced on day 1 (depot), flies day 2, repaired on
+# day 3 (depot). Train Y (1): flies day 1, repaired on day 2 (depot), flies day 3.
+START_BASE = dict(BEST_BASE, epsilon=0.5, mu_0=0.1, mu=0.2, replacement_mu=0.0, C_R=10.0)
+
+
+def start_least():
+    cfg = make(START_BASE)
+    x, m, r = os_schedule([0, 1, 0], [1, 0, 1], [1, 0, 1], [0, 1, 0], [0, 0, 1], [0, 1, 0], [1, 0, 0], [0] * 3)
+    return cfg, x, m, r, rm.least_solution(cfg, x, m, r)
+
+
+def test_start_of_repetition_hand_case_is_accepted_and_the_old_rule_refuses_it():
+    # Train X: day 1 replacement, so mu_1 = 0 (Eq. a_bigm_repl, an equality). Day 2 (= H1 + 1) a mission and day 3 a
+    # repair: mu_2 >= y + 0.2 and mu_3 >= 0.5 mu_2 (a = 1 - rho = 0.5).
+    # Old rule: the loop row is mu_3 <= mu_1 = 0, but mu_3 >= 0.5 (mu_1 + 0.2) = 0.1 > 0: no solution. Checked with
+    # a linear program in (mu_1, mu_2, mu_3): infeasible (status 2).
+    # New rows: y >= mu_1 = 0, mu_2 >= y + 0.2, mu_3 >= 0.5 mu_2, y >= mu_3. The operating-phase map is
+    # y -> 0.5 (y + 0.2); its fixed point is y = 0.5 y + 0.1, y = 0.2 (a repair after one mission). Least solution:
+    # y_mu = 0.2 and mu = 0 (day 1), 0.4 (day 2, below the cap 0.5), 0.2 (day 3). Checked with a linear program
+    # that minimises y: (mu_1, mu_2, mu_3, y) = (0, 0.4, 0.2, 0.2).
+    # z on the repair day 3 reads mu_2: 0.5 * 0.4 = 0.2.
+    # Train Y: y >= mu_1 = 0.1 + 0.2 = 0.3; day 2 (repair) reads y: mu_2 >= 0.5 y; day 3 (mission) mu_3 >= mu_2 + 0.2;
+    # y >= mu_3: y = 0.5 y + 0.2, y = 0.4 >= 0.3. mu = 0.3, 0.2, 0.4 and y_mu = 0.4. z on the repair day 2 reads y:
+    # 0.5 * 0.4 = 0.2 (the old rule reads mu_1 = 0.3: 0.15). u = max mu = 0.4 (inf_norm).
+    cfg, x, m, r, ls = start_least()
+    old = optimize.linprog([0.0, 0.0, 0.0],
+                           A_ub=[[1.0, -1.0, 0.0],      # mu_1 - mu_2 <= -0.2   (mission on day 2)
+                                 [0.0, 0.5, -1.0],      # 0.5 mu_2 - mu_3 <= 0  (repair on day 3)
+                                 [-1.0, 0.0, 1.0]],     # mu_3 - mu_1 <= 0      (the old loop row)
+                           b_ub=[-0.2, 0.0, 0.0], A_eq=[[1.0, 0.0, 0.0]], b_eq=[0.0], bounds=[(0, 0.5)] * 3)
+    assert old.status == 2
+    new = optimize.linprog([0.0, 0.0, 0.0, 1.0],
+                           A_ub=[[1.0, 0.0, 0.0, -1.0],     # mu_1 - y <= 0         (start row)
+                                 [0.0, -1.0, 0.0, 1.0],     # y - mu_2 <= -0.2      (day 2 reads y)
+                                 [0.0, 0.5, -1.0, 0.0],     # 0.5 mu_2 - mu_3 <= 0  (repair on day 3)
+                                 [0.0, 0.0, 1.0, -1.0]],    # mu_3 - y <= 0         (loop row to y)
+                           b_ub=[0.0, -0.2, 0.0, 0.0], A_eq=[[1.0, 0.0, 0.0, 0.0]], b_eq=[0.0],
+                           bounds=[(0, 0.5)] * 4)
+    assert new.status == 0
+    close(new.x, [0.0, 0.4, 0.2, 0.2], abs_=1e-7)
+    # the reference model agrees
+    assert ls["feasible"] and ls["row_violations"] == []
+    close(ls["mu"][0, 0], [0.1, 0.0, 0.4, 0.2], abs_=1e-10)
+    close(ls["mu"][1, 0], [0.1, 0.3, 0.2, 0.4], abs_=1e-10)
+    close(ls["y_mu"], [[0.2], [0.4]], abs_=1e-10)
+    close(ls["z"], [[[0.0, 0.0, 0.2]], [[0.0, 0.2, 0.0]]], abs_=1e-10)
+    close(ls["u"], 0.4, abs_=1e-10)
+    # the old rows (no y keys: y = the value on day H1) refuse the same trajectory: X by 0.2 (mu_3 = 0.2 against
+    # mu_1 = 0), Y by 0.1 (mu_3 = 0.4 against mu_1 = 0.3)
+    sol = dict(x=x, m=m, r=r, z=ls["z"], u=ls["u"])
+    for name in ("mu", "v", "R", "K", "g_mu", "g_v", "g_R", "g_K"):
+        sol[name] = ls[name][..., 1:]
+    old_rows = rm.row_violations(cfg, sol, tol=1e-9, bigm_tol=0.0, quad_rel=0.0)
+    assert [(v.row, v.i, v.k) for v in old_rows] == [("mu_loop", 0, 3), ("mu_loop", 1, 3)]
+    close([v.violation for v in old_rows], [0.2, 0.1], abs_=1e-10)
+    # and the new rows accept it
+    for name in ("mu", "v", "R", "K", "g_mu", "g_v", "g_R", "g_K"):
+        sol["y_" + name] = ls["y_" + name]
+    assert rm.row_violations(cfg, sol, tol=1e-9, bigm_tol=0.0, quad_rel=0.0) == []
+
+
+def test_row_violations_start_rows_day_h1_plus_one_and_loop_rows_read_y():
+    cfg, x, m, r, ls = start_least()      # the hand case above: y_mu = (0.2, 0.4), mu(X) = 0, 0.4, 0.2, mu(Y) = 0.3, 0.2, 0.4
+
+    def solution():
+        sol = dict(x=x, m=m, r=r, z=np.array(ls["z"]), u=ls["u"])
+        for name in ("mu", "v", "R", "K", "g_mu", "g_v", "g_R", "g_K"):
+            sol[name] = ls[name][..., 1:].copy()
+            sol["y_" + name] = ls["y_" + name].copy()
+        return sol
+
+    def found(sol):
+        return rm.row_violations(cfg, sol, tol=1e-9, bigm_tol=0.0, quad_rel=0.0)
+
+    def rows(sol):
+        return [(v.row, v.i, v.k) for v in found(sol)]
+
+    assert rows(solution()) == []
+    # start row: y = 0.25 < mu_1(Y) = 0.3 fails by 0.05 on day H1 = 1; the loop row mu_3 = 0.4 <= y fails by 0.15
+    sol = solution(); sol["y_mu"][1, 0] = 0.25
+    assert rows(sol) == [("mu_start", 1, 1), ("mu_loop", 1, 3)]
+    close([v.violation for v in found(sol)], [0.05, 0.15], abs_=1e-10)
+    # the dynamics row of day H1 + 1 reads y: X with y = 0.3 needs mu_2 >= 0.3 + 0.2 = 0.5 > 0.4 (loop row: 0.2 <= 0.3)
+    sol = solution(); sol["y_mu"][0, 0] = 0.3
+    assert rows(sol) == [("mu_carry", 0, 2)]
+    close(found(sol)[0].violation, 0.1, abs_=1e-10)
+    # the loop row reads y: X with y = 0.15 < mu_3 = 0.2 fails by 0.05 (mu_2 = 0.4 >= 0.15 + 0.2 holds)
+    sol = solution(); sol["y_mu"][0, 0] = 0.15
+    assert rows(sol) == [("mu_loop", 0, 3)]
+    close(found(sol)[0].violation, 0.05, abs_=1e-10)
+    # the repair row of day H1 + 1 reads y: Y repairs on day 2 with mu_2 = 0.2; y = 0.5 would need mu_2 >= 0.25
+    sol = solution(); sol["y_mu"][1, 0] = 0.5
+    assert ("mu_repair", 1, 2) in rows(sol)
+    # the repair-cost row of day H1 + 1 reads y: z_2(Y) >= 0.5 y = 0.2 (it would be 0.15 from mu_1 = 0.3)
+    sol = solution(); sol["z"][1, 0, 1] = 0.19
+    assert rows(sol) == [("z_row", 1, 2)]
+    # a NaN start counts as a failure
+    sol = solution(); sol["y_mu"][0, 0] = np.nan
+    assert {row for row, _, _ in rows(sol)} >= {"mu_start", "mu_loop"}
+    # a solution without y keys: y = the value on day H1 (the old rows); the start rows hold trivially
+    sol = solution()
+    for name in ("mu", "v", "R", "K", "g_mu", "g_v", "g_R", "g_K"):
+        del sol["y_" + name]
+    assert rows(sol) == [("mu_loop", 0, 3), ("mu_loop", 1, 3)]

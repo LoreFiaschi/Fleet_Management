@@ -23,6 +23,12 @@ import yaml
 
 from fleet_management.config import FleetConfig, _lookup, load_config, read_input
 from fleet_management.solver import _to_plain, read_result
+from fleet_management.validation.tolerance import (
+    binary_tolerance,
+    report_tolerance,
+    resolve_tolerance,
+    state_tolerance,
+)
 
 REPORT_SUFFIXES = (".yaml", ".yml", ".json")
 
@@ -30,9 +36,9 @@ REPORT_SUFFIXES = (".yaml", ".yml", ".json")
 # ===========================================================================
 # Helpers shared by the Gamma validators
 # ===========================================================================
-def _check_tolerance(tolerance: float) -> None:
-    """``tolerance`` must be positive (spec, "Common rules")."""
-    if not tolerance > 0:
+def _check_tolerance(tolerance: float | None) -> None:
+    """``tolerance`` must be ``None`` (a default per check) or positive (spec, "Common rules")."""
+    if tolerance is not None and not tolerance > 0:
         raise ValueError("tolerance must be positive.")
 
 
@@ -209,7 +215,7 @@ def validate_gamma_replay_schedule(
     cfg: FleetConfig,
     result: dict,
     *,
-    tolerance: float = 1e-8,
+    tolerance: float | None = None,
     raise_on_failure: bool = False,
 ) -> dict[str, Any]:
     """Replay the saved schedule of every Gamma cell and compare it with the saved states.
@@ -218,35 +224,58 @@ def validate_gamma_replay_schedule(
     value and the starting anchor of the cell (Eqs. gm_map, a_anchor). The saved states
     are upper bounds of the true moments, so every error is one-sided: it is the amount
     by which the saved value is below the reference (``cap`` and ``repeatability``: above
-    the limit). The fields are ``tracked_mean``, ``mean_anchor``, ``removed_mean``,
+    the limit). ``repeatability`` compares the saved ``mu`` (and, under ``ard1``, the anchor)
+    on days ``H1`` and ``T`` with the saved start ``y_mu`` (``y_g_mu``) of the repetitions;
+    a result without these keys is compared on day ``H1`` instead. The fields are ``tracked_mean``, ``mean_anchor``, ``removed_mean``,
     ``cap`` and ``repeatability``. ``valid`` is true if there is no global violation and
     no violation. ``raise_on_failure`` raises ``AssertionError`` if it is false.
+
+    The tolerance of a field is ``tolerance`` if it is a number, else the key ``tolerance`` of
+    the input block ``validation``, else ``FeasibilityTol + IntFeasTol * range_mu`` at the
+    cell (``IntFeasTol`` for the binaries; ``validation/tolerance.py``). The report keys
+    ``tolerance`` and ``maximum_error_tolerances`` give the tolerance and the tolerance at the
+    cell of the largest error of each field.
     """
     _check_tolerance(tolerance)
+    single = resolve_tolerance(cfg, tolerance)
+    tol_binary = binary_tolerance(cfg, single)
+    tol_cell = state_tolerance(cfg, "mu", single)
     started = time.perf_counter()
     F, M, L, T = cfg.F, cfg.M, cfg.L, cfg.T
     states = (F, L, T)
     cells = gamma_cells(cfg, result)
     ard1 = [(i, l) for i, l in cells if str(cfg.repair_model[i, l]) == "ard1"]
 
-    x = _binary(result, "x", (F, M + 1, T), tolerance)
-    m = _binary(result, "m", states, tolerance)
-    r = _binary(result, "r", states, tolerance, optional=True)
+    x = _binary(result, "x", (F, M + 1, T), tol_binary)
+    m = _binary(result, "m", states, tol_binary)
+    r = _binary(result, "r", states, tol_binary, optional=True)
     mu = _array(result, "mu", states, cells)
-    z = _array(result, "z", states, [])               # NaN where C_R = 0
+    z = _array(result, "z", states, [])               # NaN where C_R = 0 (not built: skipped)
+    for i, l in cells:                                # an infinite entry is read, so it is refused
+        if np.isinf(z[i, l]).any():
+            raise ValueError(f"result 'z' has a non-finite entry at Gamma cell (i={i}, l={l}).")
     g_mu = _array(result, "g_mu", states, ard1) if ard1 else None
+    start_mu = {}                                     # y_mu, y_g_mu: F x L, or None (not saved)
+    for y_key in ("y_mu", "y_g_mu"):
+        saved_y = result.get(y_key)
+        y_array = None if saved_y is None else np.asarray(saved_y, dtype=float)
+        if y_array is not None and y_array.shape != (F, L):
+            raise ValueError(f"result '{y_key}' has shape {y_array.shape}; expected {(F, L)}.")
+        start_mu[y_key] = y_array
     mu_inc, _ = _increments(cfg)
     caps = gamma_cell_caps(cfg, cells)
     global_violations = _schedule_violations(cfg, result, x, m, r)
 
     maxima = dict.fromkeys(
         ("tracked_mean", "mean_anchor", "removed_mean", "cap", "repeatability"), 0.0)
+    maxima_tolerance = dict.fromkeys(maxima, float(tol_cell[cells[0]]))
     violations: list[dict[str, Any]] = []
     repairs = replacements = 0
 
     def check(i, l, k, event, field, expected, saved, error):
-        maxima[field] = max(maxima[field], error)
-        if error > tolerance:
+        if error > maxima[field]:
+            maxima[field], maxima_tolerance[field] = error, float(tol_cell[i, l])
+        if error > tol_cell[i, l]:
             violations.append(_record(i, l, k, event, field, expected, saved, error))
 
     for i, l in cells:
@@ -280,9 +309,17 @@ def validate_gamma_replay_schedule(
                       max(0.0, removed - float(z[i, l, k])))
             check(i, l, k, event, "cap", caps[i, l], saved, max(0.0, saved - caps[i, l]))
             prev_mu, prev_g = saved, (float(g_mu[i, l, k]) if anchored else 0.0)
-        for array in [mu] + ([g_mu] if anchored else []):      # repeatability, on the saved states
+        # repeatability, on the saved states: against the start y of the repetitions if saved,
+        # else against the value on day H1 (a result written before y existed)
+        for array, y_key in [(mu, "y_mu")] + ([(g_mu, "y_g_mu")] if anchored else []):
             first, last = float(array[i, l, cfg.H1 - 1]), float(array[i, l, T - 1])
-            check(i, l, T - 1, events[-1], "repeatability", first, last, max(0.0, last - first))
+            y = start_mu[y_key]
+            if y is not None and math.isfinite(float(y[i, l])):
+                limit = float(y[i, l])
+                error = max(0.0, last - limit, first - limit)
+            else:
+                limit, error = first, max(0.0, last - first)
+            check(i, l, T - 1, events[-1], "repeatability", limit, last, error)
 
     report = {
         "validator": "Gamma replay validator",
@@ -294,7 +331,9 @@ def validate_gamma_replay_schedule(
         "transitions_checked": len(cells) * T,
         "repairs": repairs,
         "replacements": replacements,
+        "tolerance": report_tolerance(cfg, single),
         "maximum_errors": maxima,
+        "maximum_error_tolerances": maxima_tolerance,
         "global_violations": global_violations,
         "violations": violations,
         "timing": {"validation_wall_seconds": time.perf_counter() - started},

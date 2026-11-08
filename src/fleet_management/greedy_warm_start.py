@@ -175,7 +175,7 @@ def _cell_rows(cfg, i: int, l: int, profiles: dict) -> dict:
     bound = str(cfg.bound_method[i, l])
     tau, eps = float(cfg.tau[i, l]), float(cfg.epsilon[i, l])
     if model in ("gaussian", "wiener"):
-        row = {"kind": "quadratic", "q": "v", "c2": 1.0 / float(ndtri(1.0 - eps)) ** 2,
+        row = {"kind": "quadratic", "q": "v", "c2": 1.0 / float(-ndtri(eps)) ** 2,
                "c1": 0.0, "side": tau}
     elif model == "inverse_gaussian":
         from fleet_management.degradation_model.inverse_gaussian import ig_mean_cap

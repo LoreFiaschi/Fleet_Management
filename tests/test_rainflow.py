@@ -194,6 +194,8 @@ def _min_states(ctx) -> None:
     variables = list(ctx.mu_var.values()) + list(ctx.z_var.values())
     for q in ("v", "R", "K"):
         variables += list(ctx.state_vars[q].values())
+    variables += [y for table in ctx.start_vars.values() for y in table.values()]
+    variables += [y for table in ctx.start_anchor_vars.values() for y in table.values()]
     ctx.model.setObjective(gp.quicksum(variables), gp.GRB.MINIMIZE)
 
 

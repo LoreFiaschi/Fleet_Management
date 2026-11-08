@@ -41,7 +41,7 @@ class GaussianCellBuilder:
         """Dynamics, replacement, anchor and loop rows; reliability rows; repair cost."""
         T = ctx.T
         tau = float(ctx.tau[i, l])
-        kappa = float(ndtri(1.0 - float(ctx.eps[i, l])))
+        kappa = -float(ndtri(float(ctx.eps[i, l])))
         base.add_selector_rows(ctx, i, l)
         # Eqs. g_mu_carry ... g_anchor_keep
         base.add_quantity_rows(ctx, i, l, "mu",

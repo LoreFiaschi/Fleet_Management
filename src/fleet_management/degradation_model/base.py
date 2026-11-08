@@ -99,6 +99,8 @@ class FleetModel:
     # --- filled by the helpers of the builders' prepare hooks ---
     state_vars: dict = field(default_factory=dict)    # q -> {(i, l, k): Var}
     anchor_vars: dict = field(default_factory=dict)   # q -> {(i, l, k): Var}, ard1 cells
+    start_vars: dict = field(default_factory=dict)    # q -> {(i, l): Var}, start of the repetition y^s
+    start_anchor_vars: dict = field(default_factory=dict)   # q -> {(i, l): Var}, y^{g,s}, ard1 cells
     nb: dict = field(default_factory=dict)            # (i, l, k) -> selector n
     pwl_w: dict = field(default_factory=dict)         # (i, l, k, p) -> segment binary w
     # free-form per-model storage
@@ -227,12 +229,12 @@ def _make_progress_callback(interval_seconds: float):
             return
 
         incumbent = (
-            None if abs(incumbent_raw) >= 0.5 * GRB.INFINITY else incumbent_raw
+            None if abs(incumbent_raw) >= 0.5 * GRB.INFINITY else finite_or_none(incumbent_raw)
         )
-        bound = None if abs(bound_raw) >= 0.5 * GRB.INFINITY else bound_raw
+        bound = None if abs(bound_raw) >= 0.5 * GRB.INFINITY else finite_or_none(bound_raw)
         gap = None
         if incumbent is not None and bound is not None:
-            gap = abs(incumbent - bound) / max(abs(incumbent), 1e-10)
+            gap = finite_or_none(abs(incumbent - bound) / max(abs(incumbent), 1e-10))
 
         records = model._optimization_progress
         last_time = model._optimization_progress_last_time
@@ -265,13 +267,13 @@ def _initialize_progress(model, interval_seconds: float):
 
 def _append_final_progress(model) -> None:
     """Ensure the saved trajectory contains the final solver state."""
-    incumbent = float(model.ObjVal) if int(model.SolCount) > 0 else None
+    incumbent = finite_or_none(model.ObjVal) if int(model.SolCount) > 0 else None
     try:
-        bound = float(model.ObjBound)
+        bound = finite_or_none(model.ObjBound)
     except (AttributeError, gp.GurobiError):
         bound = None
     try:
-        gap = float(model.MIPGap) if int(model.SolCount) > 0 else None
+        gap = finite_or_none(model.MIPGap) if int(model.SolCount) > 0 else None
     except (AttributeError, gp.GurobiError):
         gap = None
     record = {
@@ -323,6 +325,33 @@ def _source_horizon(source: dict) -> tuple[int, int]:
     return values[0], values[1]
 
 
+def _check_completion_time_limit(source: dict) -> None:
+    """``ValueError`` if ``completion_time_limit`` is present but not a finite number >= 0.
+
+    Spec, "Interface and Reports" (invalid source). ``null`` and a flag are invalid.
+    """
+    if "completion_time_limit" not in source:
+        return
+    value = source["completion_time_limit"]
+    valid = (
+        isinstance(value, (int, float, np.integer, np.floating))
+        and not isinstance(value, (bool, np.bool_))
+        and math.isfinite(value)
+        and value >= 0
+    )
+    if not valid:
+        raise ValueError(
+            "'completion_time_limit' of a warm-start source must be a finite number >= 0; "
+            f"got {value!r}."
+        )
+
+
+def finite_or_none(value) -> float | None:
+    """``float(value)``, or ``None`` if it is ``inf``, ``-inf`` or ``NaN`` ("if available")."""
+    value = float(value)
+    return value if math.isfinite(value) else None
+
+
 def warm_start_day(k: int, H1: int, source_H1: int, source_H2: int) -> int:
     """Source day (0-based) whose values day ``k`` takes (spec, "Day Mapping", Eq. d_daymap).
 
@@ -357,6 +386,7 @@ def apply_binary_warm_start(ctx: FleetModel, source: dict | None, mode: str = "s
     if not source or source.get("x") is None:
         return {"applied": False, "values": 0, "mode": None, "source_horizon": None}
     H1_src, H2_src = _source_horizon(source)
+    _check_completion_time_limit(source)
     T_src = H1_src + H2_src
     x_src = np.asarray(source["x"], dtype=float)
     if x_src.ndim != 3 or x_src.shape[2] != T_src:
@@ -460,8 +490,30 @@ def complete_binary_warm_start(
     if not (requested and mode in ("start", "both") and report.get("applied", False)):
         return report
 
+    # A Gurobi error of the completion never stops the solve (spec, "Start, Hints and
+    # Completion"): the status becomes "error" and the solve goes on.
+    fixed = []
+    try:
+        _run_binary_completion(model, source, completion, fixed)
+    except gp.GurobiError:
+        completion["status"] = "error"
+        completion["values_copied"] = 0
+        completion["iis_constraints"] = []
+    finally:
+        for copy in fixed:
+            try:
+                copy.dispose()
+            except gp.GurobiError:
+                pass
+    return report
+
+
+def _run_binary_completion(model: gp.Model, source: dict, completion: dict, copies: list) -> None:
+    """Body of ``complete_binary_warm_start``; the model copy is appended to ``copies``
+    so that the caller disposes of it also after a Gurobi error."""
     model.update()
     fixed = model.copy()
+    copies.append(fixed)
     original_variables = model.getVars()
     fixed_variables = fixed.getVars()
     fixed_count = 0
@@ -489,8 +541,9 @@ def complete_binary_warm_start(
     completion["runtime_seconds"] = float(fixed.Runtime)
 
     if int(fixed.SolCount) > 0:
-        for original, candidate in zip(original_variables, fixed_variables):
-            original.Start = float(candidate.X)
+        solution = [float(candidate.X) for candidate in fixed_variables]
+        for original, value in zip(original_variables, solution):
+            original.Start = value
         completion["status"] = "completed"
         completion["values_copied"] = len(original_variables)
     else:
@@ -516,9 +569,6 @@ def complete_binary_warm_start(
             ]
             completion["iis_constraints"] = (rows + general)[:50]
 
-    fixed.dispose()
-    return report
-
 
 def apply_relaxation_warm_start(
     model: gp.Model,
@@ -542,35 +592,48 @@ def apply_relaxation_warm_start(
         "values_copied": 0,
         "runtime_seconds": None,
     }
-    model.update()
-    relaxed = model.copy()
-    relaxed.ModelName = f"{model.ModelName}_phase1_relaxation"
-    relaxed.Params.TimeLimit = max(1.0, float(time_limit))
-    relaxed.Params.MIPGap = 0.05
-    # type=0: sum of absolute violations; minrelax=False; variable bounds stay
-    # hard; linear constraints are relaxable.
-    relaxed.feasRelaxS(0, False, False, True)
-    relaxed.optimize()
-    diagnostics["runtime_seconds"] = float(relaxed.Runtime)
-    diagnostics["status"] = status_string(relaxed.Status)
-    if int(relaxed.SolCount) <= 0:
-        relaxed.dispose()
-        return diagnostics
+    relaxed = None
+    try:
+        model.update()
+        relaxed = model.copy()
+        relaxed.ModelName = f"{model.ModelName}_phase1_relaxation"
+        relaxed.Params.TimeLimit = max(1.0, float(time_limit))
+        relaxed.Params.MIPGap = 0.05
+        # type=0: sum of absolute violations; minrelax=False; variable bounds stay
+        # hard; linear constraints are relaxable.
+        relaxed.feasRelaxS(0, False, False, True)
+        relaxed.optimize()
+        diagnostics["runtime_seconds"] = float(relaxed.Runtime)
+        diagnostics["status"] = status_string(relaxed.Status)
+        if int(relaxed.SolCount) <= 0:
+            return diagnostics
 
-    diagnostics["relaxation_objective"] = float(relaxed.ObjVal)
-    relaxed_by_name = {var.VarName: var for var in relaxed.getVars()}
-    copied = 0
-    for variable in model.getVars():
-        if variable.VType not in {GRB.BINARY, GRB.INTEGER}:
-            continue
-        source = relaxed_by_name.get(variable.VarName)
-        if source is None:
-            continue
-        variable.Start = float(round(source.X))
-        copied += 1
-    diagnostics["values_copied"] = copied
-    relaxed.dispose()
-    return diagnostics
+        diagnostics["relaxation_objective"] = float(relaxed.ObjVal)
+        relaxed_by_name = {var.VarName: var for var in relaxed.getVars()}
+        starts = []
+        for variable in model.getVars():
+            if variable.VType not in {GRB.BINARY, GRB.INTEGER}:
+                continue
+            source = relaxed_by_name.get(variable.VarName)
+            if source is None:
+                continue
+            starts.append((variable, float(round(source.X))))
+        for variable, value in starts:
+            variable.Start = value
+        diagnostics["values_copied"] = len(starts)
+        return diagnostics
+    except gp.GurobiError:
+        # A Gurobi error of the relaxation start never stops the solve: no start is copied.
+        diagnostics["status"] = "error"
+        diagnostics["relaxation_objective"] = None
+        diagnostics["values_copied"] = 0
+        return diagnostics
+    finally:
+        if relaxed is not None:
+            try:
+                relaxed.dispose()
+            except gp.GurobiError:
+                pass
 
 
 # ===========================================================================
@@ -643,6 +706,8 @@ def build_context(cfg, opts: dict, model_name: str = "fleet_management") -> Flee
     )
     ctx.state_vars = {"mu": mu_var, "v": {}, "R": {}, "K": {}}
     ctx.anchor_vars = {q: {} for q in TRACKED_QUANTITIES}
+    ctx.start_vars = {q: {} for q in TRACKED_QUANTITIES}
+    ctx.start_anchor_vars = {q: {} for q in TRACKED_QUANTITIES}
     return ctx
 
 
@@ -672,7 +737,10 @@ def add_state_vars(ctx: FleetModel, q: str, cells, *, anchored: bool = True) -> 
     """State of ``q`` (not for the shared mean) and, at ard1 cells, its anchor.
 
     Both lie in the natural range of ``q`` (variable table; Eq. a_anchor).
-    ``anchored=False`` builds no anchor (Wiener variance).
+    ``anchored=False`` builds no anchor (Wiener variance). Also the start of the
+    repetition ``y^q`` of the cell and, with an anchor, ``y^{g,q}``: continuous, in
+    the same range, one per cell and no day index (they are ``ctx.start_vars[q]``
+    and ``ctx.start_anchor_vars[q]``, keyed ``(i, l)``).
     """
     md, T = ctx.model, ctx.T
     for i, l in cells:
@@ -680,8 +748,11 @@ def add_state_vars(ctx: FleetModel, q: str, cells, *, anchored: bool = True) -> 
         keys = [(i, l, k) for k in range(T)]
         if q != "mu":
             ctx.state_vars[q].update(md.addVars(keys, lb=0.0, ub=upper, name=q))
+        ctx.start_vars[q][i, l] = md.addVar(lb=0.0, ub=upper, name=f"y{q}_{i}_{l}")
         if anchored and str(ctx.repair_of[i, l]) == "ard1":
             ctx.anchor_vars[q].update(md.addVars(keys, lb=0.0, ub=upper, name=f"g{q}"))
+            ctx.start_anchor_vars[q][i, l] = md.addVar(
+                lb=0.0, ub=upper, name=f"yg{q}_{i}_{l}")
 
 
 def add_selector_vars(ctx: FleetModel, cells) -> None:
@@ -762,8 +833,10 @@ def add_quantity_rows(ctx: FleetModel, i: int, l: int, q: str, increments,
     """All generic rows of the tracked quantity ``q`` of cell ``(i, l)``, every day.
 
     The dynamics in the cell's encoding, the replacement rows (if replacement is
-    allowed), the anchor rows (at an ard1 cell) and the loop rows of the state and
-    of its anchor. ``increments[k]`` is the day increment of day index ``k``.
+    allowed), the anchor rows (at an ard1 cell), the start rows ``y >= state on day H1``
+    and the loop rows ``state_T <= y`` of the state and of its anchor. The rows of
+    day ``H1 + 1`` read the start of the repetition ``y`` instead of day ``H1``.
+    ``increments[k]`` is the day increment of day index ``k``.
     ``repair_keeps_state`` is for the Wiener variance: repair factor 1, no anchor,
     and in the big-M form one row replaces the carry and repair rows (Eq. w_vrow).
     """
@@ -791,14 +864,29 @@ def add_quantity_rows(ctx: FleetModel, i: int, l: int, q: str, increments,
     if len(increments) != T:
         raise ValueError(f"increments of {q!r} must hold {T} entries, got {len(increments)}")
 
+    y = ctx.start_vars[q].get((i, l))
+    y_g = ctx.start_anchor_vars[q].get((i, l)) if anchored else None
+    if y is None or (anchored and y_g is None):
+        raise ValueError(
+            f"start of the repetition of {q!r} missing at cell (i={i}, l={l}); "
+            "call add_state_vars in prepare"
+        )
+    H1 = ctx.H1
+
+    # Start rows: y >= the state (and the anchor) on day H1 (1-based; index H1 - 1)
+    md.addConstr(y >= S[i, l, H1 - 1], name=f"start_{q}_{i}_{l}")
+    if anchored:
+        md.addConstr(y_g >= G[i, l, H1 - 1], name=f"start_g{q}_{i}_{l}")
+
     for k in range(T):
         s = S[i, l, k]
-        s_prev = start if k == 0 else S[i, l, k - 1]
+        # day H1 + 1 (index H1) reads the start of the repetition y, not day H1
+        s_prev = start if k == 0 else (y if k == H1 else S[i, l, k - 1])
         xm = ctx.m_rep[i, l, k]
         xr = ctx.r_rep[i, l, k] if ctx.allow_replacement else 0.0
         if anchored:
             g = G[i, l, k]
-            g_prev = g_start if k == 0 else G[i, l, k - 1]
+            g_prev = g_start if k == 0 else (y_g if k == H1 else G[i, l, k - 1])
             psi = a * s_prev + (1.0 - a) * g_prev      # Eq. a_psi, ard1
         else:
             psi = a * s_prev                           # Eq. a_psi, ardinf
@@ -844,18 +932,19 @@ def add_quantity_rows(ctx: FleetModel, i: int, l: int, q: str, increments,
                 if ctx.allow_replacement:
                     md.addGenConstrIndicator(xr, True, g == s, name=f"g{q}_setr_{i}_{l}_{k}")
 
-    # Eq. a_loop
-    md.addConstr(S[i, l, T - 1] <= S[i, l, ctx.H1 - 1], name=f"loop_{q}_{i}_{l}")
+    # Eq. a_loop: the last day returns to the start of the repetition
+    md.addConstr(S[i, l, T - 1] <= y, name=f"loop_{q}_{i}_{l}")
     if anchored:
-        md.addConstr(G[i, l, T - 1] <= G[i, l, ctx.H1 - 1], name=f"loop_g{q}_{i}_{l}")
+        md.addConstr(G[i, l, T - 1] <= y_g, name=f"loop_g{q}_{i}_{l}")
 
 
 def add_repair_cost_rows(ctx: FleetModel, i: int, l: int) -> None:
     """Lower rows of the repair cost ``z`` at cell ``(i, l)`` (Eq. a_z).
 
     ``z_k >= rho (mu_{k-1} - g_{k-1}) - rho tau (1 - x^m_k)`` with ``g = 0`` at an
-    ardinf cell, on every day that has a ``z``. Nothing is built at a cell without
-    ``z``; there is no row on a replacement day.
+    ardinf cell, on every day that has a ``z``; on day ``H1 + 1`` the row reads
+    ``y^mu`` and ``y^{g,mu}`` for ``mu_{k-1}`` and ``g_{k-1}``. Nothing is built at a
+    cell without ``z``; there is no row on a replacement day.
     """
     md = ctx.model
     days = [k for k in range(ctx.T) if (i, l, k) in ctx.z_var]
@@ -871,9 +960,25 @@ def add_repair_cost_rows(ctx: FleetModel, i: int, l: int) -> None:
                 f"anchor of 'mu' missing at cell (i={i}, l={l}); call add_state_vars in prepare"
             )
         g_start = _cell_value(ctx.anchor_start["mu"], i, l, "starting anchor mu")
+    y_mu = ctx.start_vars["mu"].get((i, l))
+    y_g = ctx.start_anchor_vars["mu"].get((i, l)) if ard1 else None
+    if y_mu is None or (ard1 and y_g is None):
+        raise ValueError(
+            f"start of the repetition of 'mu' missing at cell (i={i}, l={l}); "
+            "call add_state_vars in prepare"
+        )
     for k in days:
-        mu_prev = mu_start if k == 0 else ctx.mu_var[i, l, k - 1]
-        g_prev = (g_start if k == 0 else G[i, l, k - 1]) if ard1 else 0.0
+        # day H1 + 1 (index H1) reads the start of the repetition y, not day H1
+        if k == 0:
+            mu_prev = mu_start
+        else:
+            mu_prev = y_mu if k == ctx.H1 else ctx.mu_var[i, l, k - 1]
+        if not ard1:
+            g_prev = 0.0
+        elif k == 0:
+            g_prev = g_start
+        else:
+            g_prev = y_g if k == ctx.H1 else G[i, l, k - 1]
         md.addConstr(
             ctx.z_var[i, l, k] >= rho * (mu_prev - g_prev) - rho * tau * (1 - ctx.m_rep[i, l, k]),
             name=f"z_{i}_{l}_{k}",
@@ -1155,7 +1260,8 @@ def cost_report(x, r, z, C_M, C_R, C_rep, C_D, u, H1: int, H2: int, evaluation_h
 
 
 _SOLUTION_KEYS = ("x", "m", "r", "idle", "mu", "v", "z", "R", "K",
-                  "g_mu", "g_v", "g_R", "g_K", "u")
+                  "g_mu", "g_v", "g_R", "g_K",
+                  "y_mu", "y_v", "y_R", "y_K", "y_g_mu", "y_g_v", "y_g_R", "y_g_K", "u")
 _COST_KEYS = ("step_costs", "J_initialization", "J_op", "J_op_average", "peak_damage",
               "damage_penalty", "operating_objective", "J_total",
               "projected_evaluation_cost", "evaluation_objective", "component_costs")
@@ -1169,6 +1275,14 @@ def _read_values(variables, shape) -> np.ndarray:
     return values
 
 
+def _read_binary_values(variables, shape) -> np.ndarray:
+    """Values of binary variables rounded to exactly 0 or 1 (Gurobi's integrality tolerance).
+
+    ``NaN`` stays where a key is absent.
+    """
+    return np.clip(np.rint(_read_values(variables, shape)), 0.0, 1.0)
+
+
 def extract_solution(ctx: FleetModel, cfg) -> dict:
     """The result dictionary of the spec ("Result Dictionary") without the reports.
 
@@ -1180,7 +1294,7 @@ def extract_solution(ctx: FleetModel, cfg) -> dict:
     F, M, L, T, H1, H2 = ctx.F, ctx.M, ctx.L, ctx.T, ctx.H1, ctx.H2
     model = np.asarray(cfg.model).astype(str)
     try:
-        bound = float(md.ObjBound)
+        bound = finite_or_none(md.ObjBound)
     except (AttributeError, gp.GurobiError):
         bound = None
 
@@ -1207,14 +1321,14 @@ def extract_solution(ctx: FleetModel, cfg) -> dict:
 
     out["objective"] = float(md.ObjVal)
     try:
-        out["mip_gap"] = float(md.MIPGap)
+        out["mip_gap"] = finite_or_none(md.MIPGap)
     except (AttributeError, gp.GurobiError):
         out["mip_gap"] = None
 
     shape = (F, L, T)
-    x = _read_values(ctx.x, (F, M + 1, T))
-    m = _read_values(ctx.m_rep, shape)
-    r = _read_values(ctx.r_rep, shape) if ctx.r_rep is not None else np.zeros(shape)
+    x = _read_binary_values(ctx.x, (F, M + 1, T))
+    m = _read_binary_values(ctx.m_rep, shape)
+    r = _read_binary_values(ctx.r_rep, shape) if ctx.r_rep is not None else np.zeros(shape)
     mu = _read_values(ctx.mu_var, shape)
     z = _read_values(ctx.z_var, shape)
     g_mu = _read_values(ctx.anchor_vars["mu"], shape)
@@ -1231,6 +1345,9 @@ def extract_solution(ctx: FleetModel, cfg) -> dict:
         "g_R": _read_values(ctx.anchor_vars["R"], shape),
         "g_K": _read_values(ctx.anchor_vars["K"], shape),
     })
+    for q in TRACKED_QUANTITIES:        # start of the repetition, (F, L); NaN where not tracked
+        out[f"y_{q}"] = _read_values(ctx.start_vars[q], (F, L))
+        out[f"y_g_{q}"] = _read_values(ctx.start_anchor_vars[q], (F, L))
 
     if str(ctx.opts["objective_mode"]) == "operating_average":
         # z is not built on the transitory days; Eq. c_zpost
@@ -1282,6 +1399,11 @@ def build_fleet(cfg, opts: dict, model_name: str = "fleet_management") -> FleetM
     # per-model preparation (variables of the model's own quantities, solver flags)
     for name in present:
         get_cell_builder(name).prepare(ctx, cfg, ctx.cells_of(name), opts)
+
+    # gurobi_params is set after every other option (spec, run options): a prepare hook
+    # may have set a flag such as NonConvex, so the user's entries are applied again.
+    for key, val in (opts["gurobi_params"] or {}).items():
+        ctx.model.setParam(key, val)
 
     # objective and the rows that do not depend on the model
     build_objective(ctx, cfg, opts)

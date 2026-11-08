@@ -103,7 +103,7 @@ def _solve_and_plot(input_path, results_path, plot_path):
 # ---------------------------------------------------------------------------
 def test_gamma_free_solve_cap_and_loop_rows(tmp_path):
     # spec, Gamma Model, Eq. gm_row: mu <= A_1(beta* tau, eps) / beta* on every day; Loop
-    # Constraint, Eq. a_loop: mu and the anchor g_mu at day T are not above day H1.
+    # Constraint, Eq. a_loop: mu and the anchor g_mu at day T are not above the start of the repetition y.
     _gurobi()
     from fleet_management import solve
     path = DATA / "gamma_only.yaml"
@@ -118,9 +118,15 @@ def test_gamma_free_solve_cap_and_loop_rows(tmp_path):
     assert np.all(mu <= cap + 1e-6)
     assert np.all(np.isnan(np.asarray(result["v"])))        # Ga tracks no variance
     h1, last = cfg.H1 - 1, cfg.T - 1
-    assert np.all(mu[:, :, last] <= mu[:, :, h1] + 1e-6)
+    # the loop rows return to the start of the repetition y, which is not below day H1
+    y_mu = np.asarray(result["y_mu"])
+    assert np.all(mu[:, :, h1] <= y_mu + 1e-6)
+    assert np.all(mu[:, :, last] <= y_mu + 1e-6)
     g_mu = np.asarray(result["g_mu"])
-    assert np.all(g_mu[:, 0, last] <= g_mu[:, 0, h1] + 1e-6)    # ard1 component
+    y_g_mu = np.asarray(result["y_g_mu"])
+    assert np.all(g_mu[:, 0, h1] <= y_g_mu[:, 0] + 1e-6)         # ard1 component
+    assert np.all(g_mu[:, 0, last] <= y_g_mu[:, 0] + 1e-6)
+    assert np.all(np.isnan(y_g_mu[:, 1]))                         # ardinf component: no anchor
     assert np.all(np.isnan(g_mu[:, 1, :]))                       # ardinf component: no anchor
 
 
@@ -221,7 +227,9 @@ def _solve_fixed(cfg, flights, repairs, replacements):
     for key, var in ctx.r_rep.items():
         var.LB = var.UB = 1.0 if key in replacements else 0.0
     states = (list(ctx.mu_var.values()) + list(ctx.anchor_vars["mu"].values())
-              + list(ctx.z_var.values()))
+              + list(ctx.z_var.values())
+              + [y for table in ctx.start_vars.values() for y in table.values()]
+              + [y for table in ctx.start_anchor_vars.values() for y in table.values()])
     ctx.model.setObjective(gp.quicksum(states), gp.GRB.MINIMIZE)
     ctx.model.optimize()
     return base.extract_solution(ctx, cfg)

@@ -42,7 +42,10 @@ def _ig_unit_log_sf(x: float, eta: float) -> float:
     r = 1.0 / math.sqrt(eta * x)
     first = float(log_ndtr(-r * (x - 1.0)))
     second = 2.0 / eta + float(log_ndtr(-r * (x + 1.0)))
-    return first + math.log1p(-math.exp(second - first))
+    gap = second - first
+    if gap >= -1e-16:          # 1 - exp(gap) rounds to 0: the second term is not resolved
+        return -math.inf       # the tail is negligible there (spec, Eq. ig_row)
+    return first + math.log1p(-math.exp(gap))
 
 
 def _ig_unit_quantile(eta: float, epsilon: float) -> float:

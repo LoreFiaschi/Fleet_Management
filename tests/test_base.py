@@ -164,6 +164,14 @@ _SOLUTION_KEYS = (
     "g_v",
     "g_R",
     "g_K",
+    "y_mu",
+    "y_v",
+    "y_R",
+    "y_K",
+    "y_g_mu",
+    "y_g_v",
+    "y_g_R",
+    "y_g_K",
     "u",
 )
 _COST_KEYS = (
@@ -268,6 +276,8 @@ def _min_states(ctx) -> None:
         list(ctx.mu_var.values())
         + list(ctx.state_vars["v"].values())
         + list(ctx.z_var.values())
+        + [y for table in ctx.start_vars.values() for y in table.values()]
+        + [y for table in ctx.start_anchor_vars.values() for y in table.values()]
     )
     ctx.model.setObjective(gp.quicksum(variables), gp.GRB.MINIMIZE)
 
@@ -528,7 +538,7 @@ def _assert_mean_trajectory(out: dict, repair: str) -> None:
 
 def _assert_untracked_keys(out: dict) -> None:
     """The keys that no tracked quantity feeds: NaN, and no idle component."""
-    for key in ("R", "K", "g_R", "g_K"):
+    for key in ("R", "K", "g_R", "g_K", "y_R", "y_K", "y_g_R", "y_g_K"):
         assert np.isnan(out[key]).all()
     np.testing.assert_allclose(out["idle"], 0.0, atol=1e-6)
 

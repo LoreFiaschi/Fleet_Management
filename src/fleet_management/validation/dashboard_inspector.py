@@ -14,7 +14,12 @@ from fleet_management.config import _lookup, load_config, read_input
 from fleet_management.degradation_model.gamma import mean_cap, smallest_rate
 from fleet_management.degradation_model.inverse_gaussian import ig_mean_cap
 from fleet_management.solver import read_result
-from fleet_management.validation.validator import LOOP_KEYS, check_result, check_sizes
+from fleet_management.validation.validator import (
+    LOOP_KEYS,
+    check_result,
+    check_sizes,
+    start_values,
+)
 
 
 # ---------------------------------------------------------------------------
@@ -80,7 +85,7 @@ def reliability_margins(cfg, result) -> np.ndarray:
 
     with np.errstate(divide="ignore", invalid="ignore"):
         kappa = np.log(1.0 / eps)
-        kg2 = ndtri(1.0 - eps) ** 2
+        kg2 = (-ndtri(eps)) ** 2
         c = kappa * cfg.support_const[:, :, None] / 3.0
         gaussian = np.minimum((tau - mu) ** 2 - kg2 * v, tau - mu)           # Eq. g_row
         margins = {
@@ -132,6 +137,9 @@ def margin_table(cfg, result, margins, tol) -> pd.DataFrame:
 
 def overview(cfg, result, table, n: int = 10) -> dict:
     """Summary of the tab "Overview" (spec, Dashboards, mode Result inspector)."""
+    # Largest mu/tau over every cell and day with a number, also where the margin is NaN.
+    mu_over_tau = np.asarray(result["mu"], dtype=float) / np.asarray(cfg.tau, dtype=float)[:, :, None]
+    finite = mu_over_tau[np.isfinite(mu_over_tau)]
     return {
         "status": result.get("status"),
         "objective": result.get("objective"),
@@ -140,26 +148,50 @@ def overview(cfg, result, table, n: int = 10) -> dict:
         "H2": cfg.H2,
         "T": cfg.T,
         "reliability_violations": int((~table["holds"]).sum()),
-        "largest_mu_over_tau": float(table["mu_over_tau"].max()),
+        "largest_mu_over_tau": float(finite.max()) if finite.size else float("nan"),
         "smallest_margins": table.nsmallest(n, "margin"),
     }
 
 
 def loop_table(cfg, result, tol) -> pd.DataFrame:
-    """The loop row of each cell and saved tracked quantity (Eq. a_loop)."""
-    columns = ["train", "component", "quantity", "value_at_H1", "value_at_T", "margin", "holds"]
+    """The loop rows of each cell and saved tracked quantity (Eq. a_loop).
+
+    With the saved start ``y_q`` of the repetitions: ``margin_T = y - q_T``, ``margin_H1 =
+    y - q_H1`` and ``margin`` their minimum. Without it (a result written before ``y``
+    existed): ``margin_T = q_H1 - q_T``, ``margin_H1`` and ``y`` are NaN, ``margin = margin_T``.
+    A row holds if ``margin >= -tol``.
+    """
+    columns = ["train", "component", "quantity", "value_at_H1", "y", "value_at_T",
+               "margin_T", "margin_H1", "margin", "holds"]
+    nan = float("nan")
     rows = []
-    for i in range(cfg.F):
-        for l in range(cfg.L):
-            for key in LOOP_KEYS:
-                if result.get(key) is None:
-                    continue
-                a = np.asarray(result[key], dtype=float)
+    for key in LOOP_KEYS:
+        if result.get(key) is None:
+            continue
+        a = np.asarray(result[key], dtype=float)
+        y = start_values(result, key)
+        for i in range(cfg.F):
+            for l in range(cfg.L):
                 first, last = float(a[i, l, cfg.H1 - 1]), float(a[i, l, cfg.T - 1])
-                if np.isfinite(first) and np.isfinite(last):
-                    rows.append([i + 1, cfg.component_names[l], key, first, last, first - last,
-                                 first - last >= -tol])
-    return pd.DataFrame(rows, columns=columns)
+                if not (np.isfinite(first) and np.isfinite(last)):
+                    continue
+                if y is None:
+                    margin_T, margin_H1, start = first - last, nan, nan
+                else:
+                    start = float(y[i, l])
+                    if not np.isfinite(start):
+                        continue                       # no start saved at this cell: skipped
+                    margin_T, margin_H1 = start - last, start - first
+                margin = margin_T if y is None else min(margin_T, margin_H1)
+                rows.append([i + 1, cfg.component_names[l], key, first, start, last,
+                             margin_T, margin_H1, margin, margin >= -tol])
+    table = pd.DataFrame(rows, columns=columns)
+    order = {(i + 1, name): n for i in range(cfg.F) for n, name in enumerate(cfg.component_names)}
+    keys = {key: n for n, key in enumerate(LOOP_KEYS)}
+    table = table.assign(_c=[order[(t, c)] for t, c in zip(table["train"], table["component"])],
+                         _q=[keys[q] for q in table["quantity"]])
+    table = table.sort_values(["train", "_c", "_q"], kind="stable").drop(columns=["_c", "_q"])
+    return table.reset_index(drop=True)
 
 
 def day_marks(result, i: int, l: int) -> list:
@@ -311,7 +343,9 @@ def render_result_inspector(state: dict) -> None:
         st.dataframe(shown.sort_values("margin"), hide_index=True)
 
     with tab_repeat:
-        st.write("Loop row of each cell and saved tracked quantity: the value at day T must "
+        st.write("Loop rows of each cell and saved tracked quantity: the values at days H1 and "
+                 "T must not exceed the start y of the repetitions (margins y - q_T and "
+                 "y - q_H1). A result without y is checked as before: the value at day T must "
                  "not exceed the value at day H1.")
         st.dataframe(loops, hide_index=True)
         violated = int((~loops["holds"]).sum())

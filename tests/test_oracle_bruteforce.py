@@ -135,6 +135,8 @@ def _solution(res):
     sol = {"x": _binary(res, "x"), "m": _binary(res, "m"), "r": _binary(res, "r")}
     for key in ("mu", "v", "R", "K", "g_mu", "g_v", "g_R", "g_K", "z"):
         sol[key] = np.asarray(res[key], dtype=float)
+    for key in ("y_mu", "y_v", "y_R", "y_K", "y_g_mu", "y_g_v", "y_g_R", "y_g_K"):   # start of the repetition
+        sol[key] = np.asarray(res[key], dtype=float)
     sol["u"] = float(res["u"])
     return sol
 
@@ -166,6 +168,10 @@ def _check_upper_bounds(cfg, res, sol):
                 tol = 1e-6 + 2e-5 * Ms
                 assert np.all(got[i, l] >= ref[i, l] - tol), \
                     f"{name} of cell {(i, l)} below the reference trajectory"
+                # the start of the repetition is at least the reference value on day H1, and in [0, M_s]
+                y = float(np.asarray(res["y_" + name], dtype=float)[i, l])
+                assert y >= traj[name][i, l, cfg.H1] - tol, f"y_{name} of cell {(i, l)} below day H1"
+                assert -tol <= y <= Ms + tol, f"y_{name} of cell {(i, l)} outside [0, {Ms}]"
 
 
 def _check_z_u_costs(cfg, res, sol):
@@ -240,14 +246,15 @@ def test_bruteforce_case(path):
 
     objective = float(res["objective"])
     ref = float(best["cost"])
-    slack = 1e-6 * max(1.0, abs(ref))
+    # Gurobi's FeasibilityTol is 1e-6 per row, so the optimum can differ from the reference by a few 1e-6.
+    slack = 1e-5 * max(1.0, abs(ref))
     assert objective <= ref + slack, \
         f"G1: the solver's optimum {objective} is above the best reference cost {ref}"
     if objective < ref - slack:                                          # G2
         print(f"G2 {name}: solver objective {objective!r} < reference best {ref!r}")
     ons = _onesided(path)                                                # G3
     ocost = float(ons["cost"])
-    oslack = 1e-6 * max(1.0, abs(ocost))
+    oslack = 1e-5 * max(1.0, abs(ocost))                                 # same reason as for slack
     if ons["exact"]:
         assert abs(objective - ocost) <= oslack, \
             f"G3: the solver's optimum {objective} differs from the spec's optimum {ocost}"

@@ -47,6 +47,8 @@ OBJECTIVE_MODES = ("total", "operating_average", "evaluation_total")
 REQUIRED_KEYS = ("F", "M", "H", "model", "tau", "epsilon", "rho", "mu_0", "mu",
                  "C_M", "C_R", "C_rep", "C_D")
 
+_ABSENT = object()      # marks a key that is not in the input (null is a value, not absence)
+
 RUN_OPTION_DEFAULTS = {
     "verbose": 1,
     "mip_gap": 0.1,
@@ -288,7 +290,7 @@ def _infer_L(data: dict, F: int) -> int:
 
 def _component_names(value, L: int) -> list[str]:
     """Return one stable, human-readable name for each component index."""
-    if value is None:
+    if value is _ABSENT:
         return [f"Component {index + 1}" for index in range(L)]
     if not isinstance(value, (list, tuple)):
         raise ValueError("'component_names' must be a list of L strings.")
@@ -317,8 +319,6 @@ def _run_options(data: dict, H1: int) -> dict:
     def fail(key, rule):
         raise ValueError(f"'{key}' must be {rule} (got {options[key]!r}).")
 
-    if isinstance(options["verbose"], (bool, np.bool_)):
-        options["verbose"] = int(options["verbose"])
     options["verbose"] = _integer(options["verbose"], "verbose")
     if options["verbose"] not in (0, 1):
         fail("verbose", "0 or 1")
@@ -335,6 +335,12 @@ def _run_options(data: dict, H1: int) -> dict:
     for key in ("gurobi_params", "validation"):
         if options[key] is not None and not isinstance(options[key], dict):
             fail(key, "a mapping")
+    block = options["validation"]
+    if block is not None and block.get("tolerance") is not None:      # null counts as absent
+        tolerance = _number(block["tolerance"], "validation.tolerance")
+        if not (math.isfinite(tolerance) and tolerance > 0.0):
+            raise ValueError(
+                f"'validation.tolerance' must be a finite number > 0 (got {block['tolerance']!r}).")
     if options["objective_mode"] not in OBJECTIVE_MODES:
         fail("objective_mode", f"one of {OBJECTIVE_MODES}")
     E = options["evaluation_horizon"]
@@ -660,7 +666,7 @@ def _derive(cfg: FleetConfig) -> None:
     m = _masks(cfg.model, cfg.bound_method, cfg.repair_model, cfg.reliability_impl)
     with np.errstate(divide="ignore", invalid="ignore"):
         kappa = np.log(1.0 / cfg.epsilon)
-        kappa_g = ndtri(1.0 - cfg.epsilon)
+        kappa_g = -ndtri(cfg.epsilon)
         b = np.nan_to_num(cfg.support_0, nan=0.0)
         for profile in (cfg.support, cfg.support_trans):
             if profile is not None:
@@ -749,7 +755,7 @@ def _quad_coefficients(cfg: FleetConfig, m: dict) -> tuple:
         chi = np.select([gw | m["cantelli"] | m["bernstein"], m["hoeffding"]],
                         [cfg.replacement_v, cfg.R_new], default=np.nan)
         c2 = np.select([gw, m["cantelli"], m["hoeffding"], m["bernstein"]],
-                       [1.0 / ndtri(1.0 - eps) ** 2, eps / (1.0 - eps), 2.0 / kappa,
+                       [1.0 / ndtri(eps) ** 2, eps / (1.0 - eps), 2.0 / kappa,
                         1.0 / (2.0 * kappa)], default=np.nan)
         c1 = np.select([gw | m["cantelli"] | m["hoeffding"], m["bernstein"]],
                        [0.0, -b / 3.0], default=np.nan)
@@ -924,7 +930,7 @@ def load_config(data: dict) -> FleetConfig:
 
     cfg = FleetConfig(
         F=F, M=M, L=L, H=H, H1=H1, H2=H2, T=T,
-        component_names=_component_names(data.get("component_names"), L),
+        component_names=_component_names(data.get("component_names", _ABSENT), L),
         model=model, repair_model=repair_model, bound_method=bound_method,
         reliability_impl=reliability_impl, encoding=encoding,
         tau=tau, epsilon=epsilon, tangent_ref=tangent_ref, rho=rho,

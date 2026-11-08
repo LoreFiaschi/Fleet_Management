@@ -50,6 +50,7 @@ CASES = [
 
 TRACKED_ARRAYS = ("mu", "v", "R", "K")
 ANCHOR_ARRAYS = ("g_mu", "g_v", "g_R", "g_K")
+START_ARRAYS = ("y_mu", "y_v", "y_R", "y_K", "y_g_mu", "y_g_v", "y_g_R", "y_g_K")   # start of the repetition
 
 
 def _data(name):
@@ -155,6 +156,10 @@ def _check_domains(cfg, res, const):
                     values = values[~np.isnan(values)]
                     assert np.all(values >= -tol), f"{key} below 0 at cell {(i, l)}: {values.min()}"
                     assert np.all(values <= Ms + tol), f"{key} above {Ms} at cell {(i, l)}: {values.max()}"
+                for key in ("y_" + q, "y_g_" + q):          # start of the repetition, in [0, M_s]
+                    y = float(np.asarray(res[key], dtype=float)[i, l])
+                    if not math.isnan(y):
+                        assert -tol <= y <= Ms + tol, f"{key} outside [0, {Ms}] at cell {(i, l)}: {y}"
     z = np.asarray(res["z"], dtype=float)
     assert np.all(z[~np.isnan(z)] >= -1e-6), "z below 0"
     assert float(res["u"]) >= -1e-6, "u below 0"
@@ -212,6 +217,8 @@ def test_solution_means_what_the_spec_says(name):
 
     # B. every row of the spec at the reported solution
     sol = {key: res[key] for key in TRACKED_ARRAYS + ANCHOR_ARRAYS + ("z", "u")}
+    for key in START_ARRAYS:
+        sol[key] = np.asarray(res[key], dtype=float)
     sol.update(x=x, m=m, r=r)
     violations = rm.row_violations(cfg, sol, tol=1e-6, bigm_tol=2e-5, quad_rel=1e-5)
     assert violations == [], violations[:10]
@@ -236,6 +243,11 @@ def test_solution_means_what_the_spec_says(name):
                     reported = np.asarray(res[key], dtype=float)[i, l]
                     assert np.all(reported >= ref - tol), \
                         f"{key} of cell {(i, l)} below the reference: {reported} vs {ref}"
+                    # the start of the repetition is at least the reference value on day H1; the days
+                    # after H1 start from it, so the reference trajectory stays a lower bound
+                    y = float(np.asarray(res["y_" + key], dtype=float)[i, l])
+                    assert y >= traj[key][i, l, cfg.H1] - tol, \
+                        f"y_{key} of cell {(i, l)} below the reference on day H1: {y}"
 
     # E. z, u and the cost report
     mode = cfg.options.get("objective_mode", "total")

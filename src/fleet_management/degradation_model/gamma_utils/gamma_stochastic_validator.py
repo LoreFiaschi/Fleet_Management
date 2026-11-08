@@ -35,6 +35,11 @@ from fleet_management.degradation_model.gamma_utils.gamma_replay_validator impor
     gamma_cells,
     validate_gamma_replay_schedule,
 )
+from fleet_management.validation.tolerance import (
+    binary_tolerance,
+    report_tolerance,
+    resolve_tolerance,
+)
 
 
 VALIDATION_MODES = ("deterministic", "stochastic", "both")
@@ -47,6 +52,7 @@ _SETTING_DEFAULTS = {
     "maximum_schedule_failure_rate": None,
     "confidence_level": 0.95,
     "batch_size": 20_000,
+    "tolerance": None,                                # None: the default per check
 }
 
 
@@ -92,7 +98,7 @@ def validate_gamma_stochastic_schedule(
     maximum_schedule_failure_rate: float | None = None,
     confidence_level: float = 0.95,
     batch_size: int = 20_000,
-    tolerance: float = 1e-8,
+    tolerance: float | None = None,
     raise_on_failure: bool = False,
 ) -> dict[str, Any]:
     """Replay one fixed schedule under independent exact Gamma realizations.
@@ -103,6 +109,11 @@ def validate_gamma_stochastic_schedule(
     ``valid`` is true if no target ``maximum_schedule_failure_rate`` is given or the
     observed schedule failure rate is at most the target. Every failure rate comes with
     its one-sided Clopper--Pearson upper bound at ``confidence_level``.
+
+    The tolerance only decides whether the saved binaries are binary: ``tolerance`` if it is
+    a number, else the key ``tolerance`` of the input block ``validation``, else ``IntFeasTol``
+    (``validation/tolerance.py``). The report key ``tolerance`` holds the value used, or the
+    two Gurobi tolerances.
     """
     repetitions = _integer(repetitions, "repetitions")
     random_seed = _integer(random_seed, "random_seed")
@@ -111,6 +122,8 @@ def validate_gamma_stochastic_schedule(
     if maximum_schedule_failure_rate is not None:
         maximum_schedule_failure_rate = _number(
             maximum_schedule_failure_rate, "maximum_schedule_failure_rate")
+    if random_seed < 0:
+        raise ValueError("random_seed must be a non-negative integer.")
     if repetitions <= 0:
         raise ValueError("repetitions must be positive.")
     if batch_size <= 0:
@@ -122,6 +135,8 @@ def validate_gamma_stochastic_schedule(
     ):
         raise ValueError("maximum_schedule_failure_rate must lie in [0, 1].")
     _check_tolerance(tolerance)
+    single = resolve_tolerance(cfg, tolerance)
+    tol_binary = binary_tolerance(cfg, single)
 
     started = time.perf_counter()
     F, M, L, T = cfg.F, cfg.M, cfg.L, cfg.T
@@ -142,9 +157,9 @@ def validate_gamma_stochastic_schedule(
         if (i, l) not in gamma_set
     ]
 
-    x = _binary(result, "x", (F, M + 1, T), tolerance)
-    m = _binary(result, "m", states, tolerance)
-    r = _binary(result, "r", states, tolerance, optional=True)
+    x = _binary(result, "x", (F, M + 1, T), tol_binary)
+    m = _binary(result, "m", states, tol_binary)
+    r = _binary(result, "r", states, tol_binary, optional=True)
     mu_inc, beta_inc = _increments(cfg)
 
     rng = np.random.default_rng(random_seed)
@@ -243,7 +258,7 @@ def validate_gamma_stochastic_schedule(
         "maximum_schedule_failure_rate": target,
         "confidence_level": confidence_level,
         "batch_size": batch_size,
-        "tolerance": float(tolerance),
+        "tolerance": report_tolerance(cfg, single),
         "scope": "Gamma cells only",
         "complete_fleet_validation": not excluded_cells,
         "excluded_cells": excluded_cells,
@@ -279,7 +294,9 @@ def _settings(cfg: FleetConfig, **arguments) -> dict[str, Any]:
     values = {}
     for key, default in _SETTING_DEFAULTS.items():
         argument = arguments.get(key)
-        values[key] = argument if argument is not None else block.get(key, default)
+        if argument is None:
+            argument = block.get(key)                 # a null in the block counts as absent
+        values[key] = argument if argument is not None else default
     if values["mode"] not in VALIDATION_MODES:
         raise ValueError(f"mode must be one of {VALIDATION_MODES} (got {values['mode']!r}).")
     return values
@@ -295,7 +312,7 @@ def validate_gamma_schedule(
     maximum_schedule_failure_rate: float | None = None,
     confidence_level: float | None = None,
     batch_size: int | None = None,
-    tolerance: float = 1e-8,
+    tolerance: float | None = None,
     raise_on_failure: bool = False,
 ) -> dict[str, Any]:
     """Run the replay validator, the Monte Carlo validator or both, as ``mode`` selects.
@@ -312,8 +329,10 @@ def validate_gamma_schedule(
         maximum_schedule_failure_rate=maximum_schedule_failure_rate,
         confidence_level=confidence_level,
         batch_size=batch_size,
+        tolerance=tolerance,
     )
     mode = settings.pop("mode")
+    tolerance = settings.pop("tolerance")             # None: each validator resolves its own
     if mode == "deterministic":
         report = validate_gamma_replay_schedule(
             cfg, result, tolerance=tolerance, raise_on_failure=False)

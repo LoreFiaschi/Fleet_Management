@@ -15,6 +15,13 @@ import yaml
 
 from fleet_management.config import INPUT_EXTENSIONS, FleetConfig, load_config, read_input
 from fleet_management.solver import RESULT_EXTENSIONS, read_result
+from fleet_management.validation.tolerance import (
+    binary_tolerance,
+    cost_tolerance,
+    report_tolerance,
+    resolve_tolerance,
+    state_tolerance,
+)
 
 REPORT_EXTENSIONS = (".yaml", ".yml", ".json")
 LOOP_KEYS = ("mu", "v", "R", "K", "g_mu", "g_v", "g_R", "g_K")
@@ -80,64 +87,103 @@ def recomputed_objective(cfg: FleetConfig, result: dict) -> float:
     return J_init + (E - cfg.H1) / cfg.H2 * J_op + penalty
 
 
-def _loop_violation(value, H1: int, T: int) -> float:
-    """Violation of the loop row of one quantity; NaN and null are skipped (spec, check loop_q)."""
+def start_values(result: dict, key: str):
+    """Saved start of the repetitions ``y_<key>`` as an ``F x L`` float array, or None.
+
+    None if the result has no such key or the key holds no number (a result written
+    before the start variables existed).
+    """
+    value = result.get(f"y_{key}")
     if value is None:
-        return 0.0
+        return None
+    y = np.asarray(value, dtype=float)
+    return y if np.isfinite(y).any() else None
+
+
+def _loop_cell_violations(value, H1: int, T: int, y=None) -> np.ndarray | None:
+    """Violation of the loop row of one quantity at every cell, an ``F x L`` array.
+
+    NaN and null are skipped (spec, check loop_q): such a cell has violation 0, and a null
+    quantity gives ``None``. With the start ``y``: ``max{0, q_T - y, q_H1 - y}``. Without it:
+    ``max{0, q_T - q_H1}``.
+    """
+    if value is None:
+        return None
     q = np.asarray(value, dtype=float)
-    excess = q[:, :, T - 1] - q[:, :, H1 - 1]
-    excess = excess[np.isfinite(excess)]
-    if excess.size == 0:
-        return 0.0
-    return max(0.0, float(excess.max()))
+    if y is None:
+        excess = q[:, :, T - 1] - q[:, :, H1 - 1]
+    else:
+        excess = np.fmax(q[:, :, T - 1] - y, q[:, :, H1 - 1] - y)
+    return np.fmax(excess, 0.0)             # fmax skips NaN
 
 
-def check_result(cfg: FleetConfig, result: dict, tol: float = 1e-6) -> dict:
+def _loop_violation(value, H1: int, T: int, y=None) -> float:
+    """Largest violation of the loop row of one quantity over the cells (spec, check loop_q)."""
+    cells = _loop_cell_violations(value, H1, T, y)
+    return 0.0 if cells is None else float(cells.max())
+
+
+def check_result(cfg: FleetConfig, result: dict, tol: float | None = None) -> dict:
     """Check a result against its input without files and return the report.
 
     Spec, section "Structural Validator": the checks, their order and the report keys.
+    The tolerance of a check is ``tol`` if it is a number, else the key ``tolerance`` of the
+    input block ``validation``, else a default per check from the Gurobi tolerances
+    (``validation/tolerance.py``). A check over several cells passes if no cell exceeds
+    its own tolerance; it reports the largest violation and the tolerance at that cell.
     """
     check_sizes(cfg, result)
+    single = resolve_tolerance(cfg, tol)
     x, m, r = (np.asarray(result[key], dtype=float) for key in ("x", "m", "r"))
     x0 = x[:, 0, :][:, None, :]
 
     checks = []
 
-    def add(name, violation):
+    def add(name, violation, tolerance=None):
+        """One check; ``violation`` and ``tolerance`` are numbers or arrays of the same shape."""
+        violation = np.asarray(violation, dtype=float)
+        tolerance = np.broadcast_to(np.asarray(tolerance, dtype=float), violation.shape)
+        worst = int(np.argmax(violation))
         checks.append(
             {
                 "name": name,
-                "passed": bool(violation <= tol),
-                "violation": float(violation),
-                "tolerance": float(tol),
+                "passed": bool(np.all(violation <= tolerance)),
+                "violation": float(violation.ravel()[worst]),
+                "tolerance": float(tolerance.ravel()[worst]),
             }
         )
 
-    add("binary", max(float(np.max(np.minimum(np.abs(a), np.abs(a - 1.0)))) for a in (x, m, r)))
-    add("one_activity", max(0.0, float(np.max(x.sum(axis=1) - 1.0))))
-    add("mission_coverage", float(np.max(np.abs(x[:, 1:, :].sum(axis=0) - 1.0))))
+    tol_binary = binary_tolerance(cfg, single)
+    add("binary", max(float(np.max(np.minimum(np.abs(a), np.abs(a - 1.0)))) for a in (x, m, r)),
+        tol_binary)
+    add("one_activity", max(0.0, float(np.max(x.sum(axis=1) - 1.0))), tol_binary)
+    add("mission_coverage", float(np.max(np.abs(x[:, 1:, :].sum(axis=0) - 1.0))), tol_binary)
 
     depot_gating = max(0.0, float(np.max(m + r - x0)))
     if not cfg.allow_replacement:
         depot_gating = max(depot_gating, float(np.max(r)))
-    add("depot_gating", depot_gating)
+    add("depot_gating", depot_gating, tol_binary)
 
     if result.get("idle") is not None:
         idle = np.asarray(result["idle"], dtype=float)
-        add("idle", float(np.max(np.abs(idle - (x0 - m - r)))))
+        add("idle", float(np.max(np.abs(idle - (x0 - m - r)))), tol_binary)
 
     for key in LOOP_KEYS:
-        add(f"loop_{key}", _loop_violation(result.get(key), cfg.H1, cfg.T))
+        cells = _loop_cell_violations(result.get(key), cfg.H1, cfg.T, start_values(result, key))
+        if cells is None:                             # a null quantity: no violation
+            cells = np.zeros((cfg.F, cfg.L))
+        add(f"loop_{key}", cells, state_tolerance(cfg, key, single))
 
     saved = float(result["objective"])
     recomputed = recomputed_objective(cfg, result)
-    add("objective", max(0.0, recomputed - saved) / max(1.0, abs(saved)))
+    add("objective", max(0.0, recomputed - saved) / max(1.0, abs(saved)),
+        cost_tolerance(cfg, single))
 
     return {
         "status": result.get("status"),
         "solver_objective": saved,
         "recomputed_objective": recomputed,
-        "tolerance": float(tol),
+        "tolerance": report_tolerance(cfg, single),
         "checks": checks,
         "passed": all(check["passed"] for check in checks),
         "max_violation": max(check["violation"] for check in checks),
@@ -148,7 +194,7 @@ def validate(
     input_path: str,
     results_path: str,
     validation_path: str = "validation.yaml",
-    tol: float = 1e-6,
+    tol: float | None = None,
 ) -> dict:
     """
     Check a saved result against its input and write the report (spec, "Structural Validator").
@@ -167,8 +213,10 @@ def validate(
         Path to save the validation report (.yaml, .yml or .json). A path without
         extension gets ".yaml"; the folder is created.
 
-    tol : float
-        Tolerance of the checks: a check passes if its violation is at most ``tol``.
+    tol : float, optional
+        One tolerance for every check: a check passes if its violation is at most ``tol``.
+        If ``None``, the key ``tolerance`` of the input block ``validation`` is used, else
+        a default per check from the Gurobi tolerances of the input (``tolerance.py``).
 
     Returns
     -------

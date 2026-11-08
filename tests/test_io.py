@@ -21,7 +21,7 @@ from fleet_management import config, solver
 # Helpers
 # ---------------------------------------------------------------------------
 def _result(solution: bool = True) -> dict:
-    """A result dictionary with the 51 keys of the spec, plus one key outside the table."""
+    """A result dictionary with the 59 keys of the spec, plus one key outside the table."""
     F, M, L, H1, H2, T = 2, 1, 2, 1, 2, 3
     nan = float("nan")
     arrays = np.arange(F * L * T, dtype=float).reshape(F, L, T)
@@ -30,6 +30,10 @@ def _result(solution: bool = True) -> dict:
     v_0 = np.full((F, L), 0.001)
     v_0[:, 1] = nan
     all_nan = np.full((F, L, T), nan)
+    y_mu = np.array([[0.5, 0.25], [0.5, 0.25]])        # start of the repetition, (F, L)
+    y_v = y_mu / 100.0
+    y_v[:, 1] = nan
+    y_nan = np.full((F, L), nan)
     result = {
         "status": "optimal",
         "objective": 12.5,
@@ -61,6 +65,14 @@ def _result(solution: bool = True) -> dict:
         "g_v": all_nan.copy(),
         "g_R": all_nan.copy(),
         "g_K": all_nan.copy(),
+        "y_mu": y_mu,
+        "y_v": y_v,
+        "y_R": y_nan.copy(),
+        "y_K": y_nan.copy(),
+        "y_g_mu": y_nan.copy(),
+        "y_g_v": y_nan.copy(),
+        "y_g_R": y_nan.copy(),
+        "y_g_K": y_nan.copy(),
         "u": np.float64(1.2),
         "step_costs": np.array([1.0, 2.0, 3.0]),
         "J_initialization": 1.0,
@@ -106,7 +118,8 @@ def _result(solution: bool = True) -> dict:
         for key in (
             "objective", "mip_gap", "bound",
             "x", "m", "r", "idle", "mu", "v", "z", "R", "K",
-            "g_mu", "g_v", "g_R", "g_K", "u",
+            "g_mu", "g_v", "g_R", "g_K",
+            "y_mu", "y_v", "y_R", "y_K", "y_g_mu", "y_g_v", "y_g_R", "y_g_K", "u",
             "step_costs", "J_initialization", "J_op", "J_op_average",
             "peak_damage", "damage_penalty", "operating_objective", "J_total",
             "component_costs",
@@ -299,7 +312,7 @@ def test_hdf5_round_trip(tmp_path) -> None:
     solver._save_results(result, tmp_path / "r.hdf5")
     with h5py.File(tmp_path / "r.h5", "r") as f:
         assert set(f.keys()) == set(solver._HDF5_DATASET_KEYS)
-        assert len(solver._HDF5_DATASET_KEYS) == 17
+        assert len(solver._HDF5_DATASET_KEYS) == 25
         for key in f.keys():
             assert f[key].dtype == np.float64
         assert np.isnan(f["v"][0, 1, 0])
@@ -307,6 +320,8 @@ def test_hdf5_round_trip(tmp_path) -> None:
         assert np.isnan(f["R"][()]).all()
         assert f["x"].shape == (2, 2, 3)
         assert f["tau"].shape == (2, 2)
+        assert f["y_mu"].shape == (2, 2) and f["y_mu"][0, 0] == 0.5
+        assert np.isnan(f["y_v"][0, 1]) and np.isnan(f["y_g_mu"][()]).all()
 
         attrs = f.attrs
         assert attrs["status"] == "optimal"
