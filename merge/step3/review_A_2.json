@@ -1,0 +1,134 @@
+{
+  "reviewer_id": "A2",
+  "status": "done. Walked config.py function by function against spec lines 354-604 and 2716-2832; checked solver.py and base.py (registry, extract_solution, cost_report, performance, optimization_progress) against spec 1713-1888 and 226-272. Ran config.py (no Gurobi) on edge inputs, the spec YAML example (loads, no warning) and writer/reader round trips in YAML, JSON and HDF5. Lists of rejected keys, canonical keys, required keys, result keys, HDF5 placement and performance keys match the spec exactly.",
+  "issues": [
+    {
+      "id": "A2-1",
+      "type": "wrong_logic",
+      "spec_reference": "spec.tex line 369: \"An integer key accepts a number with zero fractional part, such as 3.0; it refuses any other number, such as 2.5, and a flag.\" Line 489: verbose is an \"integer\", \"Gurobi output flag: 0 or 1\".",
+      "location": "src/fleet_management/config.py, _run_options, lines 320-322",
+      "description": "The code converts a flag into an integer before the integer check: `if isinstance(options[\"verbose\"], (bool, np.bool_)): options[\"verbose\"] = int(options[\"verbose\"])`. So `verbose: true` and `verbose: false` are accepted (tested: load_config with verbose=True returns without error). The spec lists verbose as an integer key and says an integer key refuses a flag. Every other integer key (F, M, L, H, pwl_points, evaluation_horizon) does refuse a flag (tested for pwl_points=True).",
+      "suggested_fix": "Either delete lines 320-321 so that `_integer` refuses a flag (consistent with the spec), or, if accepting flags is wanted, state in the row of verbose (line 489) that `true` and `false` are accepted and mean 1 and 0."
+    },
+    {
+      "id": "A2-2",
+      "type": "undocumented_behaviour",
+      "spec_reference": "spec.tex line 548: \"Every entry of component_names is a string that is not empty after blanks are removed.\" Line 391: component_names, \"Name of each component, used by the plots\".",
+      "location": "src/fleet_management/config.py, _component_names, line 303 (`names = [name.strip() for name in names]`)",
+      "description": "The code stores the names with leading and trailing blanks removed, and the stripped names reach the result key component_names and the plots. The spec only says the stripped entry must be nonempty; it does not say that the stored name is stripped. A name ' a ' becomes 'a' (tested).",
+      "suggested_fix": "Add to line 548 or to the table row at line 391: \"Blanks at the start and the end of a name are removed.\""
+    },
+    {
+      "id": "A2-3",
+      "type": "undocumented_behaviour",
+      "spec_reference": "spec.tex line 391: component_names default \"Component n for component n\"; line 364: \"where it applies, null is an error\"; line 542: \"At a cell where a key applies, every entry is a finite number (a string for a selector); null is an error.\"",
+      "location": "src/fleet_management/config.py, _component_names, lines 291-292 (`if value is None: return default names`)",
+      "description": "An explicit `component_names: null` (YAML null, JSON null) is treated like an absent key and gives the default names. All other defaulted keys with an explicit null either raise (selectors, cell values, pwl_points, penalty_type, flags, verbose) or are listed as 'none' defaults (evaluation_horizon, gurobi_params, validation). The spec does not say what null means for component_names.",
+      "suggested_fix": "State in the table row (line 391) that null is the same as an absent key, or raise a ValueError for null."
+    },
+    {
+      "id": "A2-4",
+      "type": "undocumented_behaviour",
+      "spec_reference": "spec.tex line 228: \"load_config: ... run the checks of Section consistency_checks (ValueError)\"; line 533-534: \"A violation raises a ValueError\". TypeError appears in the spec only for sweeps and validation tools (lines 1960, 2314, 2366).",
+      "location": "src/fleet_management/config.py, _check_keys lines 124-125 (TypeError \"input data must be a mapping (dict)\") and read_input lines 973-974 (TypeError when the file does not hold one mapping)",
+      "description": "solve and load_config raise TypeError, not ValueError, when the data is not a mapping (for solve: a YAML file that holds a list or a scalar; an empty YAML file gives None and also TypeError). The spec of the solve path does not mention this error type, although the sweep and validator sections do.",
+      "suggested_fix": "Add to Section 'Data Flow of One Solve' (step 2) or to 'Input File Schema', Format Rules: \"A file whose data are not one mapping raises a TypeError.\""
+    },
+    {
+      "id": "A2-5",
+      "type": "undocumented_behaviour",
+      "spec_reference": "spec.tex lines 2730-2731: \"An HDF5 file is flat: every key is an attribute or a dataset at the root. The reader makes one entry of every root attribute and root dataset; ... a text attribute that begins with { or [ is parsed as JSON.\"",
+      "location": "src/fleet_management/config.py, _read_hdf5 lines 986-989 and _hdf5_value lines 1007-1011",
+      "description": "Three error branches are not in the spec: (1) a root group raises ValueError \"HDF5 input must be flat\"; (2) a name that is both an attribute and a dataset raises ValueError; (3) a text attribute starting with { or [ that is not valid JSON raises ValueError. Also, the JSON parsing applies to attributes only, never to string datasets (the spec sentence is about attributes, but line 2737 says a selector array or component_names may be 'datasets of strings, or JSON text', which leaves a JSON-text dataset unclear).",
+      "suggested_fix": "Add to the HDF5 Layout: \"A group at the root, a name used by an attribute and a dataset, and a text attribute that begins with { or [ and is not valid JSON each raise a ValueError. JSON text is read from attributes only.\""
+    },
+    {
+      "id": "A2-6",
+      "type": "undocumented_behaviour",
+      "spec_reference": "spec.tex line 223 (signature of solve with warm_start_mode=\"start\") and lines 2160-2166 (modes \"start\", \"hint\", \"both\"); no sentence says what an invalid mode does.",
+      "location": "src/fleet_management/solver.py, solve_mapping lines 112-116 (WARM_START_MODES, ValueError); src/fleet_management/degradation_model/base.py, _check_warm_start_mode lines 295-298",
+      "description": "An invalid warm_start_mode raises ValueError, checked in solve_mapping and again in solve_mixed. In solve() the check runs after the input file is read, so a bad mode combined with a bad input file reports the input error first. The spec lists the checks of solve in Data Flow step 1 (input path, results path) and does not list this check or its place in the order.",
+      "suggested_fix": "Add to step 1 or to the paragraph after step 5 of 'Data Flow of One Solve': \"warm_start_mode other than start, hint or both raises a ValueError; it is checked in solve_mapping, after the input file is read.\""
+    },
+    {
+      "id": "A2-7",
+      "type": "wrong_logic",
+      "spec_reference": "spec.tex lines 506-507: \"A key of the table raises an error whose message names the canonical key and, where the meaning differs, the meaning of the canonical key.\" The rows at lines 516, 517, 521, 522, 523 end with a pointer \"(Section ...)\".",
+      "location": "src/fleet_management/config.py, _REJECTED_ROWS lines 98-112",
+      "description": "The messages of the code are the spec messages without the final section pointers: gamma_beta_bound and gamma_calibration_method (spec: 'Section dyn_gamma'), n_workers and warm_start (spec: 'Sections sweeps and warm_starts'), depot_capacity ('Section assignment'), C_P ('Section loop'). All other rows are identical. The spec heading says the table holds 'Message: canonical key and meaning', so the pointers are part of the table text, but a message cannot carry a LaTeX reference.",
+      "suggested_fix": "Move the section pointers out of the message column (put them in a separate sentence below the table), so that the table text equals the messages of the code. Alternatively add the section names to the messages."
+    },
+    {
+      "id": "A2-8",
+      "type": "undocumented_behaviour",
+      "spec_reference": "spec.tex line 462: \"mu_trans, v_trans, support_trans, cgf_trans ... Transitory-phase profile of the key; it requires the operating profile\"; line 578: \"A transitory profile has its operating profile.\"; line 366: \"A broadcast value ... is read only where the key applies.\"",
+      "location": "src/fleet_management/config.py, load_config lines 906-909",
+      "description": "The code raises \"'<key>_trans' needs the operating profile '<key>'\" whenever the transitory key is in the data and the operating key is not, even if the key applies at no cell of the fleet. Example: a fleet of IG cells with `support_trans` given and no `support`: ValueError (tested). The spec says the same sentence but also says that a key is read only where it applies; a reader may expect a key that applies nowhere to be ignored. For mu_trans the question does not arise (mu is always required).",
+      "suggested_fix": "State in line 578 that the check holds also where the key applies at no cell, or restrict the check in the code to keys that apply somewhere."
+    },
+    {
+      "id": "A2-9",
+      "type": "undocumented_behaviour",
+      "spec_reference": "spec.tex line 1731: \"bound_method, repair_model, reliability_impl, encoding | string, or F x L list of strings | ... one string if all cells agree, else a list; bound_method is null at a cell that is not rainflow\".",
+      "location": "src/fleet_management/degradation_model/base.py, collapse_selector lines 1075-1087 and extract_solution lines 1209-1210; src/fleet_management/solver.py, _text_output lines 203-207, _save_hdf5 lines 236-238",
+      "description": "When no cell is rainflow, every entry is null, the set of entries is {None}, and collapse_selector returns the scalar None (not a string and not a list). The key bound_method is then None in the result and is not written to YAML, JSON or HDF5 (the 'None is not written' rule). The spec table allows only a string or a list for this key, and does not say that a fleet without rainflow cells gives a null scalar.",
+      "suggested_fix": "Add to the description at line 1731: \"if no cell is rainflow, bound_method is null (a scalar) and is not written to a file\"."
+    },
+    {
+      "id": "A2-10",
+      "type": "undocumented_behaviour",
+      "spec_reference": "spec.tex line 1730: \"tau, mu_0, v_0 | F x L | Threshold, initial mean and initial variance of each cell, after broadcasting\".",
+      "location": "src/fleet_management/degradation_model/base.py, extract_solution line 1203 (`\"v_0\": np.asarray(cfg.v_0, dtype=float)`); config.py, cell value read only where the key applies (NaN elsewhere)",
+      "description": "v_0 is NaN at every cell that has no variance (IG, Ga, RF with Mk, Ho, Ch) and null in YAML and JSON files; read_result gives NaN there. The spec says NaN only for v, R, K, g_*, z, not for v_0. Without the sentence, a reader may expect 0 at those cells.",
+      "suggested_fix": "Add to line 1730: \"v_0 is NaN at cells that have no variance (IG, Ga, RF with Mk, Ho or Ch)\"."
+    },
+    {
+      "id": "A2-11",
+      "type": "wrong_logic",
+      "spec_reference": "spec.tex line 1723: \"objective, mip_gap, bound | --- or null | ... best bound, if available\"; lines 1763-1764 (rules for the values).",
+      "location": "src/fleet_management/degradation_model/base.py, extract_solution lines 1196-1199 (`bound = float(md.ObjBound)` inside try that catches only AttributeError and GurobiError)",
+      "description": "Gurobi sets ObjBound after a solve and raises an error if it is not available (Gurobi documentation, attribute ObjBound); the code then stores None, as the spec says. But when ObjBound is available and infinite (a minimisation with no lower bound, for example a stop at the time limit before any bound exists, or an unbounded status), the returned dictionary holds +-inf, not null. The files write null (the _to_plain rule), but HDF5 (attribute written from the raw float, solver.py line 248) keeps inf, as the test in the scratchpad shows: the YAML and JSON round trip gives None, the HDF5 round trip gives inf. The spec does not say that an infinite bound counts as 'not available'. The same holds for mip_gap (an infinite gap).",
+      "suggested_fix": "In extract_solution map a non-finite bound and a non-finite mip_gap to None; or state in the table (line 1723) that +-inf can occur and is kept in HDF5."
+    },
+    {
+      "id": "A2-12",
+      "type": "undocumented_behaviour",
+      "spec_reference": "spec.tex line 1798: \"variables | Variables; given with continuous_variables, integer_variables and binary_variables\".",
+      "location": "src/fleet_management/degradation_model/base.py, _model_statistics lines 1319-1322",
+      "description": "integer_variables is Gurobi's NumIntVars and continuous_variables is NumVars - NumIntVars. The Gurobi documentation says NumIntVars counts binary variables too. So integer_variables includes the binary variables and binary_variables is a part of it; the three entries do not partition the variables. The spec does not say it, and a reader may expect integer = non-binary integer.",
+      "suggested_fix": "Add to line 1798: \"integer_variables counts the binary variables too; continuous_variables = variables - integer_variables\"."
+    },
+    {
+      "id": "A2-13",
+      "type": "undocumented_behaviour",
+      "spec_reference": "spec.tex lines 1827-1833: records at the first report, after at least progress_interval_seconds, and when the number of solutions changes; \"The last record is the final state of the solve.\" Line 1823: \"incumbent, best_bound, relative_gap | null while Gurobi has none\".",
+      "location": "src/fleet_management/degradation_model/base.py, callback lines 235-239 and _append_final_progress lines 266-292",
+      "description": "relative_gap has two different definitions: in the callback records it is |incumbent - bound| / max(|incumbent|, 1e-10); in the final record it is Gurobi's MIPGap (and None when there is no solution). In the final step, a last record with the same runtime (within 1e-9 s) as the final state is replaced by the final-state record, otherwise one record is appended. The spec says only that the last record is the final state. The two gap definitions are not stated, and nodes is a float in every record (spec: 'number of nodes').",
+      "suggested_fix": "State in the table (line 1823) the formula of relative_gap and say that the final record uses Gurobi's MIPGap; or compute the final gap with the callback formula."
+    },
+    {
+      "id": "A2-14",
+      "type": "undocumented_behaviour",
+      "spec_reference": "spec.tex line 261: \"extract(ctx, cfg, out), optional: adds model-specific entries to the result out after the shared entries.\" Lines 1885-1887: result files and read_result hold \"exactly the keys of the result table\".",
+      "location": "src/fleet_management/solver.py, _text_output lines 200-208 and _save_hdf5 lines 235-248 (loop over RESULT_KEYS only); src/fleet_management/degradation_model/base.py, solve_mixed lines 1388-1392",
+      "description": "An entry that an extract hook adds to out under a name outside RESULT_KEYS is returned by solve but is never written to any result file, because the writers loop over RESULT_KEYS only. The spec does not say it. No builder defines an extract hook now, so the case is rare and the tests do not meet it.",
+      "suggested_fix": "Add to 'Result Files' (line 1881 list): \"Only the keys of the result table are written; an entry added by an extract hook is returned but not written.\""
+    },
+    {
+      "id": "A2-15",
+      "type": "wrong_logic",
+      "spec_reference": "spec.tex line 1885: \"NaN, +inf and -inf are written as null. ... HDF5 files keep NaN and +-inf (Section schema_hdf5).\" Line 2741: \"a list of strings, a mapping or a list of records is JSON text in an attribute\".",
+      "location": "src/fleet_management/solver.py, _save_hdf5 line 244 (`json.dumps(_to_plain(value), allow_nan=False)`)",
+      "description": "In HDF5, the keys written as JSON text (performance, optimization_progress, warm_start, relaxation_warm_start, component_costs, model, selector lists) go through _to_plain, which turns NaN and +-inf into null. So HDF5 does not keep inf there: component_costs with an inf cost cannot occur (checked finite), but performance entries such as requested_time_limit_seconds (Gurobi default inf when no limit is set through gurobi_params) are null in HDF5 JSON text. The sentence 'HDF5 files keep NaN and +-inf' is true for datasets and number attributes only.",
+      "suggested_fix": "Change line 1885 to: \"HDF5 datasets and number attributes keep NaN and +-inf; JSON text in an HDF5 attribute writes them as null.\""
+    },
+    {
+      "id": "A2-16",
+      "type": "wrong_logic",
+      "spec_reference": "spec.tex lines 171-215 (package layout of the repository).",
+      "location": "Worktree root: input/ (tracked, holds gamma_horizon_euler_convergence.yaml), scoping.tex, scoping.pdf, scoping_bib.bib, ASSESSMENT.md, lore-vs-main.md, Things to change.txt, merge/; pyproject.toml extras",
+      "description": "The layout lists pyproject.toml, README.md, spec/, remote_smoke_test.py, examples/, tests/, experiments/, results/validator_tests/, euler/ and src/. It omits the tracked folder input/ (an Euler experiment input), and the scoping files that the spec itself cites as 'the project scoping document'. pyproject.toml has the extras dev and dashboard; the layout names only dashboard. Spec line 191 also says config.py holds 'reader, checks, broadcasting' only, but it also holds the derived constants (support_const, range_*) and the replacement-state checks. Every file the layout does name exists.",
+      "suggested_fix": "Add input/, scoping.tex (with scoping_bib.bib) and the extra \"dev\" to the layout, or say the layout lists only the files that the package needs. Extend the config.py line with 'derived constants'."
+    }
+  ]
+}

@@ -1,0 +1,108 @@
+{
+  "reviewer_id": "A1",
+  "area": "A, inputs and outputs",
+  "status": "complete",
+  "evidence_basis": "Spec lines 1-604, 1709-1888, 2712-2834 read in full. Code: __init__.py, config.py, solver.py read in full; degradation_model/base.py read in the parts named in the brief (registry, run options, progress, build_context, objective, assignment/depot/penalty rows, result extraction, performance, solve_mixed). Behaviour checked by running load_config on the spec YAML example (passes, no warning), on 60 edge inputs, an HDF5 round trip of the example, and result-file writers/readers on a synthetic result (YAML, JSON, HDF5). Gurobi was not run. NumIntVars semantics checked in the Gurobi reference manual.",
+  "summary": "No wrong_logic found in the rejected-keys table, the consistency checks, the broadcasting rules, the phase lookup, the result keys, the units of the cost report, c_zpost, c_u, or the result-file layouts: all match the spec. The issues below are the deviations found.",
+  "issues": [
+    {
+      "id": "A1-1",
+      "type": "wrong_logic",
+      "severity": "medium",
+      "spec_reference": "spec.tex:493 'gurobi_params ... Gurobi parameters by name, set after every other option'; spec.tex:259 'prepare ... sets Gurobi's NonConvex to 2 if some cell keeps an exact quadratic row'.",
+      "location": "src/fleet_management/degradation_model/base.py:592-593 and 196-210 (gurobi_params applied in build_context); gaussian.py:37-38, wiener.py:41-42, rainflow.py:106-107 (Params.NonConvex = 2 in prepare, run later by build_fleet at base.py:1283-1284).",
+      "description": "build_context applies gurobi_params (apply_performance_params, base.py:592) when the model is created. Later build_fleet calls each builder's prepare, which executes `ctx.model.Params.NonConvex = 2` (gaussian.py:38, wiener.py:42, rainflow.py:107). So for any fleet with an exact quadratic row, the user's gurobi_params entry NonConvex (for example NonConvex: -1 or 1) is silently overwritten, and performance.requested_* does not show it. The spec states that gurobi_params is set after every other option, and the same spec says prepare sets NonConvex to 2. The two sentences conflict, and the code gives the win to prepare. A test that sets gurobi_params with another key (Threads, as in the spec example) never sees this.",
+      "suggested_fix": "Decide the rule. Either (a) re-apply gurobi_params after the prepare calls in build_fleet, so the user value of NonConvex wins; or (b) state in spec.tex:493 that NonConvex = 2 set by prepare overrides a NonConvex entry of gurobi_params. Option (a) fits the sentence 'set after every other option'."
+    },
+    {
+      "id": "A1-2",
+      "type": "wrong_logic",
+      "severity": "low",
+      "spec_reference": "spec.tex:369 'An integer key accepts a number with zero fractional part, such as 3.0; it refuses any other number, such as 2.5, and a flag.' spec.tex:489 'verbose | integer | 1 | Gurobi output flag: 0 or 1'.",
+      "location": "src/fleet_management/config.py:320-324 (_run_options).",
+      "description": "verbose is an integer key, so a flag must be refused. The code first converts a bool: `if isinstance(options['verbose'], (bool, np.bool_)): options['verbose'] = int(options['verbose'])`. So `verbose: true` is accepted and read as 1 (checked: load_config returns options['verbose'] == 1). All the other integer keys (F, M, L, H, pwl_points, evaluation_horizon) refuse a flag through _integer.",
+      "suggested_fix": "Delete the bool conversion at config.py:320-321 so that _integer raises ValueError on true/false, or, if the leniency is wanted, add it to the table row of verbose in spec.tex:489."
+    },
+    {
+      "id": "A1-3",
+      "type": "wrong_logic",
+      "severity": "low",
+      "spec_reference": "spec.tex:364 'where it applies, null is an error. The exceptions are the three keys without a default ...'; spec.tex:391 component_names default 'Component n for component n'; spec.tex:542 'At a cell where a key applies, every entry is a finite number (a string for a selector); null is an error.'",
+      "location": "src/fleet_management/config.py:289-292 and 927 (`_component_names(data.get('component_names'), L)`).",
+      "description": "component_names has a default, applies to all cells, and is not one of the three exceptions. The code reads it with data.get, so `component_names: null` (present key, value None) is treated as absent and gives the default names. Checked: load_config accepts it and returns ['Component 1']. By the spec rule it is an error. The same leniency exists for gurobi_params, validation and evaluation_horizon with null (their default is 'none', so these are less clear).",
+      "suggested_fix": "In load_config pass `data['component_names'] if 'component_names' in data else None` so that an explicit null raises ValueError ('component_names must be a list of L strings'). Or add null to the accepted forms in the spec row at line 391."
+    },
+    {
+      "id": "A1-4",
+      "type": "undocumented_behaviour",
+      "severity": "low",
+      "spec_reference": "spec.tex:548 'Every entry of component_names is a string that is not empty after blanks are removed.'; spec.tex:1729 'component_names | list of L strings | Names of the components'.",
+      "location": "src/fleet_management/config.py:303 (`names = [name.strip() for name in names]`).",
+      "description": "The check says an entry must not be empty after blanks are removed. The code does more: it stores the stripped names, so the result key component_names and the plot labels differ from the input when an input name has leading or trailing blanks (checked: '  a  ' becomes 'a'). The spec does not say that names are stripped. The result table says 'Names of the components' only.",
+      "suggested_fix": "Add to spec.tex:391 or 1729: 'Leading and trailing blanks of a name are removed.'"
+    },
+    {
+      "id": "A1-5",
+      "type": "undocumented_behaviour",
+      "severity": "low",
+      "spec_reference": "spec.tex:1730 'tau, mu_0, v_0 | F x L | Threshold, initial mean and initial variance of each cell, after broadcasting'; spec.tex:417 v_0 'Applies to G, W, RF (Ca, Be)'.",
+      "location": "src/fleet_management/config.py:881 (`v_0 = cv('v_0', m['variance'], 0.0)`); base.py:1195 (`'v_0': np.asarray(cfg.v_0, dtype=float)`).",
+      "description": "v_0 is read only where it applies (G, W, RF with Ca or Be), and the cell value is NaN elsewhere. The result key v_0 is this array unchanged, so it holds NaN at every IG, Gamma, Markov, Hoeffding and Chernoff cell (YAML and JSON: null). The spec gives the NaN rule for the result keys v, R, K, g_* and z but not for v_0, and 'after broadcasting' suggests a full array. A reader (validators, dashboards) that sums v_0 or tests it with `> 0` meets NaN.",
+      "suggested_fix": "Add to the row at spec.tex:1730: 'v_0 is NaN at cells that track no variance.' (or fill with 0 in the code, but then spec.tex:417 and the NaN list stay consistent only if the spec says so)."
+    },
+    {
+      "id": "A1-6",
+      "type": "undocumented_behaviour",
+      "severity": "low",
+      "spec_reference": "spec.tex:225-232 (data flow, the errors of each step) and spec.tex:534 (consistency checks: 'A violation raises a ValueError'); spec.tex:1960 lists TypeError for sweeps only ('the data of the input file are not a mapping').",
+      "location": "src/fleet_management/config.py:124-125 (_check_keys, `raise TypeError`), 973-974 (read_input, `raise TypeError`); solver.py:262 (read_result goes through read_input).",
+      "description": "For solve(), solve_mapping() and read_result(), an input or result file that does not hold a mapping (an empty YAML file gives None; a JSON list) raises TypeError, not ValueError. The spec data-flow section and the section on the input reader do not name this error. Only the sweep section (1960), the result validator (2314) and the report readers (2366) do.",
+      "suggested_fix": "Add to spec.tex step 2 of the data flow (line 227) and to the Format Rules (2720): 'A file whose data are not a mapping raises TypeError.'"
+    },
+    {
+      "id": "A1-7",
+      "type": "undocumented_behaviour",
+      "severity": "low",
+      "spec_reference": "spec.tex:1798 'variables | Variables; given with continuous_variables, integer_variables and binary_variables'.",
+      "location": "src/fleet_management/degradation_model/base.py:1318-1321.",
+      "description": "The code reports integer_variables = model.NumIntVars. In Gurobi, NumIntVars counts binary variables too (reference manual, Model Attributes: 'fully or partially discrete ... includes binary, integer, semi-continuous, and semi-integer variables'). So integer_variables includes binary_variables, and continuous_variables = NumVars - NumIntVars is right, but variables != continuous + integer + binary (binaries are counted twice). The spec does not say whether the three counts are disjoint, and a reader will assume that they are (sum = variables). In this model every integer variable is binary, so integer_variables always equals binary_variables.",
+      "suggested_fix": "Either state in spec.tex:1798 'integer_variables counts the binary variables too', or report NumIntVars - NumBinVars for integer_variables (zero here) so the three entries add up to variables."
+    },
+    {
+      "id": "A1-8",
+      "type": "undocumented_behaviour",
+      "severity": "low",
+      "spec_reference": "spec.tex:1799 'linear_constraints, general_constraints, indicator_constraints, quadratic_constraints | Rows of each of the four kinds'.",
+      "location": "src/fleet_management/degradation_model/base.py:1322-1325 and 1312-1314.",
+      "description": "general_constraints = model.NumGenConstrs, and indicator_constraints counts the members of getGenConstrs() of type INDICATOR. In Gurobi an indicator constraint is a general constraint, so the indicator count is a subset of the general count (in a model built with encoding indicator, general_constraints >= indicator_constraints, and in this package they are equal because no other general constraint is used). 'Four kinds' reads as four disjoint counts.",
+      "suggested_fix": "State in spec.tex:1799 that general_constraints includes the indicator constraints, or report NumGenConstrs minus the indicator count."
+    },
+    {
+      "id": "A1-9",
+      "type": "undocumented_behaviour",
+      "severity": "low",
+      "spec_reference": "spec.tex:1804 'branch_and_bound_nodes, simplex_iterations, barrier_iterations | Counts of nodes and of iterations'; spec.tex:1824 'nodes, solutions | Number of nodes and number of solutions'.",
+      "location": "base.py:225 and 282 (nodes = float(...)), 1329-1331 (float(model.NodeCount), float(model.IterCount), float(model.BarIterCount)).",
+      "description": "The counts of nodes and iterations are Python floats (Gurobi returns doubles). In YAML and JSON they are written as 12.0, not 12. solutions and solutions_found are int. The spec calls all of them counts and does not give a type.",
+      "suggested_fix": "Add a sentence in spec.tex:1793: 'Counts of nodes and iterations are floats, as Gurobi gives them', or convert them with int()."
+    },
+    {
+      "id": "A1-10",
+      "type": "undocumented_behaviour",
+      "severity": "low",
+      "spec_reference": "spec.tex:1815 'threads, seed | Number of threads and random seed'.",
+      "location": "base.py:1398-1399 (int(ctx.model.Params.Threads), int(ctx.model.Params.Seed)).",
+      "description": "The entries are the parameter values (as with requested_time_limit_seconds and requested_mip_gap, which sit in the block 'Settings'), not the threads actually used. With the Gurobi default, threads is 0, which means 'automatic'. The spec text 'Number of threads' invites a reader to expect the real number.",
+      "suggested_fix": "Write in spec.tex:1815: 'Value of the Gurobi parameters Threads and Seed (Threads = 0 means that Gurobi chooses)'."
+    },
+    {
+      "id": "A1-11",
+      "type": "undocumented_behaviour",
+      "severity": "low",
+      "spec_reference": "spec.tex:171-215 (package layout tree of Fleet_Management/).",
+      "location": "Worktree root: input/gamma_horizon_euler_convergence.yaml is tracked (git ls-files input -> 1 file); scoping.tex, scoping.pdf, scoping_bib.bib, ASSESSMENT.md, lore-vs-main.md, 'Things to change.txt', merge/ are at the root too.",
+      "description": "The layout tree lists spec/, examples/, tests/, experiments/, results/validator_tests/, euler/ and src/ but not the tracked directory input/ (it holds a file that a README example or an Euler job may read). CLAUDE.md says input/ is git-ignored and absent on the lore branch, so on the merged branch this is a new tracked directory. Root documents (scoping.tex and others) are also absent from the tree; the spec text refers to the scoping document elsewhere.",
+      "suggested_fix": "Add a line for input/ (with its purpose) to the tree, or untrack it. List scoping.tex if the tree is meant to be complete."
+    }
+  ]
+}

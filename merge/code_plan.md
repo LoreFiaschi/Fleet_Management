@@ -13,7 +13,11 @@ Status (28 Oct 2026): WP0 to WP3 done. Worktree `C:\Users\utente\Documents\GitHu
 - WP7, commit 7e35db4: sweeps, warm starts, plots, validators, public API; 17 dropped files removed. Plans and
   reviews in `wp7_plan_sweeps.md`, `wp7_plan_plots.md`, `wp7_plan_validator.md`, `wp7_plan_gamma_validators.md`.
 
-No local installs (the user's choice); Claude commits on that branch at each commit point. Next: WP8.
+No local installs (the user's choice); Claude commits on that branch at each commit point. WP8 done, commit 8cf16c1 (7 Nov 2026): split and rules in
+[`wp8_interface.md`](wp8_interface.md); four planners (`io`, `oracle`, `tools`, `legacy`); own test inputs, so `lore`'s
+`input/` folder is no longer needed; Gurobi runs on Euler (`EULER.md`).
+For step 4 (README): the quick start still reads `input/data.yaml`, which WP8 removed (old keys); use
+`examples/smoke/mixed_example.yaml` (the spec example).
 
 - **Purpose.** How the code of the merged package is built from `main`: the work packages, their order, what each
   needs before it starts, and who does it.

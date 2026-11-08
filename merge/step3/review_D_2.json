@@ -1,0 +1,124 @@
+{
+  "reviewer_id": "D2",
+  "area": "D, plots and validation tools",
+  "status": "complete; all code files of area D read in full; the sweep-plot TypeError and the numpy seed error were reproduced, the series underflow was reproduced",
+  "issues": [
+    {
+      "id": "D2-1",
+      "type": "wrong_logic",
+      "severity": "medium",
+      "spec_reference": "spec.tex 2359 and 2374: 'the reports must agree in F, M, L, H1' and 'a size that the reports do not give is left out'. Decisive sentence (2374): \"Title. ... a size that the reports do not give is left out.\"",
+      "location": "src/fleet_management/utils/plotter.py lines 149-155 (merged report, key \"H1\": H1 may be None) and line 199 (`int(report.get(\"H1\", 0))` inside the default argument of `case.get(\"T\", ...)`)",
+      "description": "When two or more reports are plotted and no report gives H1 (neither fixed_dimensions.H1 nor the key H1), `_merge_horizon_sweep_reports` returns the key \"H1\": None. In `_normalise_horizon_sweep` the default argument of `case.get(\"T\", int(report.get(\"H1\", 0)) + int(case[\"H2\"]))` is evaluated even when the case has a key T. `report.get(\"H1\", 0)` returns None because the key exists, so `int(None)` raises TypeError. Reproduced: two reports {\"cases\":[{\"H2\":2,...}]} give 'TypeError: int() argument must be ... not NoneType'; the same single report plots without error. The spec says the title leaves out the missing size, and lists only ValueError, TypeError for non-mapping data. The row key T is never used by the plot.",
+      "suggested_fix": "Delete the key T from the rows (it is unused), or use `int(report.get('H1') or 0)` and do not evaluate the default when the case has T. Keep the title logic that skips None sizes."
+    },
+    {
+      "id": "D2-2",
+      "type": "wrong_logic",
+      "severity": "low",
+      "spec_reference": "spec.tex 2650: \"random_seed ... Seed of the generator; the same arguments give the same report; an integer; a number with zero fractional part is accepted, a flag is not\"",
+      "location": "src/fleet_management/degradation_model/gamma_utils/gamma_stochastic_validator.py lines 108 and 150 (`_integer(random_seed)`, then `np.random.default_rng(random_seed)`)",
+      "description": "The spec accepts any integer as seed. The code accepts it in `_integer`, but numpy rejects a negative integer: `np.random.default_rng(-1)` raises 'ValueError: expected non-negative integer' (checked). So random_seed=-1 raises a ValueError from numpy, after the argument checks and after gamma_cells, with a message that does not name the argument. Also, the report is not strictly 'the same' for the same arguments, because it holds the timing (spec 2677 lists timing as a key).",
+      "suggested_fix": "Either state in the spec 'a non-negative integer' and check it with a message that names random_seed, or map any integer to a non-negative one (for example `abs(seed)` or `np.random.SeedSequence` on the value modulo 2**64). Add 'except for timing' to 'the same report'."
+    },
+    {
+      "id": "D2-3",
+      "type": "undocumented_behaviour",
+      "severity": "medium",
+      "spec_reference": "spec.tex 2621-2624: Errors table of the exact validator lists one error: \"RuntimeError: the series does not reach convolution_tolerance within max_series_terms terms\"",
+      "location": "src/fleet_management/degradation_model/gamma_utils/gamma_tail_bound.py lines 75-81 (initial weight underflow) and lines 127-144 (`_validate_parameters`, ValueError)",
+      "description": "The code raises a second RuntimeError: when the initial mixture weight exp(sum_i shape_i ln(beta_i/beta_max)) is 0 in numpy.longdouble. On Windows longdouble is float64 (the code comment says so), so the weight underflows when the sum is below about -745. Reproduced: shapes [2000, 3000], rates [1, 0.3], threshold 5000 give 'RuntimeError: The Moschopoulos initial mixture weight underflowed'. Gamma shapes are mean*rate, so rates of a few hundred with several missions reach this range. The spec does not state this error, nor the conditions under which the validator is unusable. The dashboard 'Gamma diagnostic' shows it as 'Could not load the files'.",
+      "suggested_fix": "Add to the Errors table of the exact validator: RuntimeError also when the initial mixture weight underflows (the platform's longdouble range limits the sum of shape*ln(rate ratio)). Better: compute the weights in log scale or scaled by the first weight, so the error disappears."
+    },
+    {
+      "id": "D2-4",
+      "type": "undocumented_behaviour",
+      "severity": "low",
+      "spec_reference": "spec.tex 2592: \"max_series_terms | 100000 | Must be positive; maximum number of series terms\"",
+      "location": "src/fleet_management/degradation_model/gamma_utils/gamma_tail_validator.py lines 133-135 (`_integer(max_series_terms, ...)`)",
+      "description": "The code also requires an integer: a float with zero fractional part is accepted, a bool, a non-integer float or a string raises ValueError. The spec states 'integer, zero fractional part accepted, flag not' for repetitions, random_seed and batch_size (2649-2653) but not for max_series_terms. The code also allocates two arrays of max_series_terms long doubles (gamma_tail_bound.py lines 89-90), so a very large value (for example 10**9) fails with MemoryError, not with a documented error.",
+      "suggested_fix": "Add 'an integer; a number with zero fractional part is accepted, a flag is not' to the rule of max_series_terms, and note the memory use (or grow the arrays on demand)."
+    },
+    {
+      "id": "D2-5",
+      "type": "undocumented_behaviour",
+      "severity": "low",
+      "spec_reference": "spec.tex 2572: \"... transitions checked, repairs, replacements: ... numbers of repairs and replacements\"; 2506: the dashboard overview shows repairs and replacements of the replay report; 2345: the schedule plot counts 'over all cells and days'",
+      "location": "gamma_replay_validator.py lines 262-267 (counters inside the loop over Gamma cells) and 292-296; gamma_tail_validator.py lines 179-188 and 248-252",
+      "description": "repairs and replacements of the replay and exact reports count events only over the Gamma cells (a repair of a non-Gamma cell is not counted, a repair of a Gamma cell is counted once per cell). The spec does not say over which cells they are counted, while the plot and the Result inspector count over all cells. In a mixed fleet the Gamma diagnostic overview therefore shows other numbers than the schedule plot for the same result. Also transitions_checked = (number of Gamma cells) * T is not defined in the spec.",
+      "suggested_fix": "State in the spec: 'repairs and replacements are counted over the Gamma cells and all days; transitions_checked is the number of Gamma cells times T'."
+    },
+    {
+      "id": "D2-6",
+      "type": "wrong_logic",
+      "severity": "low",
+      "spec_reference": "spec.tex 2525: \"... a required array is missing, has a wrong shape, or has a non-finite entry at a cell where it is read\"; 2560: removed_mean \"skipped where z is NaN (C_R = 0)\"",
+      "location": "gamma_replay_validator.py line 236 (`z = _array(result, \"z\", states, [])`) and lines 277-280",
+      "description": "z is read with an empty list of cells, so no entry is checked. NaN is the documented 'not built' value and is skipped. A value of +inf or -inf at a Gamma cell is also read by the removed_mean check, so the spec requires a ValueError. The code accepts it: for z=+inf the error is max(0, removed - inf) = 0, so the validator passes silently; for z=-inf the error is inf and a record with 'null' values is written. (YAML and JSON result files write inf as null, which read_result turns into NaN, so only an in-memory result or an HDF5 file can show this.)",
+      "suggested_fix": "After the read, raise ValueError for any entry of z at a Gamma cell that is infinite (`np.isinf`), or state in the spec that only NaN is excluded from the check."
+    },
+    {
+      "id": "D2-7",
+      "type": "undocumented_behaviour",
+      "severity": "low",
+      "spec_reference": "spec.tex 2543: \"a result horizon other than T\" (global violation); 2303: the plot says 'a key T must equal it', so T is optional there",
+      "location": "gamma_replay_validator.py lines 143-145 (`horizon = result.get(\"T\")`; `None` also gives a violation)",
+      "description": "A result without the key T (read_result gives None for a missing key) gets the global violation 'result horizon T=None differs from the input T=...', so valid is false, in the replay, exact and both-mode reports. The spec only names a horizon 'other than T'. The structural validator and the dashboards do not need the key T (check_sizes uses H1 and H2), and the plot treats T as optional. A hand-made result without T passes the structural validator and fails the Gamma replay.",
+      "suggested_fix": "State in the spec that a missing T counts as a global violation, or compute the horizon from the shape of mu or x as the plot does."
+    },
+    {
+      "id": "D2-8",
+      "type": "partial_implementation",
+      "severity": "low",
+      "spec_reference": "spec.tex 2389-2393: \"The tools check a saved result against its input. ... Each tool: ... takes the model of each cell from the result key model.\"",
+      "location": "src/fleet_management/validation/validator.py (whole file: `check_sizes`, `check_result`, `validate`)",
+      "description": "The structural validator never reads the key model. It does not compare it with the input, and it does not need it, because the loop checks skip NaN entries. The Result inspector (dashboard_inspector.load_pair lines 32-36) and the Gamma validators do read it. The sentence 'Each tool takes the model of each cell from the result key model' is therefore not true for validate and check_result.",
+      "suggested_fix": "Move the third bullet to the dashboards and the Gamma validators, or say 'the tools of Sections ... except the structural validator'."
+    },
+    {
+      "id": "D2-9",
+      "type": "wrong_logic",
+      "severity": "low",
+      "spec_reference": "spec.tex 2431: depot_gating, violation: \"the largest excess of the left side over the right side\" (the checks one_activity, mission_coverage and objective write max{0, ...} explicitly, 2429, 2434)",
+      "location": "src/fleet_management/validation/validator.py lines 120-123",
+      "description": "The code reports max(0, max(m + r - x0)) and, without replacement, max(depot_gating, max(r)). Read literally, the spec's violation is the signed largest excess, which is -1 for a schedule with no intervention (x0 = 1, m = r = 0) and 0 only at equality. The pass test is the same, but the reported violation and the report key max_violation are not the same if all checks are negative. The spec uses the explicit clamp for other rows, so the omission looks like a drafting gap.",
+      "suggested_fix": "Write max{0, ...} in the violation of depot_gating in the spec (the code is then correct), and say that the replacement condition adds max r."
+    },
+    {
+      "id": "D2-10",
+      "type": "undocumented_behaviour",
+      "severity": "low",
+      "spec_reference": "spec.tex 2318-2346 (layout and summary panel of the schedule plot) and 2370-2382 (content of the sweep plot)",
+      "location": "plotter.py lines 285-288, 409-414, 422-428, 562-573, 618, 634, 553, 588; _draw_horizon_sweep and _draw_solution",
+      "description": "The code draws or applies things that the spec does not state: (1) sweep plot: a grey line through all cases in panel (a) (drawn when more than one case is feasible) and in panel (b), a footnote 'Lines connect sampled horizons only; they are not extrapolations...', tick thinning to every second H2 above 10 cases, panel titles 'Operating objective', 'MIP gap', 'Formulation growth', the legend 'best feasible' as a plus marker; (2) schedule plot: the dashed line and the labels 'transitory' and 'operating' are drawn only if 0 < H1 < T (the spec says they are always drawn; the plot accepts H1 = 0 or H2 = 0 because it reads only the result file); the panel adds the row 'Counts from' that names the source, and writes the status with underscores replaced by spaces ('time limit'); titles 'Fleet-management result overview' and 'Schedule and tracked mean degradation'; the file is saved at 170 dpi with a tight box.",
+      "suggested_fix": "Add one sentence each to the spec, or state that only the elements listed are normative. For the H1 condition: state it, or draw the line and labels whenever H1 and H2 are positive."
+    },
+    {
+      "id": "D2-11",
+      "type": "undocumented_behaviour",
+      "severity": "low",
+      "spec_reference": "spec.tex 2459-2506 (dashboards): sidebar, tabs and their content",
+      "location": "validator_dashboard.py lines 34-37; dashboard_inspector.py lines 118-130, 242, 335-338, 351-354; dashboard_gamma.py lines 24-34, 143, 171-178, 195-203",
+      "description": "Elements that the spec does not state: sidebar default paths 'input.yaml' and 'output.yaml'; the margin table adds the columns phase, mu, tau, mu_over_tau, holds and drops the rows without a margin, and it is what the tab 'Raw data' shows and exports (as 'result_inspector.csv'), not 'the data' of the result; the Component comparison tab adds a table by train with largest mu and smallest margin; the margin heatmap and the tail heatmap have a black line after day H1; the Gamma tabs show 'holds' and a table per cell, a list 'Global violations', two CSV exports ('gamma_means.csv', 'gamma_tails.csv'); the Overview largest mu/tau is taken over the rows that have a margin only.",
+      "suggested_fix": "Add the elements to the spec (one line each), or say that the page layout is not normative. State what 'Raw data' holds."
+    },
+    {
+      "id": "D2-12",
+      "type": "undocumented_behaviour",
+      "severity": "medium",
+      "spec_reference": "spec.tex 2683: cells: \"... failure_rate with its bound, worst_time_step with its failures, rate and bound ...\"; 2572: \"dimensions\"; 2633: steps key \"terms\"; 2620-2634",
+      "location": "gamma_stochastic_validator.py lines 217-235; gamma_replay_validator.py line 291; gamma_tail_validator.py lines 224-237, 79-85 (as_dict); gamma_tail_bound.py line 64",
+      "description": "The spec does not give the key names or the content of several report fields, so a user or a test cannot know them. Code: the cell record keys 'failure_rate_upper_confidence_bound', 'worst_time_step' (0-based index of the first maximum of the step failure rates, ties go to the earliest day), 'worst_step_failures', 'worst_step_failure_rate', 'worst_step_upper_confidence_bound'; 'dimensions' is {F, M, L, H1, H2, T}; 'timing' is {validation_wall_seconds} (and exact_tail_seconds); the records of 'terms' hold shape, rate, mean, source ('initial', 'initial_anchor', 'replacement', 'mission_<j>'), created_step (-1 for initial terms), repairs and part ('frozen' or 'active'); frozen_mean and saved_anchor are null for cells that are not ARD1; the excluded-cell reason is 'no unique sampling distribution is specified'. The equal-rate test (numpy.allclose with rtol 1e-13) that selects the plain Gamma tail instead of the series is not stated (spec 2607 says 'with equal rates').",
+      "suggested_fix": "List the key names in the tables 'Report keys' of the three validators, including the ties rule for worst_time_step and the tolerance of the equal-rate test."
+    },
+    {
+      "id": "D2-13",
+      "type": "partial_implementation",
+      "severity": "low",
+      "spec_reference": "spec.tex 2372: \"Selection. For equal H2 the plot keeps the case with a solution ...\"; 2359: \"the reports must agree in F, M, L, H1\"",
+      "location": "plotter.py lines 114-117 (`if len(reports) == 1: return reports[0]`)",
+      "description": "With one report the selection is skipped. Two cases with equal H2 in the same report (possible in a hand-merged report) are both plotted: two points on one H2, two labels, and a line that goes back and forth. The spec states the selection for equal H2 without limiting it to several reports. The tie rule 'keeps the case of the earlier report' does not cover two cases of one report. The merge code itself matches the spec for several reports (solution first, isclose on J_op/H2, larger bound, no bound loses, earlier report wins; checked by hand on all branches).",
+      "suggested_fix": "Run the selection also for one report (keep the earlier case in the list on a tie), or state that duplicates in one report are plotted as they are."
+    }
+  ]
+}

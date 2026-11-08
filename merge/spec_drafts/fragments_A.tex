@@ -108,6 +108,8 @@ $\mu_{i\ell k}$, $v_{i\ell k}$, $R_{i\ell k}$, $K_{i\ell k}$ & tracked mean,
   variance, Hoeffding budget, Chernoff quantity & \ref{sec:variables} \\
 $g^{\mu}_{i\ell k}$, $g^{v}_{i\ell k}$, $g^{R}_{i\ell k}$, $g^{K}_{i\ell k}$ &
   anchors (law $\ARDone$) & \ref{sec:repair_laws} \\
+$y^{s}_{i\ell}$, $y^{g,s}_{i\ell}$ & start of the repetition of the quantity $s$ and of
+  its anchor & \ref{sec:loop} \\
 $\mu_{0,i\ell}$, $v_{0,i\ell}$, $R_{0,i\ell}$, $K_{0,i\ell}$ & initial values &
   \ref{sec:inputs} \\
 $\mu^{\new}_{i\ell}$, $v^{\new}_{i\ell}$, $R^{\new}_{i\ell}$, $K^{\new}_{i\ell}$ &
@@ -182,6 +184,14 @@ $K_{i\ell k}$ & continuous, $[0, M_K]$ & rainflow cells with the Chernoff bound 
 $g^{\mu}_{i\ell k}$, $g^{v}_{i\ell k}$, $g^{R}_{i\ell k}$, $g^{K}_{i\ell k}$ &
   continuous, range of the quantity & $\ARDone$ cells, one per tracked quantity
   except the Wiener variance & anchors, Eq.~\eqref{eq:a_anchor} \\
+$y^{\mu}_{i\ell}$, $y^{v}_{i\ell}$, $y^{R}_{i\ell}$, $y^{K}_{i\ell}$ &
+  $F \times L$ (one per cell and tracked quantity; no day index), continuous,
+  $[0, M_s]$ & every cell, for each of its tracked quantities &
+  start of the repetition: the value of the quantity at the start of every repetition of
+  the operating phase, Section~\ref{sec:loop} \\
+$y^{g,\mu}_{i\ell}$, $y^{g,v}_{i\ell}$, $y^{g,R}_{i\ell}$, $y^{g,K}_{i\ell}$ &
+  $F \times L$, continuous, $[0, M_s]$ & $\ARDone$ cells, one per anchor &
+  start of the repetition of the anchor, Section~\ref{sec:loop} \\
 $w_{i\ell kp}$ & binary, $p = 1, \ldots, P$ & cells with a quadratic row in the
   \texttt{pwl} form, $P \geq 2$ & segment of the mean, Eq.~\eqref{eq:a_pwl_sum} \\
 $z_{i\ell k}$ & continuous, $\geq 0$ & cells with $C_{R,i\ell} > 0$, on days whose cost
@@ -193,8 +203,9 @@ $u$ & scalar, $\geq 0$ & $C_D > 0$ & damage penalty,
 \end{longtable}
 \endgroup
 
-$M_v$, $M_R$, $M_K$ are the natural ranges of Section~\ref{sec:encoding}. The output
-reports the tracked values; each is an upper bound on the value that the rules give
+$M_v$, $M_R$, $M_K$ are the natural ranges of Section~\ref{sec:encoding}; $M_s$ is the
+range of the quantity $s$ of the variable. The output
+reports the tracked values and the variables $y$; each is an upper bound on the value that the rules give
 with every row at equality (scoping document, section ``Stochastic loop
 constraint'').
 
@@ -375,7 +386,15 @@ cell and day, and Gurobi indicator constraints:
   \item \texttt{allow\_replacement = false}: no $x^r$; read $x^r_k = 0$ and drop the
         replacement rows.
   \item At binary points the two forms have the same feasible set.
-  \item \textbf{Reference trajectory} $\zeta$ of a schedule: the values of the rows of this section with every inequality replaced by an equality, from the initial values, the starting anchors and the replacement values.
+  \item \textbf{Day $H_1 + 1$.} Every row of day $k = H_1 + 1$ that reads the previous
+        day reads the start of the repetition instead (Section~\ref{sec:loop}):
+        $s_{k-1}$ is replaced by $y^s$ and $g_{k-1}$ by $y^{g,s}$. This holds in both
+        forms, for the carry, repair, anchor and Wiener variance rows
+        (Eqs.~\eqref{eq:a_bigm_carry}--\eqref{eq:a_ind_anchor}, Eq.~\eqref{eq:w_vrow}).
+        The rows of day $H_1 + 1$ for replacement and for the anchor set read no
+        previous day and do not change. The rows of days $1, \ldots, H_1$ and
+        $H_1 + 2, \ldots, T$ do not change.
+  \item \textbf{Reference trajectory} $\zeta$ of a schedule: the values of the rows of this section with every inequality replaced by an equality, from the initial values, the starting anchors and the replacement values. In $\zeta$ the variable $y^s$ equals $s_{H_1}$, and $y^{g,s}$ equals $g^s_{H_1}$.
 \end{itemize}
 
 \textbf{Natural ranges} $M_s$ (big-M constants): $\tau_{i\ell}$ for a mean;
@@ -487,7 +506,9 @@ mode \texttt{operating\_average}. Only the lower rows are built:
   \qquad z_{i\ell k} \geq 0,
   \label{eq:a_z}
 \end{equation}
-with $g^{\mu} \equiv 0$ under $\ARDinf$. At the optimum $z_{i\ell k} = 0$ on every day
+with $g^{\mu} \equiv 0$ under $\ARDinf$. On day $k = H_1 + 1$ the row reads
+$y^{\mu}_{i\ell}$ for $\mu_{i\ell,k-1}$ and $y^{g,\mu}_{i\ell}$ for
+$g^{\mu}_{i\ell,k-1}$, with $y^{g,\mu} \equiv 0$ under $\ARDinf$. At the optimum $z_{i\ell k} = 0$ on every day
 without a repair, replacement days included. $z$ is an upper bound on the expected
 removed degradation, except at the first repair when the starting anchor is above the
 true one (scoping document, section ``Cost function'').
@@ -521,14 +542,28 @@ cell with a linear row the value is ignored. With $C_D = 0$ the rule does not ap
 \label{sec:loop}
 % ----------------------------------------------------------------
 
-One hard row per cell and per coordinate $s$ of its tracked state:
+The variable $y^s_{i\ell}$ is the value of the quantity $s$ at the start of every
+repetition of the operating phase; under $\ARDone$, $y^{g,s}_{i\ell}$ is the value of
+its anchor. The operating phase starts from them: the rows of day $H_1 + 1$ read
+$y^s$ and $y^{g,s}$ in place of the values of day $H_1$ (Section~\ref{sec:encoding}).
+Two groups of hard rows per cell and per coordinate $s$ of its tracked state.
+\emph{Start rows}:
 \begin{equation}
-  s_{i\ell T} \;\leq\; s_{i\ell H_1}.
+  y^s_{i\ell} \;\geq\; s_{i\ell H_1}, \qquad
+  y^{g,s}_{i\ell} \;\geq\; g^s_{i\ell H_1}.
+  \label{eq:a_start}
+\end{equation}
+\emph{Loop rows}: the last day returns to the start of the repetition,
+\begin{equation}
+  s_{i\ell T} \;\leq\; y^s_{i\ell}, \qquad
+  g^s_{i\ell T} \;\leq\; y^{g,s}_{i\ell}.
   \label{eq:a_loop}
 \end{equation}
-The rows cover every tracked quantity of the cell (the mean, and the variance, $R$ or
-$K$ where tracked) and, under $\ARDone$, every anchor. Each coordinate has its own
+The anchor rows are built under $\ARDone$ only. The rows cover every tracked quantity of
+the cell (the mean, and the variance, $R$ or $K$ where tracked) and, under $\ARDone$,
+every anchor except that of the Wiener variance (it has none). Each coordinate has its own
 row; no row compares a scalar function of them, such as a failure-probability bound.
+No row bounds $y$ from above except the loop row and the range $M_s$.
 There is no soft loop penalty. With these rows every day of every repetition of the
 operating phase satisfies the reliability requirement, for every model, both laws,
 both encodings, every form, and any $H_1$, $H_2$ (scoping document, section

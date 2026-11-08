@@ -35,3 +35,7 @@ Research directions (from ASSESSMENT.md, 7 Jul 2026):
 - Decomposition for scale: components couple only through the assignment variables (Benders or Dantzig-Wolfe: an assignment master, per-component reliability subproblems).
 
 - Policy baseline: compare against simple condition-based threshold policies.
+
+- Big-M constants near the limits of epsilon (step 3 of the merge, item M31 of merge/step3/merged_review.md, 8 Nov 2026): the natural ranges used as big-M grow without bound as epsilon approaches 0.5 at Gaussian and Wiener cells and 1 at rainflow Cantelli and Hoeffding cells (1.6e7*tau^2 at epsilon = 0.4999), so a binary within Gurobi's integrality tolerance could switch a row off. Study tighter big-M constants (the largest value the reliability row allows on the cell) or an input limit on epsilon.
+
+- Start of the repetition (tighter loop rows): adopted by the user on 8 Nov 2026; being implemented in step 3 of the merge (plan: merge/step3/start_of_repetition_plan.md). Remove this item when the change is committed.

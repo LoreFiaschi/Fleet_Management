@@ -1,0 +1,328 @@
+\begin{thebibliography}{43}
+\providecommand{\natexlab}[1]{#1}
+\providecommand{\url}[1]{\texttt{#1}}
+\expandafter\ifx\csname urlstyle\endcsname\relax
+  \providecommand{\doi}[1]{doi: #1}\else
+  \providecommand{\doi}{doi: \begingroup \urlstyle{rm}\Url}\fi
+
+\bibitem[Abdel-Hameed(1975)]{AbdelHameed1975}
+Mohamed Abdel-Hameed.
+\newblock A gamma wear process.
+\newblock \emph{IEEE Transactions on Reliability}, R-24\penalty0 (2):\penalty0
+  152--153, 1975.
+\newblock \doi{10.1109/TR.1975.5215123}.
+
+\bibitem[Alavi et~al.(2024)Alavi, De~Ceuninck, and Daenen]{Alavi2024}
+Omid Alavi, Ward De~Ceuninck, and Micha{\"e}l Daenen.
+\newblock Optimizing insulated-gate bipolar transistors' lifetime estimation: A
+  critical evaluation of lifetime model adjustments based on power cycling
+  tests.
+\newblock \emph{Energies}, 17\penalty0 (11):\penalty0 2616, 2024.
+\newblock \doi{10.3390/en17112616}.
+
+\bibitem[Basquin(1910)]{Basquin1910}
+O.~H. Basquin.
+\newblock The exponential law of endurance tests.
+\newblock \emph{Proceedings of the American Society for Testing and Materials},
+  10:\penalty0 625--630, 1910.
+
+\bibitem[Bayerer et~al.(2008)Bayerer, Herrmann, Licht, Lutz, and
+  Feller]{Bayerer2008}
+Reinhold Bayerer, Tobias Herrmann, Thomas Licht, Josef Lutz, and Marco Feller.
+\newblock Model for power cycling lifetime of {IGBT} modules---various factors
+  influencing lifetime.
+\newblock In \emph{5th International Conference on Integrated Power Electronics
+  Systems (CIPS)}, Nuremberg, Germany, 2008.
+
+\bibitem[Bertsimas and Popescu(2005)]{BertsimasPopescu2005}
+Dimitris Bertsimas and Ioana Popescu.
+\newblock Optimal inequalities in probability theory: A convex optimization
+  approach.
+\newblock \emph{SIAM Journal on Optimization}, 15\penalty0 (3):\penalty0
+  780--804, 2005.
+\newblock \doi{10.1137/S1052623401399903}.
+
+\bibitem[B{\"o}hm et~al.(2021)B{\"o}hm, Kowalski, and Nieslony]{BohmEtAl2021}
+Marta B{\"o}hm, Marek Kowalski, and Adam Nieslony.
+\newblock Non-linear probabilistic modification of {M}iner's rule for damage
+  accumulation.
+\newblock \emph{Materials}, 14\penalty0 (23):\penalty0 7440, 2021.
+\newblock \doi{10.3390/ma14237440}.
+
+\bibitem[Boucheron et~al.(2013)Boucheron, Lugosi, and
+  Massart]{BoucheronLugosiMassart2013}
+St{\'e}phane Boucheron, G{\'a}bor Lugosi, and Pascal Massart.
+\newblock \emph{Concentration Inequalities: A Nonasymptotic Theory of
+  Independence}.
+\newblock Oxford University Press, 2013.
+\newblock ISBN 9780199535255.
+
+\bibitem[Brown and Proschan(1983)]{BrownProschan1983}
+Mark Brown and Frank Proschan.
+\newblock Imperfect repair.
+\newblock \emph{Journal of Applied Probability}, 20\penalty0 (4):\penalty0
+  851--859, 1983.
+\newblock \doi{10.2307/3213596}.
+
+\bibitem[Castillo and
+  Fern{\'a}ndez-Canteli(2009)]{CastilloFernandezCanteli2009}
+Enrique Castillo and Alfonso Fern{\'a}ndez-Canteli.
+\newblock \emph{A Unified Statistical Methodology for Modeling Fatigue Damage}.
+\newblock Springer, 2009.
+\newblock \doi{10.1007/978-1-4020-9182-7}.
+
+\bibitem[Chernoff(1952)]{Chernoff1952}
+Herman Chernoff.
+\newblock A measure of asymptotic efficiency for tests of a hypothesis based on
+  the sum of observations.
+\newblock \emph{The Annals of Mathematical Statistics}, 23\penalty0
+  (4):\penalty0 493--507, 1952.
+\newblock \doi{10.1214/aoms/1177729330}.
+
+\bibitem[Dakin(1948)]{Dakin1948}
+Thomas~W. Dakin.
+\newblock Electrical insulation deterioration treated as a chemical rate
+  phenomenon.
+\newblock \emph{Transactions of the American Institute of Electrical
+  Engineers}, 67\penalty0 (1):\penalty0 113--122, 1948.
+\newblock \doi{10.1109/T-AIEE.1948.5059649}.
+
+\bibitem[Doyen and Gaudoin(2004)]{DoyenGaudoin2004}
+Laurent Doyen and Olivier Gaudoin.
+\newblock Classes of imperfect repair models based on reduction of failure
+  intensity or virtual age.
+\newblock \emph{Reliability Engineering \& System Safety}, 84\penalty0
+  (1):\penalty0 45--56, 2004.
+\newblock \doi{10.1016/S0951-8320(03)00173-X}.
+\newblock Pages and equations cited from the authors' preprint, submitted on 25
+  October 2002.
+
+\bibitem[Esary et~al.(1973)Esary, Marshall, and
+  Proschan]{EsaryMarshallProschan1973}
+James~D. Esary, Albert~W. Marshall, and Frank Proschan.
+\newblock Shock models and wear processes.
+\newblock \emph{The Annals of Probability}, 1\penalty0 (4):\penalty0 627--649,
+  1973.
+\newblock \doi{10.1214/aop/1176996891}.
+
+\bibitem[Fussell et~al.(2022)Fussell, Franklin, Green, Gustafsson, Harrison,
+  Hicks, Kelly, Kishta, Miller, Mudway, Oroumiyeh, Selley, Wang, and
+  Zhu]{Fussell2022}
+Julia~C. Fussell, Meredith Franklin, David~C. Green, Mats Gustafsson, Roy~M.
+  Harrison, William Hicks, Frank~J. Kelly, Franceska Kishta, Mark~R. Miller,
+  Ian~S. Mudway, Farzan Oroumiyeh, Liza Selley, Meng Wang, and Yifang Zhu.
+\newblock A review of road traffic-derived non-exhaust particles: Emissions,
+  physicochemical characteristics, health risks, and mitigation measures.
+\newblock \emph{Environmental Science \& Technology}, 56\penalty0
+  (11):\penalty0 6813--6835, 2022.
+\newblock \doi{10.1021/acs.est.2c01072}.
+
+\bibitem[{Gurobi Optimization, LLC}(2026)]{GurobiConstraints}
+{Gurobi Optimization, LLC}.
+\newblock Gurobi optimizer reference manual: Constraints, 2026.
+\newblock URL
+  \url{https://docs.gurobi.com/projects/optimizer/en/current/concepts/modeling/constraints.html}.
+\newblock Section ``General Constraints'', indicator constraints. Accessed:
+  2026-10-28.
+
+\bibitem[Hilow(2017)]{Hilow2017}
+Hassan Hilow.
+\newblock Probabilistic {P}almgren--{M}iner rule, with application to solder
+  materials.
+\newblock \emph{Journal of Materials Science: Materials in Electronics},
+  28:\penalty0 12901--12913, 2017.
+\newblock \doi{10.1007/s10854-017-7117-8}.
+
+\bibitem[Hoeffding(1963)]{Hoeffding1963}
+Wassily Hoeffding.
+\newblock Probability inequalities for sums of bounded random variables.
+\newblock \emph{Journal of the American Statistical Association}, 58\penalty0
+  (301):\penalty0 13--30, 1963.
+\newblock \doi{10.1080/01621459.1963.10500830}.
+
+\bibitem[Hosen et~al.(2021)Hosen, Jaguemont, Van~Mierlo, and
+  Berecibar]{Hosen2021}
+Md~Sazzad Hosen, Joris Jaguemont, Joeri Van~Mierlo, and Maitane Berecibar.
+\newblock Battery lifetime prediction and performance assessment of different
+  modeling approaches.
+\newblock \emph{iScience}, 24\penalty0 (2):\penalty0 102060, 2021.
+\newblock \doi{10.1016/j.isci.2021.102060}.
+
+\bibitem[Ibrahim et~al.(2025)Ibrahim, Ali, and Attia]{Ibrahim2025}
+Hisham Ibrahim, Ahmed~M. Ali, and Tamer Attia.
+\newblock Optimizing electric bus performance via predictive maintenance: A
+  combined experimental and modeling approach.
+\newblock \emph{Frontiers in Future Transportation}, 5:\penalty0 1506866, 2025.
+\newblock \doi{10.3389/ffutr.2024.1506866}.
+
+\bibitem[Kijima(1989)]{Kijima1989}
+Masaaki Kijima.
+\newblock Some results for repairable systems with general repair.
+\newblock \emph{Journal of Applied Probability}, 26\penalty0 (1):\penalty0
+  89--102, 1989.
+\newblock \doi{10.2307/3214319}.
+
+\bibitem[Lv et~al.(2025)Lv, Si, Yang, Cui, He, Wang, Li, and Zhang]{Lv2025}
+Zhe Lv, Huinan Si, Zhe Yang, Jiawen Cui, Zhichao He, Lei Wang, Zhe Li, and
+  Jianbo Zhang.
+\newblock Simplified mechanistic aging model for lithium ion batteries in
+  large-scale applications.
+\newblock \emph{Materials}, 18\penalty0 (6):\penalty0 1342, 2025.
+\newblock \doi{10.3390/ma18061342}.
+
+\bibitem[Mercier and Castro(2019)]{MercierCastro2019}
+S.~Mercier and I.~T. Castro.
+\newblock Stochastic comparisons of imperfect maintenance models for a gamma
+  deteriorating system.
+\newblock \emph{European Journal of Operational Research}, 273\penalty0
+  (1):\penalty0 237--248, 2019.
+\newblock \doi{10.1016/j.ejor.2018.06.020}.
+\newblock Sections and equations cited from the authors' preprint of 11 June
+  2018.
+
+\bibitem[Miner(1945)]{Miner1945}
+Milton~A. Miner.
+\newblock Cumulative damage in fatigue.
+\newblock \emph{Journal of Applied Mechanics}, 12\penalty0 (3):\penalty0
+  A159--A164, 1945.
+\newblock \doi{10.1115/1.4009458}.
+
+\bibitem[Montsinger(1930)]{Montsinger1930}
+V.~M. Montsinger.
+\newblock Loading transformers by temperature.
+\newblock \emph{Transactions of the American Institute of Electrical
+  Engineers}, 49\penalty0 (2):\penalty0 776--790, 1930.
+\newblock \doi{10.1109/T-AIEE.1930.5055572}.
+
+\bibitem[Mu{\~n}iz-Calvente et~al.(2022)]{MunizCalvente2022}
+M.~Mu{\~n}iz-Calvente et~al.
+\newblock A comparative review of time- and frequency-domain methods for
+  fatigue damage assessment.
+\newblock \emph{International Journal of Fatigue}, 2022.
+
+\bibitem[Ohana et~al.(2023)Ohana, Klein, Shneck, and Bortman]{Ohana2023}
+Ravit Ohana, Renata Klein, Roni Shneck, and Jacob Bortman.
+\newblock New damage accumulation model for spall propagation mechanism in
+  bearing raceways.
+\newblock \emph{Materials}, 16\penalty0 (4):\penalty0 1750, 2023.
+\newblock \doi{10.3390/ma16041750}.
+
+\bibitem[Palmgren(1924)]{Palmgren1924}
+Arvid Palmgren.
+\newblock Die {L}ebensdauer von {K}ugellagern.
+\newblock \emph{Zeitschrift des Vereines Deutscher Ingenieure}, 68\penalty0
+  (14):\penalty0 339--341, 1924.
+
+\bibitem[Pham and Wang(1996)]{PhamWang1996}
+Hoang Pham and Hongzhou Wang.
+\newblock Imperfect maintenance.
+\newblock \emph{European Journal of Operational Research}, 94\penalty0
+  (3):\penalty0 425--438, 1996.
+\newblock \doi{10.1016/S0377-2217(96)00099-9}.
+
+\bibitem[Roosta-Khorasani and Sz{\'e}kely(2015)]{RoostaKhorasaniSzekely2015}
+F.~Roosta-Khorasani and G.~J. Sz{\'e}kely.
+\newblock Schur properties of convolutions of gamma random variables.
+\newblock \emph{Metrika}, 78:\penalty0 997--1014, 2015.
+\newblock \doi{10.1007/s00184-015-0537-9}.
+\newblock Pages cited from the preprint arXiv:1601.04731v1.
+
+\bibitem[Schallamach and Turner(1960)]{SchallamachTurner1960}
+A.~Schallamach and D.~M. Turner.
+\newblock The wear of slipping wheels.
+\newblock \emph{Wear}, 3\penalty0 (1):\penalty0 1--25, 1960.
+\newblock \doi{10.1016/0043-1648(60)90283-9}.
+
+\bibitem[Sha et~al.(2022)Sha, Hao, Yin, Ma, Liu, and Zhang]{Sha2022}
+Zhihua Sha, Qiang Hao, Jian Yin, Fujian Ma, Yu~Liu, and Shengfang Zhang.
+\newblock Wear calculation and life prediction model of disc brake based on
+  elastoplastic contact mechanics.
+\newblock \emph{Advances in Mechanical Engineering}, 14\penalty0 (4), 2022.
+\newblock \doi{10.1177/16878132221093136}.
+
+\bibitem[Shaked and Shanthikumar(2007)]{ShakedShanthikumar2007}
+Moshe Shaked and J.~George Shanthikumar.
+\newblock \emph{Stochastic Orders}.
+\newblock Springer Series in Statistics. Springer, 2007.
+\newblock \doi{10.1007/978-0-387-34675-5}.
+
+\bibitem[Shen(1980)]{Shen1980}
+Chih-Kuang Shen.
+\newblock A statistical consideration of {M}iner's rule.
+\newblock \emph{International Journal of Fatigue}, 2\penalty0 (1):\penalty0
+  27--30, 1980.
+\newblock \doi{10.1016/0142-1123(80)90024-5}.
+
+\bibitem[Sz{\'e}kely and Bakirov(2003)]{SzekelyBakirov2003}
+G.~J. Sz{\'e}kely and N.~K. Bakirov.
+\newblock Extremal probabilities for {G}aussian quadratic forms.
+\newblock \emph{Probability Theory and Related Fields}, 126:\penalty0 184--202,
+  2003.
+\newblock \doi{10.1007/s00440-003-0262-6}.
+
+\bibitem[van Noortwijk(2009)]{vanNoortwijk2009}
+Jan~M. van Noortwijk.
+\newblock A survey of the application of gamma processes in maintenance.
+\newblock \emph{Reliability Engineering \& System Safety}, 94\penalty0
+  (1):\penalty0 2--21, 2009.
+\newblock \doi{10.1016/j.ress.2007.03.019}.
+
+\bibitem[Wang(2022)]{Wang2022}
+Cao Wang.
+\newblock An explicit compound {P}oisson process-based shock deterioration
+  model for reliability assessment of aging structures.
+\newblock \emph{Journal of Traffic and Transportation Engineering (English
+  Edition)}, 9\penalty0 (3):\penalty0 461--472, 2022.
+\newblock \doi{10.1016/j.jtte.2020.03.005}.
+
+\bibitem[Wang and Blaabjerg(2014)]{WangBlaabjerg2014}
+Huai Wang and Frede Blaabjerg.
+\newblock Reliability of capacitors for {DC}-link applications in power
+  electronic converters---an overview.
+\newblock \emph{IEEE Transactions on Industry Applications}, 50\penalty0
+  (5):\penalty0 3569--3578, 2014.
+\newblock \doi{10.1109/TIA.2014.2308357}.
+
+\bibitem[Wang and Blaabjerg(2021)]{WangBlaabjerg2021}
+Huai Wang and Frede Blaabjerg.
+\newblock Power electronics reliability: State of the art and outlook.
+\newblock \emph{IEEE Journal of Emerging and Selected Topics in Power
+  Electronics}, 9\penalty0 (6):\penalty0 6476--6493, 2021.
+\newblock \doi{10.1109/JESTPE.2020.3037161}.
+
+\bibitem[Whitmore and Schenkelberg(1997)]{WhitmoreSchenkelberg1997}
+G.~A. Whitmore and Fred Schenkelberg.
+\newblock Modelling accelerated degradation data using {W}iener diffusion with
+  a time scale transformation.
+\newblock \emph{Lifetime Data Analysis}, 3:\penalty0 27--45, 1997.
+\newblock \doi{10.1023/A:1009664101413}.
+
+\bibitem[{Wikipedia contributors}(2026)]{WikiStochDom}
+{Wikipedia contributors}.
+\newblock Stochastic dominance --- {W}ikipedia{,} the free encyclopedia, 2026.
+\newblock URL \url{https://en.wikipedia.org/wiki/Stochastic_dominance}.
+\newblock Accessed: 2026-05-21.
+
+\bibitem[Wileman et~al.(2021)Wileman, Perinpanayagam, and Aslam]{Wileman2021}
+Andrew Wileman, Suresh Perinpanayagam, and Sohaib Aslam.
+\newblock Physics of failure ({PoF}) based lifetime prediction of power
+  electronics at the printed circuit board level.
+\newblock \emph{Applied Sciences}, 11\penalty0 (6):\penalty0 2679, 2021.
+\newblock \doi{10.3390/app11062679}.
+
+\bibitem[Ye and Chen(2014)]{YeChen2014}
+Zhi-Sheng Ye and Nan Chen.
+\newblock The inverse {G}aussian process as a degradation model.
+\newblock \emph{Technometrics}, 56\penalty0 (3):\penalty0 302--311, 2014.
+\newblock \doi{10.1080/00401706.2013.830074}.
+
+\bibitem[Zhang et~al.(2025)Zhang, Wang, Li, Zhang, He, Meng, Huang, Fang, and
+  Wu]{Zhang2025insul}
+Jian Zhang, Jiajin Wang, Hongbo Li, Qin Zhang, Xiangning He, Cui Meng, Xiaoyan
+  Huang, Youtong Fang, and Jianwei Wu.
+\newblock A review of reliability assessment and lifetime prediction methods
+  for electrical machine insulation under thermal aging.
+\newblock \emph{Energies}, 18\penalty0 (3):\penalty0 576, 2025.
+\newblock \doi{10.3390/en18030576}.
+
+\end{thebibliography}

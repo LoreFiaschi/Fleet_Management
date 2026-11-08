@@ -1,0 +1,134 @@
+\contentsline {section}{\numberline {1}Overview of the problem}{3}{section.1}%
+\contentsline {subsection}{\numberline {1.1}Scheduling and maintenance variables}{3}{subsection.1.1}%
+\contentsline {subsection}{\numberline {1.2}Damage dynamics}{5}{subsection.1.2}%
+\contentsline {paragraph}{Horizon and phases.}{6}{section*.2}%
+\contentsline {paragraph}{Degradation models of the formulation.}{6}{section*.3}%
+\contentsline {paragraph}{State after a replacement.}{7}{section*.4}%
+\contentsline {subsection}{\numberline {1.3}Stochastic loop constraint}{7}{subsection.1.3}%
+\contentsline {paragraph}{Tracked state.}{7}{section*.5}%
+\contentsline {subsubsection}{\numberline {1.3.1}One-sided encoding of the dynamics}{8}{subsubsection.1.3.1}%
+\contentsline {paragraph}{Meaning of the reported values.}{9}{section*.6}%
+\contentsline {subsubsection}{\numberline {1.3.2}Perpetual safety}{10}{subsubsection.1.3.2}%
+\contentsline {paragraph}{Why the anchors enter the loop.}{10}{section*.7}%
+\contentsline {subsubsection}{\numberline {1.3.3}What the one-sided rows accept}{10}{subsubsection.1.3.3}%
+\contentsline {subsubsection}{\numberline {1.3.4}Replacements required by the loop constraint}{12}{subsubsection.1.3.4}%
+\contentsline {subsection}{\numberline {1.4}Cost function}{12}{subsection.1.4}%
+\contentsline {paragraph}{Objective modes.}{13}{section*.8}%
+\contentsline {paragraph}{Repair cost.}{14}{section*.9}%
+\contentsline {subsection}{\numberline {1.5}Abstract problem formulation}{15}{subsection.1.5}%
+\contentsline {section}{\numberline {2}Literature review}{16}{section.2}%
+\contentsline {subsection}{\numberline {2.1}Stochastic degradation and fatigue models}{16}{subsection.2.1}%
+\contentsline {subsubsection}{\numberline {2.1.1}Damage-accumulation processes}{16}{subsubsection.2.1.1}%
+\contentsline {paragraph}{Gamma process.}{16}{section*.10}%
+\contentsline {paragraph}{Wiener process (Brownian motion with drift).}{16}{section*.11}%
+\contentsline {paragraph}{Inverse Gaussian process.}{17}{section*.12}%
+\contentsline {paragraph}{Compound Poisson process.}{17}{section*.13}%
+\contentsline {subsubsection}{\numberline {2.1.2}Discrete-time formulation}{17}{subsubsection.2.1.2}%
+\contentsline {subsubsection}{\numberline {2.1.3}Remaining-life models: the S--N curve and Palmgren--Miner rule}{18}{subsubsection.2.1.3}%
+\contentsline {paragraph}{Log-normal.}{19}{section*.14}%
+\contentsline {paragraph}{Weibull.}{19}{section*.15}%
+\contentsline {paragraph}{Gumbel (extreme-value type~I).}{19}{section*.16}%
+\contentsline {paragraph}{Contrast with damage-accumulation models.}{20}{section*.17}%
+\contentsline {subsubsection}{\numberline {2.1.4}Conservative surrogates for the empirical damage-increment distribution}{20}{subsubsection.2.1.4}%
+\contentsline {paragraph}{Per-mission inputs keep the differences between missions.}{23}{section*.18}%
+\contentsline {paragraph}{Guaranteed bound versus estimate.}{24}{section*.19}%
+\contentsline {paragraph}{The five bounds of the formulation.}{26}{section*.20}%
+\contentsline {paragraph}{Width of a range.}{26}{section*.21}%
+\contentsline {paragraph}{Day maps of the statistics.}{27}{section*.22}%
+\contentsline {paragraph}{Derivation and validity of the rows.}{27}{section*.23}%
+\contentsline {paragraph}{The Bernstein side row.}{28}{section*.24}%
+\contentsline {paragraph}{Initial and replacement values of the Chernoff statistic.}{28}{section*.25}%
+\contentsline {subsubsection}{\numberline {2.1.5}The loop constraint under the Route-I bounds}{29}{subsubsection.2.1.5}%
+\contentsline {paragraph}{Why $U^{(1)} \le U^{(0)}$ does not chain.}{29}{section*.26}%
+\contentsline {paragraph}{The certificate stays valid in every repetition.}{29}{section*.27}%
+\contentsline {paragraph}{The loop on the moments (the natural condition).}{30}{section*.28}%
+\contentsline {paragraph}{The loop on the cumulant generating function under imperfect repair.}{30}{section*.29}%
+\contentsline {paragraph}{Summary.}{30}{section*.30}%
+\contentsline {subsubsection}{\numberline {2.1.6}Two refinements of the Route-I constraints: schedule-dependent support and piecewise-linear tightening}{31}{subsubsection.2.1.6}%
+\contentsline {paragraph}{Schedule-dependent Bernstein support.}{31}{section*.31}%
+\contentsline {paragraph}{Piecewise-linear tightening of the tangent surrogates.}{32}{section*.32}%
+\contentsline {subsubsection}{\numberline {2.1.7}Linear forms of the reliability rows}{33}{subsubsection.2.1.7}%
+\contentsline {paragraph}{Accuracy.}{34}{section*.33}%
+\contentsline {paragraph}{The tangent point of a Bernstein row.}{35}{section*.34}%
+\contentsline {subsubsection}{\numberline {2.1.8}Random fatigue life in the Palmgren--Miner rule}{35}{subsubsection.2.1.8}%
+\contentsline {paragraph}{Inverse moments of the scatter families.}{35}{section*.35}%
+\contentsline {paragraph}{What ``random $N_f$'' means: two interpretations.}{36}{section*.36}%
+\contentsline {paragraph}{Implications for the abstract formulation.}{38}{section*.37}%
+\contentsline {subsection}{\numberline {2.2}Stochastic orderings}{38}{subsection.2.2}%
+\contentsline {subsubsection}{\numberline {2.2.1}Stochastic ordering within each degradation family}{39}{subsubsection.2.2.1}%
+\contentsline {paragraph}{Gamma.}{40}{section*.38}%
+\contentsline {paragraph}{Gaussian.}{40}{section*.39}%
+\contentsline {paragraph}{Inverse Gaussian.}{40}{section*.40}%
+\contentsline {paragraph}{Compound Poisson.}{40}{section*.41}%
+\contentsline {paragraph}{Implications for the fleet problem.}{40}{section*.42}%
+\contentsline {paragraph}{Inverse Gaussian: a cap on the mean.}{41}{section*.43}%
+\contentsline {paragraph}{Computation of the inverse Gaussian cap.}{42}{section*.44}%
+\contentsline {paragraph}{Gamma: a sharp cap on the mean.}{43}{section*.45}%
+\contentsline {paragraph}{Computation of the cap.}{44}{section*.46}%
+\contentsline {paragraph}{The sharp cap and the exact one-rate cap.}{45}{section*.47}%
+\contentsline {paragraph}{Below the threshold.}{45}{section*.48}%
+\contentsline {paragraph}{The choice of $\beta ^*$.}{46}{section*.49}%
+\contentsline {subsubsection}{\numberline {2.2.2}Loop constraint for each degradation model}{46}{subsubsection.2.2.2}%
+\contentsline {paragraph}{Gamma.}{46}{section*.50}%
+\contentsline {paragraph}{Gaussian.}{47}{section*.51}%
+\contentsline {paragraph}{Wiener.}{48}{section*.52}%
+\contentsline {paragraph}{Inverse Gaussian.}{48}{section*.53}%
+\contentsline {paragraph}{Rainflow.}{49}{section*.54}%
+\contentsline {paragraph}{Compound Poisson.}{49}{section*.55}%
+\contentsline {paragraph}{Upper bounds when no closed form is available.}{49}{section*.56}%
+\contentsline {subsection}{\numberline {2.3}Maintenance strategies}{49}{subsection.2.3}%
+\contentsline {subsubsection}{\numberline {2.3.1}Taxonomy of repair actions}{49}{subsubsection.2.3.1}%
+\contentsline {subsubsection}{\numberline {2.3.2}Virtual age models}{49}{subsubsection.2.3.2}%
+\contentsline {subsubsection}{\numberline {2.3.3}Reduction-based models}{50}{subsubsection.2.3.3}%
+\contentsline {paragraph}{Arithmetic Reduction of Age (ARA).}{50}{section*.57}%
+\contentsline {paragraph}{Arithmetic Reduction of Deterioration (ARD).}{51}{section*.58}%
+\contentsline {paragraph}{Arithmetic Reduction of Intensity (ARI).}{51}{section*.59}%
+\contentsline {subsubsection}{\numberline {2.3.4}Connection to the fleet management formulation}{51}{subsubsection.2.3.4}%
+\contentsline {paragraph}{Anchors.}{51}{section*.60}%
+\contentsline {paragraph}{Repair maps of the tracked statistics.}{52}{section*.61}%
+\contentsline {paragraph}{Laws per model.}{52}{section*.62}%
+\contentsline {paragraph}{Maintenance under the Palmgren--Miner damage model.}{52}{section*.63}%
+\contentsline {section}{\numberline {3}Focus on electric vehicles}{53}{section.3}%
+\contentsline {paragraph}{Power-electronic and electronic components.}{54}{section*.64}%
+\contentsline {paragraph}{Modelling shortlist.}{56}{section*.65}%
+\contentsline {paragraph}{Worked example: traction-battery capacity fade.}{56}{section*.66}%
+\contentsline {subsection}{\numberline {3.1}Degradation models for the shortlisted components}{57}{subsection.3.1}%
+\contentsline {paragraph}{Tires.}{57}{section*.67}%
+\contentsline {paragraph}{Brake friction elements.}{57}{section*.68}%
+\contentsline {paragraph}{Wheel bearings.}{59}{section*.69}%
+\contentsline {paragraph}{Traction-motor insulation.}{59}{section*.70}%
+\contentsline {paragraph}{Inverter power modules.}{60}{section*.71}%
+\contentsline {paragraph}{Common structure.}{61}{section*.72}%
+\contentsline {paragraph}{Excluded parts.}{61}{section*.73}%
+\contentsline {section}{\numberline {4}Optimization problem for a fleet of electric vehicles}{61}{section.4}%
+\contentsline {subsection}{\numberline {4.1}Cost function}{61}{subsection.4.1}%
+\contentsline {section}{\numberline {5}Implementation details}{62}{section.5}%
+\contentsline {subsection}{\numberline {5.1}Big-M and indicator forms of the one-sided rows}{62}{subsection.5.1}%
+\contentsline {paragraph}{Validity of the big-M constants.}{62}{section*.74}%
+\contentsline {paragraph}{Choice of the default form.}{62}{section*.75}%
+\contentsline {subsection}{\numberline {5.2}Reasons for the input checks}{63}{subsection.5.2}%
+\contentsline {paragraph}{Keys, shapes and entries.}{63}{section*.76}%
+\contentsline {paragraph}{Sizes and selectors.}{63}{section*.77}%
+\contentsline {paragraph}{Reliability, repair and initial state.}{63}{section*.78}%
+\contentsline {paragraph}{Natural ranges and replacement states.}{64}{section*.79}%
+\contentsline {paragraph}{Increments.}{64}{section*.80}%
+\contentsline {paragraph}{Model-specific checks.}{64}{section*.81}%
+\contentsline {paragraph}{Run options and costs.}{65}{section*.82}%
+\contentsline {paragraph}{Tolerance of the checks.}{65}{section*.83}%
+\contentsline {subsection}{\numberline {5.3}Outputs}{65}{subsection.5.3}%
+\contentsline {subsection}{\numberline {5.4}Horizon sweeps}{66}{subsection.5.4}%
+\contentsline {subsection}{\numberline {5.5}Warm starts}{67}{subsection.5.5}%
+\contentsline {subsection}{\numberline {5.6}Plots}{68}{subsection.5.6}%
+\contentsline {subsection}{\numberline {5.7}Validation tools}{68}{subsection.5.7}%
+\contentsline {subsection}{\numberline {5.8}Package and inputs}{70}{subsection.5.8}%
+\contentsline {subsection}{\numberline {5.9}Open questions}{71}{subsection.5.9}%
+\contentsline {section}{\numberline {6}Changelog of the software specification}{71}{section.6}%
+\contentsline {paragraph}{Version 0.3 (panel review).}{72}{section*.84}%
+\contentsline {paragraph}{Version 0.4 (rainflow extension).}{72}{section*.85}%
+\contentsline {paragraph}{Version 0.5 (removal of the loop penalty).}{72}{section*.86}%
+\contentsline {paragraph}{Version 1.0 (merged package).}{73}{section*.87}%
+\contentsline {section}{\numberline {A}Proofs and derivations}{74}{appendix.A}%
+\contentsline {subsection}{\numberline {A.1}Overview of the problem}{74}{subsection.A.1}%
+\contentsline {subsection}{\numberline {A.2}Stochastic degradation and fatigue models}{77}{subsection.A.2}%
+\contentsline {subsection}{\numberline {A.3}Stochastic orderings and maintenance strategies}{83}{subsection.A.3}%
+\contentsline {subsection}{\numberline {A.4}Electric vehicles and implementation}{89}{subsection.A.4}%

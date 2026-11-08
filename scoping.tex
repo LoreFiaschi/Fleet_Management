@@ -348,12 +348,31 @@ Each degradation model certifies the reliability of a component through a few st
 \end{itemize}
 Under the repair law $\text{ARD}_1$, each statistic except the Wiener variance also has an \emph{anchor}: its value just after the last intervention (Section~\ref{sec:repair_connection}).
 The \emph{tracked state} $\xi_{i\ell k}$ collects the statistics and their anchors on day~$k$.
-The loop constraint is one row per coordinate of the tracked state, anchors included:
-\begin{equation}\label{eq:loop}
-  \xi_{i\ell T} \;\le\; \xi_{i\ell H_1}
-  \qquad \forall\, i,\,\ell \quad \text{(componentwise)}.
-\end{equation}
-For a Gaussian component with mean $\mu$ and variance $v$, for example, the rows are $\mu_T \le \mu_{H_1}$ and $v_T \le v_{H_1}$, plus the same rows for the two anchors under $\text{ARD}_1$.
+Each component also has a \emph{start of the repetition} $y_{i\ell}$.
+It is a vector over the same coordinates as $\xi_{i\ell k}$, anchors included: the tracked state at the start of every repetition of the operating phase.
+Three groups of rows tie $y_{i\ell}$ to the tracked state, one row per coordinate:
+\begin{itemize}[nosep]
+  \item \textbf{Start rows.} The start is at least the state of day~$H_1$:
+    \begin{equation}\label{eq:start}
+      y_{i\ell} \;\ge\; \xi_{i\ell H_1}
+      \qquad \forall\, i,\,\ell \quad \text{(componentwise)}.
+    \end{equation}
+  \item \textbf{Rows of day $H_1 + 1$.} Every row of day $H_1 + 1$ that reads the state of the day before reads $y_{i\ell}$ in place of $\xi_{i\ell H_1}$.
+    So each rule of Section~\ref{sec:encoding} applies to $y_{i\ell}$, and
+    \begin{equation}\label{eq:start_day}
+      \xi_{i\ell,H_1+1} \;\ge\; \pi_{H_1+1}\bigl(y_{i\ell}\bigr),
+    \end{equation}
+    with the notation of Section~\ref{sec:encoding}.
+  \item \textbf{Loop rows.} The operating phase ends at most at its start:
+    \begin{equation}\label{eq:loop}
+      \xi_{i\ell T} \;\le\; y_{i\ell}
+      \qquad \forall\, i,\,\ell \quad \text{(componentwise)}.
+    \end{equation}
+\end{itemize}
+For a Gaussian component with mean $\mu$ and variance $v$, for example, the loop rows are $\mu_T \le y^{\mu}$ and $v_T \le y^{v}$, plus the same rows for the two anchors under $\text{ARD}_1$.
+The variable $y_{i\ell}$ has no day index.
+It may lie above $\xi_{i\ell H_1}$, so the repetitions may start higher than the state that the transitory phase reaches.
+This matters when the component is replaced on day~$H_1$: the replacement fixes $\xi_{i\ell H_1}$, but not $y_{i\ell}$ (Section~\ref{sec:acceptance}).
 
 \subsubsection{One-sided encoding of the dynamics}
 \label{sec:encoding}
@@ -509,29 +528,33 @@ The one-sided rows relate to safety as follows.
     Equality rows force $\xi_k = \zeta_k$; Proposition~\ref{prop:acceptance}~(a) shows that such a schedule satisfies the one-sided rows too.
     The first example below shows a safe schedule that only the one-sided rows accept.
   \item \emph{They may reject a safe schedule}, as equality rows may.
-    Proposition~\ref{prop:acceptance} (both parts) excludes this for a component in the exact form with one tracked statistic, the law $\text{ARD}_\infty$ and no replacement on day~$H_1$.
-    Otherwise a rejection can occur in three cases:
+    Proposition~\ref{prop:acceptance} (both parts) excludes this for a component in the exact form with one tracked statistic and the law $\text{ARD}_\infty$.
+    Otherwise a rejection can occur in two cases:
     \begin{itemize}[nosep]
-      \item tracked statistics move in opposite directions over the first repetition (the second example below);
-      \item the component is replaced on day~$H_1$, so the first repetition starts from the fixed replacement state;
+      \item tracked statistics, anchors included, move in opposite directions over the first repetition (the second example below);
       \item a linear form is stricter than the exact row.
     \end{itemize}
 \end{itemize}
+A replacement on day~$H_1$ causes no rejection: the start of the repetition $y$ may lie above the replacement state (Section~\ref{sec:loop_constraint}).
+A check of all schedules of 42 small test fleets (176\,912 schedules; 8 Nov 2026) compared the rows with the repeated exact trajectory.
+The rows refuse none of the safe schedules and accept no unsafe one.
+Loop rows that compare day~$T$ with day~$H_1$ instead (without the start of the repetition) refuse 1512 of these safe schedules, all with a replacement on day~$H_1$.
 
 \begin{proposition}[Acceptance]\label{prop:acceptance}
 Fix a schedule and a component, use the exact reliability form, and let the schedule be safe for the component.
 Let $\bar\zeta = \zeta_{H_1}$.
 \begin{enumerate}[nosep,label=(\alph*)]
-  \item If $\Pi(\bar\zeta) \le \bar\zeta$, the rows of the component, the loop row included, accept the schedule with $\xi_k = \zeta_k$ for every~$k$.
-  \item If $\Pi(\bar\zeta) \ge \bar\zeta$, the component has no anchor (law $\text{ARD}_\infty$), and the component is not replaced on day~$H_1$, the rows of the component accept the schedule.
+  \item If $\Pi(\bar\zeta) \le \bar\zeta$, the rows of the component, the loop rows included, accept the schedule with $\xi_k = \zeta_k$ for every~$k$ and $y = \bar\zeta$.
+  \item If $\Pi(\bar\zeta) \ge \bar\zeta$, the rows of the component accept the schedule.
 \end{enumerate}
 \end{proposition}
 The proof is in Appendix~\ref{prf:prop:acceptance}, page~\pageref{prf:prop:acceptance}.
 
-A component in the exact form with one tracked statistic under $\text{ARD}_\infty$, not replaced on day~$H_1$, accepts every safe schedule.
+A component in the exact form with one tracked statistic under $\text{ARD}_\infty$ accepts every safe schedule, whatever happens on day~$H_1$.
 The derivation is in Appendix~\ref{drv:scalar_acceptance}, page~\pageref{drv:scalar_acceptance}.
-Under $\text{ARD}_1$ the anchor is a second tracked statistic, and the anchor rows fix its value on day~$H_1$.
-So part~(b) does not apply, and it is not proven that the rows accept every safe schedule.
+Under $\text{ARD}_1$ the anchor is a second coordinate of the state.
+The coordinates can move in opposite directions over a repetition, so $\Pi(\bar\zeta)$ and $\bar\zeta$ may be incomparable.
+Then neither part applies, and it is not proven that the rows accept every safe schedule.
 
 \begin{example}[One statistic, accepted only by the one-sided rows]
 One tracked mean, law $\text{ARD}_\infty$, $\rho = 0.5$.
@@ -547,8 +570,8 @@ Let $\bar\zeta = 0.1$.
       \Pi(0.1) = 0.15 > 0.1,
     \end{equation}
     so equality rows reject the schedule.
-  \item One-sided rows: they accept it with $\xi_{H_1} = 0.2$.
-    The tracked values over one repetition are $0.2, 0.4, 0.2$, and the reliability row is checked at $0.4$.
+  \item One-sided rows: they accept it with $y = 0.2$.
+    The tracked values over one repetition, from $y$, are $0.4, 0.2$, and the reliability row is checked at $0.4$.
   \item Reference: the reference trajectory is $0.1, 0.3, 0.15, 0.35, 0.175, \ldots$.
     Its values at the start of each repetition rise to $0.2$, and its peaks rise to $0.4$.
     So the schedule is safe whenever $0.4 \in \mathcal{C}_{i\ell}$.
@@ -576,9 +599,9 @@ Let $\bar\zeta = (0.5, 0)$.
       9 \cdot 0.012 = 0.108 \le 0.45^2 = 0.2025.
     \end{equation}
     The schedule is safe.
-  \item One-sided rows: the loop row needs
+  \item One-sided rows: the start rows and the loop rows need
     \begin{equation}
-      \xi_{H_1} = y \ge (0.5, 0)
+      y \ge \xi_{H_1} \ge (0.5, 0)
     \end{equation}
     with $\Pi(y) \le y$, so $y_v \ge 0.003$.
     The tracked peak is then at least $(0.7, 0.012)$, where
@@ -806,7 +829,7 @@ The fleet management problem collects the objective~\eqref{eq:objective}, the sc
   & \Pr(D_{i\ell k} > \tau) \le \varepsilon
     && \forall\, i,\,\ell,\,k,
     \label{eq:abs_rel} \\
-  & \xi_{i\ell T} \le \xi_{i\ell H_1} \quad \text{(componentwise)}
+  & y_{i\ell} \ge \xi_{i\ell H_1}, \quad \xi_{i\ell T} \le y_{i\ell} \quad \text{(componentwise)}
     && \forall\, i,\,\ell,
     \label{eq:abs_loop} \\[6pt]
 %
@@ -820,7 +843,8 @@ The fleet management problem collects the objective~\eqref{eq:objective}, the sc
     \label{eq:abs_domain}
 \end{align}
 \end{subequations}
-Here $\xi_{i\ell k}$ is the tracked state of Section~\ref{sec:loop_constraint}.
+Here $\xi_{i\ell k}$ is the tracked state and $y_{i\ell}$ the start of the repetition of Section~\ref{sec:loop_constraint}.
+The rows of day $H_1 + 1$ that read the state of the day before read $y_{i\ell}$ in place of $\xi_{i\ell H_1}$.
 When $C_D = 0$, the variable $u$ and row~\eqref{eq:abs_u} are not built (Section~\ref{sec:cost_function}).
 The constraints have three groups.
 \begin{itemize}[nosep]
@@ -1449,7 +1473,7 @@ Route~II gives an explicit surrogate law, not a bound.
     \end{equation}
     that is linear in the schedule.
     The reliability constraint reduces to the scalar condition $A \le A^\star(\varepsilon)$.
-    In the absence of repairs, the loop constraint reduces to the row $A_T \le A_{H_1}$ on the cumulative shape.
+    In the absence of repairs, the loop constraint reduces to the rows $A_{H_1} \le y^{A}$ and $A_T \le y^{A}$ on the cumulative shape, with a start $y^{A}$ that is free above $A_{H_1}$.
     The cost is the slack that the shared rate and the dominance margin add.
 \end{itemize}
 
@@ -4245,7 +4269,9 @@ on an intervention day;
   g_k = g_{k-1} = \pi_k(\xi_{k-1})_g
 \end{equation}
 on any other day.
-So $\xi_k \ge \pi_k(\xi_{k-1})$.
+So $\xi_k \ge \pi_k(\xi_{k-1})$ for $k \ne H_1 + 1$.
+On day $H_1 + 1$ the rows read $y$, so $\xi_{H_1+1} \ge \pi_{H_1+1}(y)$ by~\eqref{eq:start_day}, and $\pi_{H_1+1}(y) \ge \pi_{H_1+1}(\xi_{H_1})$ by~\eqref{eq:start} and Lemma~\ref{lem:monotone}.
+So $\xi_k \ge \pi_k(\xi_{k-1})$ on every day.
 Let
 \begin{equation}
   \theta_{k-1} \le \zeta_{k-1} \le \xi_{k-1}
@@ -4276,27 +4302,31 @@ Let $\xi_k$ be its full tracked state, and $\theta_k$ and $\zeta_k$ the true sta
 By (M2) and Lemma~\ref{lem:monotone}, the induction of Proposition~\ref{prop:domination} gives $\theta_k \le \zeta_k$ on every day $k \ge 1$.
 \begin{itemize}[nosep]
   \item Days $k \le T$: $\zeta_k \le \xi_k$ (Proposition~\ref{prop:domination}) and $\xi_k \in \mathcal{C}_{i\ell}$ (Section~\ref{sec:encoding}).
-  \item By Proposition~\ref{prop:domination} and Lemma~\ref{lem:monotone},
+  \item By Proposition~\ref{prop:domination} and~\eqref{eq:start},
     \begin{equation}
-      \xi_{H_1+h} \ge \pi_{H_1+h}(\xi_{H_1+h-1}) \ge \cdots \ge \Pi_h(\xi_{H_1})
+      \zeta_{H_1} \le \xi_{H_1} \le y.
+    \end{equation}
+  \item By~\eqref{eq:start_day}, Proposition~\ref{prop:domination} and Lemma~\ref{lem:monotone},
+    \begin{equation}
+      \xi_{H_1+h} \ge \pi_{H_1+h}(\xi_{H_1+h-1}) \ge \cdots \ge \Pi_h(y)
     \end{equation}
     for $h = 1, \ldots, H_2$.
     With~\eqref{eq:loop},
     \begin{equation}
-      \Pi(\xi_{H_1}) \le \xi_T \le \xi_{H_1}.
+      \Pi(y) \le \xi_T \le y.
     \end{equation}
-  \item Let $\Pi^n(\xi_{H_1}) \le \xi_{H_1}$ (true for $n = 0$).
+  \item Let $\Pi^n(y) \le y$ (true for $n = 0$).
     Then
     \begin{equation}
-      \Pi^{n+1}(\xi_{H_1}) = \Pi(\Pi^n(\xi_{H_1})) \le \Pi(\xi_{H_1}) \le \xi_{H_1}
+      \Pi^{n+1}(y) = \Pi(\Pi^n(y)) \le \Pi(y) \le y
     \end{equation}
     by Lemma~\ref{lem:monotone}.
-    So $\Pi^n(\xi_{H_1}) \le \xi_{H_1}$ for every $n \ge 0$.
+    So $\Pi^n(y) \le y$ for every $n \ge 0$.
   \item Day $k = H_1 + n H_2 + h$ with $n \ge 0$ and $1 \le h \le H_2$:
     \begin{equation}
       \zeta_k = \Pi_h\bigl(\Pi^n(\zeta_{H_1})\bigr)
-      \le \Pi_h\bigl(\Pi^n(\xi_{H_1})\bigr)
-      \le \Pi_h(\xi_{H_1})
+      \le \Pi_h\bigl(\Pi^n(y)\bigr)
+      \le \Pi_h(y)
       \le \xi_{H_1+h} \in \mathcal{C}_{i\ell}.
     \end{equation}
 \end{itemize}
@@ -4310,13 +4340,13 @@ Since $\zeta_k \ge 0$ and $\mathcal{C}_{i\ell}$ is a down-set, $\zeta_k \in \mat
 
 \phantomsection\label{drv:anchor_loop}
 \begin{proof}[Derivation that the loop constraint needs the anchors]
-The third step of the proof of Theorem~\ref{thm:perpetual} needs $\Pi(\xi_{H_1}) \le \xi_{H_1}$ in every coordinate.
+The third step of the proof of Theorem~\ref{thm:perpetual} needs $\Pi(y) \le y$ in every coordinate.
 Under $\text{ARD}_1$ a larger anchor gives a weaker repair, so an anchor that grows over one repetition weakens the repairs of the next one.
 Example:
 \begin{itemize}[nosep]
-  \item \textbf{Data.} $\rho = 0.5$; the transitory phase ends at mean $0.4$ and anchor $0.1$; the operating phase is a mission ($+0.1$), a repair, and a mission ($+0.05$).
+  \item \textbf{Data.} $\rho = 0.5$; the repetitions start at mean $0.4$ and anchor $0.1$ (the start $y$); the operating phase is a mission ($+0.1$), a repair, and a mission ($+0.05$).
   \item \textbf{First repetition.} The phase ends at mean $0.35$ and anchor $0.3$, because the repair gives $0.5 \cdot 0.5 + 0.5 \cdot 0.1 = 0.3$.
-    The row on the mean holds ($0.35 \le 0.4$), and the row on the anchor fails ($0.3 > 0.1$).
+    The loop row on the mean holds ($0.35 \le 0.4$), and the loop row on the anchor fails ($0.3 > 0.1$).
   \item \textbf{Later repetitions.} Each repetition raises the mean after the repair by $0.075$, so the mean grows without bound: the third repetition already peaks at $0.525$, above the checked peak $0.5$.
 \end{itemize}
 A loop row on the mean alone would accept this unsafe schedule.
@@ -4326,9 +4356,9 @@ A loop row on the mean alone would accept this unsafe schedule.
 \begin{proof}[Proof of Proposition~\ref{prop:acceptance}]
 (a) The values $\xi_k = \zeta_k$ satisfy every row of day~$k$ with equality at binary points.
 They lie in $\mathcal{C}_{i\ell}$ because the schedule is safe.
-The loop row reads
+Take $y = \bar\zeta$: the start rows hold with equality, the rows of day~$H_1 + 1$ read $\zeta_{H_1+1} = \pi_{H_1+1}(y)$, and the loop rows read
 \begin{equation}
-  \zeta_T = \Pi(\bar\zeta) \le \bar\zeta = \zeta_{H_1}.
+  \zeta_T = \Pi(\bar\zeta) \le \bar\zeta = y.
 \end{equation}
 
 (b) Let $y_n = \Pi^n(\bar\zeta)$, the reference state at the end of the $n$-th repetition.
@@ -4336,7 +4366,7 @@ By Lemma~\ref{lem:monotone} and $\Pi(\bar\zeta) \ge \bar\zeta$,
 \begin{equation}
   y_{n+1} = \Pi(y_n) \ge \Pi(y_{n-1}) = y_n.
 \end{equation}
-The sequence is non-decreasing and lies in the natural ranges, so it converges to some $y^*$ with $y^* \ge \bar\zeta$.
+The sequence is non-decreasing and lies in the natural ranges (anchors included), so it converges to some $y^*$ in the natural ranges with $y^* \ge \bar\zeta$.
 Each day map is affine or constant, so $\Pi$ and its prefixes $\Pi_h$ are continuous:
 \begin{equation}
   \Pi(y^*) = \lim_n y_{n+1} = y^*
@@ -4349,44 +4379,60 @@ Each $\Pi_h(y_n)$ is a reference value of a later day, so it lies in the closed 
 \begin{equation}
   y^* = \Pi_{H_2}(y^*) \in \mathcal{C}_{i\ell}.
 \end{equation}
-Take $\xi_k = \zeta_k$ for $k < H_1$, $\xi_{H_1} = y^*$ and $\xi_{H_1+h} = \Pi_h(y^*)$.
-Day~$H_1$ is not a replacement day and the component has no anchor, so
+Take $\xi_k = \zeta_k$ for $k \le H_1$, $y = y^*$ and $\xi_{H_1+h} = \Pi_h(y^*)$.
+The days $k \le H_1$ satisfy their rows with equality.
+The start rows hold, since $y^* \ge \bar\zeta = \xi_{H_1}$.
+The rows of day~$H_1 + 1$ and of the later days hold with equality, and the loop rows read
 \begin{equation}
-  \xi_{H_1} = y^* \ge \pi_{H_1}(\xi_{H_1-1})
-\end{equation}
-satisfies the rows of day~$H_1$.
-The later days satisfy their rows with equality, and the loop row reads
-\begin{equation}
-  \xi_T = \Pi(y^*) = y^* = \xi_{H_1}.
+  \xi_T = \Pi(y^*) = y^* = y.
 \end{equation}
 \end{proof}
 
 \phantomsection\label{drv:scalar_acceptance}
 \begin{proof}[Derivation of the acceptance of every safe schedule for one tracked statistic]
 A scalar state $y$ is always comparable with its image: $\Pi(y) \le y$ or $\Pi(y) \ge y$.
-So a component in the exact form with one tracked statistic under $\text{ARD}_\infty$, not replaced on day~$H_1$, accepts every safe schedule.
+So a component in the exact form with one tracked statistic under $\text{ARD}_\infty$ accepts every safe schedule, with no condition on day~$H_1$.
 \end{proof}
 
 \phantomsection\label{prf:prop:ard1_replacement}
 \begin{proof}[Proof of Proposition~\ref{prop:ard1_replacement}]
 Suppose that the component is not replaced in the operating phase.
 Let $\mu_k$ be its tracked mean, $g_k$ the anchor of the mean, and $\delta\mu_k$ the mean increment of day~$k$.
-Then $\mu_k \ge g_k$ on every day: with equality on a repair day, and on other days because $\mu$ does not decrease while $g$ stays constant, with $g_0 \le \mu_0$.
-On a repair day~$k$ of the operating phase,
+The rows of day~$H_1 + 1$ read the start $y$ (Section~\ref{sec:loop_constraint}).
+So let $\bar\mu_{H_1} = y^{\mu}$ and $\bar g_{H_1} = y^{g}$ be the state before day~$H_1 + 1$, and $\bar\mu_k = \mu_k$, $\bar g_k = g_k$ for $k > H_1$.
+On a day $k > H_1$ of the operating phase, a repair day gives
 \begin{equation}
-  g_k = \mu_k \;\ge\; (1-\rho)\,\mu_{k-1} + \rho\, g_{k-1} \;=\; g_{k-1} + (1-\rho)\,(\mu_{k-1} - g_{k-1}).
+  \bar g_k = \bar\mu_k \;\ge\; (1-\rho)\,\bar\mu_{k-1} + \rho\, \bar g_{k-1} \;=\; \bar g_{k-1} + (1-\rho)\,(\bar\mu_{k-1} - \bar g_{k-1}),
 \end{equation}
-So
-\begin{equation}
-  g_T \ge g_{H_1} + (1-\rho)\sum (\mu_{k-1} - g_{k-1}),
-\end{equation}
-the sum over the repair days of the operating phase, with non-negative terms.
-The loop row $g_T \le g_{H_1}$ and $\rho < 1$ force every term to~$0$.
-Then every repair day gives $\mu_k \ge \mu_{k-1}$, every other day gives $\mu_k \ge \mu_{k-1} + \delta\mu_k$, and
-\begin{equation}
-  \mu_T \;\ge\; \mu_{H_1} + \sum_{k=H_1+1}^{T} \delta\mu_k \;>\; \mu_{H_1},
-\end{equation}
-which violates the loop row $\mu_T \le \mu_{H_1}$.
+and any other day gives $\bar\mu_k \ge \bar\mu_{k-1} + \delta\mu_k$ and $\bar g_k = \bar g_{k-1}$.
+The loop rows read $\mu_T \le y^{\mu}$ and $g_T \le y^{g}$.
+Let $\Delta = \sum_{k=H_1+1}^{T} \delta\mu_k > 0$.
+\begin{itemize}[nosep]
+  \item \textbf{No repair.} $\mu_T \ge y^{\mu} + \Delta > y^{\mu}$, which violates the loop row.
+  \item \textbf{A repair, and $y^{g} > y^{\mu}$.}
+    Let $r$ be the first repair day.
+    Since $\bar\mu_{r-1} \ge y^{\mu}$ and $\rho > 0$,
+    \begin{equation}
+      g_r \;\ge\; (1-\rho)\,\bar\mu_{r-1} + \rho\, y^{g} \;>\; y^{\mu}.
+    \end{equation}
+    From day $r$ on, $\bar\mu_k \ge \bar g_k$ (equality on a repair day; $\mu$ does not decrease and $g$ stays constant on other days).
+    So every later repair day has a non-negative term $\bar\mu_{k-1} - \bar g_{k-1}$, and $g$ does not decrease.
+    On the last repair day $s$, $\mu_s = g_s$, and $\mu$ does not decrease afterwards.
+    Therefore $\mu_T \ge \mu_s = g_s \ge g_r > y^{\mu}$, which violates the loop row.
+  \item \textbf{A repair, and $y^{g} \le y^{\mu}$.}
+    Every repair day has $\bar\mu_{k-1} - \bar g_{k-1} \ge 0$: on the first one because $\bar\mu_{r-1} \ge y^{\mu} \ge y^{g} = \bar g_{r-1}$, and on the later ones as above.
+    So
+    \begin{equation}
+      g_T \ge y^{g} + (1-\rho)\sum (\bar\mu_{k-1} - \bar g_{k-1}),
+    \end{equation}
+    the sum over the repair days of the operating phase, with non-negative terms.
+    The loop row $g_T \le y^{g}$ and $\rho < 1$ force every term to~$0$.
+    Then every repair day gives $\mu_k = g_k \ge \bar g_{k-1} = \bar\mu_{k-1}$, every other day gives $\mu_k \ge \bar\mu_{k-1} + \delta\mu_k$, and
+    \begin{equation}
+      \mu_T \;\ge\; y^{\mu} + \Delta \;>\; y^{\mu},
+    \end{equation}
+    which violates the loop row.
+\end{itemize}
 \end{proof}
 
 \phantomsection\label{prf:prop:repair_cost}
@@ -4659,7 +4705,7 @@ Each operation is non-decreasing in every moment and anchor separately, so the m
 
 Componentwise domination therefore chains.
 Write $\Pi$ for the map of one repetition of the operating phase.
-Then~\eqref{eq:loop_moments}, with the rows on the anchors under $\text{ARD}_1$, states that $\Pi$ does not increase either moment, nor either anchor, at the state of day~$H_1$.
+Then~\eqref{eq:loop_moments}, with the rows on the anchors under $\text{ARD}_1$, states that $\Pi$ does not increase either moment, nor either anchor, at the start of the repetition $y$.
 Hence the moments at the end of each repetition are at most those at the end of the previous one (Theorem~\ref{thm:perpetual}).
 
 The Bernstein bound~\eqref{eq:bernstein_constraint}, like the Cantelli bound~\eqref{eq:cantelli_surrogate}, is increasing in both $\mathbb{E}[D]$ and $\operatorname{Var}[D]$.

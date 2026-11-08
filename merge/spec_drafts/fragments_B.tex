@@ -40,7 +40,9 @@ $\ARDinf$ rows are built at $\ARDinf$ cells; the $\ARDone$ rows and the anchor r
 $\ARDone$ cells. With \texttt{allow\_replacement = false}, $x^r_k = 0$ and the
 replacement rows are not built. Big-M constants: $\tau$ for $\mu$ and $g^{\mu}$;
 $V_{\max} = \tau^2/\kappa_G^2$ for $v$ and $g^{v}$, with
-$\kappa_G = \Phi^{-1}(1-\varepsilon)$.
+$\kappa_G = \Phi^{-1}(1-\varepsilon)$. On day $k = H_1 + 1$, every row that reads the
+state or the anchor of day $k-1$ reads $y$ and $y^{g}$ of its quantity instead
+(Section~\ref{sec:encoding}); this holds in this section and the next four.
 
 \emph{Mean.}
 \begin{align}
@@ -96,7 +98,8 @@ $k = 1, \ldots, T$:
   \label{eq:g_row}
 \end{equation}
 
-Here $\kappa_G$ is computed by \texttt{scipy.special.ndtri}$(1 - \varepsilon)$, as for
+Here $\kappa_G$ is computed as $-\texttt{scipy.special.ndtri}(\varepsilon)$ (the value
+of $\Phi^{-1}(1 - \varepsilon)$, exact for small $\varepsilon$), as for
 $V_{\max}$ in \texttt{config.py}.
 
 \textbf{Forms.} \texttt{exact}: Eq.~\eqref{eq:g_row} as written, a nonconvex
@@ -275,7 +278,8 @@ $V_{\max} = \tau^2/\kappa_G^2$, on every day $k = 1, \ldots, T$, in the same for
 and with the same $f$ and side row (Section~\ref{sec:dyn_gaussian}). The optional
 row $v_k \leq V^{\mathrm{user}}$ is added when \texttt{v\_max\_user} is given.
 
-\emph{Note.} The loop row $v_T \leq v_{H_1}$ forces a replacement of the component
+\emph{Note.} The variance has no anchor and falls only at a replacement. The start rows
+$y^v \geq v_{H_1}$ and the loop row $v_T \leq y^v$ (Section~\ref{sec:loop}) force a replacement of the component
 in the operating phase whenever its train flies a mission there; with
 \texttt{allow\_replacement} false, the train cannot fly in the operating phase
 (scoping document, section ``Stochastic orderings'', loop constraint for each
@@ -446,6 +450,16 @@ lists the forms in which the row is built (``all three'': \texttt{exact},
 \bottomrule
 \end{longtable}
 \endgroup
+
+The module imports \texttt{base} under a guard, as the inverse Gaussian and Gamma
+modules do: without \texttt{gurobipy} it loads, \texttt{base} is \texttt{None} and no
+builder is registered. Its function \texttt{row\_constants(bound, tau, eps, b, s)} needs
+neither Gurobi nor \texttt{base}. It gives the constants of the reliability row of the
+bound: for a quadratic row (Cantelli, Hoeffding, Bernstein) the tracked quantity
+$\chi$ and $c_2$, $c_1$, $\bar\mu_{\mathrm{side}}$ of Eq.~\eqref{eq:a_quad}; for a linear
+row (Markov, Chernoff) the tracked quantity and the cap of Eqs.~\eqref{eq:rf_markov} and
+\eqref{eq:rf_chernoff}. The argument \texttt{b} is the Bernstein support constant $b$,
+and \texttt{s} the Chernoff parameter. An unknown bound is a \texttt{ValueError}.
 
 $R$ is the Hoeffding budget (sum of the squared widths of the terms of the damage).
 $K$ is the CGF of the damage at $s = \texttt{s\_chernoff} > 0$. Day increments:
