@@ -117,6 +117,29 @@ def day_profile(cfg, key):
     return out
 
 
+def mission_demand(cfg):
+    """The number ``d_jk`` of trains of every mission and day, array ``(M, T)`` of int (spec "Sizes and Horizon").
+
+    The oracle's own phase lookup (Eq. c_phase without the axes ``i`` and ``l``), from the fields
+    ``vehicles_per_mission`` ``(M, H2)`` and ``vehicles_per_mission_trans`` ``(M, H1)`` or ``None``
+    of the config; it does not read ``cfg.d``. A missing operating field is the default 1.
+    """
+    M, H1, H2, T = cfg.M, cfg.H1, cfg.H2, cfg.T
+    op = getattr(cfg, "vehicles_per_mission", None)
+    op = np.ones((M, H2), dtype=int) if op is None else np.asarray(op, dtype=int)
+    tr = getattr(cfg, "vehicles_per_mission_trans", None)
+    tr = None if tr is None else np.asarray(tr, dtype=int)
+    out = np.empty((M, T), dtype=int)
+    for k in range(1, T + 1):
+        if k <= H1 and tr is not None:
+            out[:, k - 1] = tr[:, k - 1]
+        elif k <= H1:
+            out[:, k - 1] = op[:, (k - 1) % H2]
+        else:
+            out[:, k - 1] = op[:, (k - H1 - 1) % H2]
+    return out
+
+
 # ---------------------------------------------------------------------------
 # Initial, anchor and replacement values (spec 408-428, 774-778, 1389-1396)
 # ---------------------------------------------------------------------------
@@ -654,27 +677,45 @@ def costs(cfg, x, r, z, u):
 # ---------------------------------------------------------------------------
 # Enumeration of schedules (spec 704-732)
 # ---------------------------------------------------------------------------
-def _day_options(cfg):
+def _flyer_sets(F, demand):
+    """Every way to give mission ``j`` exactly ``demand[j-1]`` trains, the trains of different missions
+    disjoint: a list of tuples of tuples, ``result[n][j-1]`` the (sorted) trains of mission ``j``."""
+    def rec(j, free):
+        if j == len(demand):
+            yield ()
+            return
+        for chosen in itertools.combinations(free, int(demand[j])):
+            rest = [i for i in free if i not in chosen]
+            for tail in rec(j + 1, rest):
+                yield (chosen,) + tail
+    return list(rec(0, list(range(F))))
+
+
+def _day_options(cfg, demand=None):
     """Every assignment of one day: list of ``(x_day (F, M+1), m_day (F, L), r_day (F, L))``.
 
-    Each mission is flown by exactly one train, a train flies at most one mission (Eqs.
-    a_coverage, a_one_activity). A train that does not fly is idle, or in the depot; on a depot
-    day each component gets no intervention, a repair or (if ``allow_replacement``) a replacement
-    (Eq. a_depot). An idle day and a depot day without intervention are both listed.
+    Mission ``j`` is flown by exactly ``demand[j-1]`` trains (``d_jk``; default one train each), a
+    train flies at most one mission (Eqs. a_coverage, a_one_activity). A train that does not fly is
+    idle, or in the depot; on a depot day each component gets no intervention, a repair or (if
+    ``allow_replacement``) a replacement (Eq. a_depot). An idle day and a depot day without
+    intervention are both listed.
     """
     F, M, L = cfg.F, cfg.M, cfg.L
+    demand = [1] * M if demand is None else [int(v) for v in demand]
     per_comp = ("none", "repair", "replace") if cfg.allow_replacement else ("none", "repair")
     options = []
-    for flyers in itertools.permutations(range(F), M):       # flyers[j-1] flies mission j
-        others = [i for i in range(F) if i not in flyers]
+    for flyers in _flyer_sets(F, demand):                    # flyers[j-1]: the trains of mission j
+        busy = {i for trains in flyers for i in trains}
+        others = [i for i in range(F) if i not in busy]
         # one state per non-flying train: 'idle' or a tuple of per-component choices
         states = ["idle"] + list(itertools.product(per_comp, repeat=L))
         for combo in itertools.product(states, repeat=len(others)):
             xd = np.zeros((F, M + 1), dtype=np.int8)
             md = np.zeros((F, L), dtype=np.int8)
             rd = np.zeros((F, L), dtype=np.int8)
-            for j, i in enumerate(flyers, start=1):
-                xd[i, j] = 1
+            for j, trains in enumerate(flyers, start=1):
+                for i in trains:
+                    xd[i, j] = 1
             for i, state in zip(others, combo):
                 if state == "idle":
                     continue
@@ -690,13 +731,20 @@ def _day_options(cfg):
 
 def enumerate_schedules(cfg):
     """Generate every binary schedule ``(x, m, r)`` of the horizon that satisfies the assignment rows
-    (one activity, coverage, depot-day compatibility); arrays ``(F, M+1, T)``, ``(F, L, T)``,
+    (one activity, coverage of ``d_jk`` trains per mission and day, depot-day compatibility); arrays ``(F, M+1, T)``, ``(F, L, T)``,
     ``(F, L, T)``. ``r`` is all zero if ``allow_replacement`` is false."""
-    options = _day_options(cfg)
-    for combo in itertools.product(range(len(options)), repeat=cfg.T):
-        x = np.stack([options[c][0] for c in combo], axis=-1)
-        m = np.stack([options[c][1] for c in combo], axis=-1)
-        r = np.stack([options[c][2] for c in combo], axis=-1)
+    d = mission_demand(cfg)
+    cache = {}
+    day_options = []
+    for k in range(cfg.T):
+        key = tuple(d[:, k])
+        if key not in cache:
+            cache[key] = _day_options(cfg, key)
+        day_options.append(cache[key])
+    for combo in itertools.product(*[range(len(o)) for o in day_options]):
+        x = np.stack([day_options[k][c][0] for k, c in enumerate(combo)], axis=-1)
+        m = np.stack([day_options[k][c][1] for k, c in enumerate(combo)], axis=-1)
+        r = np.stack([day_options[k][c][2] for k, c in enumerate(combo)], axis=-1)
         yield x, m, r
 
 
@@ -763,11 +811,12 @@ def row_violations(cfg, sol, tol=1e-6, bigm_tol=2e-5, quad_rel=1e-5):
             out.append(Violation(row, i, l, k, float(violation)))
 
     # --- fleet rows
+    demand = mission_demand(cfg)
     for k in range(1, T + 1):
         for i in range(F):
             add("one_activity", i, None, k, x[i, :, k - 1].sum() - 1.0, tol)
         for j in range(1, M + 1):
-            add(f"coverage_j{j}", None, None, k, abs(x[:, j, k - 1].sum() - 1.0), tol)
+            add(f"coverage_j{j}", None, None, k, abs(x[:, j, k - 1].sum() - demand[j - 1, k - 1]), tol)
         for i in range(F):
             for l in range(L):
                 add("depot", i, l, k, m[i, l, k - 1] + r[i, l, k - 1] - x[i, 0, k - 1], tol)

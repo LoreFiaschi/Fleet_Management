@@ -20,7 +20,7 @@ What the package does:
 
 | Item | Content |
 |---|---|
-| Fleet | `F` trains, `M` missions per day, `L` components per train |
+| Fleet | `F` trains, `M` missions per day (mission `j` needs `d_jk` trains on day `k`, default 1), `L` components per train |
 | Horizon | `T = H1 + H2` days: a transitory phase of `H1` days, then the operating phase of `H2` days, which is repeated |
 | Degradation models | Gaussian, inverse Gaussian (IG), Wiener, Gamma, rainflow; one model per cell (a cell is one component of one train) |
 | Repair laws | ARD∞ (`ardinf`, the default) and ARD1 (`ard1`) |
@@ -162,11 +162,12 @@ An input is one mapping from key names to values. The formats are YAML (`.yaml`,
   A **selector** has the same shapes with strings.
 - A **profile** (increments per mission and day) has the shape `(F, L, M, H2)` after broadcasting
   (`H1` days for a transitory profile); shorter shapes are expanded.
+- **Trains per mission.** `vehicles_per_mission` is an integer `>= 0`, with shape scalar, `(M,)` or `(M, H2)`; `vehicles_per_mission_trans` has shape scalar, `(M,)` or `(M, H1)`. A shape without a day axis is repeated along the days. Mission `j` is flown by exactly `d_jk` trains on day `k`, after the same phase lookup as a profile. The check `F > M` stays, and `F` must be larger than the largest sum of the `d_jk` over the missions on one day.
 - A key outside the tables of the spec raises an error.
 
 | Group | Keys (defaults in brackets) |
 |---|---|
-| Sizes and horizon | `F`, `M`, `H` (an integer, or `[H1, H2]`), `L` (inferred from `model`), `component_names` |
+| Sizes and horizon | `F`, `M`, `H` (an integer, or `[H1, H2]`), `L` (inferred from `model`), `component_names`, `vehicles_per_mission` (1), `vehicles_per_mission_trans` |
 | Selectors | `model` (required), `repair_model` (`ardinf`), `bound_method` (`cantelli`, rainflow cells only), `reliability_impl` (`exact`), `encoding` (`bigm`) |
 | Reliability | `tau`, `epsilon`, `tangent_ref` (0.5), `pwl_points` (8) |
 | Repair | `rho`, `anchor_mu_0`, `anchor_v_0`, `anchor_R_0`, `anchor_K_0` (`ard1` cells) |
@@ -311,7 +312,7 @@ The validators check a saved result against its input. They do not call the opti
 
 | Tool | What it checks |
 |---|---|
-| `validate` | `x`, `m`, `r` are binary; at most one activity per train and day; every mission is covered once a day; repairs and replacements only on depot days; `idle` is consistent; the loop rows hold for each saved tracked quantity; the saved objective is not below the objective recomputed from the schedule |
+| `validate` | `x`, `m`, `r` are binary; at most one activity per train and day; every mission `j` is flown by exactly `d_jk` trains on day `k`; repairs and replacements only on depot days; `idle` is consistent; the loop rows hold for each saved tracked quantity; the saved objective is not below the objective recomputed from the schedule |
 | `validate_gamma_replay_schedule` | the global schedule rules; the tracked mean, the anchor, the removed mean `z`, the cap and the repeatability of every Gamma cell, replayed from the saved schedule |
 | `validate_gamma_stochastic_schedule` | a Monte Carlo run of the fixed schedule on the Gamma cells: schedule failure rate with a one-sided Clopper-Pearson upper bound |
 | `validate_gamma_schedule` | the dispatcher: mode `"deterministic"` (replay, the default), `"stochastic"` or `"both"` |

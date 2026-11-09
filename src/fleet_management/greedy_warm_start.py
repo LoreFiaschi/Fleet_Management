@@ -70,7 +70,8 @@ def _profiles(cfg) -> dict:
 def _construction_pass(cfg, mu_inc, repair_trigger: float):
     """Missions and repairs of every day with a proxy state.
 
-    Spec, "Steps of the construction pass".
+    Spec, "Steps of the construction pass". Mission ``j`` gets ``cfg.d[j, k]`` trains on
+    day ``k``, one at a time (``F > max_k sum_j d_jk`` guarantees enough trains).
 
     ``mu_inc`` is the mean profile ``(F, L, M, T)``. Returns ``x`` ``(F, M + 1, T)``,
     ``m`` and ``r`` ``(F, L, T)`` (``r`` stays zero), the order of the missions of
@@ -90,17 +91,19 @@ def _construction_pass(cfg, mu_inc, repair_trigger: float):
         difficulty = [(float(np.max(mu_inc[:, :, j, k] / tau)), j) for j in range(M)]
         missions = [j for _, j in sorted(difficulty, reverse=True)]
         assignment_order.append([j + 1 for j in missions])
-        # Step 2: each mission to the free train with the smallest (max, sum) of the ratios.
+        # Step 2: each mission gets its d_jk trains, one at a time, each time the free train
+        # with the smallest (max, sum) of the ratios; a mission with d_jk = 0 gets none.
         free = list(range(F))
         for j in missions:
-            keys = {}
-            for i in free:
-                ratio = (s_hat[i] + mu_inc[i, :, j, k]) / tau[i]
-                keys[i] = (float(np.max(ratio)), float(np.sum(ratio)), i)
-            i = min(free, key=keys.get)
-            free.remove(i)
-            x[i, j + 1, k] = 1.0
-            s_hat[i] += mu_inc[i, :, j, k]
+            for _ in range(int(cfg.d[j, k])):
+                keys = {}
+                for i in free:
+                    ratio = (s_hat[i] + mu_inc[i, :, j, k]) / tau[i]
+                    keys[i] = (float(np.max(ratio)), float(np.sum(ratio)), i)
+                i = min(free, key=keys.get)
+                free.remove(i)
+                x[i, j + 1, k] = 1.0
+                s_hat[i] += mu_inc[i, :, j, k]
         # Step 3: a train without a mission is idle, unless some component is due.
         for i in free:
             due = s_hat[i] > repair_trigger * tau[i]

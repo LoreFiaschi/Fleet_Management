@@ -157,7 +157,7 @@ def check_result(cfg: FleetConfig, result: dict, tol: float | None = None) -> di
     add("binary", max(float(np.max(np.minimum(np.abs(a), np.abs(a - 1.0)))) for a in (x, m, r)),
         tol_binary)
     add("one_activity", max(0.0, float(np.max(x.sum(axis=1) - 1.0))), tol_binary)
-    add("mission_coverage", float(np.max(np.abs(x[:, 1:, :].sum(axis=0) - 1.0))), tol_binary)
+    add("mission_coverage", float(np.max(np.abs(x[:, 1:, :].sum(axis=0) - cfg.d))), tol_binary)
 
     depot_gating = max(0.0, float(np.max(m + r - x0)))
     if not cfg.allow_replacement:

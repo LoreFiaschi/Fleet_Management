@@ -195,7 +195,7 @@ def test_replay_global_violations():
     result = _result("A")
     result["x"][1, 1, 0] = 1.0      # both trains fly mission 1 on day 0
     report = validate_gamma_replay_schedule(cfg, result)
-    assert report["global_violations"] == ["mission j=1 is covered 2 times on day k=0"]
+    assert report["global_violations"] == ["mission j=1 is flown by 2 trains on day k=0, not 1"]
     assert not report["valid"]
 
     result = _result("A")

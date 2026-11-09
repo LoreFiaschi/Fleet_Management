@@ -151,9 +151,9 @@ def _schedule_violations(cfg: FleetConfig, result: dict, x: np.ndarray, m: np.nd
         out.append(f"result horizon T={horizon} differs from the input T={cfg.T}")
     for i, k in np.argwhere(x.sum(axis=1) > 1):
         out.append(f"train i={int(i)} has {int(x[i, :, k].sum())} activities on day k={int(k)}")
-    for j0, k in np.argwhere(x[:, 1:, :].sum(axis=0) != 1):
-        out.append(f"mission j={int(j0) + 1} is covered {int(x[:, j0 + 1, k].sum())} "
-                   f"times on day k={int(k)}")
+    for j0, k in np.argwhere(x[:, 1:, :].sum(axis=0) != cfg.d):
+        out.append(f"mission j={int(j0) + 1} is flown by {int(x[:, j0 + 1, k].sum())} "
+                   f"trains on day k={int(k)}, not {int(cfg.d[j0, k])}")
     for i, l, k in np.argwhere((m == 1) & (r == 1)):
         out.append(f"cell (i={int(i)}, l={int(l)}) has a repair and a replacement "
                    f"on day k={int(k)}")

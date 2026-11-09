@@ -340,6 +340,8 @@ $i \in \{1, \ldots, F\}$ & train & \\
 $\ell \in \{1, \ldots, L\}$ & component of a train & \\
 $(i, \ell)$ & a \emph{cell}: component $\ell$ of train $i$ & \\
 $j \in \{0, 1, \ldots, M\}$ & activity: $j = 0$ is a depot day, $j \geq 1$ a mission & \\
+$d_{jk}$ & number of trains that mission $j$ needs on day $k$, after the phase lookup &
+  \ref{sec:input_scalars} \\
 $k \in \{1, \ldots, T\}$ & day; index $k = 0$ holds the initial state & \\
 $H = [H_1, H_2]$, $T = H_1 + H_2$ & horizon input; a scalar $H$ means $H_1 = H_2 = H$ &
   \ref{sec:input_scalars} \\
@@ -426,14 +428,18 @@ An integer key accepts a number with zero fractional part, such as \texttt{3.0};
 \subsection{Sizes and Horizon}\label{sec:input_scalars}
 
 \keytab
-\keyrow{\texttt{F}}{integer}{required}{all}{Number of trains; $F > M$}
+\keyrow{\texttt{F}}{integer}{required}{all}{Number of trains; $F > M$ and $F > \max_k \sum_{j=1}^{M} d_{jk}$}
 \keyrow{\texttt{M}}{integer}{required}{all}{Number of missions}
 \keyrow{\texttt{L}}{integer}{inferred}{all}{Components per train; the length of the component axis of \texttt{model}. Required if \texttt{model} is one string and $L > 1$}
 \keyrow{\texttt{H}}{integer or \texttt{[H1, H2]}}{required}{all}{Horizon; a scalar $H$ means $H_1 = H_2 = H$}
+\keyrow{\texttt{vehicles\_per\_mission}}{integer, $(M)$ or $(M, H_2)$}{$1$}{all}{Number $d_{jk}$ of trains that mission $j$ needs on day $k$; an integer $\ge 0$. A shape without a day axis is repeated along the days}
+\keyrow{\texttt{vehicles\_per\_mission\_trans}}{integer, $(M)$ or $(M, H_1)$}{none}{all}{Values of the transitory phase}
 \tabend
 
 The horizon has $T = H_1 + H_2$ days: days $1,\ldots,H_1$ form the transitory phase, days $H_1+1,\ldots,T$ the operating phase.
 A profile has $H_2$ entries for the operating phase and, optionally, $H_1$ entries for the transitory phase.
+The value $d_{jk}$ of day $k$ is read from \texttt{vehicles\_per\_mission} and \texttt{vehicles\_per\_mission\_trans} with the phase lookup of Eq.~\eqref{eq:c_phase}, without the axes $i$ and $\ell$.
+A mission with $d_{jk} = 0$ is not flown on day $k$.
 
 \subsection{Selectors}\label{sec:input_selectors}
 
@@ -604,6 +610,7 @@ A non-strict inequality $a \le b$ (or $a \ge b$) passes when it holds up to $10^
 \textbf{Sizes and selectors.}
 \begin{itemize}[leftmargin=1.5em]
   \item $F$, $M$ and $L$ are positive integers, and $F > M$. A given \texttt{L} equals the length of the component axis of \texttt{model} when \texttt{model} is a list or an array.
+  \item Every entry of \texttt{vehicles\_per\_mission} and \texttt{vehicles\_per\_mission\_trans} is an integer $\ge 0$, and $F > \max_{k} \sum_{j=1}^{M} d_{jk}$ over the days $k = 1, \ldots, T$.
   \item Every entry of \texttt{component\_names} is a string that is not empty after blanks are removed.
   \item $H$ is an integer $\ge 1$, or a pair of integers $H_1, H_2 \ge 1$.
   \item \texttt{model} entries are \texttt{gaussian}, \texttt{inverse\_gaussian}, \texttt{wiener}, \texttt{gamma} or \texttt{rainflow}; \texttt{repair\_model} entries are \texttt{ard1} or \texttt{ardinf}, for every model.
@@ -782,12 +789,12 @@ Each train performs at most one activity per day:
   \sum_{j=0}^{M} x_{ijk} \leq 1 \qquad \forall\, i, k .
   \label{eq:a_one_activity}
 \end{equation}
-Each mission is flown by exactly one train every day:
+Mission $j$ is flown by exactly $d_{jk}$ trains on day $k$ (Section~\ref{sec:input_scalars}):
 \begin{equation}
-  \sum_{i=1}^{F} x_{ijk} = 1 \qquad \forall\, j \in \{1, \ldots, M\},\; k .
+  \sum_{i=1}^{F} x_{ijk} = d_{jk} \qquad \forall\, j \in \{1, \ldots, M\},\; k .
   \label{eq:a_coverage}
 \end{equation}
-Exactly $M$ trains fly every day; the other $F - M$ trains are in the depot or idle.
+Exactly $\sum_{j} d_{jk}$ trains fly on day $k$; the other $F - \sum_{j} d_{jk} \ge 1$ trains are in the depot or idle.
 No other fleet-availability row is built. An idle day is an all-zero assignment row.
 Depot days and idle days add no increment.
 
@@ -2389,9 +2396,9 @@ build_greedy_warm_start(cfg, *, repair_trigger=0.70)
 A proxy state $\hat s_{i\ell}$ starts at $\mu_{0,i\ell}$. For each day $k = 1,\ldots,T$:
 \begin{enumerate}[nosep,label=\arabic*.]
   \item Order the missions by decreasing $\max_{i,\ell} \mu^{\inc}_{i\ell jk}/\tau_{i\ell}$; a tie goes to the larger $j$.
-  \item In this order, give each mission to the train $i$ without a mission on day $k$ that minimises, in lexicographic order,
+  \item In this order, give each mission $j$ its $d_{jk}$ trains, one at a time: each time the train $i$ without a mission on day $k$ that minimises, in lexicographic order,
     $\bigl(\max_\ell (\hat s_{i\ell} + \mu^{\inc}_{i\ell jk})/\tau_{i\ell},\ \sum_\ell (\hat s_{i\ell} + \mu^{\inc}_{i\ell jk})/\tau_{i\ell}\bigr)$; a tie goes to the smaller $i$.
-    Add $\mu^{\inc}_{i\ell jk}$ to $\hat s_{i\ell}$. The check $F > M$ (Section~\ref{sec:consistency_checks}) guarantees a train for every mission.
+    Add $\mu^{\inc}_{i\ell jk}$ to $\hat s_{i\ell}$. The check $F > \max_k \sum_j d_{jk}$ (Section~\ref{sec:consistency_checks}) guarantees enough trains.
   \item A train without a mission is idle, unless some component has $\hat s_{i\ell} > r\,\tau_{i\ell}$: then $x_{i0k} = 1$, and every such component is repaired ($x^m_{i\ell k} = 1$, $\hat s_{i\ell} \leftarrow (1-\rho_{i\ell})\,\hat s_{i\ell}$ for every repair law).
 \end{enumerate}
 The construction pass schedules no replacement.
@@ -2602,7 +2609,7 @@ validate(input_path, results_path, validation_path="validation.yaml",
 \tabstart{p{2.6cm}p{7.2cm}p{5.2cm}}{Check & Condition & Violation}
 \typerow{\texttt{binary}}{$x$, $x^m$, $x^r$ take only the values $0$ and $1$}{the largest distance of an entry from $\{0,1\}$}
 \typerow{\texttt{one\_activity}}{$\sum_{j=0}^{M} x_{ijk} \leq 1$ (Section~\ref{sec:assignment})}{$\max\{0,\ \max_{i,k}(\sum_j x_{ijk} - 1)\}$}
-\typerow{\texttt{mission\_coverage}}{every mission $j = 1,\ldots,M$ has $\sum_{i} x_{ijk} = 1$ (the depot $j = 0$ is not summed)}{$\max_{j \geq 1,k} |\sum_i x_{ijk} - 1|$}
+\typerow{\texttt{mission\_coverage}}{every mission $j = 1,\ldots,M$ has $\sum_{i} x_{ijk} = d_{jk}$, Eq.~\eqref{eq:a_coverage} (the depot $j = 0$ is not summed)}{$\max_{j \geq 1,k} |\sum_i x_{ijk} - d_{jk}|$}
 \typerow{\texttt{depot\_gating}}{$x^m_{i\ell k} + x^r_{i\ell k} \leq x_{i0k}$ (Section~\ref{sec:depot}), and $x^r = 0$ if \texttt{allow\_replacement} is false}{$\max\{0,\ \max(x^m_{i\ell k} + x^r_{i\ell k} - x_{i0k})\}$; if \texttt{allow\_replacement} is false, the larger of this value and $\max r_{i\ell k}$}
 \typerow{\texttt{idle}}{listed only if the result has the key \texttt{idle}, not \texttt{null} (Section~\ref{sec:output})}{$\max |\texttt{idle}_{i\ell k} - (x_{i0k} - x^m_{i\ell k} - x^r_{i\ell k})|$}
 \typerow{\texttt{loop\_}$q$}{for $q \in \{\texttt{mu}, \texttt{v}, \texttt{R}, \texttt{K}, \texttt{g\_mu}, \texttt{g\_v}, \texttt{g\_R}, \texttt{g\_K}\}$: the loop rows $q_{i\ell T} \leq y^q_{i\ell}$ and $q_{i\ell H_1} \leq y^q_{i\ell}$ (Section~\ref{sec:loop}), where $y^q_{i\ell}$ is the saved start of the repetitions, the result key \texttt{y\_}$q$ (Section~\ref{sec:output}); without that key, the row $q_{i\ell T} \leq q_{i\ell H_1}$; \texttt{NaN} and \texttt{null} entries are skipped}{with \texttt{y\_}$q$: $\max\{0,\ \max(q_{i\ell T} - y^q_{i\ell}),\ \max(q_{i\ell H_1} - y^q_{i\ell})\}$; without: $\max\{0,\ \max(q_{i\ell T} - q_{i\ell H_1})\}$; maxima over $i,\ell$}
@@ -2725,7 +2732,7 @@ validate_gamma_replay_files(input_path, result_path, report_path=None,
   \begin{itemize}[nosep]
     \item a result horizon other than $T$, or a result without the key \texttt{T};
     \item a train with more than one activity;
-    \item a mission not covered exactly once;
+    \item a mission $j$ flown on day $k$ by a number of trains other than $d_{jk}$;
     \item a repair and a replacement of a cell on one day;
     \item an intervention on a day with a mission or without a depot day.
   \end{itemize}
@@ -2950,7 +2957,7 @@ The table lists the keys that each cell type requires, and the optional keys tha
 \texttt{*\_trans} is optional for every profile key; \texttt{tangent\_ref} and \texttt{pwl\_points} are read only at cells with the form \texttt{tangent} or \texttt{pwl}; the starting anchors are read only at \texttt{ard1} cells.
 
 \tabstart{p{2.6cm}p{4.7cm}p{6.9cm}}{Cell type & Required & Optional (defaults in Section~\ref{sec:inputs})}
-\typerow{Every cell}{\texttt{F}, \texttt{M}, \texttt{H}, \texttt{model}, \texttt{tau}, \texttt{epsilon}, \texttt{rho}, \texttt{mu\_0}, \texttt{mu}, \texttt{C\_M}, \texttt{C\_R}, \texttt{C\_rep}, \texttt{C\_D}}{\texttt{L}, \texttt{repair\_model}, \texttt{reliability\_impl}, \texttt{encoding}, \texttt{tangent\_ref}, \texttt{pwl\_points}, \texttt{anchor\_mu\_0}, \texttt{replacement\_mu}, \texttt{replacement\_as\_new}, \texttt{allow\_replacement}, \texttt{penalty\_type}, \texttt{component\_names}, \texttt{mu\_trans}, the run options}
+\typerow{Every cell}{\texttt{F}, \texttt{M}, \texttt{H}, \texttt{model}, \texttt{tau}, \texttt{epsilon}, \texttt{rho}, \texttt{mu\_0}, \texttt{mu}, \texttt{C\_M}, \texttt{C\_R}, \texttt{C\_rep}, \texttt{C\_D}}{\texttt{L}, \texttt{vehicles\_per\_mission}, \texttt{vehicles\_per\_mission\_trans}, \texttt{repair\_model}, \texttt{reliability\_impl}, \texttt{encoding}, \texttt{tangent\_ref}, \texttt{pwl\_points}, \texttt{anchor\_mu\_0}, \texttt{replacement\_mu}, \texttt{replacement\_as\_new}, \texttt{allow\_replacement}, \texttt{penalty\_type}, \texttt{component\_names}, \texttt{mu\_trans}, the run options}
 \typerow{G}{\texttt{v}}{\texttt{v\_0}, \texttt{replacement\_v}, \texttt{anchor\_v\_0}, \texttt{v\_max\_user}, \texttt{v\_trans}}
 \typerow{IG}{\texttt{eta}}{none}
 \typerow{W}{\texttt{sigma}}{\texttt{v\_0}, \texttt{replacement\_v}, \texttt{v\_max\_user}}

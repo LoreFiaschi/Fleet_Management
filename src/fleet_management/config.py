@@ -65,7 +65,7 @@ RUN_OPTION_DEFAULTS = {
 
 # The keys of the specification tables, in table order.
 CANONICAL_KEYS = (
-    "F", "M", "L", "H",
+    "F", "M", "L", "H", "vehicles_per_mission", "vehicles_per_mission_trans",
     "model", "repair_model", "bound_method", "reliability_impl", "encoding",
     "component_names",
     "tau", "epsilon", "tangent_ref", "pwl_points",
@@ -148,6 +148,9 @@ class FleetConfig:
     Cell values are (F, L) float64 arrays, NaN where the key does not apply.
     Operating profiles are (F, L, M, H2) arrays and transitory profiles
     (F, L, M, H1), expanded eagerly; a profile is None if its key is absent.
+    The numbers of trains per mission are int64 arrays: ``vehicles_per_mission`` (M, H2),
+    ``vehicles_per_mission_trans`` (M, H1), None if absent, and ``d`` (M, T), the values
+    after the phase lookup (column k - 1 is day k).
     """
     F: int
     M: int
@@ -157,6 +160,10 @@ class FleetConfig:
     H2: int
     T: int
     component_names: list = field(default_factory=list)
+    # trains per mission (M, H2), (M, H1) and, after the phase lookup, (M, T)
+    vehicles_per_mission: np.ndarray = None
+    vehicles_per_mission_trans: Optional[np.ndarray] = None
+    d: np.ndarray = None
     # selectors (F, L)
     model: np.ndarray = None
     repair_model: np.ndarray = None
@@ -612,6 +619,43 @@ def _check_state(cfg: FleetConfig) -> None:
                   "must be 'exact' when penalty_type is 'quadratic' and C_D > 0")
 
 
+def _vehicles(data: dict, key: str, M: int, Hs: int, default: Optional[int]) -> Optional[np.ndarray]:
+    """Trains per mission as (M, Hs) int64 (spec "Sizes and Horizon"); ``None`` if the key is
+    absent and has no ``default``.  Shapes: scalar, (M,) or (M, Hs); a shape without a day
+    axis is repeated along the days.  An entry is an integer >= 0 (3.0 is accepted).
+    """
+    if key not in data:
+        return None if default is None else np.full((M, Hs), default, dtype=np.int64)
+    raw = data[key]
+    try:
+        arr = np.asarray(raw, dtype=object)
+    except ValueError:
+        arr = None
+    accepted = f"scalar, ({M},), or ({M},{Hs})"
+    if arr is None or arr.shape not in ((), (M,), (M, Hs)):
+        shape = () if arr is None else arr.shape
+        raise ValueError(f"'{key}' shape {shape} must be {accepted}.")
+    if arr.shape == ():
+        view = arr.reshape(1, 1)
+    elif arr.shape == (M,):
+        view = arr[:, None]
+    else:
+        view = arr
+    values = np.empty(view.shape, dtype=np.int64)
+    for index in np.ndindex(*view.shape):
+        value = view[index]
+        if isinstance(value, np.generic):
+            value = value.item()
+        ok = (not isinstance(value, (bool, np.bool_)) and isinstance(value, (int, float))
+              and (isinstance(value, int) or (math.isfinite(value) and value.is_integer()))
+              and value >= 0)
+        if not ok:
+            j = index[0] + 1 if arr.shape != () else 1
+            raise ValueError(f"'{key}' must hold integers >= 0 (got {value!r} at mission j={j}).")
+        values[index] = int(value)
+    return np.ascontiguousarray(np.broadcast_to(values, (M, Hs)), dtype=np.int64)
+
+
 def _lookup(op: np.ndarray, trans: Optional[np.ndarray], H1: int, H2: int) -> np.ndarray:
     """Profile on the days 1..T = H1 + H2 (spec, Eq. ``c_phase``): (F, L, M, T)."""
     out = op[..., np.concatenate([np.arange(H1) % H2, np.arange(H2)])]
@@ -863,6 +907,14 @@ def load_config(data: dict) -> FleetConfig:
     if F <= M:
         raise ValueError(f"'F' must be > 'M' (got F={F}, M={M}).")
     H, H1, H2, T = _parse_horizon(data["H"])
+    vehicles = _vehicles(data, "vehicles_per_mission", M, H2, 1)
+    vehicles_trans = _vehicles(data, "vehicles_per_mission_trans", M, H1, None)
+    d = _lookup(vehicles, vehicles_trans, H1, H2)
+    need = d.sum(axis=0)                            # trains that the missions need, by day
+    if F <= need.max():
+        raise ValueError(f"'F' must be > the largest number of trains that the missions need "
+                         f"on one day (got F={F}, largest={int(need.max())} "
+                         f"on day k={int(np.argmax(need)) + 1}).")
     L = _infer_L(data, F)
     everywhere = np.ones((F, L), dtype=bool)
 
@@ -930,6 +982,7 @@ def load_config(data: dict) -> FleetConfig:
 
     cfg = FleetConfig(
         F=F, M=M, L=L, H=H, H1=H1, H2=H2, T=T,
+        vehicles_per_mission=vehicles, vehicles_per_mission_trans=vehicles_trans, d=d,
         component_names=_component_names(data.get("component_names", _ABSENT), L),
         model=model, repair_model=repair_model, bound_method=bound_method,
         reliability_impl=reliability_impl, encoding=encoding,

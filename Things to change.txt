@@ -1,11 +1,5 @@
 - The targets are not trains but electric vehicles (like buses or cars)
 
-- Split the horizon search loop into two different tasks: search for the best transitory horizon and the best operating horizon. This will also impact the interface and formulation of the problem as we have two horizons now.
-
-- Visualization of the results must improve. For instance, don't show the type of degradation as box contours. A label at beginining of the row is probably better.
-
-- Tightening of the linear reliability surrogates beyond their single-tangent forms
-
 - Schedule-dependent Bernstein support
 
 - Extend the Monte Carlo replay validator (main's Gamma stochastic validator) to every degradation model.
@@ -21,6 +15,8 @@
 - Scoping, implementation details (moved from scoping.tex, 28 Oct 2026): Provide the details to run an actual simulation of the system.
 
 - Exact Gamma validator: a cheaper certified tail bound when a component is repaired many times. The exact series grows with the number of repairs: about 2 s per tail after 8 repairs, and from about 11 repairs it needs more than 100,000 terms and stops with an error (merge/wp7_plan_gamma_validators.md at commit 18c8a64, question Q6; added 29 Oct 2026).
+
+- Vehicles per mission (inputs vehicles_per_mission and vehicles_per_mission_trans, 9 Nov 2026): spec, scoping, code and tests are written but not committed. Run the full test suite and the smoke test on Euler; the solve tests of tests/test_vehicles_per_mission.py have never run with Gurobi. Needs the ETH network and the SSH agent (EULER.md).
 
 Research directions (from ASSESSMENT.md at commit 18c8a64, 7 Jul 2026):
 

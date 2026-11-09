@@ -104,6 +104,7 @@ $F$             & Number of fleet members \\
 $H_1$, $H_2$    & Lengths of the transitory phase (days $1,\ldots,H_1$) and of the operating phase (days $H_1+1,\ldots,T$) \\
 $T$             & Horizon length, $T = H_1 + H_2$ \\
 $M$             & Number of missions (must satisfy $F > M$) \\
+$d_{jk}$        & Number of fleet members that mission $j$ needs on day $k$ (must satisfy $F > \max_k \sum_{j} d_{jk}$) \\
 $L$             & Number of components per fleet member \\
 \midrule
 \multicolumn{2}{@{}l}{\textit{Cost functions}} \\
@@ -144,14 +145,16 @@ Each member performs at most one activity per day,
 \begin{equation}\label{eq:one_activity}
   \sum_{j=0}^{M} x_{ijk} \;\le\; 1 \qquad \forall\, i,\,k,
 \end{equation}
-and each mission must be covered by exactly one member,
+and mission~$j$ must be covered by exactly $d_{jk}$ members on day~$k$,
 \begin{equation}\label{eq:mission_coverage}
-  \sum_{i=1}^{F} x_{ijk} \;=\; 1 \qquad \forall\, j \ge 1,\,k.
+  \sum_{i=1}^{F} x_{ijk} \;=\; d_{jk} \qquad \forall\, j \ge 1,\,k.
 \end{equation}
+A mission may need several members at once: for example, a bus line that needs $d_{jk}$ buses in service on day~$k$.
+The number may change from day to day, for example between weekdays and weekends; $d_{jk} = 0$ means that mission~$j$ is not served on day~$k$.
 
 A member whose assignment row is all zeros on day~$k$ is \emph{idle}: it serves no mission and is not in the depot.
 \begin{itemize}[nosep]
-  \item \textbf{Members on missions.} By~\eqref{eq:one_activity} and~\eqref{eq:mission_coverage}, exactly $M$ members serve missions on every day. Since $F > M$, the other $F - M \ge 1$ members are in the depot or idle.
+  \item \textbf{Members on missions.} By~\eqref{eq:one_activity} and~\eqref{eq:mission_coverage}, exactly $\sum_{j} d_{jk}$ members serve missions on day~$k$. Since $F > \max_k \sum_{j} d_{jk}$, the other $F - \sum_{j} d_{jk} \ge 1$ members are in the depot or idle.
   \item \textbf{Depot day or idle day.} Because~\eqref{eq:one_activity} is an inequality, the choice between a depot day and an idle day is free.
     An idle day costs nothing, and the depot-day cost~$C_M$ prices this choice (Section~\ref{sec:cost_function}).
   \item \textbf{No damage.} Idle days and depot days add no damage, because a component accumulates damage only on the days on which its member serves a mission (Section~\ref{sec:damage_dynamics}).
@@ -809,7 +812,7 @@ The fleet management problem collects the objective~\eqref{eq:objective}, the sc
   & \sum_{j=0}^{M} x_{ijk} \le 1
     && \forall\, i,\,k,
     \label{eq:abs_assign} \\
-  & \sum_{i=1}^{F} x_{ijk} = 1
+  & \sum_{i=1}^{F} x_{ijk} = d_{jk}
     && \forall\, j \ge 1,\,k,
     \label{eq:abs_cover} \\
   & x^m_{i\ell k} + x^r_{i\ell k} \le x_{i0k}
@@ -3772,7 +3775,8 @@ Each item below gives a rule and, after the dash, its reason.
 
 \paragraph{Sizes and selectors.}
 \begin{itemize}[nosep]
-  \item $F > M$. --- Every mission needs a member on every day; with $F = M$ no member could be in the depot, and no repair could take place.
+  \item $F > \max_k \sum_{j} d_{jk}$. --- Mission~$j$ needs $d_{jk}$ members on day~$k$; with $F = \sum_{j} d_{jk}$ no member could be in the depot on day~$k$, and no repair could take place on that day.
+  \item $F > M$. --- A profile with three axes is read as $(L, M, H_*)$ or as $(F, L, M)$, and the two shapes coincide only if $F = L = M = H_*$. If on some day every mission has $d_{jk} \ge 1$, this check follows from the previous one; it matters when some $d_{jk}$ are~$0$.
   \item $H_1, H_2 \ge 1$. --- Each phase has at least one day.
   \item With a positive $C_D$ and the quadratic penalty, every quadratic reliability row is in its exact form. --- The quadratic penalty is a quadratic row, and the linear forms exist to give a linear model (Section~\ref{sec:cost_function}).
 \end{itemize}
@@ -3916,7 +3920,8 @@ A warm start changes the time of a solve, not the model: it does not change the 
       \item The operating days repeat the operating phase of the source cyclically, so a shorter operating phase can seed a longer one.
       \item When the new transitory phase is longer than the source's, its extra days all take the first operating day of the source.
     \end{itemize}
-    When the source has the same sizes $F$, $M$, $L$, the mapped schedule copies whole days of the source, so it keeps the one-activity rows, the mission coverage and the depot-day rows of every day.
+    When the source has the same sizes $F$, $M$, $L$, the mapped schedule copies whole days of the source, so it keeps the one-activity rows and the depot-day rows of every day.
+    It keeps the mission coverage of every day whose numbers $d_{jk}$ equal those of the source day that it copies.
     It need not satisfy the dynamics or the loop rows of the new horizons.
   \item \textbf{Invalid source.} A source whose horizons are not integers of at least~$1$, or whose arrays do not have the days of these horizons on their last axis, raises an error.
     The day mapping needs the horizons of the source, and values taken from the new problem in their place would map the days wrongly without a message.

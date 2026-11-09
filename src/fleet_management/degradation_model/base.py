@@ -96,6 +96,7 @@ class FleetModel:
     pwl_points: int
     opts: dict                             # the run options
     profiles: dict                         # key -> (operating, transitory or None)
+    d: np.ndarray                          # trains per mission and day (M, T), cfg.d
     # --- filled by the helpers of the builders' prepare hooks ---
     state_vars: dict = field(default_factory=dict)    # q -> {(i, l, k): Var}
     anchor_vars: dict = field(default_factory=dict)   # q -> {(i, l, k): Var}, ard1 cells
@@ -702,7 +703,7 @@ def build_context(cfg, opts: dict, model_name: str = "fleet_management") -> Flee
         state_range=floats({"mu": cfg.range_mu, "v": cfg.range_v,
                             "R": cfg.range_R, "K": cfg.range_K}),
         allow_replacement=allow_replacement, pwl_points=int(cfg.pwl_points),
-        opts=dict(opts), profiles=profiles,
+        opts=dict(opts), profiles=profiles, d=np.asarray(cfg.d, dtype=np.int64),
     )
     ctx.state_vars = {"mu": mu_var, "v": {}, "R": {}, "K": {}}
     ctx.anchor_vars = {q: {} for q in TRACKED_QUANTITIES}
@@ -1057,12 +1058,13 @@ def add_quadratic_reliability_rows(ctx: FleetModel, i: int, l: int, q: str,
 # General constraints and problem equations (model-agnostic)
 # ===========================================================================
 def add_assignment_rows(ctx: FleetModel) -> None:
-    """One activity per train and day, and every mission flown every day.
+    """One activity per train and day, and every mission flown by its trains every day.
 
-    Eqs. a_one_activity and a_coverage; the depot counts as activity 0.
+    Eqs. a_one_activity and a_coverage; the depot counts as activity 0. Mission ``j`` is
+    flown by exactly ``d[j, k]`` trains on day ``k`` (spec, Assignment Constraints).
     """
     md, F, M, T = ctx.model, ctx.F, ctx.M, ctx.T
-    x = ctx.x
+    x, d = ctx.x, ctx.d
 
     for i in range(F):
         for k in range(T):
@@ -1070,7 +1072,7 @@ def add_assignment_rows(ctx: FleetModel) -> None:
                          name=f"assign_{i}_{k}")
     for j in range(1, M + 1):
         for k in range(T):
-            md.addConstr(gp.quicksum(x[i, j, k] for i in range(F)) == 1,
+            md.addConstr(gp.quicksum(x[i, j, k] for i in range(F)) == int(d[j - 1, k]),
                          name=f"demand_{j}_{k}")
 
 
