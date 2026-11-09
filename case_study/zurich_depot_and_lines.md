@@ -1,6 +1,6 @@
 # A bus depot in the canton of Zurich with battery-electric buses on city and countryside lines
 
-Status: done (9 Nov 2026). Tasks 1-5 complete: operators checked (section 1), three candidate depots compared and depot A, EUROBUS Bassersdorf (VBG), recommended (section 2), its 15 lines measured (section 3, `zurich_line_features.csv`), the script `extract_line_features.py` kept. Open points: section 6 (empty masses, depot fleet, official road geometry; the antivirus block of opentransportdata.swiss).
+Status: done (9 Nov 2026). Follow-up done (section 7): the two VBZ bus garages in the city compared; Hardau recommended over Bassersdorf; its 24 lines measured in `zurich_city_line_features.csv` (downloads 72-136). Earlier: tasks 1-5 complete: operators checked (section 1), three candidate depots compared and depot A, EUROBUS Bassersdorf (VBG), recommended (section 2), its 15 lines measured (section 3, `zurich_line_features.csv`), the script `extract_line_features.py` kept. Open points: section 6 (empty masses, depot fleet, official road geometry; the antivirus block of opentransportdata.swiss).
 
 Terms used in this file:
 
@@ -57,7 +57,7 @@ Empty mass: no source read gives the empty mass of any of these battery-electric
 
 ### Recommendation (task 3)
 
-**Recommended: depot A, EUROBUS welti-furrer AG in Bassersdorf (VBG).**
+**Recommended: depot A, EUROBUS welti-furrer AG in Bassersdorf (VBG).** This choice requires battery buses in service today. Section 7 drops that requirement and recommends the VBZ garage Hardau in the city of Zurich.
 
 | Criterion | A. Bassersdorf | B. Hardau | C. Affoltern am Albis |
 |---|---|---|---|
@@ -175,6 +175,9 @@ Departures after midnight are written 00:xx here (the CSV keeps the GTFS form, f
 | SKI+ (Systemaufgaben Kundeninformation, the Swiss public-transport customer-information office), *Timetable 2026 (GTFS2020)*, feed version 20260527 (`feed_info.txt`), valid 14 Dec 2025 - 12 Dec 2026. Copy hosted by the Mobility Database (MobilityData, a non-profit open-data catalogue), snapshot of 29 May 2026, ID mdb-2898, which names as producer URL https://data.opentransportdata.swiss/dataset/timetable-2026-gtfs2020/permalink | https://files.mobilitydatabase.org/mdb-2898/mdb-2898-202605290027/mdb-2898-202605290027.zip | terms of use of opentransportdata.swiss (not read: the site was blocked, see section 6) | 2026-11-09 | 162,613,673 B zipped (stop_times.txt 1,789,073,567 B unzipped) | `agency.txt`, `routes.txt`, `trips.txt`, `stop_times.txt`, `stops.txt`, `calendar.txt`, `calendar_dates.txt`, `feed_info.txt`: all VBG trips (agency_id 773: 65 routes, 25,266 trips, 287,888 stop times, 1,039 stops) | read in full for agency 773 (every row of each file was scanned; the other agencies were skipped) |
 | OpenStreetMap, bus route relations of the 15 Bassersdorf lines in the canton of Zurich, through the Overpass API (database state 2026-11-09T16:43:51Z) | https://overpass-api.de/api/interpreter (query in `extract_line_features.py` notes, section 3) | ODbL 1.0 (OpenStreetMap contributors) | 2026-11-09 | 1,076,464 B | road geometry of each line (crowd-sourced, see section 5) | read in full |
 | swisstopo, profile service of the federal geoportal API (`profile.json`), 30 requests, one per line and direction, plus one test request (download 37, line 768 on straight lines, not used) | https://api3.geo.admin.ch/rest/services/profile.json (parameters: geometry in LV95, `sr=2056`, `nb_points`, `distinct_points=true`; the full URLs are in `log.tsv` and in `patterns.csv` of the work folder) | swisstopo terms of use (not read) | 2026-11-09 | 9,973-104,151 B each (downloads 38-43, 46-67, 70, 71) | heights (model COMB) along each line | read in full (every sample used) |
+| OpenStreetMap, bus and trolleybus route relations of 32 VBZ lines (garages Hardau and Hagenholz), network ZVV, through the Overpass API (database state 2026-11-09T17:46:58Z) | https://overpass-api.de/api/interpreter (query in section 7.3 and `log.tsv`, download 73) | ODbL 1.0 (OpenStreetMap contributors) | 2026-11-09 | 2,727,612 B | road geometry of each VBZ line (crowd-sourced) | read in full |
+| swisstopo profile service, 63 requests for the 32 VBZ lines (one per line and direction; line 64 has one) | https://api3.geo.admin.ch/rest/services/profile.json (full URLs in `log.tsv`) | swisstopo terms of use (not read) | 2026-11-09 | 8,108-107,819 B each (downloads 74-136) | heights (model COMB) along each VBZ line | read in full (every sample used) |
+| The same GTFS feed (download 34), VBZ trips | as above | as above | 2026-11-09 | as above | VBZ trips (agency_id 849: 90 routes, 49,247 trips, 894,205 stop times, 1,934 stops) | read in full for agency 849 |
 
 ## 5. Assumptions and estimates
 
@@ -216,8 +219,131 @@ Defaults of the `table` step: layover 3 min (`--layover-min`), empty runs at 20 
 | opendata.swiss record of the GTFS data set (licence field) | The CKAN API of opendata.swiss answered, but its licence field is empty; the terms of use page of opentransportdata.swiss was blocked (row 1). |
 | Empty mass of the e-bus types (eCitaro, eCitaro G, lighTram 10 Plug, MAN Lion's City 12CE and 18CE, PostAuto articulated buses) | Not given in any source read. A manufacturer data sheet would be needed; none was read. |
 | Total fleet of the Bassersdorf depot, and its diesel and hybrid buses per line | Not given by VBG or EUROBUS in the sources read. Section 5 gives a timetable estimate (48 vehicles). |
-| Road geometry from an official source | The national GTFS feed has no `shapes.txt`. OpenStreetMap was used instead (unconfirmed, section 5). |
+| Road geometry from an official source | The national GTFS feed has no `shapes.txt`. OpenStreetMap was used instead (unconfirmed, section 5). Two official leads, not downloaded and not read: the ZVV timetable in GTFS on the open-data portal of the city of Zurich (`https://data.stadt-zuerich.ch/dataset/vbz_fahrplandaten_gtfs/download/2026_google_transit.zip`, 90,321,184 B by the opendata.swiss record) and the cantonal geodata set *Linien des öffentlichen Verkehrs* (geolion.zh.ch, data set 2150). Whether either holds road geometry is not known. |
 | VBZ: which lines run with battery buses | Not stated on the VBZ pages read. |
 | PostAuto Winkel: e-bus count and lines | Not stated in the PostAuto pages read. |
 | Downloads 03, 04, 07, 08, 10, 11 of the earlier rounds | The folders are empty and `log.tsv` has no entry for them; their URLs are not recorded. |
 | swisstopo profiles of line 759 at the first try (downloads 44, 45, 68, 69: empty folders) | HTTP 400: the service refuses request lines over 4,094 characters. The geometry was simplified more (tolerance 6.8 m) and downloaded again (70, 71). |
+| City garages: lines 35 and 304 (Hardau) and 744 (Hagenholz) | Listed by VBZ (*Depots und Garagen*), but the GTFS feed has no VBZ trips (agency_id 849) for them. Line 304 was run "Mischbetrieb mit VBZ bis Dezember 2025" (jointly with VBZ until December 2025), same page. They are left out of section 7. |
+| A bus garage "Gubel" or bus garages of other operators in the city of Zurich | Not named in any source read. The VBZ page names only Hardau/Herdern and Hagenholz as bus garages in the city. One web search (reconnaissance) found nothing more. |
+| Overpass download for the VBZ lines at the first try (download 72: empty folder) | HTTP 502 (server busy); the second try worked (73). |
+
+## 7. A bus garage in the city of Zurich (follow-up)
+
+The question: does a bus garage in the city of Zurich fit the case study better than Bassersdorf? The bus type is now an assumption of the model (one battery-bus type on all lines), so the garage need not have battery buses today, and trolleybus lines count as lines too.
+
+### 7.1 Bus garages in the city and their lines
+
+| Garage | Location | Lines served (VBZ list) | Lines with VBZ trips in the GTFS feed | Size | Source |
+|---|---|---|---|---|---|
+| **Hardau / Bushalle Herdern** | city of Zurich, Hardau; the Herdern hall is a second hall (the source gives no address) | 31, 32, 33, 46, 72, 83 (all trolleybus), 70, 89, 161, 165, 184, 185, 304, 66, 78, 67, 76, 77, 99, 35, 38, 39, 40, 42, 64, 73, and night buses on Friday and Saturday | 24 of the 26: all but 35 and 304 | about 180 vehicles of many types; the whole trolleybus fleet; 105 charging points of 100 or 150 kW | VBZ *Depots und Garagen* (read in full) |
+| **Hagenholz** | city of Zurich, Hagenholz (the source gives no address) | 61, 62, 69, 75, 80, 743, 745, 37, 744, and night buses on Friday and Saturday | 8 of the 9: all but 744 | not stated; built 1957; electrified in two stages; lines 69 and 80 to become trolleybus lines | VBZ *Depots und Garagen* (read in full) |
+
+No other bus garage in the city was found (section 6). The other VBZ bus garages lie outside the city: Dübendorf, Illnau-Effretikon, Dietikon/Bergdietikon, Zollikon, Wädenswil (same page).
+
+### 7.2 Choice: Hardau, and how it compares
+
+Both city garages were measured with the same script, timetable and rules as Bassersdorf (section 5). Days: Tuesday 16 Jun 2026, **Saturday 27 Jun 2026**, Sunday 21 Jun 2026. Saturday 20 Jun 2026 is not used for the city: line 31 has 378 trips that day against 291 on 13 and 27 June (extra short trips Hermetschloo - Central), so that day is not typical. The Bassersdorf lines have the same trips on 13, 20 and 27 June.
+
+| Indicator | Bassersdorf (EUROBUS, VBG) | **Hardau (VBZ)** | Hagenholz (VBZ) |
+|---|---|---|---|
+| Lines measured | 15 | **24** (6 trolleybus) | 8 |
+| Lines that leave the city of Zurich / rural lines | (depot outside the city) / 2 (769, 797) | **8** (89, 161, 165, 184, 185, 66, 77, 99) / 0 | 3 (61, 743, 745) / 1 (743 to Maur, 32.4 km/h, 1.71 stops per km) |
+| Lines with an ascent of 100 m or more in one direction | 1 (769: 196 m) | **13** (largest: 31, 242 m) | 1 (80: 160 m) |
+| Height range of the stops' roads | 418-598 m | **397-624 m** | 397-534 m |
+| Steepest grade, OSM roads only | 10.2 % (769) | **13.3 %** (70) | 13.0 % (80) |
+| Mean speed per line | 9.9-31.5 km/h | 9.9-24.5 km/h | 17.0-32.4 km/h |
+| Stops per km per line | 1.14-4.08 | 2.25-4.96 | 1.71-3.04 |
+| n_j, weekday (sum) | 48 | **160** | 54 |
+| Vehicle-km per weekday | 7,401 | **30,590** | 11,289 |
+
+Check: the 160 vehicles that Hardau needs on a weekday fit the "about 180 vehicles" that VBZ states for the garage (the rest is reserve).
+
+**Recommendation: Hardau.** It is clearly better than Bassersdorf for a reader, and it is the better of the two city garages:
+
+1. It lies in the city and runs every kind of line: busy trunk lines through the centre (the six trolleybus lines, 7-13 km, 2.3-2.8 stops per km), short neighbourhood lines, steep hill lines (39 up to 618 m, 38, 70, 73), and lines to six municipalities outside the city (89 to Oberengstringen and Unterengstringen, 12.4 km; 165 to Kilchberg and Rüschlikon; 161 and 66 to Kilchberg; 184 and 185 to Adliswil; 77 and 99 through Zollikon).
+2. Gradients matter much more than at Bassersdorf: 13 lines climb 100 m or more in one direction, against one line at Bassersdorf.
+3. The data are as complete as for Bassersdorf: the same national timetable covers all 24 lines.
+
+Limits: Hardau has no rural line; the lines that leave the city end in suburban municipalities. It is also large (24 lines, 160 vehicles). A model run can take a subset, for example one trunk line, two hill lines and the suburban lines 89, 161, 165, 184 and 185. **Hagenholz** is the compact alternative (8 lines, 54 vehicles) and the only city garage with a countryside line (743, Stettbach - Maur), but it has only one steep line.
+
+### 7.3 Lines of the Hardau garage
+
+The full table is `zurich_city_line_features.csv` (same columns as `zurich_line_features.csv`). Timetable: national GTFS feed, version 20260527; VBZ trips only (agency_id 849); days Tuesday 16 Jun, Saturday 27 Jun, Sunday 21 Jun 2026. Road geometry: OSM bus and trolleybus route relations (download 73), accepted for 37 of the 47 directions by the rules of section 5. A star (*) marks a direction measured on straight lines between stops: its length is a lower bound and its steepest grade is not reliable (the straight line crosses the terrain, not the road). Line 64 is a loop with one direction.
+
+"Today": trolleybus for the six lines that VBZ marks "alles Trolley" (all trolleybus); "bus" for the others, whose drive (diesel, hybrid or battery) the sources do not give per line. "Character" is an own rule: "inner city" when all stops of direction d0 lie in the city (stop names that start with "Zürich", except "Zürich Flughafen"), else "city to suburb"; "steep" when the ascent in one direction is 100 m or more.
+
+**Route features (one trip of the main pattern):**
+
+| Line | Termini | Today | Outside the city | Character | Length d0 / d1 (km) | Stops d0 / d1 | Stops per km | Run time d0 / d1 (min) | Mean speed (km/h) | Ascent d0 / d1 (m) | Descent d0 / d1 (m) | Steepest grade (%) | Height range (m) |
+|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
+| 31 | Zürich, Hermetschloo - Zürich, Kienastenwies | trolleybus | - | inner city, steep | 13.02 / 11.86* | 35 / 35 | 2.81 | 47.0 / 45.0 | 16.2 | 242 / 49 | 18 / 274 | 8.9 / 26.3* | 397-624 |
+| 32 | Zürich, Holzerhurd - Zürich, Strassenverkehrsamt | trolleybus | - | inner city, steep | 11.18 / 10.76 | 26 / 26 | 2.37 | 36.0 / 34.0 | 18.8 | 118 / 86 | 87 / 112 | 11.7 / 11.7 | 401-481 |
+| 33 | Zürich Tiefenbrunnen, Bahnhof - Zürich, Triemli | trolleybus | - | inner city, steep | 12.15 / 12.24 | 33 / 34 | 2.75 | 39.0 / 40.0 | 18.5 | 165 / 134 | 121 / 177 | 8.1 / 8.0 | 400-533 |
+| 46 | Zürich, Rütihof - Zürich, Bahnhofquai/HB | trolleybus | - | inner city, steep | 7.46 / 7.26 | 19 / 18 | 2.51 | 24.0 / 22.0 | 19.2 | 56 / 125 | 140 / 40 | 7.0 / 6.7 | 406-510 |
+| 72 | Zürich, Milchbuck - Zürich, Morgental | trolleybus | - | inner city | 8.19* / 9.0 | 22 / 23 | 2.62 | 31.0 / 31.0 | 16.6 | 47 / 93 | 97 / 43 | 9.0* / 8.4 | 400-478 |
+| 83 | Zürich, Milchbuck - Zürich Altstetten, Bahnhof | trolleybus | - | inner city | 7.34 / 7.35 | 16 / 17 | 2.25 | 22.0 / 25.0 | 18.7 | 14 / 94 | 91 / 16 | 8.3 / 8.4 | 398-478 |
+| 70 | Zürich Wollishofen, Bahnhof - Zürich, Mittelleimbach | bus | - | inner city, steep | 4.11 / 4.19 | 13 / 12 | 3.01 | 14.0 / 12.0 | 19.1 | 113 / 40 | 41 / 115 | 13.3 / 13.0 | 409-484 |
+| 89 | Unterengstringen, Sennenbüel N - Zürich, Sihlcity | bus | Unterengstringen, Oberengstringen | city to suburb, steep | 12.38 / 12.56 | 31 / 31 | 2.49 | 38.0 / 39.0 | 19.4 | 112 / 110 | 108 / 111 | 7.4 / 7.4 | 397-482 |
+| 161 | Zürich, Bürkliplatz - Kilchberg ZH, Neuweid | bus | Kilchberg ZH | city to suburb, steep | 6.62 / 6.64 | 18 / 18 | 2.72 | 17.0 / 18.0 | 22.7 | 113 / 12 | 11 / 112 | 10.1 / 10.1 | 406-511 |
+| 165 | Zürich, Bürkliplatz - Rüschlikon, Park im Grüene | bus | Kilchberg ZH, Rüschlikon | city to suburb, steep | 9.22* / 9.6 | 24 / 24 | 2.55 | 23.0 / 23.0 | 24.5 | 141 / 20 | 43 / 118 | 17.8* / 9.3 | 406-516 |
+| 184 | Zürich Wollishofen, Bahnhof - Adliswil, Bahnhof | bus | Adliswil | city to suburb | 4.95 / 4.58 | 12 / 11 | 2.41 | 13.0 / 11.0 | 23.8 | 69 / 25 | 27 / 67 | 5.5 / 5.5 | 409-470 |
+| 185 | Zürich Wollishofen, Bahnhof - Adliswil, Bahnhof | bus | Adliswil, Kilchberg ZH | city to suburb | 6.14 / 5.78 | 15 / 14 | 2.43 | 19.0 / 16.0 | 20.4 | 98 / 54 | 56 / 96 | 8.5 / 8.6 | 409-496 |
+| 66 | Zürich Enge, Bahnhof/Bederstr. - Kilchberg ZH, Kirche | bus | Kilchberg ZH | city to suburb, steep | 5.59* / 5.91 | 16 / 16 | 2.78 | 19.0 / 18.0 | 18.6 | 135 / 19 | 38 / 116 | 11.9* / 7.4 | 409-516 |
+| 78 | Zürich, Dunkelhölzli - Zürich, Heizenholz | bus | - | inner city, steep | 7.17 / 6.89 | 16 / 16 | 2.28 | 21.0 / 19.0 | 21.1 | 122 / 43 | 46 / 119 | 7.6 / 7.7 | 397-510 |
+| 67 | Zürich, Dunkelhölzli - Zürich Wiedikon, Bahnhof | bus | - | inner city | 5.43 / 5.54 | 15 / 15 | 2.73 | 16.0 / 17.0 | 19.9 | 27 / 50 | 47 / 28 | 4.3 / 4.3 | 410-436 |
+| 76 | Zürich Wiedikon, Bahnhof - Zürich, Binz Center | bus | - | inner city | 2.25 / 2.0* | 7 / 7 | 3.3 | 8.0 / 6.0 | 18.2 | 20 / 5 | 2 / 23 | 3.2 / 8.5* | 405-431 |
+| 77 | Zürich, Hegibachplatz - Zürich, Balgrist | bus | Zollikon | city to suburb | 3.19* / 3.57 | 11 / 10 | 3.1 | 10.0 / 10.0 | 20.3 | 69 / 24 | 28 / 69 | 11.7* / 10.5 | 420-487 |
+| 99 | Zürich, Balgrist - Zollikon, Bahnhof | bus | Zollikon | city to suburb | 3.32 / 3.39 | 10 / 10 | 2.98 | 10.0 / 10.0 | 20.1 | 33 / 91 | 89 / 33 | 10.5 / 10.5 | 416-486 |
+| 38 | Zürich, Schützenhaus Höngg - Zürich, Waidspital | bus | - | inner city, steep | 3.36 / 3.43 | 12 / 12 | 3.53 | 11.0 / 10.0 | 19.4 | 80 / 111 | 111 / 81 | 12.5 / 12.5 | 458-533 |
+| 39 | Zürich, Letzistrasse - Zürich, Im Klösterli | bus | - | inner city, steep | 4.03* / 4.07 | 13 / 12 | 3.08 | 15.0 / 12.0 | 18.0 | 145 / 33 | 37 / 138 | 18.2* / 11.3 | 486-618 |
+| 40 | Zürich, Seebach - Zürich, Bucheggplatz | bus | - | inner city | 5.89 / 5.31 | 16 / 14 | 2.68 | 17.0 / 16.0 | 20.4 | 88 / 40 | 48 / 79 | 7.7 / 7.7 | 432-492 |
+| 42 | Zürich, Seebach - Zürich, ETH Hönggerberg | bus | - | inner city, steep | 4.59 / 4.49 | 11 / 12 | 2.53 | 13.0 / 13.0 | 21.0 | 109 / 16 | 16 / 108 | 7.6 / 7.6 | 432-525 |
+| 64 | Zürich Oerlikon, Bahnhof Nord - Zürich Oerlikon, Bahnhof Nord | bus | - | inner city | 2.66* / - | 11 / - | 4.13 | 10.0 / - | 16.0 | 11 / - | 11 / - | 3.3* | 437-444 |
+| 73 | Zürich, Schweighof - Zürich, Zielweg | bus | - | inner city | 1.06* / 0.75* | 5 / 4 | 4.96 | 7.0 / 4.0 | 9.9 | 84 / 0 | 0 / 74 | 12.7* / 12.4* | 458-544 |
+
+**Daily service** (n_j and the km values are estimates, section 5; departures after midnight are kept in the GTFS form in the CSV):
+
+| Line | Trips Tue / Sat / Sun | n_j Tue / Sat / Sun | n_j check, Tue (cycle time / headway 07-08) | Vehicle-km per day Tue / Sat / Sun | km per vehicle per day Tue / Sat / Sun |
+|---|---|---|---|---|---|
+| 31 | 310 / 291 / 228 | 15 / 14 / 12 | 14 (7.5 min) | 3642.0 / 3404.7 / 2677.9 | 242.8 / 243.2 / 223.2 |
+| 32 | 333 / 284 / 218 | 15 / 13 / 10 | 13 (6 min) | 3466.1 / 3015.7 / 2319.2 | 231.1 / 232.0 / 231.9 |
+| 33 | 306 / 282 / 222 | 13 / 13 / 11 | 12 (7.5 min) | 3527.9 / 3266.0 / 2573.5 | 271.4 / 251.2 / 234.0 |
+| 46 | 358 / 277 / 216 | 14 / 8 / 6 | 13 (4 min) | 2569.2 / 2019.4 / 1574.2 | 183.5 / 252.4 / 262.4 |
+| 72 | 304 / 279 / 219 | 14 / 11 / 8 | 10 (7.5 min) | 2498.1 / 2310.8 / 1815.2 | 178.4 / 210.1 / 226.9 |
+| 83 | 189 / 103 / 96 | 10 / 5 / 5 | 8 (7.5 min) | 1315.9 / 741.1 / 682.6 | 131.6 / 148.2 / 136.5 |
+| 70 | 236 / 236 / 236 | 5 / 5 / 5 | 4 (10 min) | 966.7 / 967.6 / 967.6 | 193.3 / 193.5 / 193.5 |
+| 89 | 279 / 163 / 163 | 13 / 7 / 7 | 12 (7.5 min) | 3417.4 / 2004.8 / 2004.8 | 262.9 / 286.4 / 286.4 |
+| 161 | 97 / 74 / 72 | 4 / 2 / 2 | 3 (15 min) | 639.2 / 510.0 / 474.5 | 159.8 / 255.0 / 237.3 |
+| 165 | 110 / 108 / 106 | 5 / 5 / 5 | 4 (15 min) | 985.0 / 928.8 / 876.0 | 197.0 / 185.8 / 175.2 |
+| 184 | 94 / 73 / 70 | 4 / 2 / 2 | 2 (15 min) | 445.8 / 347.9 / 310.6 | 111.5 / 174.0 / 155.3 |
+| 185 | 92 / 72 / 69 | 4 / 2 / 2 | 3 (15 min) | 544.3 / 429.1 / 388.6 | 136.1 / 214.5 / 194.3 |
+| 66 | 186 / 150 / 138 | 5 / 3 / 3 | 6 (7.5 min) | 860.5 / 724.4 / 454.8 | 172.1 / 241.5 / 151.6 |
+| 78 | 197 / 153 / 153 | 7 / 5 / 5 | 7 (7.5 min) | 1342.7 / 1059.9 / 1059.9 | 191.8 / 212.0 / 212.0 |
+| 67 | 269 / 158 / 158 | 8 / 4 / 4 | 8 (5 min) | 1474.1 / 867.0 / 867.0 | 184.3 / 216.8 / 216.8 |
+| 76 | 223 / 75 / 75 | 5 / 2 / 2 | 4 (5 min) | 472.6 / 158.5 / 158.5 | 94.5 / 79.3 / 79.3 |
+| 77 | 151 / 141 / 133 | 3 / 3 / 3 | 2 (15 min) | 513.3 / 480.5 / 453.3 | 171.1 / 160.2 / 151.1 |
+| 99 | 80 / 52 / 48 | 2 / 1 / 1 | 2 (15 min) | 267.8 / 174.1 / 160.7 | 133.9 / 174.1 / 160.7 |
+| 38 | 58 / 50 / 48 | 2 / 1 / 1 | 1 (30 min) | 196.9 / 169.8 / 163.0 | 98.5 / 169.8 / 163.0 |
+| 39 | 70 / 62 / 58 | 2 / 2 / 2 | 2 (30 min) | 262.9 / 232.9 / 217.9 | 131.4 / 116.5 / 109.0 |
+| 40 | 132 / 122 / 88 | 4 / 4 / 3 | 3 (15 min) | 735.8 / 680.1 / 490.5 | 184.0 / 170.0 / 163.5 |
+| 42 | 42 / 0 / 0 | 3 / 0 / 0 | 3 (15 min) | 190.7 / 0.0 / 0.0 | 63.6 / - / - |
+| 64 | 67 / 59 / 56 | 1 / 1 / 1 | - | 178.5 / 157.2 / 149.2 | 178.5 / 157.2 / 149.2 |
+| 73 | 84 / 84 / 84 | 2 / 2 / 2 | - | 76.7 / 76.7 / 76.7 | 38.4 / 38.4 / 38.4 |
+| **Sum** | 4267 / 3348 / 2954 | 160 / 115 / 102 | | 30590.1 / 24727.0 / 20916.2 | |
+
+How to rebuild this table (inputs: downloads 34, 73 and the 63 profiles 74-136, in the order of `patterns.csv`):
+
+```
+python -I extract_line_features.py filter <GTFS zip> <work dir> --agency 849
+python -I extract_line_features.py geoms <work dir> --lines 31,32,33,46,72,83,70,89,161,165,184,185,66,78,67,76,77,99,38,39,40,42,64,73,61,62,69,75,80,743,745,37 --date 20260616 --osm <Overpass JSON of download 73>
+python -I extract_line_features.py table <work dir> <63 profiles> --lines 31,32,33,46,72,83,70,89,161,165,184,185,66,78,67,76,77,99,38,39,40,42,64,73 --weekday 20260616 --saturday 20260627 --sunday 20260621 --out zurich_city_line_features.csv
+```
+
+The same `table` command with `--lines 61,62,69,75,80,743,745,37` gives the Hagenholz figures of section 7.2.
+
+Assumptions added for this section (besides those of section 5):
+
+- Every trip of a listed line runs from the listed garage. VBZ gives no share per garage.
+- The GTFS filter keeps VBZ trips only. A line that another company runs in part would be counted in part.
+- The suburban lines are classed by the stops of direction d0 only.

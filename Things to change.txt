@@ -4,6 +4,8 @@
 
 - Extend the Monte Carlo replay validator (main's Gamma stochastic validator) to every degradation model.
 
+- Build a simulator to validate a solution (user, 9 Nov 2026): a simulation of the actual buses that run the schedule, with the real degradation of each component, its failures, repairs and replacements. The validators only check that a solution is consistent with its input; they do not simulate the buses.
+
 - Gamma: per-rate weights for cells whose missions have different Gamma rates, tighter than the sharp cap and still safe. First extend the sharp-cap theorem to several rate groups, then compute the weights offline (archive/merge-2026/decisions.md, item "Gamma formulation").
 
 - Redesign the greedy warm-start heuristic so that it gives a good starting point, not only a feasible one (archive/merge-2026/decisions.md, item "Warm starts").
@@ -17,6 +19,12 @@
 - Exact Gamma validator: a cheaper certified tail bound when a component is repaired many times. The exact series grows with the number of repairs: about 2 s per tail after 8 repairs, and from about 11 repairs it needs more than 100,000 terms and stops with an error (merge/wp7_plan_gamma_validators.md at commit 18c8a64, question Q6; added 29 Oct 2026).
 
 - Vehicles per mission (inputs vehicles_per_mission and vehicles_per_mission_trans, 9 Nov 2026): spec, scoping, code and tests are written but not committed. Run the full test suite and the smoke test on Euler; the solve tests of tests/test_vehicles_per_mission.py have never run with Gurobi. Needs the ETH network and the SSH agent (EULER.md).
+
+- Case study, choice of the depot (user, 9 Nov 2026: keep all three, decide later): VBZ garage Hardau (city of Zurich: 24 lines, inner-city, hill and suburban lines, no rural line), VBZ garage Hagenholz (8 lines, one countryside line), EUROBUS welti-furrer in Bassersdorf for VBG (Glattal: 15 lines, 2 rural). Line data in case_study/zurich_depot_and_lines.md and the two line-feature CSV files.
+
+- Case study, risk level epsilon: no source gives one for the battery, the tires or the inverter (case_study/component_*.md); it is a design choice to make.
+
+- Per-component replacement flag (proposed 9 Nov 2026, postponed by the user): allow_replacement per component or per bus and component, so that a long-lived component (the traction battery with short periods) has no full replacement in the horizon; and an input check that every component that gains damage in the operating phase can be replaced or repaired down (ARD-infinity with rho > 0, or ARD1 with rho = 1; never the Wiener variance). Battery repair = change of cells or packs; inverter: no repair, so replacement must stay allowed.
 
 Research directions (from ASSESSMENT.md at commit 18c8a64, 7 Jul 2026):
 
