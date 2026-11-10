@@ -1,6 +1,6 @@
 # Component: traction inverter power modules (IGBT or SiC MOSFET)
 
-Status: done (9 Nov 2026). Eight sources read in full (S1-S8). Parameter table, recommended model, formula, calibration limits, gaps, unread items and leads are written. No bus-specific mission-profile lifetime study was found; the absolute damage level rests on a calibration to a maker's design target (Section 2.4). Brief as changed by the coordinator on 9 Nov 2026: the bus type is free (choose the one with the best public inverter data); the lines near Zurich stay. Next, if work resumes: the items under "Could not read" (Amirpour et al. 2021; Kundu et al. 2020; Semikron "Pimp your electric drive"), which could replace the calibration.
+Status: done (10 Nov 2026). Twelve sources read in full (S1-S10, S12, S13), one in part (S11). The follow-up search of 10 Nov 2026 read Kundu et al. 2020 (S10), the thesis that carries Amirpour et al. 2021 (S11), and the Semikron bus article that is most likely "Pimp your electric drive" (S9, text only), plus two other Semikron articles (S12, S13). **The calibration is unchanged** (ΔT_j,ref = 40 K at 46 stops per hour): no source read gives ΔT_j per stop of a bus or a stop rate per hour. Sections 1 and 2.4 give the origin of the 46 stops per hour and a second reading of S2 (21.5 stops per hour, damage per km × 2). The table of Section 2.1 keeps the 53,000 city buses of S2 (all Semikron products) apart from the SKAI2HV fleet. Brief as changed by the coordinator on 9 Nov 2026: the bus type is free (choose the one with the best public inverter data); the lines near Zurich stay. Next, if work resumes: Fig. 2 of S9 (Section 5), which could replace the calibration.
 
 ## 1. Parameter table
 
@@ -13,8 +13,9 @@ Abbreviations: IGBT = insulated-gate bipolar transistor; SiC = silicon carbide; 
 | Lifetime model N_f | N_f = A0 · A1^β · ΔT_j^(-β) · ΔT_j^α · exp(E_a/(k_B T_jm)) · (C + t_on^γ)/(C + 2^γ) · k_th, β = exp(-(ΔT_j - T0)/λ) | cycles | S5 Sec. 2.1, p. 3 | read in full | Curves at **15 % failure probability** (S5 Sec. 1.2) |
 | Model parameters (sintered chips) | A0 = 2.05e11; A1 = 60; T0 = 38 K; λ = 17 K; α = -4.3; E_a = 2.54e-20 J; C = 1.44; γ = -1.21; k_th = 1 (IGBT ≤ 1200 V), 0.33 (SiC ≤ 1200 V) | - | S5 Table 3, p. 8; Sec. 2.5, p. 5 | read in full | Fitted to Al bond wires; SKAI 2 HV has AlCu bonds (S8), so likely conservative |
 | EOL criterion behind N_f | +20 % of V_CE (or V_DS), or of R_th, or of ΔT_j | - | S5 Sec. 1.2, p. 2 | read in full | S6 used +5 % V_CE,on; "5 %-20 %" is typical (S6 Sec. IV) |
-| ΔT_j,ref per stop (design case) | 40 | K | my computation: calibrated so that D = 1 after 60,000 operating hours (S2) at 46 stops per hour | derived | **Assumption-driven.** No source gives ΔT_j of a bus inverter per stop |
+| ΔT_j,ref per stop (design case) | 40 | K | my computation: calibrated so that D = 1 after 60,000 operating hours (S2) at 46 stops per hour | derived | **Assumption-driven.** No source read gives ΔT_j of a bus inverter per stop; the maker's bus figure (S9, Fig. 2) could not be retrieved. Plausibility: the same maker gives 51 K for one hard acceleration-braking cycle of a vehicle that is not a bus (S12) |
 | Design life used for the calibration | 60,000 | operating hours | S2 (Semikron design target for city-bus inverters: "60000 and more") | read in full | A maker's design target, not a measured life |
+| Stop rate used in the calibration | 46 | stops per operating hour | my computation: mean of the two lines, `stops_per_km` × `mean_speed_kmh` of `zurich_line_features.csv`: 1.99 × 21.8 = 43.4 (759), 2.31 × 21.1 = 48.7 (768) | derived | An hour of line service, dwell times included, layovers excluded. **Alternative**: S2 converts a city-bus operating hour into 10 km. At the lines' stop density this gives 21.5 stops per hour; then ΔT_j,ref = 45.5 K and the damage per km doubles (× 2.1 for 759, × 2.0 for 768). My computation with the formula of Section 2.3; see Section 2.4 |
 | T_j,min | 60 | °C | assumption; S3 p. 251 used a heatsink at 60 °C for a car | read in full (S3) | ±10 K changes the damage by a factor 1.15 / 0.86 (my computation, S5 model) |
 | t_on per cycle | 10 | s | assumption (one bus acceleration) | - | 5 s or 20 s change the damage by -5 % / +2 % (my computation) |
 | Cycles per stop n_c | 2 | cycles | assumption; S3 Fig. 19, p. 253-254 shows one cycle in acceleration and one in braking | read in full (S3) | |
@@ -43,12 +44,12 @@ Abbreviations: IGBT = insulated-gate bipolar transistor; SiC = silicon carbide; 
 | Candidate | Inverter maker and type | Module data public | Lifetime model public | Bus mission-profile study |
 |---|---|---|---|---|
 | Mercedes eCitaro 2026 (S1) with ZF AxTrax 2 LF (S7) | ZF, two 800 V **SiC** inverters, 520 A DC | no (maker, module, chip attach unknown) | no | none found |
-| City buses with Semikron **SKAI 2 HV** (S2, S8) | Semikron, **IGBT**, sintered chips, AlCu bonds, 800 V DC, 300 kVA, 350 A rms | chip-attach and bond technology, ratings | **yes**, same maker, sintered-chip parameter set (S5) | none found; > 53,000 city buses equipped, 800 million field hours (S2) |
+| City buses with Semikron **SKAI 2 HV** (S2, S8) | Semikron, **IGBT**, sintered chips, AlCu bonds, 800 V DC, 300 kVA, 350 A rms | chip-attach and bond technology, ratings | **yes**, same maker, sintered-chip parameter set (S5) | none found; the maker shows bus temperature cycles in a figure that could not be retrieved (S9). Field use: "tens of thousands" of commercial vehicles, mainly city buses, over 800 million field hours (S2, 2019); more than 50,000 SKAI2HV inverters shipped for Chinese city buses, over 1 billion field hours (S13, 2020). The 53,000 city buses of S2 count all Semikron power electronic products, not only SKAI2HV |
 | Passenger EV with Infineon HybridPACK 2 (S3) | Infineon FS820R08A6P2B, IGBT, 750 V / 820 A | module named (its datasheet not read) | yes (S3 Table V) | car cycles only (CLTC, WLTP) |
 
 - **Choice**: the inverter is a **Semikron SKAI 2 HV-type IGBT inverter with sintered chips**; the vehicle is a 12 m or 18 m battery-electric city bus with the masses and drive of the eCitaro (S1, S7). Reason: it is the only city-bus traction inverter found whose maker publishes the semiconductor type, the chip-attach technology, the ratings, the bus field use and a power-cycling model with parameters for that technology.
 - The bus is therefore a composite: no source read names a bus model that carries SKAI 2 HV.
-- A SiC variant (the eCitaro's ZF inverter) can be run with the same model and k_th = 0.33 (S5 Sec. 2.5). At the same ΔT_j this triples the damage (my computation). SiC chips may also see a different ΔT_j; no source read gives it.
+- A SiC variant (the eCitaro's ZF inverter) can be run with the same model and k_th = 0.33 (S5 Sec. 2.5). At the same ΔT_j this triples the damage (my computation). SiC chips may also see a different ΔT_j. One car study found smaller swings for SiC MOSFETs than for a Si IGBT under the same drive cycles, and 19 to 62 times less damage per run for the module (the chip with the largest damage decides; my computation from S11, Tables 5.1-5.2). Its lifetime model has no SiC factor like k_th. No source read gives ΔT_j of a SiC bus inverter.
 
 ### 2.2 Model family and reasons
 
@@ -83,6 +84,9 @@ Worked numbers (design case, weekday, F_T = 1):
 
 - The **ratio between lines** (stop density, grade) rests on the structure "damage per stop" and on the slope of the S5 model. It is the most reliable part.
 - The **absolute level** rests on one calibration: a maker's design target of 60,000 operating hours (S2), met exactly at the design load, at 46 stops per hour. The real ΔT_j per stop is unknown. A ΔT_j 10 % higher or lower changes the damage by × 1.8 or × 0.5 (my computation); a lighter load can lower it by one to two orders of magnitude.
+- **The stop rate of the calibration** is my choice: an hour of line service on lines 759 and 768 (46 stops). S2 converts a city-bus operating hour into 10 km. If the design target of S2 counts hours of that kind, an operating hour holds 21.5 stops at the lines' stop density. Then ΔT_j,ref = 45.5 K, and the damage per km is 1.74e-6 (759) and 2.35e-6 (768), about twice the values of Section 2.3 (my computation). S2 does not say which stop rate its design target assumes. So the design case is conservative in load (r = 1), but not in stop rate.
+- **The follow-up search of 10 Nov 2026 does not change the calibration.** None of S9-S13 gives ΔT_j per stop of a bus, or a stop rate per hour. S9 shows bus temperature cycles in a figure that could not be retrieved. S10 and S11 study passenger cars. S12 gives ΔT_j = 51 K for one hard acceleration of a vehicle that is not named (0 to 100 km/h in 10 s, beyond a city bus). This is the same order as the calibrated 40 K.
+- **The N_f curve itself is uncertain by about a factor 2.** For the case of S12 (ΔT_j = 51 K, T_jm = 85 °C), the maker states 760,000 cycles in 2011. The 2024 model of S5 (sintered set, t_on = 10 s) gives 1.37e6 cycles, 1.8 times more (my computation; 1.33e6 to 1.71e6 for t_on from 35 s to 2 s). The two figures may use different failure probabilities and EOL criteria; S12 states neither.
 - A low damage rate agrees with the fleet evidence in `maintenance_focus_reports.md`: inverters cause about 0.1-0.3 % of all defects (Toronto evaluation, R3), and no source in that file names wear-out of the power modules.
 - For the scheduling study, I recommend the design case as the **conservative case** and r = 0.8 as a **sensitivity case** in which the inverter rarely limits the schedule.
 
@@ -124,7 +128,8 @@ Other limits:
   - City buses and delivery trucks have "much higher frequency of start and stop, accelerate and decelerate" than passenger cars. This raises the power-cycling requirement of the traction inverter.
   - Design target: the inverter "needs to be designed to sustain 60000 and more operating hours during life".
   - Product: SKAI2HV, an inverter for commercial vehicles with **sintered** power semiconductor dice. Continuous motor current up to 350 A rms; battery voltage up to 800 V DC. (The article does not say "IGBT"; the maker's product page, S8, does.)
-  - Field use: since 2013, "tens of thousands" of commercial vehicles, mainly city buses, use SKAI2HV. They accumulated over 800 million operating hours. With a "typical city-bus driving profile of 10 km/hour", this is about 8 billion km. Semikron equipped over 53,000 city buses in total.
+  - Field use: since 2013, "tens of thousands" of commercial vehicles, mainly city buses, use SKAI2HV. They accumulated over 800 million operating hours. With a "typical city-bus driving profile of 10 km/hour", this is about 8 billion km.
+  - Separately, Semikron equipped "more than 53000 city-buses" with power electronic products of any kind. The article does not say how many of these carry SKAI2HV. (Wording checked on 10 Nov 2026 in the Wayback copy of the English page of 22 Sep 2019.)
   - Power range of the vehicles shown with SKAI2HV at the IAA show: 80 to 300 kW.
   - The article gives **no** failure count, failure rate or lifetime result for the field fleet.
 - Use here: a maker's design target for bus inverters (60,000 operating hours), and the conversion 10 km per operating hour that the maker assumes for a city bus. Evidence of one maker's practice, not an industry standard.
@@ -224,12 +229,78 @@ Other limits:
   - Applications named: "Electric trucks, electric busses".
 - Use here: confirms that the SKAI2HV of S2 is an IGBT inverter with sintered chips. The bond wires are AlCu, while the model of S5 is fitted to Al bond wires; AlCu bonds are meant to last longer, so S5 applied to SKAI2HV is likely conservative (my inference; no source read on AlCu power cycling).
 
+### S9. Backhaus, K. (Semikron), *Off the shelf power electronics with increased power cycling capability propels heavier commercial vehicles*, Semikron technical article, 1 Jul 2016; published in *Electric & Hybrid Vehicle Technology International*
+
+- URL of the original: https://www.semikron.com/about-semikron/technical-articles/off-the-shelf-power-electronics-with-increased-power-cycling-capability-propels-heavier-commercial-vehicles.html (now redirected). Read in the Wayback Machine copies of the English page (10 Dec 2019) and the German page (19 Aug 2019); the two texts are the same.
+- **Identity with "Pimp your electric drive".** That page (`.../fachartikel/detail/pimp-your-electric-drive.html`) has no Wayback copy. The search snippets of that page quote the same sentences as S9 (heavier buses, torque +30 %, power connector, Fig. 2 with bus temperature cycles). So it is most likely the same article under a second title (my inference; the "pimp" page itself was not read).
+- Evidence basis: text read in full. **Figure 2 ("Device Temperatures") not seen**: the image is not in the Wayback Machine, and its host `static2.semikron.com` did not resolve on 10 Nov 2026. The linked PDF (896.42 KB) gives HTTP 404 on semikron-danfoss.com and has no Wayback copy.
+- Findings (all from the one page of text):
+  - A reinforced SKAI2HV for heavier buses gives up to 30 % more output torque. The reason is a "significant reduction" of the thermal resistance.
+  - A new wire-bond alloy "highly enhanced" the power-cycling capability. The reinforced variant can drive heavier buses with a single electric drive.
+  - Fig. 2 shows "a part of the resulting power semiconductor temperature cycles" of the reinforced SKAI2HV "driving a large city bus". The text gives no number from it.
+  - The motor-control software QUASAR lowers the switching frequency in real time before the losses cause a critical junction temperature.
+  - The maximum overload current during acceleration or deceleration rises by more than 20 %.
+  - The portfolio covers small, medium and large city buses; battery voltage 100 to 800 V DC; peak output of the reinforced variant up to 250 kW.
+- Use here: the maker has a bus junction-temperature record for SKAI2HV, but the article does not publish its values. The new bond alloy agrees with the AlCu bonds of S8. The software that limits the junction temperature caps ΔT_j at high load (my inference).
+
+### S10. Kundu, A., Balamurali, A., Korta, P., Iyer, K. L. V., Kar, N. C., "An Approach for Estimating the Reliability of IGBT Power Modules in Electrified Vehicle Traction Inverters", *Vehicles* 2(3), 413-423, 2020, DOI 10.3390/vehicles2030022
+
+- URL: https://mdpi-res.com/d_attachment/vehicles/vehicles-02-00022/article_deploy/vehicles-02-00022.pdf (open access, CC BY, 11 pages).
+- Evidence basis: read in full (text layer; page 9 rendered for Figs. 6-7).
+- Case: a 100 kW "EV grade" traction inverter; IGBT 1200 V, 556 A, T_j,max 175 °C (Table 1, p. 417). Vehicle mass and module type are not given.
+- Method: loss model with transient and parasitic effects; Cauer thermal network with seven layers; rainflow count; Miner sum (Secs. 2-3, pp. 415-421).
+- Lifetime model, Eq. (12), p. 421: N_f = K · ΔT_j^β1 · exp(β2 / T_max) · t_on^β3 · I^β4 · V^β5 · D^β6. **The coefficients K and β1-β6 are not given.**
+- Drive cycles: UDDS (urban dynamometer driving schedule, a US car cycle) and WLTC class 3 (p. 421, Fig. 7a-b).
+- Rainflow results (Fig. 7c-d, p. 421; my reading): UDDS temperature amplitudes of about 0-10 K at mean temperatures of 354-364 K; WLTC3 amplitudes up to about 200 K at mean temperatures of 200-450 K. A mean of 200 K (-73 °C) is not physical, so the axes of Fig. 7d are doubtful.
+- Result: WLTC3 shortens the inverter life by 1.03 years compared with UDDS (p. 422). **No absolute life, damage per km or damage per cycle is given.**
+- Inconsistency in the paper: p. 422 says UDDS has more cycles than WLTC3; the conclusions (p. 422) attribute the shorter WLTC3 life to "a greater number of load cycles in the WLTC3".
+- Use here: none for the calibration. Car cycles, no model coefficients, no absolute result.
+
+### S11. Amirpour, S. M., *Refining Electric Powertrain Efficiency: SiC vs. Si Semiconductor, Thermal Solutions, and Optimal Power Conversion Strategies*, doctoral thesis, Chalmers University of Technology, 2025, ISBN 978-91-8103-230-7 (carries Amirpour, Thiringer, Hagstedt, PEMC 2021)
+
+- URL: https://research.chalmers.se/publication/546312/file/546312_Fulltext.pdf (180 pages). The public PDF lists the appended papers but does not contain them.
+- **Carriage.** The PEMC 2021 paper itself could not be read (Section 5). Chapter 5 of this thesis, by the paper's first author, "is based on" that paper (Paper C) and on an ECCE 2022 paper on graphene films (Paper E) (p. 73). The cases of Chapter 5 (two SiC modules, one Si IGBT module, ECE-City and WLTC) match the scope of Paper C. The numbers below come from the thesis; the paper may differ.
+- Evidence basis: read in part: Section 2.2.3 (pp. 21-22), Section 3.1.1 with Table 3.1 (pp. 42-43), Table 3.6 (p. 61), Chapter 5 (pp. 73-80; Figs. 5.3 and 5.4 rendered).
+- Case: a medium-size battery electric car, 1700 kg (Table 3.6, p. 61); motor 80 kW peak, 160 Nm, DC link 300 V, 10 kHz (Table 3.1, p. 43). Modules: SiC CAB450M12XM3 and CAS300M12BM2, Si IGBT FZ600R12KE3, all normalised to 600 A nominal (p. 42).
+- Lifetime model, Eq. (2.15), p. 22: N_f = A ΔT_j^α ar^(β1 ΔT_j + β0) [(C + t_on^γ)/(C + 1)] exp(E_a/(k_b T_jm)) f_diode. Table 2.1: A = 3.4368e14, α = -4.923, β0 = 1.942, β1 = -9.012e-3 1/K, ar = 0.31, C = 1.434, γ = -1.208, E_a = 0.06606 eV, t_on = 1 s; f_diode = 0.6204 (diodes), 1 (MOSFET, IGBT). The same Si model is used for SiC (p. 21).
+- ΔT_j (Table 5.1, p. 78): IGBT of FZ600 11.2 K (WLTC), 5.7 K (ECE-City); its diode 12 K and 7 K. SiC MOSFETs 3.4-7.8 K; SiC diodes 2.5-7.4 K.
+- Damage per run of the cycle (Table 5.2, p. 78): FZ600 IGBT 2.8e-9 (WLTC), 3.3e-11 (ECE-City); FZ600 diode 1.1e-8 and 1.3e-10. SiC devices 7.4e-13 to 5.8e-10. Fig. 5.4 (p. 79) gives lifetimes of about 5e3 to 8e6 years (my reading of the log axes).
+- One WLTC run lasts about 1800 s and one ECE-City run about 200 s (time axes of Fig. 5.3, p. 77). So the FZ600 module accumulates about 2.2e-8 per hour of WLTC. S3 gives about 4.3e-5 per hour of WLTP at 350 V (1 / 2.31e4 h, Table VII). The thesis value is about 2,000 times smaller (my computation). The modules are rated 600 A for an 80 kW drive.
+- A lower coolant flow rate raises the damage, more under WLTC than under ECE-City (Fig. 5.5, p. 80).
+- Use here: no change to the calibration (a car, small swings). It is evidence that one study found smaller ΔT_j and much less damage for SiC MOSFET modules than for a Si IGBT module (Section 2.1).
+
+### S12. Backhaus, K. (Semikron), "Vehicle electrification – power electronics is the key to success", *eeNews Europe*, 1 Dec 2011
+
+- URL: https://www.eenewseurope.com/en/vehicle-electrification-power-electronics-is-the-key-to-success (downloaded 10 Nov 2026).
+- Evidence basis: text read in full. Figs. 1a and 1b (current and temperature curves) were not loaded; the text states their key values.
+- Findings (all from the one page of text):
+  - SKAI2HV is a three-phase IGBT inverter with sintered (not soldered) power semiconductors; power density up to 20 kVA per litre.
+  - Example load cycle: a vehicle accelerates from 0 to 100 km/h in 10 s, then brakes to standstill in 25 s; the cycle repeats every 90 s. The vehicle type is not named.
+  - In this cycle the power semiconductors see a temperature step of **51 K at a mean temperature of 85 °C**. The text says "760,000 cycles or 2.2 years of uninterrupted operation" are possible (check: 760,000 × 90 s = 19,000 h = 2.17 years).
+  - The DC-link capacitor carries 67 A rms in this cycle and lasts up to 2.8 years. So "the life cycle of an SKAI2HV converter is thus limited by the service life of the power semiconductors".
+  - Semikron offers a lifetime calculation from the torque and speed profile, with partners.
+  - The article gives no failure probability and no EOL criterion for the 760,000 cycles.
+- Use here: one maker example of ΔT_j for one hard acceleration and braking with SKAI2HV: 51 K. Not a bus: a city bus does not reach 100 km/h in 10 s. With S5 it gives the factor-2 check of the N_f curve in Section 2.4.
+
+### S13. Backhaus, K. (Semikron), *Ten years on… Lessons learned in China over the past decade can help as the European Union pushes truck and bus electrification*, Semikron technical article, 31 Jan 2020; published in *Electric & Hybrid Vehicle Technologies*
+
+- URL of the original: https://www.semikron.com/about-semikron/technical-articles/ten-years-on.html (now redirected). Read in the Wayback Machine copy of 20 Apr 2021.
+- Evidence basis: read in full (the web text; one header photo).
+- Findings:
+  - Semikron "has shipped more than 50,000 traction inverters from the SKAI2HV product family" for Chinese city buses.
+  - Since 2013 these inverters have accumulated more than 1 billion field operating hours.
+  - The maker states that the field data "underline the fundamental advantages" of solder-free assemblies. Load power cycling is "a direct consequence" of the accelerations and decelerations of city-bus drive cycles.
+  - Semikron has equipped more than 1.5 million material-handling vehicles and more than 200,000 passenger cars. The article gives no total for city buses.
+  - **No failure count, failure rate or lifetime result** is given.
+- Use here: the SKAI2HV bus fleet figure for the table of Section 2.1: more than 50,000 inverters (not buses; a bus may carry more than one).
+
 ## 4. Gaps
 
 | Missing value | Why it matters | How to fill it |
 |---|---|---|
-| ΔT_j per stop of a bus inverter (and per braking) | Sets the absolute damage level; a 10 % error gives a factor 0.5-1.8 | Ask Semikron Danfoss or ZF for a bus mission-profile analysis (a search snippet, not read, says Semikron offers lifetime estimation from application profiles as a service). Or simulate with the maker's loss tool (SemiSel) and a bus drive cycle. Or log the inverter's temperature sensor on a bus (ZF Data Solutions, S7) |
-| A published bus mission-profile lifetime study | Would replace the calibration of Section 2 | None found in the searches listed below; Semikron's article "Pimp your electric drive" shows bus temperature cycles (search snippet) but could not be read |
+| ΔT_j per stop of a bus inverter (and per braking) | Sets the absolute damage level; a 10 % error gives a factor 0.5-1.8 | Retrieve Fig. 2 of S9 (Section 5). Ask Semikron Danfoss or ZF for a bus mission-profile analysis (Semikron offers a lifetime calculation from the torque and speed profile, S12). Or simulate with the maker's loss tool (SemiSel) and a bus drive cycle. Or log the inverter's temperature sensor on a bus (ZF Data Solutions, S7) |
+| A published bus mission-profile lifetime study | Would replace the calibration of Section 2 | None found in the searches listed below. The text of Semikron's article on the reinforced SKAI2HV (S9, most likely the same as "Pimp your electric drive") was read; its Fig. 2 with the bus temperature cycles could not be retrieved (Section 5) |
+| Stop rate and hour definition behind the 60,000 h design target | Changes the damage per km by a factor of about 2 (Section 2.4) | Ask Semikron Danfoss; S2 says only that a city bus covers 10 km per operating hour |
 | Empty and mean operating mass of the eCitaro and eCitaro G | Sets the mass ratio r; the damage is very sensitive to it | Daimler Buses type-approval data or operator data (VBG, Eurobus); also listed as a gap in `zurich_depot_and_lines.md` |
 | Coolant temperature against ambient temperature | Sets F_T per season | Maker data or bus logging |
 | Weibull shape of power-cycling life of traction modules at low ΔT_j | Sets τ (0.57 at k = 5; 0.81 at k = 13.5) | Maker qualification data (AQG 324 reports), or published test series at ΔT_j ≤ 40 K |
@@ -243,9 +314,8 @@ Other limits:
 
 | Item | Reason | Why it looks worthwhile |
 |---|---|---|
-| Amirpour, S., Thiringer, T., Hagstedt, D., "Mission-Profile-Based Lifetime Study for SiC/IGBT Modules in a Propulsion Inverter", PEMC 2021, pp. 264-271, DOI 10.1109/PEMC48073.2021.9432583 | IEEE Xplore answered HTTP 418 (bot block) to the PDF route; the document page in the browser pane did not load (pane hidden). Chalmers lists no full text | Compares SiC and Si IGBT damage over ECE-City (urban, many stops) and WLTC; would give the SiC factor and the stop effect from one study. Can you retrieve it? |
-| Kundu, A. et al., "An Approach for Estimating the Reliability of IGBT Power Modules in Electrified Vehicle Traction Inverters", *Vehicles* 2(3), 2020 (MDPI, open access) | MDPI answered "Access Denied" to the script download | EV traction inverter, two drive cycles, reliability estimate. Can you retrieve it? |
-| Semikron, technical article "Pimp your electric drive" | The page redirects to a Semikron Danfoss landing page; no Wayback copy found | Per a search snippet, it shows the temperature cycles of a reinforced SKAI2HV in a large city bus: the missing ΔT_j per stop |
+| Amirpour, S., Thiringer, T., Hagstedt, D., "Mission-Profile-Based Lifetime Study for SiC/IGBT Modules in a Propulsion Inverter", PEMC 2021, pp. 264-271, DOI 10.1109/PEMC48073.2021.9432583 | The document page https://ieeexplore.ieee.org/document/9432583 shows the introduction, then asks to sign in (10 Nov 2026); no ETH access. Chalmers holds no full text of the paper | Chapter 5 of the first author's thesis (S11) carries its cases and results, so the paper has low priority. Read it only to check that the thesis numbers are the paper's |
+| Fig. 2 ("Device Temperatures") of S9, the Semikron article on the reinforced SKAI2HV (most likely the same as "Pimp your electric drive", https://www.semikron.com/de/ueber-semikron/fachartikel/detail/pimp-your-electric-drive.html) | The figure (`static2.semikron.com/.../csm_SEMIKRON_Photo_Article_DeviceTemperatures_2016-06-01_75552eeeb6.jpg`) and the article PDF (`semikron.com/dl/service-support/downloads/download/semikron-article-ukipme-vehicle-new-power-electronics-2016-06-01.pdf`) are not in the Wayback Machine; the PDF gives HTTP 404 on semikron-danfoss.com; the "pimp" page has no Wayback copy | It shows the junction-temperature cycles of a reinforced SKAI2HV driving a large city bus: the missing ΔT_j per stop. Can you retrieve it, for example from Semikron Danfoss or from the 2016 issue of *Electric & Hybrid Vehicle Technology International*? |
 | PDF version of S2 (516.79 KB, linked from the archived page) | Not opened (the web text was read in full) | May hold the same text with figures |
 | Journal of Semiconductors 45(5) 052301, 2024, "Reliability evaluation of IGBT power module on electric vehicle using big data" | The landing page gives no PDF link | Big-data junction-temperature estimation for EVs |
 
@@ -260,4 +330,5 @@ Other limits:
 - Vernica, I., Wang, H., Blaabjerg, F., "Uncertainties in the lifetime prediction of IGBTs for a motor drive application", PEAC 2018 (S3 ref. [21]): Monte Carlo scatter of predicted life.
 - ICCT/Ricardo, *eTruck Virtual Teardown* (2022): possible inverter cost.
 - Daimler Truck press releases on the eCitaro with the ZF AVE 130 axle (for the buses delivered before the AxTrax 2 LF).
+- Routes tried on 10 Nov 2026 for the "pimp" article: the Wayback index (CDX) of the Semikron technical-article pages in English and German, on semikron.com and semikron-danfoss.com; web searches for the title, for the 2016 article and for the magazine issue. They found S9, S12 and S13, but no copy of Fig. 2 of S9.
 - Searches run without a bus-specific mission-profile result (9 Nov 2026): "city bus cycle IGBT junction temperature lifetime rainflow"; "electric bus IGBT lifetime Miner driving cycle"; "Braunschweig cycle IGBT power module"; "Manhattan / Orange County / CBD bus cycle junction temperature"; "China typical city bus / CCBC / C-WTVC IGBT"; "pure electric bus IGBT junction temperature"; "hybrid bus / transit bus IGBT thermal cycling"; "trolleybus / tram traction converter IGBT lifetime"; "electric bus SiC inverter lifetime drive cycle".

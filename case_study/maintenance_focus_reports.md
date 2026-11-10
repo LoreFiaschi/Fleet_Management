@@ -1,10 +1,13 @@
 # Maintenance focus of battery-electric buses: evidence from grey literature
 
-Status: done (9 Nov 2026). Eleven sources entered: R1 (NREL Foothill 2021), R2 (VBZ 2019), R3 (TTC
+Status: done (10 Nov 2026). Fourteen sources entered: R1 (NREL Foothill 2021), R2 (VBZ 2019), R3 (TTC
 Toronto 2022), R4 (PwC/BMWK 2024), R5 (ESöV P-196, Graubünden 2020), R6 (NREL Long Beach 2020), R7 (AC
 Transit 2026), R8 (World Bank Shenzhen 2021), R9 (NREL Duluth 2022), R10 (NHTSA recall 23V-697, 2023),
-R11 (ThEGA Thuringia 2025). Summary table, ranking, "Could not read" and "Leads not followed" filled. If
-work resumes: the first leads are AC Transit ZETBTA volume 3 and TCRP Synthesis 130 (section 4). Notes:
+R11 (ThEGA Thuringia 2025); added on 10 Nov 2026: R12 (AC Transit ZETBTA volume 1, 2021), R13 (ZETBTA
+volume 3, 2022), R14 (FTA Report 0253, 2023). Summary table, ranking, "Could not read" and "Leads not
+followed" filled. If work resumes: ZETBTA volumes 2 and 4 (now located, section 5) and TCRP Synthesis
+130 (section 4). Downloads of 10 Nov 2026: scratchpad downloads\fetch\04 (R12) and \07 (R13); R14 was
+read as text in the browser pane. Notes:
 www.nrel.gov no longer resolves, use docs.nlr.gov; pwc.de and thega.de refuse scripts, the Wayback
 Machine serves both PDFs. Scratchpad downloads used: rep\01-19 (rep\04, 05, 11 hold only HTML or
 "Access Denied" pages).
@@ -27,7 +30,7 @@ the electric drive.
 | Component | Weight in BEB maintenance (source, location) | Usage driver | Maintenance actions and interval | Sources |
 |---|---|---|---|---|
 | Body, doors, interior, HVAC and other "common bus systems" | The largest share everywhere. Body interior and exterior 50 % of all defects (R3 p. 34); cab, body, accessories 52 % of cost against 28 % CNG (R6 Table 10 p. 29), 15-18 % (R1 Tables 14, 27); general bus issues 51 % of unavailable days (R1 Table 5), 17.4 % (R6 Table 4) and 29.7 % (R9 Table 5) of planned days; "other defects" (air conditioning, doors, signs) 50 % of unavailable days (R4 Fig. 110 p. 218); common systems 46 % of road calls (R7 Fig. 23) | Not quantified. Named: cold (heater faults, R9), road salt (R3, R9) | Corrective repair; long downtime from parts lead times (R2 p. 30; R3 p. 19; R9 pp. 31-32) | R1, R2, R3, R4, R6, R7, R9 |
-| Traction battery (ESS) | Small in cost and in-service failures under warranty: 1.6-2.2 % of cost (R1 Tables 15, 28); ESS MBRC 70,656-196,898 (R1 Table 11; R6 Table 8; R9 Table 7). Downtime 15 % of unavailable days (R1 Table 5), 0.2 % and 5.3 % of planned days (R6, R9). Exceptions: HV system 49 % of road calls of one fleet, and battery lead times the main downtime cause (R7 pp. 22-23); a battery generation replaced fleet-wide (R4 p. 124); 11 packs replaced (R3 p. 36) | Depth of discharge, charge power, temperature (R2 pp. 33-34); cycle count, depth, power, calendar age, temperature (R5 p. 25); low SOC (R9 p. 20); driving behaviour and route (R8 p. 84); cold raises the ESS share of downtime (R9 pp. 25-26) | Replacement at end of life, 80 % (R5 p. 26; R8 p. 60) or 70 % capacity (R6 p. 3; R11 p. 9). Planned life 6-8 years (R5 p. 26); one replacement in 12 years assumed (R4 p. 238); observed 2-4.5 years, early Shenzhen fleet (R8 p. 60); expected 8-12 years, 0.6-1 million km (R11 pp. 4, 9); partial cell replacement (R8 p. 60) | R1-R9, R11 |
+| Traction battery (ESS) | Small in cost and in-service failures under warranty: 1.6-2.2 % of cost (R1 Tables 15, 28); ESS MBRC 70,656-196,898 (R1 Table 11; R6 Table 8; R9 Table 7). Downtime 15 % of unavailable days (R1 Table 5), 0.2 % and 5.3 % of planned days (R6, R9). Exceptions: HV system 49 % of road calls of one fleet, and battery lead times the main downtime cause (R7 pp. 22-23); in the same fleet in 2020-2021, HV system 6 of 10 and 5 of 11 BEB road calls, and HV batteries and charging more than half of the BEB unavailable days (R12 p. 15; R13 pp. 14-15); battery parts kept BEBs out of service for 3 months (R14 p. 78); a battery generation replaced fleet-wide (R4 p. 124); 11 packs replaced (R3 p. 36) | Depth of discharge, charge power, temperature (R2 pp. 33-34); cycle count, depth, power, calendar age, temperature (R5 p. 25); low SOC (R9 p. 20); driving behaviour and route (R8 p. 84); cold raises the ESS share of downtime (R9 pp. 25-26) | Replacement at end of life, 80 % (R5 p. 26; R8 p. 60) or 70 % capacity (R6 p. 3; R11 p. 9). Planned life 6-8 years (R5 p. 26); one replacement in 12 years assumed (R4 p. 238); observed 2-4.5 years, early Shenzhen fleet (R8 p. 60); expected 8-12 years, 0.6-1 million km (R11 pp. 4, 9); 6 years expected by one US fleet (R14 p. 80); battery warranty 12 years at 7 of 23 US agencies (R14 p. 43); partial cell replacement (R8 p. 60); packs of different ages in one system (R14 p. 78) | R1-R9, R11-R14 |
 | Electric drive: motor, gearbox, axle, controls | Electric drive 13 % and 5 % of cost, 18 % of unavailable days (R1 Tables 5, 15, 28); "Defekt im Antriebsstrang" 29 % of unavailable days (R4 Fig. 110); 9.1 % of planned days (R9 Table 5); 2.1 % (R6 Table 4). Failures of one supplier's electric axles (R4 p. 124) and of rear axle reduction gears (R6 p. 35; R3 p. 19). Propulsion below 4 % of all defects (R3 p. 34) | Not quantified | Replacement under warranty; motor about 14,600 USD (R1 p. 38) | R1, R3, R4, R6, R7, R9 |
 | Traction inverter (IGBT or SiC modules) | Thin. 10 % and 3 % of propulsion defects, about 0.1-0.3 % of all defects (R3 Charts 6, 8); named inside the electric-drive downtime of 9.1 % (R9 p. 15); safety recall of 238 buses for an overheating inverter transistor (R10). No cost share anywhere. IGBT or SiC: not stated in any source | Overheating of a transistor (R10); no usage driver given | Inverter replacement (R10) | R3, R9, R10 |
 | DC-link capacitors | **No evidence for the vehicle in any source.** Only a depot charger failed through an overheated capacitor (R9 pp. 31-32) | - | Charger maker replaced the capacitors of all units (R9 p. 32) | R9 (charger only) |
@@ -35,7 +38,7 @@ the electric drive.
 | Friction brakes | Lower than conventional: 1.1-2.4 % against 5.4-5.7 % of cost (R1 Tables 14, 27); 4 % against 2 % (R6 Table 10); a frequent diesel failure, not BEB (R7 p. 23) | Regenerative braking share; regeneration high on hills (R9 p. 18), off on snow (R9 pp. 26, 32); road-salt corrosion (R9 pp. 32-33) | Brake service interval doubled (R11 p. 12); splash guards against corrosion (R9 p. 33) | R1, R2, R3, R6, R7, R9, R11 |
 | Low-voltage (24 V) batteries and electrical system | About 10 replacements per 100,000 miles against 0.9 for CNG (R1 pp. 37-38); 81 % of BEB propulsion cost (R6 p. 31); replaced more often (R9 p. 31); "Electrical system problem" a most common BEB failure (R7 p. 24) | Parasitic loads while parked (R1 p. 37; R6 p. 31) | Replacement; charging as routine; protectors retrofitted (R9 p. 31) | R1, R2, R6, R7, R9 |
 | HVAC and heating | HVAC 4-10 % of defects (R3 pp. 34-37); 2-4 % of cost (R1; R6); compressor defects (R8 p. 58); heater issues (R9 pp. 15, 32) | Ambient temperature (energy effect: R9 p. 25; R11 p. 10) | Corrective | R1, R3, R4, R6, R8, R9 |
-| Charging interface and chargers | Charging 6 % of unavailable days and rooftop-contactor fires (R1 Table 5, p. 38); 8 % of unavailable days (R4 Fig. 110); 1.2 % and 2.6 % of planned days (R6, R9); 1.4-6 % of defects (R3 pp. 34-37); faulty plug pin (R2 p. 28) | Misalignment, loose bolts, arcing (R1 p. 38); cables run over (R3 p. 80); soft asphalt (R4 p. 358) | Charger inspections monthly, 6-monthly, yearly (R1 p. 9) | R1, R2, R3, R4, R6, R7, R9 |
+| Charging interface and chargers | Charging 6 % of unavailable days and rooftop-contactor fires (R1 Table 5, p. 38); 8 % of unavailable days (R4 Fig. 110); 1.2 % and 2.6 % of planned days (R6, R9); 1.4-6 % of defects (R3 pp. 34-37); faulty plug pin (R2 p. 28); depot charger power modules the most common charger failure, 298,600 USD of repairs in the warranty period (R13 p. 6) | Misalignment, loose bolts, arcing (R1 p. 38); cables run over (R3 p. 80); soft asphalt (R4 p. 358); bus-charger communication (R13 p. 6) | Charger inspections monthly, 6-monthly, yearly (R1 p. 9); first maintenance of depot chargers after 5 years, one fleet (R14 p. 76) | R1, R2, R3, R4, R6, R7, R9, R13, R14 |
 | HV wiring, connectors, corrosion | Main cause of most propulsion faults (R3 pp. 34, 37); connector corrosion (R9 pp. 32-33) | Water intrusion, road salt (R3, R9) | Covers, splash guards (R9 p. 33) | R3, R9 |
 | Preventive maintenance (inspection labour) | PMI 14-18 % (R1) and 23 % (R6) of cost; scheduled maintenance 8 % of unavailable days (R4) | Distance | Level I every 4,000-5,000 km, level II every 20,000 km (R8 p. 57) | R1, R4, R6, R8 |
 | Whole bus against diesel or CNG | Maintenance cost per km: 75 % of diesel (assumed, R4 p. 377); < 0.20 against > 0.30 EUR/km (R11 p. 11); 17 % of diesel over years 1-4, the diesel overhaul included (R8 p. 83; Table 6-7 p. 84); lower than CNG (R6), higher or about equal (R1); 0.76-3.56 against 1.01 USD/mile (R7 Fig. 18). Availability lower than diesel in all fleets with a baseline (R1, R3, R4, R6, R7, R9) | - | - | R1, R4, R6, R7, R8, R11 |
@@ -50,8 +53,9 @@ cost, failures or downtime. It is not a choice of components for the model.
 2. **Traction battery.** Small in yearly cost and road calls while under warranty, but the largest single
    life item: every cost study plans a replacement or a 70-80 % end of life (R4, R5, R8, R11), one fleet
    saw replacements after 2-4.5 years (R8), and battery faults or lead times are a main downtime cause in
-   some fleets (R4, one operator; R7). The usage drivers are named by the most sources (R2, R4, R5, R8,
-   R9). Measured fade curves: none.
+   some fleets (R4, one operator; R7; the same AC Transit BEBs already in 2020-2021, R12, R13; a lead time of
+   three months for battery parts, R14). The usage drivers are named by the most sources (R2, R4, R5,
+   R8, R9). Measured fade curves: none.
 3. **Tyres.** Higher wear than conventional buses in the two sources with numbers (R1: 43-45 % fewer
    miles per tyre, computed here; R8: +30-39 % cost), with a named driver (weight, R5, R8).
 4. **Electric drive (motor, gearbox, axles).** Large downtime shares in early fleets (R1, R4, R9) and
@@ -70,8 +74,10 @@ cost, failures or downtime. It is not a choice of components for the model.
 **Where evidence is thin or absent.** Inverter and DC-link capacitors: the eleven sources were searched
 for "inverter", "IGBT", "SiC", "silicon carbide", "power electronics", "Wechselrichter", "Umrichter",
 "Leistungselektronik", "capacitor", "Kondensator", "DC-link", "Zwischenkreis" (text of R4, R5, R6, R7,
-R8, R9, R11 by script; R1-R3 when read in full). Web searches for fleet reports on inverter or IGBT
-failures found only the recall R10 and the Duluth report R9 (9 Nov 2026). No source states whether the
+R8, R9, R11 by script; R1-R3 when read in full). R12-R14, read in full on 10 Nov 2026, name the
+inverter only once (R14 p. 81, no rate) and capacitors nowhere (R12 and R13 checked by script). Web
+searches for fleet reports on inverter or IGBT failures found only the recall R10 and the Duluth
+report R9 (9 Nov 2026). No source states whether the
 inverters are IGBT or SiC. Degradation or wear data in any source: tyre life (R1, R8), battery
 replacement ages and cycle counts (R8, R11), brake interval (R11); no capacity curves. Swiss, Nordic and
 Dutch maintenance reports with fleet data: none found (searches on VBZ, PostAuto, BERNMOBIL, Winterthur,
@@ -697,12 +703,119 @@ Findings.
 - **Scope note.** Small fleet; summary values without per-bus data; the source monitoring report is not
   public.
 
+### R12. AC Transit and Stanford, Zero Emission Transit Bus Technology Analysis (ZETBTA), volume 1 (2021)
+
+- **Reference.** Alameda-Contra Costa Transit District (AC Transit), with Stanford University (2021).
+  *Zero Emission Transit Bus Technology Analysis*, report period July-December 2020, published 23 June
+  2021, 30 PDF pages. The first ZETBTA report ("5x5 study"). URL:
+  https://www.actransit.org/sites/default/files/2021-06/0604-20%20Report-ZEB%20Perf_FNL_062321.pdf
+  (link found in R14, p. 29; downloaded 10 Nov 2026). AC Transit's page https://www.actransit.org/zebta
+  lists the same file.
+- **Evidence basis.** Read in full (text layer); the road-call table (Figure 18) checked on the rendered
+  page. Printed page = PDF page - 5.
+- **Fleet.** Five buses of each group, 40 ft, Oakland division: diesel (Gillig 2018), diesel hybrid,
+  two fuel-cell groups, and five New Flyer BEBs of 2019, 466 kWh, Xalt Energy batteries, Siemens drive,
+  in service May 2020, 938,184 USD each (Figures 1-2, pp. 3-4). Depot chargers 62.5-125 kW, 5.5 hours
+  per charge (p. 5). Lines "generally flat" (p. 16).
+- **Findings (July-December 2020, BEB against diesel).**
+  - Availability 57 % against 94 %: "The BEB fleet experienced long out-of-service periods due to
+    high-voltage battery problems" (p. 14; Figure 1 p. 3).
+  - Miles between chargeable road calls 8,109 against 15,226 (p. 3).
+  - Road calls by system (Figure 18, p. 15): BEB 10 in total, high-voltage system 6, common systems 3,
+    transmission or electric drive 1. Text: "half due to the high voltage batteries and state of charge
+    issues".
+  - Cost per mile: maintenance 0.90 against 0.54 USD; energy 0.48 against 0.39 USD (Figure 11, p. 12).
+    Labour and materials 58,338 against 60,014 USD for the half year (Figure 13, p. 13). Warranty
+    recoveries for the BEBs 95,124 USD (Figure 14, p. 13).
+  - Energy use 2.13 kWh per mile (Figure 9, p. 11).
+- **Inverter, DC-link capacitors, tyres, brakes.** Not named; brakes appear only inside the category
+  "common system failures" (p. 15).
+- **Scope note.** Five young buses under warranty; the report expects "initial deployment 'shake-out'
+  challenges" (p. 24).
+
+### R13. AC Transit and Stanford, ZETBTA volume 3 (2022)
+
+- **Reference.** AC Transit, with Stanford University (Precourt Institute for Energy) (2022). *Zero
+  Emission Transit Bus Technology Analysis, Volume 3*, report period July-December 2021, published 22
+  June 2022, Board staff report SR 22-308, Attachment 1, 35 PDF pages. URL:
+  https://www.actransit.org/sites/default/files/2022-06/0105-22%20Report-ZETBTA%20v3_FNL.pdf (linked
+  from https://www.actransit.org/article/zetbta-analysis-volume-3; downloaded 10 Nov 2026).
+- **Evidence basis.** Read in full (text layer), except appendix page A-5 (deployments by line, a
+  chart). Appendix pages A-1 to A-4 have no usable text layer; they were read from rendered pages.
+  Printed page = PDF page - 5.
+- **Fleet.** The same five groups as R12; the BEBs had run 181,030 miles in the study since July 2020
+  (Figure 2, p. 4).
+- **Findings (July-December 2021, BEB against diesel).**
+  - Availability 61 % against 90 %, "with more than half of the total days related to High Voltage
+    Batteries and charging problems" (p. 14). "The BEB fleet was limited due to battery and vendor
+    supply issues" (p. 10).
+  - Road calls by system (Figure 17, p. 15): BEB 11 in total, high-voltage system 5, common systems 6;
+    text: four "due to the high voltage batteries". Trend over three half-years (appendix A-4, p. 28):
+    BEB high-voltage road calls 6, 7, 5; common systems 3, 7, 6.
+  - Maintenance cost per mile 1.16 against 1.00 USD; energy 0.45 against 0.72 USD (Figure 10, p. 12).
+    Labour and materials 71,805 against 116,002 USD; work orders 274 against 358; labour hours 378
+    against 724 (Figure 11, p. 12). Six BEB warranty claims, 34,400 USD recovered (Figure 12, p. 13).
+  - **Chargers** (p. 6): the most common component failure was the power modules (two per 62.5 kW
+    charger), each repaired under warranty with a cost avoidance of 10,500 USD; 298,600 USD of repairs
+    by the maker during the warranty period. The failures were traced to the communication between
+    charger and bus, fixed by coordinated software updates. After the warranty, parts came late
+    without an extended maintenance contract.
+  - Energy use 2.24 kWh per mile (p. 11).
+- **Inconsistencies in the source.** Figure 1 (p. 3) is labelled "January - June 2021" for this
+  July-December period. The appendix differs from the main text: BEB availability 60 % (p. 27) against
+  61 % (p. 14); miles between road calls 7,187 against 5,646 for the BEB and 10,533 against 7,775 for
+  diesel (p. 27 against p. 3); BEB charger availability 98.9 % (p. 26) against 82.6 % (p. 5). The
+  appendix shows 63 % BEB availability for July-December 2020, where R12 gives 57 %. I use the main
+  text.
+- **Inverter, DC-link capacitors, tyres, brakes.** Not named; brakes appear only inside the category
+  "common system failures" (p. 15).
+- **Use here.** With R7 and R12, three reports of one fleet: in all, the high-voltage system and its
+  battery lead the BEB road calls and the unavailable days. One small fleet under warranty.
+
+### R14. FTA Report No. 0253 (2023): survey and case studies of US agencies on BEB procurement and maintenance
+
+- **Reference.** Godfrey, J.; Sipiora, A. (CUTR, University of South Florida) (2023). *Procuring and
+  Maintaining Battery Electric Buses and Charging Systems – Best Practices.* FTA Report No. 0253, August
+  2023, 117 PDF pages. https://doi.org/10.21949/1527666; read from https://rosap.ntl.bts.gov/view/dot/68865
+  (the FTA URL answers HTTP 403 to scripts). Its battery findings are entry B12 of
+  case_study/component_battery.md.
+- **Evidence basis.** Read in full (text layer of all pages, in the browser pane, 10 Nov 2026); two
+  bar charts read from the rendered pages (Figures 3-15, 3-18). Page numbers are the printed ones;
+  PDF page = printed page + 9.
+- **What it is.** A literature review, a survey of 25 US agencies (16 states; 12 small, 5 medium, 8
+  large) and interviews with 8 agencies (pp. 33-35, 75). Agency statements, no measured rates.
+- **Findings on maintenance.**
+  - **Parts availability** is the first finding (pp. 3, 105). AC Transit: BEBs out of service for three
+    months for lack of battery-system parts (p. 78). Foothill Transit: BEBs out for 60 days for parts;
+    at times 40 % of the fleet out of service (pp. 81-82). 44 % of agencies had trouble obtaining buses
+    and parts (p. 56).
+  - **Warranty.** Whole bus: 1 year at 43 % of agencies; battery: 12 years at 31 % (Figure 3-15, p. 43).
+    The maker sends technicians (40 %), keeps them on site (36 %), or the agency repairs with vendor
+    support (24 %) (p. 44). Battery warranties are ambiguous between the whole system and single packs
+    (pp. 78, 105).
+  - **Who maintains.** 80 % of agencies do not contract out BEB maintenance (p. 63). Foothill Transit
+    sends fault codes of large components, "such as inverters, traction motors", to the maker (p. 81).
+  - **Facilities.** Roof-mounted batteries need lifts and fall protection; 76 % of agencies have fall
+    protection (p. 55). LYNX could not remove a battery system without the maker's lift (p. 84).
+  - **Charging equipment.** First maintenance interval of AC Transit's depot chargers: five years
+    (p. 76). Water intrusion into contactors, chargers and cables at TriMet (p. 94).
+  - **Carried from NREL and FTA reports (summarised in its literature review, not read here).** King
+    County Metro BEBs: maintenance 0.26 USD per mile against 0.46 for diesel; propulsion-system
+    maintenance 0.05 against 0.13 USD per mile (Table 2-2, p. 12). Long Beach Transit: bushings of the
+    sway bar and hub reduction units of the axles failed (p. 13).
+- **Errors in the source.** Table 2-2 (p. 12) repeats the availability values in the row "MBRC –
+  propulsion system only"; the text of p. 11 calls BEB reliability "better" at a lower MBRC.
+- **Inverter, DC-link capacitors, tyres, brakes.** Inverters and motors named once as large
+  components repaired with the maker (p. 81); no rates. Tyres and brakes: no data ("longer-lasting
+  brakes" only as an APTA claim, p. 21).
+- **Use here.** Evidence that parts lead times, not repair work, set the downtime of battery and drive
+  faults in early US fleets. One-agency statements; not established practice.
+
 ## 4. Could not read
 
 | Item | Reason (9 Nov 2026) | Why it looks worthwhile |
 |---|---|---|
 | Transportation Research Board, TCRP Synthesis 130, *Battery Electric Buses: State of the Practice* (2018) | The National Academies Press (NAP) download needs a login; the scratchpad file `tcrp130.pdf` is the landing page (HTML), not the report | A survey of US agencies on BEB operation and maintenance |
-| AC Transit and Stanford, *Zero Emission Transit Bus Technology Analysis* (ZETBTA, "5x5 study"), volume 3 (June 2022), and volumes 1, 2, 4 | The copy at h2fcp.org answered with an anti-bot HTML page; the address d7.h2fcp.org does not resolve; the AC Transit page links only the 2026 progress report (R7) | Five buses of each technology side by side, with cost per mile by system against diesel |
 | NOW GmbH, final report of the federal bus programme accompanying research (cited by R4 as "NOW GmbH 2021a"; published about 2022) | Not located; searches found only references to it | Source of the 93 % diesel availability used in R4; may hold failure causes by component |
 | ThEGA, *Monitoringbericht E-Busse Thüringen 2024* (2025) | Internal, not public (R11 p. 15) | The per-operator data behind R11, including maintenance costs |
 | PwC, *E-Bus-Radar 2025* | Not attempted; pwc.de refuses scripts (R4) | Cited by R11 for battery lives beyond eight years and over 3,000 cycles |
@@ -711,6 +824,12 @@ Findings.
 
 Grey literature with fleet data:
 
+- **AC Transit ZETBTA volumes 2 and 4** (the first halves of 2021 and 2022, as announced in R12 p. 24
+  and R13 p. 23; not checked in the files; volumes 1 and 3 are R12 and R13). Both are linked on
+  https://www.actransit.org/zebta (10 Nov 2026):
+  https://www.actransit.org/sites/default/files/2023-01/0479-21%20Report-ZEBTA%20v2_FNL.pdf and
+  https://www.actransit.org/sites/default/files/2023-01/0430-22%20Report-ZEBTA%20v4_FNL_012423.pdf.
+  Not read. The appendix of R13 already shows the January-June 2021 road calls and availability.
 - **NREL and FTA, King County Metro BEB evaluation** (FTA Report No. 0118, 2018): hilly Seattle,
   fast-charged Proterra buses.
   https://www.transit.dot.gov/sites/fta.dot.gov/files/docs/research-innovation/115086/zero-emission-bus-evaluation-results-king-county-metro-battery-electric-buses-fta-report-no-0118.pdf

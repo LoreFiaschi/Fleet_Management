@@ -1,14 +1,18 @@
 # Traction battery of a battery-electric city bus: degradation family and parameters
 
-Status: done (9 Nov 2026). Sections 1-6 filled; 11 sources entered (B1-B11; B1 groups six short
-maker documents) and 8 carried entries (C1-C8). The brief of 9 Nov 2026 includes two points from
-the user: (1) the battery has a repair action, the change of some cells, modules or packs; ρ, cost,
-downtime and the status of the practice are in section 2.4 and section 4; (2) the bus type is free;
-the reference bus is the Mercedes eCitaro 12 m (section 1). Next, if more work is wanted: the
-items of section 5 (FTA Report 0253 first) and operator BMS data (section 4).
+Status: done (10 Nov 2026). Sections 1-6 filled; 12 sources entered (B1-B12; B1 groups six short
+maker documents) and 8 carried entries (C1-C8). Added on 10 Nov 2026: B12 (FTA Report 0253, read
+in full; it gives no battery price and no replacement time, but it gives parts delays, warranty
+terms and one fleet's battery life); the two fade values of B10 are now stated together wherever
+B10 serves as a check. The brief of 9 Nov 2026 includes two points from the user: (1) the battery
+has a repair action, the change of some cells, modules or packs; ρ, cost, downtime and the status
+of the practice are in section 2.4 and section 4; (2) the bus type is free; the reference bus is
+the Mercedes eCitaro 12 m (section 1). Next, if more work is wanted: the items of section 5 and
+operator BMS data (section 4).
 Downloads: scratchpad downloads\bat\01-22 (08: a truck paper, not used; 09, 10, 21: empty or HTML
 error pages); texts in scratchpad text_bat\; my computations in scratchpad scripts_bat\
-(`blast_numbers.py`, `line_increments.py`).
+(`blast_numbers.py`, `line_increments.py`). B12 was read as text in the browser pane (ROSA P
+viewer); it was not saved to disk.
 
 Scope: the traction battery of one 12 m battery-electric bus (BEB) type, tracked as one pack, with a
 repair action (partial renewal) and a replacement action (new pack). Reference bus: the Mercedes
@@ -43,7 +47,7 @@ from another agent's entry (C1-C8); M = my computation or my choice from the cit
 | Family | Gamma (recommended); Gaussian or Wiener as alternatives | - | section 2 | M | |
 | Calendar fade c_cal (central, at about 25 °C, mid-life) | 2.7e-5 (about 1 % per year) | per day | between 0.34 %/year (LFP 250 Ah, B8a) and 1.36 %/year (NMC, B8b), both marginal rates at age 3 years, 25 °C, 50 % SOC | F, M | range 0.9e-5 to 4e-5 per day; eCitaro packs are kept near 25 °C (B1a) |
 | Cycle fade k_EFC (central) | 4.0e-5 | per EFC | LFP 250 Ah: 3.4-4.2e-5 per EFC at 1,000-3,000 EFC, 25 °C, DOD 0.8, 0.3C (B8a); maker claim 4,000 cycles to EOL gives 5e-5 per cycle, calendar included (B1a, C8) | F, C, M | range 3e-5 to 1.1e-4 (lower: B8a at 3,000 EFC; upper: trolleybus fleet, calendar included, C1) |
-| Field fade per km (check) | 2.4e-7 to 7.8e-7 | per km | 2.4 % (or 7.1 %) per 100,000 km, 105 European buses: B10 §3.3; 3.6 % in 46,380 km, one LFP bus: B9 §4.2 | F | the central model gives 2.5e-7 to 3.1e-7 per km on the long lines (section 2) |
+| Field fade per km (check) | 2.4e-7 to 7.8e-7 | per km | 105 European buses, fleet-mean fade per 100,000 km: 2.4 % with the authors' "Proposed Algorithm" and 7.1 % with "Algorithm 1" (the method of Vichard et al. 2021); "Either value is possible" (B10 §3.3 p. 5); 3.6 % in 46,380 km, one LFP bus: B9 §4.2 | F | the central model gives 2.5e-7 to 3.1e-7 per km on the long lines (section 2): close to the lower B10 value, about 2.3-2.8 times below the upper one |
 | Energy per km e_j | e_j = 0.66 + 0.065 g_j + P_HVAC / v_j | kWh/km | VBZ standard bus: 0.74 kWh/km at 1.2 % mean grade, 0.91 at 3.8 % (C3 p. 35, chart); HVAC power over speed: B6 §2.6.1 | C, P, M | g_j in %, v_j in km/h, P_HVAC in kW |
 | P_HVAC, annual mean | 4.8 | kW | 8 kW average auxiliaries (B6 §4.1) minus 40 % for the eCitaro heat pump (B1b) | F, M | |
 | P_HVAC, cold winter day | 14.4 | kW | 24 kW heating at -10 °C, 12 m bus (B6 §2.6.1) minus 40 % (B1b) | F, M | winter +20 to +35 % in a German fleet (C8 p. 10) |
@@ -57,8 +61,9 @@ from another agent's entry (C1-C8); M = my computation or my choice from the cit
 | Initial fade μ_0, buses 2-4 years old | 0.10 (range 0.05-0.20) | fraction | fleet mean SOH 89.98 % at the start of a 12-month record: C1 (S4 Table 10); LFP buses 70-90 % after 3-4 years: C2; 3.6 % in the first year of one LFP bus: B9 | C, F, M | the central model of section 2 gives about 0.08 for a line-759 bus in service since February 2023 (about 1,370 days at 6.2e-5 per day) |
 | Initial variance v_0 | (0.29 μ_0)², 8.4e-4 at μ_0 = 0.10; Gamma: gamma_beta_0 = 1/(0.29² μ_0) = 119 | fraction² | C1 spread | M | add the SOH measurement error if μ_0 comes from BMS data |
 | Replacement value μ_new, v_new | 0, 0 | fraction | a new pack; capacity can start slightly above nominal (B7 Eq. 2; C2) | F, C | |
-| Replacement cost C_rep | about 60,000 (range 40,000-110,000) | EUR per 12 m bus | 56,000 EUR discounted (about 63,000 undiscounted, my computation) for a 12 m bus in 2023: C4 (R4 p. 377); 30-50 % of the bus price: B2 p. 5; pack prices 2025: NMC $128/kWh, Europe +56 % over China: B11 | C, F, M | range: 264 kWh × 150-430 EUR/kWh (lower: BNEF 2025 Europe level plus integration, my assumption; upper: 2017 LFP system price, B6 Table 7); labour included in no figure |
-| Replacement downtime | no source | days | - | - | gap, section 4 |
+| Replacement cost C_rep | about 60,000 (range 40,000-110,000) | EUR per 12 m bus | 56,000 EUR discounted (about 63,000 undiscounted, my computation) for a 12 m bus in 2023: C4 (R4 p. 377); 30-50 % of the bus price: B2 p. 5; pack prices 2025: NMC $128/kWh, Europe +56 % over China: B11 | C, F, M | range: 264 kWh × 150-430 EUR/kWh (lower: BNEF 2025 Europe level plus integration, my assumption; upper: 2017 LFP system price, B6 Table 7); labour included in no figure; the US survey B12 gives no price |
+| Replacement downtime | no source for the replacement work itself; waiting for battery-system parts kept one fleet's buses out of service for 3 months | days | AC Transit, 5 BEBs: "pull the BEBs from service for three months" for battery-system parts (B12 p. 78); Foothill Transit: 60 days for parts in general (B12 p. 81) | F | old value "no source"; one fleet each, US, about 2020-2021; a lead time, not a work time |
+| Battery life and warranty in US fleets (check) | warranty 12 years in 7 of 23 agencies; one fleet expects 6 years of battery life | years | survey of 25 US agencies, battery warranty lengths 3-14 years (B12 Figure 3-15 p. 43); Foothill Transit: "Battery life expectancy of six years", faster depletion by the sixth year (B12 p. 80) | F | the 12-year warranties may be on a reduced capacity base, as in C6 |
 | Repair (partial renewal), ρ | 0.17 (one of six packs); module level 0.03-0.10, more for an early-failed module | - | no source gives ρ; my derivation in section 2 | M | maker offers exist (B1c, B1d); one fleet's practice (C7) |
 | Repair cost C_R | about (C_rep/6)/0.025 ≈ 400,000 per unit of fade removed, at D = 0.15 | EUR per unit of fade | M from C_rep and ρ = 1/6 | M | the cost of one pack does not depend on D; a linear C_R holds only near the chosen D |
 | Opportunity charging modifier | 1.0 (range 0.5-2) | multiplier on k_EFC | narrow DOD slows NMC fade (B7 Eq. 5: ×1.41 at 40 % DOD against ×4.6 at 80 %); fast charging speeds it in a model fitted only up to 0.65C (B8a); operators prefer depot charging for battery life (C4 p. 121); maker: NMC4 robust under 300 kW charging (B1c) | F, C | no field split by charging regime (B10) |
@@ -153,10 +158,15 @@ line that climbs steadily, not in general. Treat k_g as an order of magnitude.
 | 795 | 2.34 | 9.9 | 1.30 | 2.27 | 26.1 | 0.13 | 3.2e-5 | 1.2e-3 | 17.1 |
 | 797 | 1.56 | 31.5 | 0.91 | 1.22 | 112.1 | 0.39 | 4.3e-5 | 3.8e-4 | 12.9 |
 
-Checks. On the long lines (759, 768, 787) the model gives 2.5-2.7 % per 100,000 km, close to the 2.4 %
-of 105 European buses (B10) and below the 7.8 % of one LFP bus in a cold Chinese city (B9). Years to
-EOL (8.5-17 years) bracket the makers' 6-8 years (C5) and the probable 8-12 years (C8). The energy
-per km (0.91-1.30) brackets the field mean of about 1.2 kWh/km with heating (C8).
+Checks. On the long lines (759, 768, 787) the model gives 2.5-2.7 % per 100,000 km. B10 gives two
+fleet means for 105 European buses, 2.4 % with the authors' algorithm and 7.1 % with "Algorithm 1",
+and says that either value is possible (B10 §3.3 p. 5). The model is close to the lower value and
+2.6-2.8 times below the upper one. It is also below the 7.8 % of one LFP bus in a cold Chinese city
+(B9). So the central k_EFC is a low-fade choice. With c_cal fixed, the upper B10 value on these
+three lines needs k_EFC about 4 times larger, about 1.6e-4 per EFC (my computation from the table
+above); that is above the range of section 1 (3e-5 to 1.1e-4). Years to EOL (8.5-17 years)
+bracket the makers' 6-8 years (C5) and the probable 8-12 years (C8); one US fleet expects 6 years (B12 p. 80). The energy per km (0.91-1.30) brackets
+the field mean of about 1.2 kWh/km with heating (C8).
 
 **Calendar fade on depot periods.** The tool adds damage only on mission periods. Calendar fade on
 depot periods (about 2.7e-5 per day) is then lost; it is small against the uncertainty of c_cal.
@@ -191,8 +201,14 @@ variance 3.1e-5. After 8.9 years of the same use: mean 0.20, standard deviation 
   (Shenzhen, one fleet: C7). Daimler Buses offers to repair and overhaul the modular packs (B1c,
   B1d) and reconditions NMC1 packs, which "significantly increases the capacity" (B1d), without a
   number. A laboratory study shows that a new cell works well inside a pack of cells aged to 90 %,
-  and that the "traditional approach" was to replace all cells (B3). So partial renewal is offered
-  by one maker and practised by one fleet; it is not shown to be established, and its gain is not
+  and that the "traditional approach" was to replace all cells (B3). In a US fleet, one string of
+  the pack may degrade faster than the others, so one battery system can hold packs "of different
+  ages and state of health"; the agency found warranties ambiguous on whether they cover the
+  system or each pack (B12 p. 78). The FTA report therefore recommends warranty language that says
+  whether it applies to the system or to "individual battery packs, cells, and/or battery
+  management systems" (B12 Finding 3, pp. 3, 105). This shows pack-level renewal as a warranty
+  question in US procurement; it gives no gain and no cost. So partial renewal is offered by one
+  maker and practised by one fleet; it is not shown to be established, and its gain is not
   measured in any source read.
 - **Parallel packs.** The eCitaro carries 4-6 packs of 98 kWh (NMC3) on a 650-750 V system (B1a,
   B1e). A pack of 5,400 cells of 4.93 Ah holds about 96 kWh, so each pack is likely a full-voltage
@@ -575,9 +591,14 @@ Findings.
 - **Inconsistency in the paper.** §3.2 calls FLT0 the fast-charging fleet and FLT1 the depot fleet;
   §3.3 says the opposite ("Fleet FLT1 uses mostly fast-charging"). The numbers of §3.2 are
   consistent with each other, so I use §3.2.
-- **Fade rate (§3.3).** Linear regression of SOH on odometer: mean fade 2.4 % per 100,000 km with the
-  authors' method, 7.1 % per 100,000 km with the method of Vichard et al. 2021; "strong variance
-  within the fleets", not quantified. The fleet-mean SOH declines roughly linearly (Figure 4).
+- **Fade rate (§3.3, p. 5).** Linear regression of SOH on odometer: mean fade 2.4 % per 100,000 km
+  with the authors' method ("Proposed Algorithm", their Eq. 4) and 7.1 % per 100,000 km with
+  "Algorithm 1", their name for the method of Vichard et al. 2021 (their Eq. 3). The authors: "Either
+  value is possible for lithium-ion batteries depending on design and operation parameters" (p. 5).
+  They "believe that the proposed methodology may be more accurate", because its SOH deviates less
+  from a linear decay (p. 5). The true SOH was not measured (next item), so both values stay as
+  checks. "Strong variance within the fleets", not quantified. The fleet-mean SOH declines roughly
+  linearly (Figure 4).
 - **SOH definition.** S(t) = Q(t)/Q(0), usable Ah capacity; Q(0) extrapolated linearly from the data,
   because data start after the beginning of life (§2.1, §2.1.2). The true SOH could not be measured,
   so the accuracy is not known (§2.1.2).
@@ -598,6 +619,55 @@ Findings.
 - **Not given.** A price for e-bus packs (the survey covers e-buses, but the segment value is not in
   the press release), and the price of a fitted replacement pack to an operator, which includes the
   pack housing, cooling, integration, margin and labour.
+
+### B12. FTA Report No. 0253 (2023), best practices for procuring and maintaining battery-electric buses
+
+- **Reference.** Godfrey, J.; Sipiora, A. (Center for Urban Transportation Research, CUTR, University
+  of South Florida) (2023). *Procuring and Maintaining Battery Electric Buses and Charging Systems –
+  Best Practices.* FTA (US Federal Transit Administration) Report No. 0253, August 2023, 117 PDF
+  pages. https://doi.org/10.21949/1527666. Read from the copy in ROSA P, the repository of the US
+  National Transportation Library: https://rosap.ntl.bts.gov/view/dot/68865 (the FTA URL answers
+  HTTP 403 to scripts).
+- **Evidence basis.** Read in full (text layer of all 117 pages, 10 Nov 2026). Figures are bar
+  charts; Figures 3-15 and 3-18 were read from the rendered pages, the others through their text.
+  Page numbers below are the printed ones; PDF page = printed page + 9.
+- **What it is.** A literature review, a survey of 25 US transit agencies in 16 states (printed
+  p. 33) and interviews with 8 of them (pp. 75-99). Data period of the project: 2021 (report form,
+  PDF p. 5). Agency statements, not measurements.
+- **Battery findings.**
+  - **No battery price and no time for a battery replacement** appear in the report (read in full).
+  - **Battery warranty length** (Figure 3-15, p. 43, N = 23, my reading of the bars as counts of
+    1/23 = 4.3 %): 12 years for 7 agencies ("31% received a 12-year warranty on the battery"); 3, 5,
+    7 and 14 years for one agency each; 6 years for two; the rest gave no battery value. The whole
+    bus had a 1-year warranty at 43 % of the agencies (p. 43). One agency chose BYD for its 12-year
+    warranty (p. 87).
+  - **Bus life.** 84 % of agencies knew a vendor-defined bus life; 12 years for 68 % (Figure 3-18,
+    p. 45). Midlife overhaul of the bus: yes 32 %, no 36 %, unsure 32 % (p. 45); 96 % did not include
+    it in the bid (pp. 45-46).
+  - **One fleet's battery life.** Foothill Transit: "Battery life expectancy of six years. The agency
+    has found that by the sixth year, the battery degrades and begins depleting at a faster rate";
+    bus life 12 years or 500,000 miles (p. 80, under the heading "Warranty").
+  - **Packs of different ages.** AC Transit: one string of the pack may degrade faster; a battery
+    system may hold packs of different ages and state of health; warranties written for the whole
+    system then cause problems (p. 78). Finding 3 asks for warranty language on system against
+    packs, cells or BMS (pp. 3, 103, 105).
+  - **Downtime from parts.** AC Transit pulled its BEBs from service for three months for lack of
+    battery-system parts (p. 78). Foothill Transit pulled BEBs for 60 days when parts were missing,
+    and at times had 40 % of the fleet out of service (pp. 81-82). LYNX waited for the maker to ship
+    the lift needed to remove the battery system (p. 84).
+  - **Carried from FTA Report 0163 (Long Beach Transit, not read here):** the batteries developed
+    balancing and degradation issues "due to insufficient initial commissioning, in addition to
+    conservative use, which did not allow the batteries to discharge below an optimal state of
+    charge"; BYD replaced the original batteries under warranty with a newer generation (p. 13).
+  - One agency kept the state of charge above 60 % "in recognition of the degradation of batteries
+    over time" (County Connection, p. 15).
+  - 55 % of agencies had no battery disposal process yet (p. 46).
+- **Errors in the source.** In Table 2-2 (p. 12) the row "MBRC – propulsion system only" repeats the
+  availability values, and the text says the BEBs "performed better (below 3,500 MBRC)" than diesel
+  buses at 17,332 MBRC (p. 11); the table gives 2,771 for the BEBs.
+- **Use here.** A downtime order of magnitude for battery work in early US fleets (months, set by
+  parts lead times), a battery-life statement of one fleet, and evidence that pack-level renewal is
+  a warranty question. All are single-agency statements, not established practice.
 
 ### Carried entries (read by other agents of this case study, 9 Nov 2026)
 
@@ -679,7 +749,7 @@ I did not re-read the sources, except where said. Only battery facts are repeate
 | Spread of fade between buses of one type and one line | only C1 (trolleybuses, chemistry unknown) and qualitative C2 | per-bus SOH from BMS data of the case-study fleet; B10's 105-bus data set is not public |
 | Effect of opportunity fast charging against depot charging on fade | no field split; models disagree (B7, B8a); operators' belief (C4) | per-bus SOH of line 759 (opportunity) against line 768 (depot) |
 | Gain ρ of a partial repair (pack or module) | no measurement | ask Daimler Buses / Omniplus for SOH before and after reconditioning (B1d) |
-| Cost and labour of a partial repair; downtime of a full or partial pack replacement | no source | Omniplus price list or operator workshop records; FTA Report 0253 (section 5) |
+| Cost and labour of a partial repair; downtime of a full or partial pack replacement | no source for cost or work time; FTA Report 0253 (B12, read) gives none; parts lead times of 60 days to 3 months in two US fleets (B12 pp. 78, 81) | Omniplus price list or operator workshop records |
 | Pack price for buses, by kWh | only all-segment BNEF values (B11) and 2017 values (B6) | BNEF full survey (clients only); operator tender documents |
 | Empty mass of the eCitaro 12 m and G | not in B1 documents | Swiss vehicle registration data or a test report (for example the Omnibusspiegel comparison test named in B1f, not read) |
 | Energy use of the eCitaro and eCitaro G on Zurich lines | no source; the formula is calibrated on a lighter 12 m bus (C3) | VBG or EUROBUS energy data per line; SORT test results |
@@ -688,10 +758,6 @@ I did not re-read the sources, except where said. Only battery facts are repeate
 
 ## 5. Could not read
 
-- **FTA Report No. 0253** (2023), *Procuring and Maintaining Battery Electric Buses and Charging
-  Systems*, https://www.transit.dot.gov/sites/fta.dot.gov/files/2023-08/FTA-Report-No-0253.pdf:
-  HTTP 403 to a script on 9 Nov 2026 (scratchpad downloads\bat\21 holds nothing). Worth reading for
-  battery replacement time and cost in US practice. Can you retrieve it?
 - **Gao et al. 2017**, *Battery capacity and recharging needs for electric buses in city transit
   service*, Energy 122: the OSTI link https://www.osti.gov/servlets/purl/1342660 served a different
   paper (ORNL trucks, TRR 2628), not used. Worth reading for a bus-specific fade model tied to

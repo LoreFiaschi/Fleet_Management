@@ -6,6 +6,7 @@
 \usepackage[numbers,sort&compress]{natbib}
 \usepackage{float}
 \usepackage{hyperref}
+\makeatletter\g@addto@macro{\UrlBreaks}{\UrlOrds}\makeatother
 \usepackage{enumitem}
 \usepackage{booktabs}
 \usepackage{tikz}
@@ -3695,6 +3696,979 @@ With the cost parameters of Table~\ref{tab:notation_evs}, the abstract objective
 The first three terms are weighted sums over the planning horizon.
 The first term counts depot days, and the second grows with the damage that each repair removes.
 The third term counts replacements, and the last one penalises the largest aggregate expected damage through~$u$ (see~\eqref{eq:u_def}).
+
+\section{Case study: battery-electric city buses in Zurich}
+\label{sec:case_study}
+
+This section sets up one realistic instance of the problem of Section~\ref{sec:overview}, in the form of Section~\ref{sec:evs}.
+The fleet is a set of battery-electric city buses (buses that run on their traction battery only) that serve the lines of one bus depot in or near Zurich.
+The depot, its lines, their timetables, their road lengths and their height profiles are real, and they come from public data.
+The bus types are real types in Swiss service, with their registered masses and the public data of their makers.
+The rest is assumed: one bus type serves every line of the depot, and the number of buses per line and the component coefficients are estimates (Sections~\ref{sec:cs_depots} and~\ref{sec:cs_components}).
+
+\subsection{Aim and setting}\label{sec:cs_aim}
+
+\begin{itemize}[nosep]
+  \item \textbf{Aim.} The case study is a realistic instance of the general problem.
+    Its lines differ in length, in stops per km, in speed and in climbs (Tables~\ref{tab:cs_depots}--\ref{tab:cs_lines_bassersdorf}).
+    So they wear the battery, the tires and the inverter of a bus at different rates (Section~\ref{sec:cs_components}).
+    The schedule gains when it moves buses between lines that wear them differently.
+    For example, a bus that has served line 759 (14\,km per direction) can move to line 774 (about 1\,km per direction) and so delay its next intervention.
+  \item \textbf{Missions.} A mission~$j$ is a bus line.
+    In period~$k$, line~$j$ needs $d_{jk}$ buses in service, and the coverage row~\eqref{eq:mission_coverage} assigns exactly that many.
+    We estimate $d_{jk}$ from the timetable, for a weekday, a Saturday and a Sunday (Section~\ref{sec:cs_depots}).
+  \item \textbf{Period.} Section~\ref{sec:overview} calls the time step~$k$ a day.
+    In the case study the length of a period is not fixed: it can be a day, a week or a month.
+    So every rate is given per physical unit (km, kWh, stop, day).
+    The increment of a period is the rate times the amount of that unit in the period.
+    For example, a tire wear rate per 1,000\,km and the km that a bus runs on its line in one week give the wear increment of that week.
+  \item \textbf{Bus type and place.} The bus type is decoupled from the place.
+    Realistic bus types, in service anywhere, run on the real lines of a real depot.
+    So the depot need not run that type today.
+    For example, the Mercedes-Benz eCitaro of Section~\ref{sec:cs_buses} can serve the lines of a garage of Verkehrsbetriebe Z\"urich (VBZ, the transport company of the city of Zurich), although VBZ runs other types.
+  \item \textbf{Public data only.} Every input comes from public data: timetables, road geometry, heights, the Swiss vehicle register, data sheets of the makers and publications of the operators.
+    The case study uses no internal data of an operator.
+\end{itemize}
+
+\subsection{Depots and lines}\label{sec:cs_depots}
+
+Three depots are candidates (Table~\ref{tab:cs_depots}).
+\begin{itemize}[nosep]
+  \item \textbf{Hardau and Hagenholz} are the two bus garages of VBZ in the city of Zurich~\cite{VBZ2026Depots}.
+    Hardau includes a second hall, Herdern.
+  \item \textbf{Bassersdorf} is the depot of the bus contractor EUROBUS welti-furrer AG, which runs 15 lines for VBG (Verkehrsbetriebe Glattal AG)~\cite{VBG2026Partner}.
+    VBG is a management company: contractors run the buses from their own depots, and the buses belong to them~\cite[p.~25]{VBG2026Report}.
+\end{itemize}
+Battery-electric buses run today from these depots as follows.
+\begin{itemize}[nosep]
+  \item \textbf{Bassersdorf.} VBG had 14 battery-electric buses among 121 buses on 31 Dec 2025~\cite[p.~4]{VBG2026Report}, all on lines 759 and 768 of this depot~\cite{VBG2026Fleet}.
+    Line 759 has been all-electric since the end of February 2023, with eight buses: a pilot bus of 2021 and seven more~\cite{VBG2023Release759}.
+    They are Mercedes-Benz eCitaro buses with 264\,kWh, and they charge at the terminus Z\"urich Flughafen by a pantograph that comes down from a mast (opportunity charging)~\cite{VBG2023Line759}.
+    Line 768 has run Mercedes-Benz eCitaro G articulated buses (over 18\,m) since 2025.
+    They have 550\,kWh usable, and they charge in the depot by a CCS (Combined Charging System) plug in about 4\,h~\cite{VBG2025Line768}.
+    By difference, line 768 has six of them (our inference; VBG does not state it).
+  \item \textbf{VBZ.} VBZ has 59 battery-electric buses, built in 2022: 15 HESS lighTram 10 Plug (10.80\,m), 22 MAN Lion's City 12~E (480\,kWh) and 22 MAN Lion's City 18~E (640\,kWh), all charged in the depot~\cite{VBZ2025Batteriebusse}.
+    VBZ uses them on neighbourhood and standard city lines~\cite{VBZ2026Elektromobilitaet}; the sources read do not say on which lines.
+\end{itemize}
+
+\paragraph{Data and method.}
+The line features of Tables~\ref{tab:cs_depots}--\ref{tab:cs_lines_bassersdorf} are our computation from the following data.
+\begin{itemize}[nosep]
+  \item \textbf{Timetable.} We use the national timetable in GTFS (General Transit Feed Specification, the common file format of timetables), feed version 20260527, valid from 14 Dec 2025 to 12 Dec 2026~\cite{SKI2026GTFS}.
+    We keep only the trips of the operator of the depot (VBG or VBZ).
+    The days are Tuesday 16 June, Sunday 21 June and a Saturday: 20 June 2026 for Bassersdorf, 27 June 2026 for the city garages.
+    On 20 June, line 31 has extra short trips (378 trips against 291 on 27 June), so that day is not typical for the city.
+    For each direction, the main pattern is the most frequent sequence of stops on the weekday.
+  \item \textbf{Road length.} The length follows the OpenStreetMap (OSM, a map database built by volunteers) bus route relation of the same line, cut at the first and the last stop~\cite{OSM2026Routes}.
+    A relation is accepted when it passes all stops in order, every intermediate stop within 50\,m, both termini within 150\,m, and no gap between two road pieces exceeds 10\,m; among the accepted relations, the shortest wins.
+    This holds for 29 of 30 directions at Bassersdorf and for 37 of 47 directions at the city garages.
+    The other directions use straight lines between stops, a lower bound on the length.
+    The operators do not confirm the OSM lengths.
+  \item \textbf{Official road geometry.} The ZVV (Z\"urcher Verkehrsverbund, the public-transport authority of the canton of Zurich) publishes its timetable in GTFS on the open-data portal of the city of Zurich, under the licence CC0 (public domain)~\cite{ZVV2026GTFS}.
+    Unlike the national feed, it has a file \texttt{shapes.txt} with the road geometry: about one million points, each with its distance along the road (checked on 10 Nov 2026).
+    Its main shapes of line 759 measure 14.07 and 13.56\,km.
+    For lines 759 and 768 they agree with the OSM lengths within 1.6\,\% (our comparison).
+    So official road geometry exists besides OSM; the tables of this section use OSM.
+  \item \textbf{Heights.} The heights come from the profile service of swisstopo (the Swiss federal office of topography), height model COMB, with one sample about every 10\,m~\cite{Swisstopo2026Profile}.
+    We resample every 20\,m and smooth by a moving average over 100\,m.
+    The ascent of a direction is the sum of its rises, and the steepest grade is the largest height change over 100\,m of road.
+    The height model gives the terrain, not the road deck, so bridges and underpasses give false steps; grades above about 8\,\% need a check on a map.
+  \item \textbf{Mean speed.} With $\ell_0, \ell_1$ the lengths of the two directions and $t_0, t_1$ their running times, the mean speed is $(\ell_0+\ell_1)/(t_0+t_1)$.
+    A running time is the median, over the weekday trips of the main pattern, of the time from the first departure to the last arrival.
+    It includes the stops on the way, but not the layover at the termini.
+  \item \textbf{Buses per line.} Let $N_{jk}$ be the number of trips of line~$j$ on day~$k$.
+    Let a link be a pair of these trips $(a,b)$ with $\mathrm{arr}_a + 3\,\mathrm{min} + e_{ab} \le \mathrm{dep}_b$.
+    Here $e_{ab}$ is the time of the empty run from the end of~$a$ to the start of~$b$: zero at the same stop, else 1.3 times the straight distance at 20\,km/h.
+    Let $m_{jk}$ be the largest number of links in which every trip has at most one successor and at most one predecessor.
+    Our estimate of $d_{jk}$ is the smallest number of buses that serve all trips of the line,
+    \begin{equation}\label{eq:cs_buses}
+      \hat d_{jk} \;=\; N_{jk} - m_{jk}.
+    \end{equation}
+    It takes each line alone: no bus serves two lines in one day, and there is no reserve.
+    With a layover of 0 or 6\,min instead of 3\,min, line 759 needs 7 or 8 buses, and line 768 needs 6 or 8.
+    The GTFS field \texttt{block\_id} does not give the day-long blocks of a bus, so it cannot replace this estimate.
+  \item \textbf{Vehicle-km per day.} For each trip of the day, the straight length from stop to stop is multiplied by the ratio of road length to straight length of the main pattern of its direction.
+    Empty runs to and from the depot are not counted.
+\end{itemize}
+
+\paragraph{Checks against operator figures.}
+\begin{itemize}[nosep]
+  \item \textbf{Length of line 759.} VBG gives ``\"uber 27 Kilometer'' (over 27\,km)~\cite{VBG2023Line759}; our round trip is $14.08 + 13.56 = 27.64$\,km.
+  \item \textbf{Distance per year, line 759.} VBG gives about 635,000\,km per year with diesel buses, on the timetable of 2021~\cite[p.~1]{VBG2021Line759}.
+    Our estimate is $250 \cdot 1{,}935.1 + 52 \cdot 1{,}865.5 + 63 \cdot 1{,}055.8 \approx 647{,}000$\,km, with 250 weekdays, 52 Saturdays and 63 Sundays and holidays.
+  \item \textbf{Buses of lines 759 and 768.} VBG has 8 battery-electric buses on line 759~\cite{VBG2023Release759} and 14 on the two lines~\cite[p.~4]{VBG2026Report}\cite{VBG2026Fleet}.
+    Our weekday estimate~\eqref{eq:cs_buses} gives 8 and $8+6=14$.
+  \item \textbf{Hardau.} Our weekday estimate, 160 buses, lies below the about 180 vehicles that VBZ states for the garage~\cite{VBZ2026Depots}.
+\end{itemize}
+
+\begin{table}[htbp]
+\centering
+\caption{The three candidate depots.
+VBZ: Verkehrsbetriebe Z\"urich; VBG: Verkehrsbetriebe Glattal.
+The upper rows come from the operators~\cite{VBG2026Partner,VBG2026Fleet,VBZ2026Depots}.
+Lines measured: the lines that the operator lists for the depot and that have trips of that operator in the national timetable (Hardau: 24 of 26; Hagenholz: 8 of 9).
+Battery-electric buses: in service today.
+Vehicles: the number of vehicles that the operator states for the depot.
+Bassersdorf charger: plan of 2021 for line 759~\cite[p.~1]{VBG2021Line759}.
+Hardau includes the Herdern hall; VBZ electrifies Hagenholz in two stages.
+The lower rows are our computation by the method of Section~\ref{sec:cs_depots}.
+A rural line has fewer than 1.5 stops per km and serves villages only (our rule).
+Ascent: in one direction.
+Speed and stops per km: range over the lines.
+The steepest grade counts only the directions measured on OSM roads.
+The 24 Hardau lines are listed in the file \nolinkurl{case_study/zurich_city_line_features.csv} of the project repository.}
+\label{tab:cs_depots}
+\small
+\begin{tabular}{@{}lp{3.5cm}p{3.5cm}p{3.5cm}@{}}
+\toprule
+ & \textbf{Bassersdorf} & \textbf{Hardau} & \textbf{Hagenholz} \\
+\midrule
+Operator & EUROBUS, for VBG & VBZ & VBZ \\
+Place & outside the city & city of Zurich & city of Zurich \\
+Lines measured & 15 & 24 (6 trolleybus) & 8 \\
+Battery-electric buses & on lines 759, 768 & not stated per garage & not stated \\
+Vehicles (operator) & not found & about 180 & not stated \\
+Depot chargers & 1 of 40\,kW & 105 of 100 or 150\,kW & not stated \\
+\midrule
+Rural lines & 2 (769, 797) & 0 & 0 (743: countryside) \\
+Lines leaving the city & depot outside & 8 & 3 \\
+Lines with ascent $\ge 100$\,m & 1 (769: 196\,m) & 13 (31: 242\,m) & 1 (80: 160\,m) \\
+Height range (m) & 418--598 & 397--624 & 397--534 \\
+Steepest grade & 10.2\,\% (769) & 13.3\,\% (70) & 13.0\,\% (80) \\
+Mean speed (km/h) & 9.9--31.5 & 9.9--24.5 & 17.0--32.4 \\
+Stops per km & 1.14--4.08 & 2.25--4.96 & 1.71--3.04 \\
+Buses, weekday, $\sum_j \hat d_{jk}$ & 48 & 160 & 54 \\
+Vehicle-km, weekday & 7,401 & 30,590 & 11,289 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\begin{table}[htbp]
+\centering
+\caption{Lines of the Hagenholz garage (VBZ).
+d0 and d1 are the two directions; d0 starts at the first terminus named.
+Climb: the larger ascent of the two directions.
+Buses: our estimate $\hat d_{jk}$ of~\eqref{eq:cs_buses} on Tuesday 16, Saturday 27 and Sunday 21 June 2026.
+All values are our computation (Section~\ref{sec:cs_depots}); all lengths follow OSM roads.
+The full table is the file \nolinkurl{case_study/zurich_hagenholz_line_features.csv} of the project repository.}
+\label{tab:cs_lines_hagenholz}
+\small
+\setlength{\tabcolsep}{4pt}
+\begin{tabular}{@{}rp{5.5cm}ccccc@{}}
+\toprule
+\textbf{Line} & \textbf{Route} & \textbf{Length (km)} & \textbf{Stops} & \textbf{Speed} & \textbf{Climb} & \textbf{Buses} \\
+ & & d0 / d1 & per km & (km/h) & (m) & Tue/Sat/Sun \\
+\midrule
+37 & Z\"urich, M\"uhlacker --\newline Z\"urich, ETH H\"onggerberg & 3.01 / 2.92 & 3.04 & 19.8 & 78 & 2 / 2 / 1 \\
+61 & Z\"urich, M\"uhlacker --\newline Wallisellen, Glatt (Bus) & 9.28 / 8.97 & 2.41 & 21.1 & 56 & 8 / 6 / 5 \\
+62 & Z\"urich, Waidhof --\newline Z\"urich, Schwamendingerplatz & 8.10 / 7.45 & 2.64 & 20.7 & 48 & 6 / 4 / 4 \\
+69 & Z\"urich, ETH H\"onggerberg --\newline Z\"urich, Milchbuck & 4.07 / 4.16 & 2.19 & 23.5 & 67 & 5 / 3 / 4 \\
+75 & Z\"urich, Seebacherplatz --\newline Z\"urich, Schwamendingerplatz & 7.40 / 7.35 & 2.85 & 17.0 & 64 & 11 / 9 / 6 \\
+80 & Z\"urich Oerlikon, Bahnhof Nord --\newline Z\"urich, Triemlispital & 11.80 / 11.76 & 2.42 & 19.6 & 160 & 15 / 11 / 8 \\
+743 & Stettbach, Bahnhof --\newline Maur, See & 10.37 / 10.12 & 1.71 & 32.4 & 53 & 3 / 2 / 2 \\
+745 & Stettbach, Bahnhof --\newline F\"allanden, Wigarten & 5.17 / 5.16 & 2.13 & 27.0 & 24 & 4 / 0 / 0 \\
+\midrule
+Sum & & & & & & 54 / 37 / 30 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\begin{table}[htbp]
+\centering
+\caption{Lines of the Bassersdorf depot (EUROBUS welti-furrer AG for VBG).
+Columns as in Table~\ref{tab:cs_lines_hagenholz}; buses on Tuesday 16, Saturday 20 and Sunday 21 June 2026.
+Lines 759 and 768 run with battery-electric buses today.
+$^{*}$Straight lines between stops: a lower bound on the length.
+The full table is the file \nolinkurl{case_study/zurich_line_features.csv} of the project repository.}
+\label{tab:cs_lines_bassersdorf}
+\small
+\setlength{\tabcolsep}{4pt}
+\begin{tabular}{@{}rp{5.5cm}ccccc@{}}
+\toprule
+\textbf{Line} & \textbf{Route} & \textbf{Length (km)} & \textbf{Stops} & \textbf{Speed} & \textbf{Climb} & \textbf{Buses} \\
+ & & d0 / d1 & per km & (km/h) & (m) & Tue/Sat/Sun \\
+\midrule
+739 & Z\"urich Flughafen, REGA --\newline Z\"urich Flughafen, Bahnhof & 2.08 / 2.13 & 1.90 & 25.3 & 10 & 2 / 0 / 0 \\
+742 & R\"umlang, Bahnhof --\newline Z\"urich, Seebach & 4.65 / 4.44 & 1.98 & 27.3 & 46 & 2 / 2 / 2 \\
+749 & Bassersdorf, Bahnhof S\"ud --\newline Dietlikon, Hinentalstrasse & 4.84 / 4.88 & 1.85 & 27.8 & 54 & 2 / 0 / 0 \\
+759 & Wangen b.\ D\"ubendorf, Dorfplatz --\newline Z\"urich Flughafen, Bahnhof & 14.08 / 13.56 & 1.99 & 21.8 & 77 & 8 / 7 / 4 \\
+766 & Bassersdorf, Bahnhof --\newline Kloten, Bahnhof & 4.65 / 4.55 & 2.28 & 25.1 & 27 & 1 / 0 / 0 \\
+768 & Z\"urich Flughafen, Bahnhof --\newline Z\"urich Oerlikon, Bahnhof & 5.66 / 5.62 & 2.31 & 21.1 & 54 & 6 / 4 / 4 \\
+769 & Breite b.\ N\"urensdorf,\newline Winterthurerstr.\ --\newline Bassersdorf, Bahnhof & 4.42 / 8.59 & 1.31 & 30.0 & 196 & 3 / 0 / 0 \\
+771 & Wallisellen, Sch\"afligraben --\newline Wallisellen, Bahnhof & 2.02 / 2.10 & 3.88 & 20.6 & 45 & 3 / 3 / 2 \\
+772 & Wallisellen, Sportzentrum --\newline Wallisellen, Bahnhof & 2.33 / 2.08 & 4.08 & 17.6 & 28 & 2 / 2 / 2 \\
+773 & Wallisellen, Frohheimstrasse --\newline Wallisellen, Bahnhof & 1.54 / 1.28 & 2.84 & 21.1 & 35 & 1 / 0 / 0 \\
+774 & Wallisellen, Schulhaus B\"urgli --\newline Wallisellen, Bahnhof & 0.97 / 1.16 & 3.75 & 16.0 & 41 & 2 / 2 / 0 \\
+781 & Glattbrugg, Giebeleichstrasse --\newline Z\"urich Oerlikon, Bahnhof & 3.89 / 4.28 & 2.94 & 19.6 & 22 & 6 / 3 / 3 \\
+787 & Br\"uttisellen, Obere Wangenstr.\ --\newline Z\"urich Oerlikon, Bahnhof & 9.73 / 9.59 & 1.97 & 20.0 & 56 & 5 / 5 / 3 \\
+795 & R\"umlang, Chilestieg --\newline R\"umlang, Ifangstrasse & 2.15 / 2.63$^{*}$ & 2.51 & 9.9 & 49 & 2 / 0 / 0 \\
+797 & Oberhasli, Dorf --\newline R\"umlang, Bahnhof & 4.29 / 6.22 & 1.14 & 31.5 & 58 & 3 / 3 / 2 \\
+\midrule
+Sum & & & & & & 48 / 31 / 22 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\paragraph{How the depots differ.}
+\begin{itemize}[nosep]
+  \item \textbf{Battery-electric buses today.} The bus type is assumed (Section~\ref{sec:cs_aim}), so a depot need not run battery-electric buses today.
+    Only at Bassersdorf, however, can the estimate~\eqref{eq:cs_buses} be checked against counts of battery-electric buses per line.
+  \item \textbf{Kinds of lines.} Bassersdorf has urban lines into Z\"urich Oerlikon (768, 781, 787), suburban lines and two rural lines (769, 797); only line 769 climbs 100\,m or more.
+    Here an urban line has at least 40\,\% of its stops in the city and a mean speed of at most 22\,km/h (our rule).
+    Hardau has busy lines through the centre, short neighbourhood lines, steep hill lines and 8 lines to suburban municipalities, but no rural line; 13 of its lines climb 100\,m or more.
+    Hagenholz has one countryside line (743, to Maur) and one steep line (80).
+  \item \textbf{Trolleybus lines.} Six Hardau lines are trolleybus lines (buses fed by an overhead wire), and the Hagenholz lines 69 and 80 are to become trolleybus lines~\cite{VBZ2026Depots}.
+    The case study treats them as lines for one battery-electric bus type.
+  \item \textbf{Size.} On a weekday, Bassersdorf needs 48 buses, Hagenholz 54 and Hardau 160 (our estimate).
+    A model run at Hardau can take a subset of its 24 lines.
+  \item \textbf{Data.} The same national timetable covers all three depots.
+\end{itemize}
+The choice of the depot is open (Section~\ref{sec:cs_open}).
+
+\subsection{Bus types}\label{sec:cs_buses}
+
+Each component model needs a fixed list of inputs (Section~\ref{sec:cs_components}).
+We ranked the battery-electric city bus types by the number of these inputs that the sources read give (our count, Table~\ref{tab:cs_ranking}).
+A type scores one point for each input given, and half a point for a partial value.
+\begin{itemize}[nosep]
+  \item \textbf{Battery, 6 points:} chemistry, gross capacity, usable capacity or depth-of-discharge rule, pack or module layout, cell maker, stated life or warranty.
+  \item \textbf{Tires, 4 points:} tire size, empty mass, gross mass, axle loads.
+  \item \textbf{Inverter, 3 points:} drive type and motor power, inverter maker, semiconductor type.
+  \item \textbf{Energy, 1 point:} a measured energy use per km, with its conditions.
+\end{itemize}
+
+\begin{table}[htbp]
+\centering
+\caption{Bus types ranked by the number of model inputs that the sources read give (our count; 14 points in all).
+$^{a}$3 points for the build of 2026 with the ZF AxTrax 2 LF axle; 1 point for the builds with the ZF AVE 130 axle.
+The rank reflects the sources read, not the full documentation of the makers.
+Types without a maker document read (for example Iveco, Ebusco, Yutong and the Hess battery-electric buses) are not ranked.}
+\label{tab:cs_ranking}
+\small
+\setlength{\tabcolsep}{4pt}
+\begin{tabular}{@{}rp{3.5cm}cccccp{3.6cm}@{}}
+\toprule
+\textbf{Rank} & \textbf{Type} & \textbf{Battery} & \textbf{Tires} & \textbf{Inverter} & \textbf{Energy} & \textbf{Total} & \textbf{Main gaps} \tabularnewline
+\midrule
+1 & \raggedright Mercedes-Benz eCitaro G, 18\,m & 6 & 4 & 3$^{a}$ & 0 & 13 & \raggedright measured energy use; inverter of the buses in service \tabularnewline
+2 & \raggedright Mercedes-Benz eCitaro, 12\,m & 5 & 4 & 3$^{a}$ & 0 & 12 & \raggedright measured energy use; usable energy; inverter of the buses in service \tabularnewline
+3 & \raggedright Solaris Urbino 12 electric & 4 & 4 & 2.5 & 1 & 11.5 & \raggedright cell maker; warranty; which inverter goes with which motor \tabularnewline
+4 & \raggedright MAN Lion's City 12 E & 5.5 & 4 & 1 & 0 & 10.5 & \raggedright inverter maker and semiconductor; measured energy use \tabularnewline
+5 & \raggedright MAN Lion's City 18 E & 5 & 3 & 1 & 0 & 9 & \raggedright as the 12 E; axle loads \tabularnewline
+6--12 & \raggedright BYD, Proterra and New Flyer (USA); Irizar 12 and 18\,m, Volvo, VDL, Solaris Urbino 18 electric & 0--4 & 1--4 & 1--2 & 0--1 & 4--7 & \raggedright battery data, masses or axle loads \tabularnewline
+\bottomrule
+\end{tabular}
+\end{table}
+
+\paragraph{Recommendation.}
+We recommend the Mercedes-Benz eCitaro (12\,m) and the eCitaro G (18\,m, articulated).
+\begin{itemize}[nosep]
+  \item \textbf{Battery data.} The eCitaro family has the most complete battery data of all types: chemistry, pack size and layout, cell maker and a cycle-life claim~\cite{DaimlerTruck2022eCitaro,DaimlerTruck2023eCitaro}\cite[p.~10]{Daimler2026eCitaro}.
+  \item \textbf{Tire inputs.} The data sheet gives the tire size, the gross mass and the axle loads~\cite[pp.~4,~9]{Daimler2026eCitaro}.
+    The Swiss vehicle register gives the empty mass of 211 eCitaro and 163 eCitaro G buses~\cite{ASTRA2026Stock}.
+  \item \textbf{One family.} The eCitaro G shares the battery packs, the tire size and the drive with the eCitaro~\cite[pp.~4,~6,~10]{Daimler2026eCitaro}.
+    So one parameter set covers both lengths.
+  \item \textbf{Case-study lines.} The eCitaro runs on line 759 and the eCitaro G on line 768 of the Bassersdorf depot~\cite{VBG2023Line759,VBG2025Line768}.
+  \item \textbf{Gap.} The sources read give no measured energy use of either type.
+\end{itemize}
+The Solaris Urbino 12 electric is the alternative for 12\,m if a measured energy use and a named inverter maker (Medcom) matter more than the cell maker and the battery-life statements~\cite[p.~11]{Tschakert2020}.
+
+\paragraph{Data of the recommended types.}
+\begin{itemize}[nosep]
+  \item \textbf{Empty mass.} The Swiss vehicle register, state of 1 Nov 2026, gives a registered empty mass of 13,450--15,250\,kg for 211 eCitaro buses and 19,650--22,100\,kg for 163 eCitaro G buses~\cite{ASTRA2026Stock}.
+    This mass includes a driver of 75\,kg~\cite[Art.~7 para.~1]{VTS2026}, so the bus alone is 75\,kg lighter.
+    The type approvals leave the empty mass blank, because it is fixed at the inspection of each vehicle~\cite[approval 2MB442, remark Z18]{ASTRA2026TG}.
+    The register names no operator.
+    Seven eCitaro of 2023 at 13,450\,kg and six eCitaro G of 2025 at 22,000\,kg are registered in the postcode area that includes Bassersdorf; they are probably the buses of lines 759 and 768 (our inference from year, count and place).
+  \item \textbf{Gross mass, axle loads, tires.} The eCitaro has a gross mass of 20,000\,kg, with 7,500\,kg on the front axle and 13,000\,kg on the drive axle; the eCitaro G has 29,000 or 30,000\,kg~\cite[p.~9]{Daimler2026eCitaro}.
+    Both have tires 275/70\,R22.5, with 315/60\,R22.5 as an option on the front axle~\cite[p.~4]{Daimler2026eCitaro}.
+  \item \textbf{Battery packs.} The NMC3 generation (cathode of lithium nickel manganese cobalt oxide), built from the end of 2022, has packs of 98\,kWh~\cite{DaimlerTruck2022eCitaro,DaimlerTruck2023eCitaro}.
+    A pack holds 9 modules of 600 cylindrical cells of type 21700, so 5,400 cells of 4.93\,Ah, made by Akasol.
+    A 12\,m bus carries 4 to 6 packs, and an 18\,m bus 4 to 7~\cite{DaimlerTruck2022eCitaro}\cite[p.~10]{Daimler2026eCitaro}.
+    Akasol ``assumes 4,000 charging cycles'', depending on the depth of discharge and the use (a claim of the maker)~\cite{DaimlerTruck2022eCitaro,DaimlerTruck2023eCitaro}.
+    The NMC4 generation of 2026 has packs of 111\,kWh~\cite[p.~10]{Daimler2026eCitaro}.
+  \item \textbf{Drive and inverter.} The eCitaro and eCitaro G buses approved in Switzerland up to 2025 have the ZF AVE 130 axle, with two ZF AI300V2 wheel-hub motors of 126 or 141\,kW each~\cite{ASTRA2026TG}.
+    No type approval names an inverter maker, and no source read documents the inverter of this axle.
+    The eCitaro sold in 2026 has the ZF AxTrax 2 LF axle~\cite[p.~6]{Daimler2026eCitaro}.
+    This axle has two stand-alone 800\,V inverters with SiC (silicon carbide) semiconductors~\cite[pp.~2,~5,~7]{ZF2026AxTrax}.
+    So SiC inverters are documented only for the build of 2026, not for the buses in service.
+\end{itemize}
+
+\paragraph{Measured energy use.}
+As a substitute for the eCitaro, we use a magazine test of one Solaris Urbino 12 electric~\cite[p.~11]{Tschakert2020}.
+Like the early eCitaro, this bus has a ZF AVE 130 axle.
+Its empty mass is 13,900\,kg (maker value), and its NMC battery has 300\,kWh nominal.
+The energy was measured at the battery output; it covers traction and air conditioning, and a share of the charging losses.
+\begin{itemize}[nosep]
+  \item \textbf{Whole test:} 1.126\,kWh/km over 235.4\,km, at 5--12\,$^\circ$C, partly in heavy rain.
+  \item \textbf{City route, about 70\,\% load:} 1.023\,kWh/km, at about 12\,$^\circ$C, dry, heating on.
+  \item \textbf{City route, full load:} 1.525\,kWh/km, at about 5\,$^\circ$C, in rain.
+\end{itemize}
+The test covers one bus, it is not peer-reviewed, and the magazine describes the method only briefly.
+
+\paragraph{The VBZ fleet as the local alternative.}
+If the case study uses a VBZ garage, the local battery-electric types are the MAN Lion's City 12~E and 18~E (Section~\ref{sec:cs_depots}).
+\begin{itemize}[nosep]
+  \item \textbf{Empty mass.} The register gives 14,570--15,100\,kg for 42 Lion's City 12~E and 21,950--22,600\,kg for 32 Lion's City 18~E~\cite{ASTRA2026Stock}.
+  \item \textbf{Battery.} Each pack holds 12 exchangeable modules; the 12~E carries 4 to 6 packs, the 18~E 6 to 8~\cite[pp.~9--10]{MAN2026LionsCityE}.
+    The usable share is 65\,\% or 90\,\% of the capacity, by the operating strategy~\cite[p.~9]{MAN2026LionsCityE}.
+  \item \textbf{Inverter and energy.} No source read names the inverter.
+    One study reports measured values for a VBZ Lion's City 12~E on a round trip of 44\,km in winter: 57.07\,kWh for the drive and 11.98\,kWh for the auxiliaries~\cite[Table~1]{Konzept2025} (Section~\ref{sec:cs_simulation}).
+\end{itemize}
+
+\subsection{Maintenance focus of battery-electric buses}\label{sec:cs_focus}
+
+The case study tracks three components of each battery-electric bus (BEB): the traction battery, the tires and the power modules of the traction inverter.
+The choice applies the two criteria of the section \emph{Focus on electric vehicles}: (C1) usage-driven degradation and (C2) operational significance.
+The evidence comes from fleet data and fleet reports:
+\begin{itemize}[nosep]
+  \item BEB fleets in Lublin (Poland), Zhenjiang and Shenzhen (China), Foothill Transit, Long Beach and AC Transit (California), Duluth (Minnesota), Toronto (Canada) and Thuringia (Germany);
+  \item a fleet of trolleybuses that run on a traction battery where the overhead line is missing (Russia);
+  \item two Swiss studies: a battery-bus trial in Zurich and a planning study for the mountain lines of the Upper Engadine.
+\end{itemize}
+Table~\ref{tab:cs_focus} gives the evidence per component.
+Two limits apply to all of it.
+\begin{itemize}[nosep]
+  \item \textbf{Warranty.} In most fleets with cost data, the battery and the electric drive were under warranty, and the reports remove warranty work from the costs~\cite[p.~37]{NREL2020LongBeach},~\cite[p.~94]{WorldBank2021Shenzhen}.
+    So the cost shares understate these two systems.
+  \item \textbf{Definitions.} The fleets define a failure in different ways.
+    So we compare components within one fleet, not numbers across fleets (our reading).
+\end{itemize}
+
+\begin{table}[htbp]
+\centering
+\caption{Field evidence on the components of battery-electric buses (BEB), and the decision of the case study.
+The Weibull scale and shape refer to the distance between failures of one system in the Lublin fleet; a shape below~$1$ means a failure rate that falls with age.
+Shares of ``fault mentions'' are our computation from the counts of the nine faults listed for Zhenjiang.
+HV: high voltage; SOH: state of health, the remaining capacity over the initial capacity.}
+\label{tab:cs_focus}
+\small
+\begin{tabular}{@{}p{2.2cm}p{7.0cm}p{3.6cm}p{1.3cm}@{}}
+\toprule
+\textbf{Component} & \textbf{Field evidence} & \textbf{Wear-out evidence} & \textbf{Case study} \\
+\midrule
+Traction battery
+  & Lublin: one of the three lowest Weibull scales, 15,957\,km~\cite[Table~8]{Niewczas2025reliability}.
+    Zhenjiang: 41\% of the fault mentions~\cite[Table~1, p.~9]{Nan2022fault}.
+    AC Transit: available 57\% and 61\% of the time against 94\% and 90\% for diesel buses; more than half of the lost days from HV batteries and charging~\cite[p.~19]{ACTransit2021ZETBTA},~\cite[p.~19]{ACTransit2022ZETBTA}.
+    Shenzhen: replaced after 2--2.5 or 3--4.5 years~\cite[p.~70]{WorldBank2021Shenzhen}
+  & SOH loss of $4.06 \pm 1.19$ points per year in 110 trolleybuses~\cite[Table~9, p.~21]{Malozyomov2026trolleybus}
+  & tracked \\[3pt]
+Tires
+  & Foothill Transit: 5,920 and 6,116 miles per tire for two BEB fleets against 10,796 and 10,640 for gas buses; tires 17\% of the maintenance cost of one BEB fleet~\cite[pp.~53,~78]{NREL2021Foothill}.
+    Shenzhen: tire maintenance about 30\% more costly than on diesel buses, because of the weight~\cite[p.~68]{WorldBank2021Shenzhen}
+  & tread loss almost linear in distance (diesel buses)~\cite[Sec.~3.1]{Giechaskiel2026bus}
+  & tracked \\[3pt]
+Inverter power modules
+  & Toronto: inverter 10\% and 3\% of the propulsion defects of two fleets~\cite[Charts~6 and~8]{TTC2022}.
+    Duluth: inverters inside the electric-drive downtime, 9.1\% of the planned days~\cite[Table~5]{NREL2022Duluth}.
+    Recall of 238 buses: an inverter transistor may overheat and fail~\cite{NHTSA2023recall}.
+    Trolleybuses: power electronics second in downtime~\cite[Fig.~12]{Malozyomov2026trolleybus}
+  & power-cycling fatigue in the maker's tests~\cite[Sec.~1]{Wintrich2024}; no field wear-out data
+  & tracked \\[3pt]
+Doors
+  & Lublin: lowest Weibull scale, 14,154\,km, 40\% below the diesel buses (23,713\,km)~\cite[Tables~8--9, p.~15]{Niewczas2025reliability}.
+    Zurich trial: doors among the failures~\cite[p.~9]{VBZ2019}
+  & Weibull shape 0.888~\cite[Table~8]{Niewczas2025reliability}
+  & left out \\[3pt]
+Charging equipment
+  & Zhenjiang: 21\% of the fault mentions~\cite[Table~1, p.~9]{Nan2022fault}.
+    Lublin: Weibull scale 16,424\,km~\cite[Table~8]{Niewczas2025reliability}
+  & Weibull shape 0.856~\cite[Table~8]{Niewczas2025reliability}
+  & left out \\[3pt]
+24\,V system
+  & Lublin: Weibull scale 23,254\,km; batteries discharged while parked~\cite[Table~8, Sec.~2]{Niewczas2025reliability}
+  & Weibull shape 0.838~\cite[Table~8]{Niewczas2025reliability}
+  & left out \\[3pt]
+Brakes
+  & Thuringia: brake service intervals doubled~\cite[p.~13]{ThEGA2025}.
+    Foothill Transit: brakes 1.1--2.4\% of the cost against 5.4--5.7\% for gas buses~\cite[Tables~14 and~27]{NREL2021Foothill}
+  & Lublin: sensor and adjuster faults, not pad wear~\cite[Sec.~2]{Niewczas2025reliability}
+  & left out \\[3pt]
+DC-link capacitors
+  & No field data on the capacitor in any vehicle; rail converters show early-life failures only~\cite{Guida2014}
+  & model studies only~\cite{Yao2021,Chakraborty2022}
+  & left out \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\paragraph{Components tracked.}
+\begin{itemize}[nosep]
+  \item \textbf{Traction battery.}
+    It has the broadest field evidence of availability loss and replacement (Table~\ref{tab:cs_focus}), so it meets~(C2).
+    It is also the only component with fade measured in a fleet.
+    Its fade grows with the energy throughput of the missions (Section~\ref{sec:ev_deg_models}), so it meets~(C1).
+  \item \textbf{Tires.}
+    They wear faster on BEBs in the two fleets with numbers.
+    Tread depth is a measurable damage with a legal limit, so it bears on safety~(C2).
+    Its driver is the distance under the mass of the bus~(C1).
+  \item \textbf{Inverter power modules.}
+    The field evidence is thin, and no fleet splits the power-electronics failures into modules, capacitors or boards.
+    Their failure stops the bus: the recalled transistor fault can cause a loss of power steering and drive power~\cite{NHTSA2023recall}~(C2).
+    Power cycling at each start and stop fatigues the modules (Section~\ref{sec:ev_deg_models}).
+    One maker states that the many starts and stops of city buses raise the power-cycling demand on the traction inverter~\cite{Backhaus2019}~(C1).
+    Their damage follows the stops, not the distance, so the schedule sees a line feature that the other two components do not see (our reading).
+\end{itemize}
+
+\paragraph{Components left out.}
+\begin{itemize}[nosep]
+  \item \textbf{Doors, charging equipment and the 24\,V system.}
+    They fail often (Table~\ref{tab:cs_focus}).
+    But the Weibull shape is below~$1$ for all eight systems of the Lublin fleet, from 0.838 to 0.911~\cite[Table~8]{Niewczas2025reliability}.
+    So their failure rates fall with age.
+    Our reading: these are not wear-out failures that a damage model describes.
+    The causes named are winter weather for the doors and discharge while parked for the 24\,V batteries~\cite[Sec.~2]{Niewczas2025reliability}, not the damage of a mission.
+    Part of the charging equipment is infrastructure, not the bus.
+    The traction battery also has a shape below~$1$ in Lublin, but its failures there are mostly contactor faults~\cite[Sec.~2]{Niewczas2025reliability}; its capacity fade, which the model tracks, is a separate process with fleet measurements.
+  \item \textbf{Brakes.}
+    Regenerative braking takes most of the service braking, and the fleets report less brake work than on diesel or gas buses (Table~\ref{tab:cs_focus}).
+    So the brakes fail~(C2) in a BEB fleet.
+  \item \textbf{DC-link capacitors.}
+    No source shows field wear-out of the DC-link capacitor in any vehicle.
+    Model studies predict lives beyond the design life: about 40--50 years at 1\% failed for a high-speed train~\cite[accepted manuscript, pp.~12--14]{Yao2021}, and about 1,500,000\,km for most capacitors of a battery-electric van, against a requirement of 300,000\,km or 15 years~\cite[accepted manuscript, pp.~3,~18]{Chakraborty2022}.
+    One maker's example cycle limits the life of its bus inverter by the power semiconductors, not by the capacitor~\cite{Backhaus2011}.
+\end{itemize}
+
+\subsection{Component models}\label{sec:cs_components}
+
+This subsection gives one model per component: the damage and its threshold~$\tau$, the degradation family, the mean increment per period as a formula of the line features, the repair, the replacement, the initial state and the main gaps.
+Table~\ref{tab:cs_parameters} collects the values.
+The line features come from Tables~\ref{tab:cs_lines_hagenholz} and~\ref{tab:cs_lines_bassersdorf}.
+Three symbols are common to all components: $L_{jk}$, the km that one bus runs on line~$j$ in period~$k$; $t_k$, the number of days of period~$k$; and $s_j$, the stops per km of line~$j$.
+The worked values are for one weekday on lines 759 and 768.
+A value derived by the project is marked ``our estimate'' or ``our computation''.
+
+\paragraph{Traction battery.}
+\begin{itemize}[nosep]
+  \item \textbf{Damage and threshold.}
+    The damage is the capacity fade $D = 1 - \mathrm{SOH}$, with SOH the state of health (remaining capacity over initial capacity).
+    The threshold is $\tau = 0.20$: the end of life (EOL) at 80\% SOH is the ``market definition'', and Swiss planning assumes one battery replacement per bus life of 12--14 years~\cite[p.~28]{Kollegger2020mountain}.
+    The VBZ trial report also splits the installed capacity with a degradation reserve of 20\%~\cite[p.~34]{VBZ2019}.
+    An alternative is $\tau = 0.30$: in Thuringia the planned life is 6--8 years and 4,000 cycles, and the probable life is 8--12 years down to 70\% remaining capacity~\cite[p.~10]{ThEGA2025}.
+  \item \textbf{Family.}
+    Gamma, with one rate~$\beta$ per cell.
+    The true fade is monotone, and Gamma increments are non-negative.
+    A Gamma increment has variance $\mu/\beta$, so one~$\beta$ fits every line and every period length.
+    We set $\beta = 1/(c^2\tau)$, which matches the spread $c\tau$ of the damage at the threshold, where the reliability row binds; before the threshold it overstates the spread.
+    The only fleet spread found is a coefficient of variation $c = 1.19/4.06 = 0.29$ of the yearly SOH loss over 110 trolleybuses~\cite[Table~9, p.~21]{Malozyomov2026trolleybus}.
+    So $\beta = 1/(0.29^2 \cdot 0.20) \approx 60$ (our computation).
+    This spread also contains different use, because the annual km and the share of km on battery differ between the vehicles; so $c$ overstates the spread under equal use (our reading).
+  \item \textbf{Increment.}
+    For a bus on line~$j$ in period~$k$, our estimate of the mean increment is
+    \begin{equation}\label{eq:cs_battery}
+      \mu_{jk} = t_k\, c_{\mathrm{cal}} + k_{\mathrm{EFC}}\,\frac{L_{jk}\, e_j}{E_{\mathrm{nom}}},
+      \qquad
+      e_j = e_0 + k_\theta\, \theta_j + \frac{P_{\mathrm{HVAC}}}{v_j}.
+    \end{equation}
+    \begin{itemize}[nosep]
+      \item $c_{\mathrm{cal}}$ is the calendar fade per day, and $k_{\mathrm{EFC}}$ the fade per equivalent full cycle (EFC: charge throughput over the nominal capacity).
+      \item $e_j$ is the energy per km drawn from the battery; $E_{\mathrm{nom}} = 264$\,kWh is the nominal energy of the line-759 buses (Section~\ref{sec:cs_depots}).
+      \item $\theta_j$ is the mean absolute grade of the round trip, in percent: the ascent plus the descent of both directions over their length.
+      \item $v_j$ is the mean speed in km/h, and $P_{\mathrm{HVAC}}$ the mean power of heating, ventilation and air conditioning (HVAC) in kW.
+    \end{itemize}
+    The coefficients (Table~\ref{tab:cs_parameters}) are our computation.
+    \begin{itemize}[nosep]
+      \item $c_{\mathrm{cal}}$ and $k_{\mathrm{EFC}}$ are marginal rates of the fade models of a large LFP (lithium iron phosphate) cell and of an NMC cell that NREL (the US National Renewable Energy Laboratory) publishes as code~\cite{BLASTLite}.
+        They hold at 25\,$^\circ$C, the temperature at which the eCitaro keeps its cells~\cite{DaimlerTruck2022eCitaro}.
+        The maker's claim of 4,000 cycles~\cite{DaimlerTruck2022eCitaro} gives $5 \cdot 10^{-5}$ per cycle, calendar fade included.
+      \item $e_0$ and $k_\theta$ fit two Zurich lines of the VBZ trial bus: about 0.74\,kWh/km at a mean gradient of 1.2\% and 0.91\,kWh/km at 3.8\% (chart values read by us)~\cite[p.~35]{VBZ2019}.
+      \item $P_{\mathrm{HVAC}} = 4.8$\,kW is an average auxiliary power of 8\,kW~\cite[Sec.~4.1]{Gohlich2018} less 40\%: with its heat pump, the eCitaro needs about 40\% less HVAC energy than the diesel Citaro~\cite{DaimlerTruck2023eCitaro}.
+        The VBZ trial bus heated with diesel fuel, so $P_{\mathrm{HVAC}}$ comes on top of the fit.
+    \end{itemize}
+    On line 759 the formula gives 0.95\,kWh/km, 0.87\,EFC and $6.2 \cdot 10^{-5}$ per weekday, that is 2.6\% per 100,000\,km (our computation).
+    A fleet of 105 European buses lost 2.4\% or 7.1\% per 100,000\,km, by two methods of estimation; ``Either value is possible''~\cite[p.~5]{Simao2022}.
+    So the central coefficients are a low-fade choice.
+    At this rate $\tau = 0.20$ comes after about 8.9 years: above the makers' expected 6--8 years~\cite[p.~28]{Kollegger2020mountain}, and inside the probable 8--12 years in Thuringia~\cite[p.~10]{ThEGA2025}.
+  \item \textbf{Limits of the increment.}
+    The energy fit rests on two Zurich lines of one lighter 12\,m bus with a diesel heater~\cite[p.~35]{VBZ2019}, so $k_\theta$ is an order of magnitude (our reading).
+    The library adds damage only on mission periods, so the calendar fade of the depot periods is lost; it is small against the uncertainty of~$c_{\mathrm{cal}}$ (our reading).
+    The eCitaro G of line 768 needs its own $e_0$, $k_\theta$ and $E_{\mathrm{nom}} = 550$\,kWh usable; no source read gives its energy use.
+  \item \textbf{Repair.}
+    A change of some packs or modules.
+    The maker states that its modular packs can be repaired and overhauled during their first life~\cite{DaimlerTruck2025NMC4}, and in Shenzhen the makers often replaced only some cells~\cite[p.~70]{WorldBank2021Shenzhen}.
+    So one maker offers it and one fleet practises it; no source shows it as established or measures its gain.
+    The law is $\text{ARD}_\infty$ with $\rho = k/n$ for $k$ of $n$ equally aged packs: $\rho = 0.17$ for one of six packs of 98\,kWh~\cite{DaimlerTruck2022eCitaro}, and $0.25$ for one of four.
+    This rests on our inference that the packs are wired in parallel; the maker does not state it.
+    The law is exact for the mean, not for the spread: with independent packs the variance falls by the factor $1-\rho$, not $(1-\rho)^2$ (section \emph{Focus on electric vehicles}, worked example).
+    One module of a series string gives a much smaller~$\rho$, about $0.03$ (our estimate).
+    One pack costs about $C_{\mathrm{rep}}/6 \approx 10{,}000$\,EUR plus labour (no source); at $D = 0.15$ it removes $0.025$, so $C_R \approx 400{,}000$\,EUR per unit of fade (our computation).
+    The real cost is per pack, so this linear $C_R$ holds only near the chosen~$D$.
+  \item \textbf{Replacement.}
+    A new pack, with $\mu_{\mathrm{new}} = 0$.
+    Its cost is about 60,000\,EUR, range 40,000--110,000\,EUR (our estimate).
+    In a German cost comparison, one battery replacement raises the discounted capital cost of a 12\,m depot-charged bus of 2023 by about 56,000\,EUR (our computation from the table of~\cite[p.~377]{PwC2024ebus}).
+    Chinese operators report 30--50\% of the purchase cost of the bus~\cite[p.~5]{Mao2024ICCT}.
+    No source read gives the downtime.
+  \item \textbf{Initial state.}
+    $\mu_0 = 0.10$ (range 0.05--0.20) for buses 2--4 years old: the mean SOH of the trolleybus fleet was 89.98\% at the start of its record~\cite[Table~10]{Malozyomov2026trolleybus}.
+    Formula~\eqref{eq:cs_battery} gives about 0.08 for a line-759 bus in service since February 2023 (our computation).
+    The initial Gamma term with the same~$c$ has rate $1/(c^2\mu_0) = 119$ at $\mu_0 = 0.10$.
+  \item \textbf{Gaps.}
+    The measured fade of the eCitaro in service; the gain and the cost of a partial repair; a pack price for buses; the energy use of both eCitaro types on Zurich lines; the effect of opportunity charging (line 759) against depot charging (line 768) on the fade.
+\end{itemize}
+
+\paragraph{Tires.}
+Each bus has two tire cells: the steer axle with $n = 2$ tires and the drive axle with $n = 4$ tires (twin rear tires, as in the fleet that gives the wear rates~\cite[Sec.~2]{Giechaskiel2026bus}).
+\begin{itemize}[nosep]
+  \item \textbf{Damage and threshold.}
+    The damage is the tread depth lost in the main grooves, in mm, at the worst groove~\cite[Sec.~2]{Giechaskiel2026bus}.
+    A city-bus tire of the eCitaro size 275/70\,R22.5 has a new depth of 19.5\,mm (steer) or 20.4\,mm (drive)~\cite[p.~38]{Goodyear2020}.
+    An operator replaced its bus tires at about 2\,mm~\cite[Sec.~2]{Giechaskiel2026bus}, so $\tau = 17.5$\,mm (steer) and $18.4$\,mm (drive).
+    The legal minimum is 1.6\,mm for every vehicle~\cite[Art.~58 para.~4]{VTS2026}; it would give 17.9 and 18.8\,mm.
+  \item \textbf{Family.}
+    Inverse Gaussian with $\eta = c^2 = 0.09$, where $c = 0.30$ is the spread of the wear rate within one tire set; between tire sets it is $0.19$~\cite[p.~6]{Giechaskiel2026bus}.
+    The increments are non-negative.
+    The cap of the inverse Gaussian model holds for any dependence between the terms (Proposition~\ref{prop:ig_order} and Theorem~\ref{thm:ig_cap}).
+    So it covers a wear rate that is random per tire but fixed over its life.
+    The alternative is Gamma with $\beta = 1/(c^2\tau)$: 0.635 (steer) and 0.604 (drive) per mm.
+    At $\varepsilon = 0.01$ the cap is $0.48\,\tau$ (our computation; between the values for $\eta = 0.05$ and $\eta = 0.25$ in Table~\ref{tab:ig_cap}).
+    So a plan without new depth readings uses about half of the tread; the spread between tires causes this, not the family.
+    The cell models one tire of its set.
+    The legal limit holds for every tire, so by the union bound a target~$\varepsilon$ for the set needs the level $\varepsilon/n$ in the cell (our derivation).
+  \item \textbf{Increment.}
+    Our estimate of the mean increment of axle set~$l$ is
+    \begin{equation}\label{eq:cs_tire}
+      \mu_{ljk} = r_l\, f_{\mathrm{BEB}}\, L_{jk}\, q_j .
+    \end{equation}
+    \begin{itemize}[nosep]
+      \item $r_l$ is the wear rate of new 275/70\,R22.5 tires on diesel buses of regional routes: 0.15 (steer) and 0.16 (drive) mm per 1,000\,km~\cite[Table~6]{Giechaskiel2026bus}.
+      \item $f_{\mathrm{BEB}} = 1.35$ (range 1.3--1.8) is the factor of a BEB (our estimate).
+        It rests on the tire cost in Shenzhen, about 30\% above diesel buses~\cite[p.~68]{WorldBank2021Shenzhen}, and on the miles per tire at Foothill Transit, where the gas buses ran 1.82 and 1.74 times as many miles per tire as the two BEB fleets~\cite[pp.~53,~78]{NREL2021Foothill} (our computation).
+        The Foothill ratio is confounded by the routes: the report names potholes and broken curbs~\cite[p.~53]{NREL2021Foothill}.
+      \item $q_j = 1$ is the route factor.
+        The speed factor of the European emission inventory method is flat below 40\,km/h~\cite[Fig.~B1]{Boulter2006}, and every case-study line is slower, so no cited relation separates the lines.
+    \end{itemize}
+    On line 759 this gives 0.049\,mm (steer) and 0.052\,mm (drive) per weekday.
+    The threshold comes after about 85,000\,km, about one year on line 759 (our computation).
+  \item \textbf{Repair.}
+    Regrooving cuts new grooves into the rubber under the worn tread.
+    In Switzerland only tires marked as regroovable may be regrooved~\cite[Art.~60 para.~3]{VTS2026}.
+    The law is $\text{ARD}_\infty$ with $\rho \approx 0.2$ (range 0.17--0.25): $\rho$ is the restored depth over the damage at the regroove (our derivation).
+    The restored depth is at most 3\,mm~\cite[p.~44]{Goodyear2020}, or 3--4\,mm~\cite[slide~4]{Michelin2011regroove}.
+    This law is an approximation.
+    Real regrooving restores a fixed depth, once per tire, and only when 3--6\,mm of tread remain~\cite[pp.~44--45]{Goodyear2020}.
+    The model allows a proportional repair at any time and any number of times.
+    A regroove costs about 12\% of a new tire~\cite[slide~7]{Michelin2011regroove}, so $C_R \approx 0.04$ times the price of a new tire per mm and tire (our computation).
+  \item \textbf{Replacement.}
+    A new tire, or on the drive axle a retread at about 50\% of the price of a new tire~\cite[slide~7]{Michelin2011regroove}.
+    The Varese operator fits retreads on the rear axle only~\cite[Sec.~2]{Giechaskiel2026bus}.
+    The replacement value is $\mu_{\mathrm{new}} = 0$.
+    No source read gives a tire price in CHF.
+  \item \textbf{Initial state.}
+    No source gives the tread depths of a running fleet.
+    If tires are replaced at~$\tau$ and wear at a steady rate, the damage of a tire at a random time is uniform on $[0, \tau)$, with mean $\tau/2$ (stationary renewal; our derivation).
+    The operator's last depth readings, with zero variance, are better.
+  \item \textbf{Gaps.}
+    $f_{\mathrm{BEB}}$ from tread readings of battery and diesel buses on the same lines; tire prices in CHF; the noise of one tire's own wear path, for plans with new readings; the passenger load per line; the tread depth of a retread.
+\end{itemize}
+
+\paragraph{Inverter power modules.}
+\begin{itemize}[nosep]
+  \item \textbf{Reference inverter.}
+    No source read documents the inverter of the eCitaro buses in service (Section~\ref{sec:cs_buses}).
+    The reference is an inverter of the Semikron SKAI~2~HV family: insulated-gate bipolar transistors (IGBT) with sintered chips and aluminium--copper bonds, up to 800\,V DC~\cite{SemikronSKAI2HV}.
+    Its maker publishes a power-cycling model for this chip technology~\cite[Table~3]{Wintrich2024} and a design target for traction inverters of heavy-duty vehicles~\cite{Backhaus2019}.
+    More than 50,000 inverters of this family run in Chinese city buses~\cite{Backhaus2020}.
+    No source read names a bus model with this inverter, so the case-study bus is a composite: this inverter in an eCitaro.
+  \item \textbf{Damage.}
+    The damage is the Miner sum $D = \sum_i n_i/N_{f,i}$ over the cycles of the junction-temperature swing~$\Delta T_j$, for the chip with the largest sum.
+    $N_f$ is the maker's life curve at 15\% failure probability, with the end of life at a 20\% rise of the forward voltage~\cite[Sec.~1.2]{Wintrich2024}:
+    \begin{equation}\label{eq:cs_nf}
+      N_f = A_0\, A_1^{\xi}\, \Delta T_j^{\,\alpha - \xi}\, \exp\!\Bigl(\frac{E_a}{k_B T_{jm}}\Bigr)\, \frac{C + t_{\mathrm{on}}^{\gamma}}{C + 2^{\gamma}},
+      \qquad
+      \xi = \exp\!\Bigl(-\frac{\Delta T_j - T_0}{\lambda_T}\Bigr),
+    \end{equation}
+    with $T_{jm}$ the mean junction temperature in K and $t_{\mathrm{on}}$ the heating time in s.
+    The parameters for sintered chips are $A_0 = 2.05 \cdot 10^{11}$, $A_1 = 60$, $T_0 = 38$\,K, $\lambda_T = 17$\,K, $\alpha = -4.3$, $E_a = 2.54 \cdot 10^{-20}$\,J, $C = 1.44$ and $\gamma = -1.21$~\cite[Table~3]{Wintrich2024}.
+    A factor 0.33 on $N_f$ applies to SiC devices up to 1200\,V~\cite[Sec.~2.5]{Wintrich2024}.
+    The maker fitted the model on aluminium bonds; aluminium--copper bonds likely last longer, so the model is likely conservative here (our inference).
+  \item \textbf{Threshold.}
+    The spread of life between modules is one factor per module, shared by all its periods: the unit-specific scatter~(II) of Table~\ref{tab:miner_interpretations}.
+    So it enters~$\tau$, not the increments.
+    With a Weibull shape~$k$ of module life, a module fails before $D$ reaches~$\tau$ with probability $1 - \exp(-\ln(1/0.85)\,\tau^k)$.
+    Setting this probability to 1\% gives (our derivation)
+    \begin{equation}\label{eq:cs_inv_tau}
+      \tau = \bigl(\ln 0.99/\ln 0.85\bigr)^{1/k},
+    \end{equation}
+    that is $\tau = 0.573$ for $k = 5$ and $\tau = 0.814$ for $k = 13.5$.
+    Shapes from 13.5 to 24 fit one industrial module at a swing of 81\,K (our computation from~\cite[Table~IV]{Choi2017}); $k \approx 4$--$5$ is our reading of the spread of the maker's tests at 30\,K~\cite[Fig.~3]{Wintrich2024}.
+    This is the $\varepsilon$-splitting of Remark~\ref{rem:miner_dichotomy} with $\delta = 0.01$: the total failure probability is at most $0.01 + \varepsilon$ (union bound).
+  \item \textbf{Family.}
+    Rainflow (Palmgren--Miner damage), as Section~\ref{sec:ev_deg_models} gives for power modules, with the Hoeffding bound (see the choice of the bound below).
+  \item \textbf{Increment.}
+    Our estimate of the mean increment is
+    \begin{equation}\label{eq:cs_inverter}
+      \mu_{jk} = \delta_{\mathrm{stop}}\, G_j\, s_j\, L_{jk}\, F_k .
+    \end{equation}
+    \begin{itemize}[nosep]
+      \item $\delta_{\mathrm{stop}} = 2/N_f(\Delta T_{\mathrm{ref}}) = 3.6 \cdot 10^{-7}$ is the damage of one stop on a flat road.
+        We assume two cycles per stop, one in acceleration and one in braking, as in a car study~\cite[Fig.~19]{Lu2023}, a lowest junction temperature of 60\,$^\circ$C and $t_{\mathrm{on}} = 10$\,s.
+      \item $\Delta T_{\mathrm{ref}} = 40$\,K is our estimate.
+        It makes $D = 1$ after the maker's design target, ``60000 and more operating hours during life''~\cite{Backhaus2019}, at 43--49 stops per hour (stops per km times mean speed of lines 759 and 768; our computation).
+        No source read gives the swing per stop of a bus inverter.
+        With the maker's 10\,km per operating hour~\cite{Backhaus2019}, the rate is 21.5 stops per hour; then $\Delta T_{\mathrm{ref}} = 45.5$\,K and the damage per km doubles.
+      \item $G_j = \tfrac12\bigl[N_f(\Delta T_{\mathrm{ref}})/N_f((1+x_j)\Delta T_{\mathrm{ref}}) + N_f(\Delta T_{\mathrm{ref}})/N_f((1-x_j)\Delta T_{\mathrm{ref}})\bigr]$ is the grade factor (our estimate), with $x_j = g\,\theta^{\uparrow}_j/a$.
+        Half of the stops are uphill and half downhill on the mean uphill grade $\theta^{\uparrow}_j$ (the ascent of both directions over half the round trip), with $g = 9.81$\,m/s$^2$ and an acceleration $a = 1.0$\,m/s$^2$ at stops (assumption).
+        So $G_j = 1.16$ on line 759 and $1.38$ on line 768.
+      \item $F_k = \exp\bigl(E_a/k_B \cdot (1/T_{jm,\mathrm{ref}} - 1/T_{jm,k})\bigr)$ corrects for the coolant temperature of period~$k$: a factor 1.15 or 0.86 for 10\,K more or less (our computation).
+        No source read links the coolant temperature to the ambient temperature.
+    \end{itemize}
+    So the damage is $8.3 \cdot 10^{-7}$ per km on line 759 and $1.16 \cdot 10^{-6}$ on line 768, that is $2.0 \cdot 10^{-4}$ and $2.65 \cdot 10^{-4}$ per weekday (our computation).
+    A car study gives $4.6 \cdot 10^{-7}$ to $1.5 \cdot 10^{-6}$ per km on two test cycles (our computation from~\cite[Table~VII]{Lu2023}), the same order.
+  \item \textbf{Uncertainty.}
+    The ratio between lines rests on the damage per stop and on the slope of~\eqref{eq:cs_nf}; it is the more reliable part.
+    The level rests on one calibration.
+    A swing 10\% larger or smaller changes the damage by a factor 1.8 or 0.5, and a lighter load can lower it by one to two orders of magnitude.
+    So the level is uncertain by up to two orders of magnitude (our estimate).
+  \item \textbf{Repair.}
+    None found, so $\rho = 0$.
+    Active thermal control lowers the future increments, not the damage already done (our reading).
+  \item \textbf{Replacement.}
+    A new inverter, with $\mu_{\mathrm{new}} = 0$.
+    No source read gives its cost or its downtime.
+  \item \textbf{Initial state.}
+    Zero for a new inverter; else the days in service times the mean daily increment, for example 0.27 after 3.75 years on line 759 (our computation).
+  \item \textbf{Gaps.}
+    The swing per stop of a bus inverter; the stop rate behind the design target; the Weibull shape of traction modules at small swings; the variance of the increment; the cost and the downtime of a replacement; the inverter of the buses in service.
+\end{itemize}
+
+\paragraph{Repairs, replacements and the loop constraint.}
+The loop constraint needs every component that gains damage in the operating phase to come back, in each repetition, by a repair or a replacement (Section~\ref{sec:loop_replacements}).
+\begin{itemize}[nosep]
+  \item \textbf{Battery and tires.}
+    Their $\text{ARD}_\infty$ repairs can close the loop.
+    For the tires this rests on the approximation above: the model may regroove the same tire many times.
+  \item \textbf{Inverter.}
+    It has no repair, so the loop constraint needs a replacement of the inverter in every repetition of the operating phase.
+    Replacements must then be allowed; in the package \texttt{fleet\_management} one flag, \texttt{allow\_replacement}, allows them for the whole fleet.
+  \item \textbf{Length of the repetition.}
+    The battery and the inverter last for years, the tires about one year on line 759.
+    When the operating phase is much shorter, a schedule that repeats it overstates the rate of their interventions (our reading; Section~\ref{sec:cs_open}).
+\end{itemize}
+
+\begin{table}[htbp]
+\centering
+\caption{Parameters of the three component models.
+Values without a citation are our estimate or our computation (Section~\ref{sec:cs_components}).
+Weekday values are for one bus on line 759 / line 768; the battery and tire values use the 12\,m bus on both lines.
+SOH: state of health; EOL: end of life; EFC: equivalent full cycle; HVAC: heating, ventilation and air conditioning; $c$: coefficient of variation; $k$: Weibull shape of module life.}
+\label{tab:cs_parameters}
+\small
+\begin{tabular}{@{}p{2.0cm}p{4.15cm}p{4.15cm}p{4.15cm}@{}}
+\toprule
+ & \textbf{Traction battery} & \textbf{Tires (per axle set)} & \textbf{Inverter power modules} \\
+\midrule
+Damage $D$
+  & capacity fade $1 - \mathrm{SOH}$
+  & tread depth lost, mm
+  & Miner sum on the 15\% life curve~\cite{Wintrich2024} \\[2pt]
+Threshold $\tau$
+  & 0.20, EOL at 80\% SOH~\cite[p.~28]{Kollegger2020mountain}; alternative 0.30~\cite[p.~10]{ThEGA2025}
+  & steer 17.5, drive 18.4\,mm: new depth~\cite[p.~38]{Goodyear2020} minus 2\,mm~\cite[Sec.~2]{Giechaskiel2026bus}
+  & 0.573 ($k = 5$), 0.814 ($k = 13.5$), Eq.~\eqref{eq:cs_inv_tau} \\[2pt]
+Model in the library
+  & Gamma, $\beta = 60$
+  & inverse Gaussian, $\eta = 0.09$; or Gamma, $\beta = 0.635$ / $0.604$ per mm
+  & rainflow, Hoeffding; support $b = 1.725\,\mu$ \\[2pt]
+Spread
+  & $c = 0.29$ between buses~\cite[Table~9]{Malozyomov2026trolleybus}
+  & $c = 0.30$ within a set, $0.19$ between sets~\cite[p.~6]{Giechaskiel2026bus}
+  & $k = 13.5$--$24$~\cite[Table~IV]{Choi2017}; $k \approx 4$--$5$~\cite[Fig.~3]{Wintrich2024} \\[2pt]
+Increment
+  & Eq.~\eqref{eq:cs_battery}: $c_{\mathrm{cal}} = 2.7 \cdot 10^{-5}$ per day, $k_{\mathrm{EFC}} = 4.0 \cdot 10^{-5}$ per EFC~\cite{BLASTLite,DaimlerTruck2022eCitaro}; $e_0 = 0.66$\,kWh/km, $k_\theta = 0.065$\,kWh/km per \%~\cite[p.~35]{VBZ2019}; $P_{\mathrm{HVAC}} = 4.8$\,kW~\cite[Sec.~4.1]{Gohlich2018},~\cite{DaimlerTruck2023eCitaro}
+  & Eq.~\eqref{eq:cs_tire}: $r_l = 0.15$ / $0.16$\,mm per 1,000\,km~\cite[Table~6]{Giechaskiel2026bus}; $f_{\mathrm{BEB}} = 1.35$~\cite[p.~68]{WorldBank2021Shenzhen},~\cite[pp.~53,~78]{NREL2021Foothill}; $q_j = 1$
+  & Eq.~\eqref{eq:cs_inverter}: $\delta_{\mathrm{stop}} = 3.6 \cdot 10^{-7}$ at $\Delta T_{\mathrm{ref}} = 40$\,K, from 60,000\,h~\cite{Backhaus2019}; $N_f$ from~\cite[Table~3]{Wintrich2024}; $G_j = 1.16$ / $1.38$ \\[2pt]
+Mean increment per weekday
+  & $6.2 \cdot 10^{-5}$ / $6.2 \cdot 10^{-5}$
+  & steer 0.049 / 0.046\,mm; drive 0.052 / 0.050\,mm
+  & $2.0 \cdot 10^{-4}$ / $2.65 \cdot 10^{-4}$ \\[2pt]
+Repair
+  & packs or modules; $\text{ARD}_\infty$, $\rho = 0.17$ (one of six packs)
+  & regrooving; $\text{ARD}_\infty$, $\rho \approx 0.2$~\cite[pp.~44--45]{Goodyear2020},~\cite[slide~4]{Michelin2011regroove}
+  & none; $\rho = 0$ \\[2pt]
+Repair cost $C_R$
+  & about 400,000\,EUR per unit of fade, at $D = 0.15$
+  & about $0.04 \times$ the price of a new tire, per mm and tire~\cite[slide~7]{Michelin2011regroove}
+  & --- \\[2pt]
+Replacement and $C_{\mathrm{rep}}$
+  & new pack, about 60,000\,EUR (40,000--110,000)~\cite[p.~377]{PwC2024ebus},~\cite[p.~5]{Mao2024ICCT}
+  & new tire ($1 \times$ price) or retread on the drive axle ($0.5 \times$ price)~\cite[slide~7]{Michelin2011regroove}
+  & new inverter; cost not found \\[2pt]
+Initial state $\mu_0$
+  & 0.10 (0.05--0.20)~\cite[Table~10]{Malozyomov2026trolleybus}
+  & uniform on $[0, \tau)$, mean $\tau/2$; or the last reading
+  & 0 if new; else days in service $\times$ mean daily increment \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\paragraph{Choice of the tail bound for the inverter.}
+The rainflow model offers the five bounds of Table~\ref{tab:five_bounds}.
+We compare the three that fit the inputs of the inverter.
+\begin{itemize}[nosep]
+  \item \textbf{Inputs.}
+    No source gives the variance of the inverter damage under one use.
+    The support follows from a worst day: $b = 1.5 \cdot 1.15\,\mu$, with 50\% more stops than planned and a coolant 10\,K warmer (our assumption).
+    Hoeffding's inequality~\cite{Hoeffding1963} needs only the mean and the support.
+    Cantelli and Bernstein need the variance.
+    For them we bound it by the support: an increment~$X$ lies in $[0, b]$, so $\mathbb{E}[X(b - X)] \ge 0$ gives $\operatorname{Var} X \le \mu(b - \mu)$, the Bhatia--Davis bound.
+    The range starts at~$0$ here, so this bound holds (paragraph \emph{Width of a range} of Section~\ref{sec:cons_surrogates}).
+  \item \textbf{Margins.}
+    Table~\ref{tab:cs_inv_bounds} gives the share of~$\tau$ that each row keeps as a margin (our computation).
+  \item \textbf{Dependence on~$\varepsilon$.}
+    Cantelli's bound on the tail falls only like the inverse square of the margin; the bounds of Hoeffding and Bernstein fall exponentially in it.
+    So, as $\varepsilon$ falls, the margin of Cantelli grows about like $\varepsilon^{-1/2}$, and the other two only about like $(\ln(1/\varepsilon))^{1/2}$.
+  \item \textbf{Bernstein against Hoeffding.}
+    With the variance bounded through the same support, Bernstein keeps almost the same margin as Hoeffding.
+    It is tighter only with a measured variance well below $\mu(b - \mu)$.
+\end{itemize}
+So the case study uses Hoeffding: it needs no variance, and it keeps only 5--7\% of~$\tau$ as a margin.
+A measured variance would need a simulation of the life model~\eqref{eq:cs_nf} over load records of the lines (Section~\ref{sec:cs_simulation}).
+
+\begin{table}[htbp]
+\centering
+\caption{Share of the threshold $\tau = 0.57$ that the reliability row of each bound keeps as a margin at the last admissible period, for the inverter power modules (our computation).
+The damage grows by equal weekday increments without repair: mean $2.0 \cdot 10^{-4}$ on line 759 and $2.65 \cdot 10^{-4}$ on line 768, support $b$ equal to 1.725 times the mean, and a variance of at most $\mu(b-\mu)$ for Bernstein and Cantelli.}
+\label{tab:cs_inv_bounds}
+\small
+\begin{tabular}{@{}llcccc@{}}
+\toprule
+ & & \multicolumn{2}{c}{$\varepsilon = 0.01$} & \multicolumn{2}{c}{$\varepsilon = 0.001$} \\
+\cmidrule(lr){3-4}\cmidrule(l){5-6}
+\textbf{Bound} & \textbf{Statistics needed} & 759 & 768 & 759 & 768 \\
+\midrule
+Hoeffding & mean, support & 4.8\% & 5.5\% & 5.9\% & 6.7\% \\
+Bernstein & mean, variance, support & 4.8\% & 5.6\% & 5.9\% & 6.8\% \\
+Cantelli & mean, variance & 14.7\% & 16.7\% & 39.3\% & 43.6\% \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\subsection{Simulation for validation}\label{sec:cs_simulation}
+
+The validators of the library check that a schedule is consistent with its input and with its model (Section~\ref{sec:impl_validation}).
+The structural validator checks the rows.
+The Gamma validators recompute the failure probability of the model's own increment process, with an exact tail or by Monte Carlo sampling (repeated random draws).
+None of them simulates the buses: every increment comes from the input, not from the operation of a bus on its line.
+A simulator closes this gap.
+It derives the damage of each component from the trips, speeds, loads and temperatures of each bus, and it draws failures.
+It then counts how often a component passes its limit and compares the count with the risk level~$\varepsilon$ of the schedule.
+
+\paragraph{Tools.}
+Table~\ref{tab:cs_sim_tools} lists the tools that were read for this purpose, and what each one simulates.
+No source read shows a tool that the field treats as the standard for a fleet of battery-electric buses with component ageing.
+The authors of the eflips-X framework write that, before their work, no unified framework combined all steps of bus electrification \cite[Sect.~1]{Heide2025}.
+The authors of Transit-Gym, a bus simulator built on SUMO (Simulation of Urban MObility, a traffic simulator), find very little literature on electric buses at the level of single vehicles \cite[Sect.~II.D]{Sun2021}.
+Each documented use of a simulation tool for electric buses in the sources read is a single study \cite{Heide2025,Konzept2025,Sun2021}.
+The field states a method, not a tool: the traction energy follows from a physical model when the driving profile and the vehicle parameters are known \cite[Sect.~1.4.1]{Heide2025}.
+No tool read ages tires or inverters, and none draws component failures.
+BLAST-Lite ages battery cells only; it can scale the fade rate and simulate a spread of fade \cite{BLASTLite}.
+
+\begin{table}[htbp]
+\centering
+\caption{Simulation tools for a fleet of battery-electric buses, from the sources read (accessed 10~Nov 2026).
+SUMO: Simulation of Urban MObility. MATSim: Multi-Agent Transport SIMulation. FASTSim: Future Automotive Systems Technology Simulator.
+BLAST-Lite: Battery Lifetime Analysis and Simulation Toolsuite. SimBA: Simulation toolbox for Bus Applications.
+GTFS: General Transit Feed Specification, the common file format of timetables; \texttt{shapes.txt} is its optional file of road geometry.
+OSM: OpenStreetMap, a map database built by volunteers. Drive cycle: speed and grade over time, second by second.
+SOC: state of charge. HVAC: heating, ventilation and air conditioning. LFP, NMC, NCA, LTO: lithium-ion cell chemistries.
+CSV: comma-separated values. GPL, AGPL: GNU General Public License, GNU Affero General Public License.}
+\label{tab:cs_sim_tools}
+\small
+\setlength{\tabcolsep}{4pt}
+\begin{tabular}{@{}p{1.7cm}p{3.0cm}p{3.8cm}p{2.1cm}p{2.0cm}p{1.8cm}@{}}
+\toprule
+\textbf{Tool} & \textbf{Simulates} & \textbf{Battery buses} & \textbf{Timetable} & \textbf{Gradients} & \textbf{Licence} \\
+\midrule
+SUMO \cite{SUMOdocs2026} & traffic flow and the motion of each vehicle, step by step & battery device: energy content, chargers on lanes, one constant auxiliary power; no HVAC model over air temperature; no ageing & GTFS; with \texttt{shapes.txt}, routes follow OSM & heights from OSM or a height map & Eclipse Public License 2.0 \\
+MATSim \cite{MATSim2026} & travel demand of simulated persons, and the traffic it makes & \texttt{ev}: charging of private cars; no bus energy model; no ageing & GTFS, through \texttt{pt2matsim} & not mentioned & GPL 2 or later \\
+FASTSim \cite{FASTSim2026} & energy of one powertrain over a given drive cycle & battery-electric vehicles, also medium and heavy duty; no bus file in the pages read; no ageing & no & grade per time step & Apache 2.0 \\
+BLAST-Lite \cite{BLASTLite} & capacity fade of battery cells & fade models of LFP, NMC, NCA and LTO cells from SOC and temperature series; buses not mentioned & no & no & BSD-style \\
+SimBA \cite{SimBA2026} & operation of a battery-bus fleet: trip energy, charging, SOC per bus & energy per trip from a table that the user supplies; battery life only as a fixed number of years in the costs & no: a CSV list of trips & mean grade per trip, from the first and last stop & AGPL 3 \\
+eflips-X \cite{Heide2025} & planning of a battery-bus fleet: blocks, depot, chargers, smart charging & energy tables over speed, gradient, temperature and load; SOC per block; no ageing & not stated & in the energy table & AGPL \\
+PTV Visum \cite{PTVVisum2024} & transport planning at the network level; vehicle scheduling & bus scheduling with linear charging and a range in km; no ageing model described & not stated & elevation import & commercial \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\paragraph{A published check on Zurich data.}
+Konzept, Hitz and Reick built a model of the longitudinal dynamics of a MAN Lion's City 12~E in MATLAB Simulink \cite[Sect.~1]{Konzept2025}.
+Its inputs are a speed profile, an elevation profile and the outside temperature.
+It holds the rolling, air, gradient and inertia forces, a motor efficiency map, a heat pump and a table-based cell model.
+It neglects self-discharge and ageing \cite[Sect.~1.1]{Konzept2025}.
+The authors checked the model against the telemetry of buses of VBZ in winter.
+On a round trip of 44~km, the largest deviation of the state of charge was $1.4469\,\%$ \cite[Sect.~1.2, Fig.~2]{Konzept2025}.
+The telemetry is not public, and the paper does not publish the model code.
+VBZ runs this bus type (Section~\ref{sec:cs_buses}).
+
+\paragraph{Proposed chain.}
+Our proposal is to write the chain in our own Python code.
+It takes the physics from published practice \cite{Heide2025,Konzept2025} and the battery fade from BLAST-Lite \cite{BLASTLite}.
+\begin{itemize}[nosep]
+  \item \textbf{Ageing needs own code.} No tool read ages tires or inverters or draws failures.
+  \item \textbf{Few inputs.} Each bus and day needs only its trips, distances, stops, grades, loads and temperatures.
+  \item \textbf{Measured times.} Measured stop times exist for almost all trips.
+    On line 759, 3,512 of the 3,599 arrivals of 1~October 2026 carry the status of a measured time \cite{IstDaten2026}.
+    So a traffic simulation is not needed for realistic running times.
+\end{itemize}
+SUMO stays an optional check of the speed profiles under traffic.
+Traffic matters: in Transit-Gym, the energy rate of an electric bus on one trip changed by a factor of about~2.3 between the original background traffic and a demand 20\,\% lower \cite[Table~I]{Sun2021}.
+Table~\ref{tab:cs_sim_chain} gives the chain step by step.
+For example, a bus that serves one line for a week and then another line gets the blocks, speeds and loads of each line in turn.
+
+\begin{table}[htbp]
+\centering
+\caption{Proposed simulation chain (our proposal).
+Bus-day: the operation of one bus on one day. Block (German \emph{Umlauf}): the sequence of trips that one bus serves in one day.
+Drive cycle: speed and grade over time, second by second. SOC: state of charge. HVAC: heating, ventilation and air conditioning.
+Junction temperature: the temperature of the semiconductor chip.}
+\label{tab:cs_sim_chain}
+\small
+\setlength{\tabcolsep}{4pt}
+\begin{tabular}{@{}p{2.6cm}p{8.3cm}p{4.0cm}@{}}
+\toprule
+\textbf{Step} & \textbf{What it does} & \textbf{Tool and data} \\
+\midrule
+1. Bus-days & For each period and bus, take the line from the schedule. For each day, draw one block of that line and day type (weekday, Saturday, Sunday). & own code; blocks from \cite{IstDaten2026} or from the vehicle estimate of Section~\ref{sec:cs_depots} \\
+2. Segments & Split each trip into stop-to-stop segments with length and grade profile. & own code; road shapes \cite{ZVV2026GTFS}; heights \cite{Swisstopo2026Profile} \\
+3. Travel times & Draw the time of each segment and each stop from the measured times of the same segment, line, hour and day type. & own code; \cite{VBZSollIst2023,IstDaten2026} \\
+4. Drive cycle & Build accelerate, cruise and brake phases that cover the segment in the drawn time. As an option, add stops at traffic signals. & own code; signals \cite{OSMOverpass2026}; SUMO as a check \\
+5. Energy, power & Rolling, air, grade and inertia forces; drive and recuperation efficiency; HVAC power from the air temperature; constant auxiliaries. Mass: empty mass plus 68~kg per passenger \cite[Sect.~3.3.2]{Heide2025}. & own code with the equations of \cite[Eqs.~1--2]{Konzept2025}, or FASTSim; loads \cite{VBZFahrgast2025}; temperature \cite{MeteoSwissSMN2026} \\
+6. SOC, charging & Integrate the battery power over the day. Add depot charging, and terminus charging where it exists. Flag a block whose SOC falls below a minimum. & own code; SimBA or eflips-X as alternatives \\
+7a. Battery & Capacity fade from the SOC and temperature series of each day. & BLAST-Lite, cell model scaled to the pack \\
+7b. Tires & Tread wear per second from the slip energy (force squared over normal load), scaled so that the fleet mean equals the wear rate of Section~\ref{sec:cs_components}. & own code \\
+7c. Inverter & Phase current, then junction temperature, rainflow count and Miner sum with the power-cycling model of Section~\ref{sec:cs_components}. & own code \\
+8. Failures & For each bus, draw a fade-rate factor (battery), a wear-rate factor (tires) and a module strength (inverter, Weibull law). A component fails when its damage passes its limit. Apply the planned repairs and replacements with their repair laws. A failure before the planned action is a violation. & own code \\
+9. Monte Carlo & Repeat steps 3 to 8, for example 1,000 times, with a weather year drawn from the hourly records since 1980. Count, for each component and period, how often the limit is passed, and compare the share with~$\varepsilon$. & own code; \cite{MeteoSwissSMN2026} \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\paragraph{Cost of the chain.}
+Steps 4 to 7 run at one time step per second.
+One bus-day of about 250~km at 20~km/h has about 45,000 time steps.
+A fleet of 48 buses over one year then needs about $8 \cdot 10^8$ time steps per Monte Carlo run (our estimate).
+A cache lowers this cost: a segment with the same drawn time, load and temperature gives the same energy.
+
+\paragraph{Data.}
+Table~\ref{tab:cs_sim_data} lists the inputs of the chain.
+The operation of the buses can be simulated with public data, for the VBZ garages and for the VBG lines.
+Timetable, road shapes, elevation, measured running times, blocks and air temperature are open, and each was confirmed by download.
+The ZVV timetable in GTFS contains road shapes for every trip, with about one million points and their distance along the road \cite{ZVV2026GTFS}.
+Passenger loads are open for VBZ lines only \cite{VBZFahrgast2025}.
+The parameters of the bus and the real condition of its components are not public.
+
+\begin{table}[htbp]
+\centering
+\caption{Inputs of the simulation chain and their public sources.
+``Confirmed'' means downloaded, in whole or in part, and counted, on 10~Nov 2026.
+VBZ: Verkehrsbetriebe Z\"urich. VBG: Verkehrsbetriebe Glattal. ZVV: Z\"urcher Verkehrsverbund. GTFS: General Transit Feed Specification.
+CC0: Creative Commons Zero, a dedication to the public domain. CC BY: Creative Commons Attribution. ODbL: Open Database License.
+OSM: OpenStreetMap. SOH: state of health, the remaining capacity over the initial capacity. Dwell time: the time that a bus stands at a stop.}
+\label{tab:cs_sim_data}
+\small
+\setlength{\tabcolsep}{4pt}
+\begin{tabular}{@{}p{2.6cm}p{2.9cm}p{3.0cm}p{2.2cm}p{4.0cm}@{}}
+\toprule
+\textbf{Input} & \textbf{Available} & \textbf{Source} & \textbf{Licence} & \textbf{Confirmed} \\
+\midrule
+Timetable, stops, road shapes & yes, VBZ and VBG lines & ZVV GTFS \cite{ZVV2026GTFS} & CC0 & yes, by byte ranges; every trip has a shape \\
+Elevation & yes & swisstopo profile service and swissALTI3D \cite{Swisstopo2026Profile} & ``proprietary'' (licence field); terms not read & yes: one profile and one 2~m tile \\
+Running and dwell times & VBZ until 29~Jul 2023; all operators since then & VBZ Soll-Ist \cite{VBZSollIst2023}; Ist-Daten \cite{IstDaten2026} & CC0; open use, source named & yes: one week of VBZ (4~MB sample); the whole day 1~Oct 2026 of all operators \\
+Vehicle blocks & yes; not in the GTFS feed & same two sources & as above & yes: 8 blocks on line 759, 1~Oct 2026 \\
+Passenger loads per trip and stop & VBZ: yearly means; VBG: none found & VBZ Fahrgastzahlen \cite{VBZFahrgast2025} & CC0 & yes (4~MB sample); VBG lines absent \\
+Air temperature & yes, hourly since 1980 & MeteoSwiss, stations Z\"urich-Fluntern and Kloten \cite{MeteoSwissSMN2026} & CC BY & yes: hourly, 1~Jan to 9~Nov 2026, no gap \\
+Traffic signals & positions only & OSM \cite{OSMOverpass2026} & ODbL 1.0 & yes: 104 signals near Z\"urich-Oerlikon; the count per route failed \\
+Vehicle parameters & in part & Section~\ref{sec:cs_buses} & -- & -- \\
+Charger power and places & in part & Section~\ref{sec:cs_depots} & -- & -- \\
+Condition of the components (SOH, tread depth, inverter failures) & no public data found & -- & -- & -- \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\paragraph{Gaps and how to estimate them.}
+\begin{itemize}[nosep]
+  \item \textbf{Vehicle parameters.} Empty mass, drag area, rolling resistance, efficiency maps and HVAC power over temperature set the energy per km.
+    Estimate them from the maker data and registered masses of Section~\ref{sec:cs_buses}.
+    Check them against the energy split that Konzept et al.\ measured on VBZ buses: 57.07~kWh for the drivetrain and 11.98~kWh for the auxiliaries on the 44~km round trip \cite[Table~1]{Konzept2025}.
+  \item \textbf{Speed inside a segment.} Only the stop times are public.
+    Konzept et al.\ used operator telemetry, which is not public \cite[Sect.~1.2]{Konzept2025}.
+    Build synthetic drive cycles (step~4) and check the energy per km against the published values.
+  \item \textbf{Passenger loads of the VBG lines.} No open data exist at stop level.
+    Our proposal: scale the load profile of a similar VBZ line.
+  \item \textbf{Spread of the load between single trips.} The VBZ data give yearly means of single trips, computed from counters in about 20\,\% of the vehicles \cite{VBZFahrgast2025}.
+    Our proposal: draw the load around the mean, for example with Poisson boardings; no source read gives the spread.
+  \item \textbf{Meaning of the block identifier.} The meaning of the field \texttt{UMLAUF\_ID} of the Ist-Daten is taken from its name.
+    On 10~Nov 2026, the platform opentransportdata.swiss could not be reached from the project's workstation, so its documentation of the Ist-Daten was not read.
+    Its archive host served the monthly files \cite{IstDaten2026}.
+    For lines 759, 787 and 31, the number of block identifiers on 1~Oct 2026 equals the vehicle estimate of Section~\ref{sec:cs_depots}; for lines 768 and 89 it is about twice that estimate.
+    So one identifier may cover only part of a day.
+  \item \textbf{Charging plan and pack temperature.} Our proposal: charge at the nominal power from arrival until full, or with the ``balanced'' strategy of SimBA \cite{SimBA2026}.
+    Assume a pack temperature near 25~$^\circ$C, and add a seasonal case.
+  \item \textbf{Condition of the components.} Without operator data, the simulation cannot test the degradation laws (see below).
+\end{itemize}
+
+\paragraph{What the simulation can test.}
+If steps 7a to 7c use the coefficients of Section~\ref{sec:cs_components}, the simulator and the schedule share the same component coefficients.
+Then the simulation tests the simplifications of the scheduling model under realistic operation: one mean increment per line and period, independent increments, the tail bounds and the linear forms.
+It does not test the coefficients or the degradation laws.
+That test needs operator data on real buses: states of health from the battery management system, tread depths and inverter failures.
+Every result of the simulation should state this limit.
+
+\subsection{Open questions}\label{sec:cs_open}
+
+These are the questions of design and data that the case study leaves open.
+\begin{itemize}
+  \item \textbf{Choice of depot.} Section~\ref{sec:cs_depots} compares three depots.
+    Bassersdorf has battery buses in service and mixes urban, suburban and rural lines.
+    Hardau has the most lines, and the most lines that climb 100~m or more, but no rural line.
+    Hagenholz is the compact alternative.
+    The choice also fixes the data: measured running times and blocks exist for VBZ and VBG lines \cite{VBZSollIst2023,IstDaten2026}, but open passenger loads exist for VBZ lines only \cite{VBZFahrgast2025}.
+  \item \textbf{Risk level~$\varepsilon$.} No source read gives a risk level for the battery, the tires or the inverter, so $\varepsilon$ is a modelling choice.
+    The sources give end-of-life definitions instead, such as lifetime curves of power modules drawn at a failure probability of 15\,\% (Section~\ref{sec:cs_components}).
+    The choice has a large effect.
+    For the tires, a plan that is not updated with measured depths uses only 42 to 73\,\% of the tread before replacement, for $\varepsilon$ from 0.01 to 0.05 and a spread of the wear rate between tires from 0.19 to 0.30 (our computation).
+  \item \textbf{Long-lived components and replacement within the horizon.} The battery and the inverter last several years at the rates of Section~\ref{sec:cs_components}.
+    The loop rows~\eqref{eq:loop} compare the end of the operating phase with its start, statistic by statistic.
+    So every component that gains damage in the operating phase needs, inside it, a repair that removes this damage or a replacement (Section~\ref{sec:loop_replacements}).
+    \begin{itemize}[nosep]
+      \item \textbf{Battery.} A partial renewal ($\text{ARD}_\infty$ with $\rho > 0$) can remove the damage of the operating phase.
+        Whether a full replacement also belongs in the horizon depends on the period length.
+        Example: ten years are 120 periods of one month, and 3,650 periods of one day.
+      \item \textbf{Inverter.} It has no repair ($\rho = 0$).
+        So in every repetition of the operating phase in which an inverter gains damage, the loop rows force a replacement, even when the operating phase is much shorter than the life of the inverter.
+      \item \textbf{One option.} A flag per component forbids the full replacement of a long-lived component in the horizon.
+        An input check then tests that every component that gains damage in the operating phase can be repaired down: $\text{ARD}_\infty$ with $\rho > 0$, or $\text{ARD}_1$ with $\rho = 1$.
+        The flag cannot apply to the inverter.
+    \end{itemize}
+  \item \textbf{Tire regrooving.} Regrooving cuts new grooves into the base rubber of a worn tire \cite[slide~2]{Michelin2011regroove}; it is the repair of a tire.
+    Its rules do not fit the repair laws of the library.
+    It restores a fixed depth: at most 3~mm \cite[p.~44]{Goodyear2020}, or from 3--4~mm of tread to 6--8~mm \cite[slide~4]{Michelin2011regroove}.
+    It is done when 3 to 6~mm of tread remain \cite[p.~44]{Goodyear2020}, and once per tread life: a casing has the lives new, regrooved, retreaded and regrooved retread \cite[p.~44]{Goodyear2020}.
+    The laws $\text{ARD}_\infty$ and $\text{ARD}_1$ remove a fraction~$\rho$ of the damage, at any damage and any number of times.
+    So the value $\rho = 0.2$ of Section~\ref{sec:cs_components} gives the restored depth at one damage level only.
+  \item \textbf{Inverter calibration.} No source read gives a measured swing of the junction temperature per stop of a bus inverter.
+    The damage level of Section~\ref{sec:cs_components} rests on one calibration: a maker's design target of 60,000 operating hours \cite{Backhaus2019}, reached at 46 stops per hour (our choice of the stop rate).
+    The same maker converts an operating hour of a city bus into 10~km \cite{Backhaus2019}.
+    If the design target counts hours of 10~km, an hour holds about 21.5 stops at the stop density of the lines, and the damage per km doubles (our computation).
+    The semiconductor matters too: the 2026 drive of the eCitaro has silicon-carbide (SiC) inverters (Section~\ref{sec:cs_buses}).
+    In one study of a car, the SiC modules took 19 to 62 times less damage per run of a drive cycle than a silicon IGBT (insulated-gate bipolar transistor) module (our computation from \cite[Tables~5.1--5.2]{Amirpour2025}).
+  \item \textbf{Battery repair efficiency~$\rho$.} The repair of a battery is a partial renewal: the change of some cells, modules or packs.
+    No source measures its gain.
+    The maker of the eCitaro offers to repair its modular packs, and a reconditioning that ``significantly increases the capacity'', with no number \cite{DaimlerTruck2025offers}.
+    The values of Section~\ref{sec:cs_components} are our derivation from the pack layout.
+  \item \textbf{No process fitted to bus data.} For none of the three components does a source read fit a stochastic degradation process to field data of buses.
+    The families of Section~\ref{sec:cs_components} are our choices, and so is the calibration of their spread.
+    No source gives the variance of the inverter increment.
+  \item \textbf{Data that would settle these points.}
+    \begin{itemize}[nosep]
+      \item \textbf{Operator data} of the chosen depot: states of health from the battery management system, tread depths per tire, inverter temperatures and failures, and the state of health before and after a battery repair.
+      \item \textbf{A regression of bus tire wear on route features.} The article of Fwa and Ang on the tire wear of public buses \cite{FwaAng1991} could not be read (no access on 10~Nov 2026); it may give such a regression.
+      \item \textbf{The junction-temperature cycles of a city-bus inverter.} A 2016 article of the maker Semikron shows them in a figure, for its inverter driving a large city bus \cite{Backhaus2016}.
+        The text gives no number, and the figure could not be retrieved (10~Nov 2026).
+    \end{itemize}
+\end{itemize}
 
 \section{Implementation details}
 

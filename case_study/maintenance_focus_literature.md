@@ -1,11 +1,14 @@
 # Maintenance focus of battery-electric buses: peer-reviewed literature
 
-Status: done (9 Nov 2026). Seven sources entered, S1-S7, all read in full except S3 (read in
-part, see its entry). Summary table, ranking, "Could not read" and leads are filled. Read and
+Status: done (10 Nov 2026). Eight sources entered, S1-S8, all read in full except S3 and S8 (read
+in part, see their entries). Summary table, ranking, "Could not read" and leads are filled. Read and
 excluded: five papers (section 5.1). Downloads in the session scratchpad, downloads\lit\01-13:
 S6 in \09, S7 in \12 (file nan2022_energies_b.pdf); \12\nan2022_energies.pdf and
-\13\manzolli2022.pdf are HTML error pages, not papers. Next, if more work is wanted: the items of
-section 4 (Taha et al. 2023 first) and the grey literature of section 5.2.
+\13\manzolli2022.pdf are HTML error pages, not papers; S8 in downloads\fetch\03. Added on 10 Nov
+2026: S8, the PhD thesis of H. A. Taha (2022), which holds the ETFA 2021 paper and a later
+manuscript on the same bus drive. Taha et al. 2023 and Manzolli et al. 2022 remain unread
+(section 4). Next, if more work is wanted: those two through the user, and the grey literature of
+section 5.2.
 
 Scope: journal and conference papers and peer-reviewed reviews on reliability, failures,
 maintenance or predictive maintenance of battery-electric buses (BEB). Grey literature appears
@@ -21,14 +24,14 @@ shares of the nine fault types that S7 lists, not of all faults.
 | **Whole vehicle, against diesel** | Lublin: mean km between failures 1714 (BEB) vs 2029 (diesel), 15.5 % lower; Weibull shape 0.92 vs 1.41 (S1, Table 2-3). Availability 0.89 (BEB) vs 0.79 (diesel) over 33 months (S2, Table 2). Portland: 2124 vs 4630 planned miles to breakdown, but +464 miles for BEB once routes and use are controlled (S5, Tables 1, 3). The sources do not agree on the sign. | Ramp use, stops, passenger load, temperature (S5, Table 3); winter (S1, §2) | Corrective repair at the depot, at once or next shift (S1, §2; S2, §3.1). Inspection every 6 months in Lublin (S2, §4). Recommended check every 2 weeks, about 3700 km (S5, p. 9; model-based) | S1, S2, S5 |
 | **Traction battery** (cells, contactors, BMS) | Among the 3 least reliable systems by Weibull scale, b = 15,957 km (S1, Table 8, §4.2.1). Battery degradation (F1): the largest downtime, about 310 h of the trolleybus fleet's failure downtime, and about 21 % of failure-plus-downtime cost, my computation (S4, Figure 12, Tables 12-13). Cell imbalance is the top fault type, 12,506 mentions; battery items 20,202 of 49,673 listed mentions, 41 %, my computation (S7, Table 1). | Equivalent full cycles, depth of discharge, cell temperature, calendar age (S4, §2.4, §4.4); cycles per day and pack layout (S6, p. 9); charging events for contactors (S1, §2) | Contactor and module repair (S1, §2). Pack replacement after 5 years, or condition-based to 6.5 years with SOH ≥ 80 % and resistance gates (S4, §2.5, Table 3; scenarios, not the operator's practice). Monthly BMS review, yearly capacity test proposed (S4, §4.7) | S1, S4, S6, S7 |
 | **Charging system and interface** (pantograph, plug, bus-charger communication) | 506 of 3747 recorded failures, 13.5 %, my computation (S1, p. 14, Table 2); Weibull scale 16,424 km, third lowest (S1, Table 8). First-month availability 0.28, caused by charging adaptation (S2, §3.2). HV insulation or charging-contact fault F4: the highest rate per km, 0.552 per 100,000 km (S4, Table 12). BMS-charger communication and charging-base temperature: 10,303 mentions, 21 %, my computation (S7, Table 1). | Number of charging events and contact quality (S1, §2); not quantified | Mechanical repair of pantograph and plug (S1, §2). No interval given | S1, S2, S4, S7 |
-| **High-voltage system and traction power electronics** (inverter, converters, insulation, HV contactors) | Traction power-electronics failure F3: 20 events, 0.325 per 100,000 km, but the second-largest downtime (about 165 h) and costly events (median about 160,000 RUB); about 16 % of failure-plus-downtime cost, my computation (S4, Table 12, Figures 12-13). Lublin HVS: Weibull scale 102,600 km, the most reliable of the 8 systems (S1, Table 8). HV open circuit and overcurrent: 10,904 mentions, 22 % (S7, Table 1; may include battery faults). **No source splits the inverter into power modules (IGBT or SiC) or DC-link capacitors.** | Not quantified for buses. Wet weather for braking-resistor insulation, wire abrasion (S1, §2) | Corrective repair; no interval given | S1, S4, S7 |
+| **High-voltage system and traction power electronics** (inverter, converters, insulation, HV contactors) | Traction power-electronics failure F3: 20 events, 0.325 per 100,000 km, but the second-largest downtime (about 165 h) and costly events (median about 160,000 RUB); about 16 % of failure-plus-downtime cost, my computation (S4, Table 12, Figures 12-13). Lublin HVS: Weibull scale 102,600 km, the most reliable of the 8 systems (S1, Table 8). HV open circuit and overcurrent: 10,904 mentions, 22 % (S7, Table 1; may include battery faults). **No field source splits the inverter into power modules (IGBT or SiC) or DC-link capacitors.** Model only, handbook rates: inverter PCB 1.12, IGBTs 0.085 failures per 10⁶ h for an in-wheel-motor bus; inverter PCB importance 1.55, after the control software (1.82) and the controller board (1.57) (S8, Table 8.1, §8.4) | Not quantified for buses. Wet weather for braking-resistor insulation, wire abrasion (S1, §2) | Corrective repair; no interval given by a fleet. Proposed: inverter inspection every 2 years or 30,000 miles (S8, Table C.1) | S1, S4, S7, S8 |
 | **Doors** | Lowest Weibull scale of the BEB systems, b = 14,154 km; 40 % lower than on the diesel buses, b = 23,713 km (S1, Tables 8-9, p. 15) | Winter: freezing slush, frozen gaskets (S1, §2) | Corrective repair; no interval | S1 |
 | **Low-voltage (24 V) system** | Mean 1438 km between failures, Weibull scale 23,254 km (S1, Tables 7-8); the lowest scale on the diesel buses too, b = 10,895 km (S1, Table 9). 24 V undervoltage at the motor controller: 4690 mentions (S7, Table 1) | Parking: 24 V batteries discharge (S1, §2) | Corrective; no interval | S1, S7 |
 | **Battery cooling and thermal management** | Mean 1434 km between failures, the lowest mean of the 8 systems; Weibull scale 40,657 km (S1, Tables 7-8). Thermal derating F2: 33 events, 0.536 per 100,000 km, about 9 % of failure-plus-downtime cost, my computation (S4, Tables 12-13). Heating or water-cooling relay: 3574 mentions (S7, Table 1) | Hot summers and cold winters (S4, Table 10); refrigerant and pump faults (S1, §2) | Corrective; no interval | S1, S4, S7 |
 | **Brakes** | Weibull scale 35,674 km, middle of the 8 systems (S1, Table 8). Failures are sensors, slack adjusters and leaking cylinders, not pad wear (S1, §2). Model only: about 7 % more brake particulate from the extra weight, minus an assumed 25-75 % from regenerative braking (S3, §3.2) | Weight, stops, braking per km (S3, Eqs. 3-8) | Corrective; no pad-life data for buses | S1, S3 |
 | **Heating and air conditioning (HVAC)** | Weibull scale 31,952 km (S1, Table 8) | Refrigerant leaks, fans (S1, §2) | Corrective; no interval | S1 |
 | **Tyres** | **No peer-reviewed field data on tyre wear or tyre life of battery-electric buses found.** Model only: about 4 % more tyre particulate for a bus about 2000 kg heavier (S3, §3.3, Table 3). Not tracked in S1, S4 or S7 | Weight, stop-and-go, acceleration, slope (S3, §3.6, §5) | None given | S3 |
-| **Traction motor** | **Not tracked as a separate system in any BEB source read.** S4 groups it with "traction power electronics" | - | - | - |
+| **Traction motor** | **Not tracked as a separate system in any BEB field source read.** S4 groups it with "traction power electronics". Model only: handbook rates for an in-wheel motor, bearing seal 0.4465 and windings 0.277 failures per 10⁶ h each (S8, Table 8.1) | Bearing failure rate grows linearly with motor speed (S8, Eq. 9.11, from a US Navy handbook) | Proposed: bearing inspection every 2 years or 22,000 miles (S8, Table C.1) | S8 |
 | **DC-link capacitors** | **No source found on DC-link capacitors in buses** (search terms in section 2) | - | - | - |
 
 ## 2. Ranking of the components by the evidence
@@ -58,8 +61,11 @@ consistency of evidence, not by a shared metric.
 7. **Tyres.** No peer-reviewed field evidence. One emission model (S3) predicts slightly more
    tyre wear from the extra weight. A search snippet of a grey-literature survey (section 5.2)
    mentions faster tyre wear on electric buses; the survey was not read, so this is not evidence.
-8. **Traction motor.** No evidence: no BEB source tracks it separately.
-9. **DC-link capacitors and inverter power modules (IGBT or SiC).** No evidence in buses.
+8. **Traction motor.** No field evidence: no BEB source tracks it separately. One model (S8) uses
+   handbook rates and names the motor bearings among the critical parts.
+9. **DC-link capacitors and inverter power modules (IGBT or SiC).** No field evidence in buses. The
+   same model (S8) uses handbook rates for the inverter board and IGBTs; it has no DC-link
+   capacitor.
 
 **About the four candidates named by the user.**
 
@@ -69,7 +75,9 @@ consistency of evidence, not by a shared metric.
   module lifetime electric bus traction inverter mission profile", "electric bus OR city bus power
   module lifetime IGBT SiC bond wire solder fatigue real driving data", "electric bus motor
   controller IGBT junction temperature reliability", Crossref "electric bus inverter reliability
-  lifetime". Hits were car, rail, photovoltaic or generic studies.
+  lifetime". Hits were car, rail, photovoltaic or generic studies. The only bus-level study read,
+  S8, takes its inverter and motor failure rates from handbooks and a van study, because
+  "operational failure data are unavailable" (S8, §8.1).
 - *DC-link capacitors*: no source found in buses. Search terms: "DC-link capacitor lifetime
   electric bus traction inverter film capacitor degradation vehicle". The nearest hit is a
   heavy-duty traction inverter design study (Chalmers, 2026), not read.
@@ -423,26 +431,78 @@ buses.
   written many times. The 52.5 % share of "battery, motor, and electronic control" failures in the
   introduction (p. 1, ref. 6) is about recalls of cars in China in 2021, not buses.
 
+### S8. Taha (Hussein) 2022, PhD thesis with two papers on the drive of an in-wheel-motor electric bus
+
+- **Reference.** Hussein, H. A. T. (2022). *Autonomous Machine Maintenance and Control in Digital
+  Twin Environment.* PhD thesis, Polytechnique Montréal (advisors S. Yacout and Y. Shaban). Open
+  access: https://publications.polymtl.ca/10367/ (PDF:
+  https://publications.polymtl.ca/10367/1/2022_HusseinAdelTahaHussein.pdf). The author publishes as
+  H. A. Taha. A thesis by articles. Two chapters treat a bus:
+  - Chapter 8 (printed pp. 85-93) reprints Taha, H.A.; Sakr, A.H.; Yacout, S.; Serafin, P. (2021),
+    *Failure Reasoning and Uncertainty Analysis for Wheel Motor Electric Bus*, IEEE ETFA 2021,
+    https://doi.org/10.1109/etfa45728.2021.9613671 ("Published in", p. 85).
+  - Chapter 9 (printed pp. 94-115) is the manuscript *Autonomous Uptime-Improvement for Electric Bus
+    in Digital Twin Environment* (Taha, Yacout, Shaban), "Submitted to: IEEE Transactions on
+    Intelligent Transportation Systems" (p. 94).
+- **Evidence basis.** Read in part: chapters 8 and 9 in full (PDF pp. 102-132), the list of articles
+  in chapter 2, Appendix C (Table C.1 read from the rendered page 145; Table C.2 through the text
+  layer), and references [1]-[4] of the list. The other chapters (machining, aircraft engines)
+  were not read. The IEEE version of the ETFA paper was not read; the thesis version is the
+  author's text and may differ in layout.
+- **Relation to Taha et al. 2023 (section 4).** Chapter 9 has the same scheme as the title of the
+  2023 *Engineering Failure Analysis* paper: failure analysis linked to on-road driving, and
+  autonomous actions. Whether the 2023 paper is the published form of chapter 9 is not established:
+  the titles differ, and the 2023 paper was not read.
+- **Data.** None from the field. The bus is a two-axle in-wheel-motor bus: one three-phase induction
+  motor and one DC/AC inverter per driven wheel, one control unit (§8.2, §9.4). "Since operational
+  failure data are unavailable, reliability prediction and maintenance planning are challenging
+  tasks" (§8.1, p. 85). The failure rates come from handbooks and other studies: references [1]-[4]
+  (a US Navy handbook of mechanical reliability, 1992; a fault-tree study of electric vans, Shu et
+  al. 2019; a 2016 work on reliability prediction of electronic products; a 2011 study of embedded
+  software in vehicles)
+  (Table 8.1, p. 89).
+- **Findings (model results, not measurements).**
+  - Failure rates per 10⁶ hours (Table 8.1): embedded software 17.6; controller board (PCB) 3.06;
+    inverter PCB 1.12; inverter IGBTs 0.085; optocoupler 0.243; motor bearing seal 0.4465; bearing
+    0.083; rotor winding 0.277; stator winding 0.277.
+  - Fuzzy fault tree, 10 % uncertainty, 10,000 working hours: the most critical part is the
+    embedded software (importance 1.82), then the controller board (1.57), then the inverter board
+    (about 1.55); among the motor parts, the bearings (§8.3-8.4, pp. 92-93).
+  - Chapter 9: per-wheel inverter failure rate 1.54E-06 and bearing 1.74E-06 at 11,000 rpm (Table
+    9.3, p. 108). The column is labelled "FPMh" (per 10⁶ hours), but the values read as per hour;
+    the source is not consistent here.
+  - The bearing failure rate grows linearly with the motor speed (Eq. 9.11, p. 111, from the Navy
+    handbook). An expert from "an e-mobility maintenance center" set the data uncertainty at 17 %
+    (p. 106). The bus is inspected every 600,000 miles, taken as 33 % system reliability (p. 112).
+    Lowering the mean cycle speed from 15.11 to 9.63 miles per hour adds 8,603 miles before that
+    limit (p. 115).
+  - Proposed inspection intervals (Table C.1, p. 145, with literature references): inverter every
+    2 years or 30,000 miles; motor bearings every 2 years or 22,000 miles; speed and temperature
+    sensors every 3 years or 45,000 miles; control unit hardware yearly.
+- **Use here.** It confirms that this group's bus work has no field data on inverters or motors.
+  Its rates are handbook values, usable only as a prior. It does not change the ranking.
+
 ## 4. Could not read
 
 - **Taha, H.A.; Yacout, S.; Shaban, Y. (2023).** Online failure analysis and autonomous risk
   control scheme for electric buses. *Engineering Failure Analysis*, December 2023, 107629.
   https://doi.org/10.1016/j.engfailanal.2023.107629. Reason: ScienceDirect, not open access; the
   brief rules out ScienceDirect because of its CAPTCHA (a CAPTCHA was met on 9 Nov 2026 for
-  another ScienceDirect item). Why worthwhile: a case study of the drive system of an electric
-  bus (Polytechnique Montréal) that links driving conditions to failure analysis; it may hold the
-  only bus-level data on the inverter and motor. Can you retrieve it?
-- **Taha, H.A.; Sakr, A.H.; Yacout, S.; Serafin, P. (2021).** Failure Reasoning and Uncertainty
-  Analysis for Wheel Motor Electric Bus. IEEE ETFA 2021 (4 pages).
-  https://doi.org/10.1109/etfa45728.2021.9613671. Reason: IEEE answered HTTP 418 to the PDF route;
-  the document page asked for a sign-in (9 Nov 2026). Not archived in PolyPublie. Why worthwhile:
-  failure reasoning for the in-wheel-motor drive of an e-bus. Low priority: its first page says
-  that operational failure data are unavailable.
+  another ScienceDirect item). 10 Nov 2026: OpenAlex and Semantic Scholar list it as closed; its
+  PolyPublie record (https://publications.polymtl.ca/56585/) holds only an external link, no file.
+  Why worthwhile: a case study of the drive system of an electric bus (Polytechnique Montréal) that
+  links driving conditions to failure analysis. Its likely precursor, chapter 9 of the author's
+  thesis (S8), uses handbook failure rates, not field data; so the paper is now less likely to hold
+  field data on the inverter and motor. Can you retrieve it?
 - **Manzolli, J.A.; Trovão, J.P.; Antunes, C.H. (2022).** A review of electric bus vehicles
   research topics - Methods and trends. *Renewable and Sustainable Energy Reviews* 159, 112211.
   https://doi.org/10.1016/j.rser.2022.112211. Open access (CC BY-NC-ND), but the ScienceDirect
-  PDF link answered with a CAPTCHA (9 Nov 2026; not passed). Why worthwhile: a peer-reviewed map of
-  e-bus research topics; it would show how much of the literature treats maintenance.
+  PDF link answered with a CAPTCHA (9 Nov 2026; not passed). 10 Nov 2026: the article page
+  https://www.sciencedirect.com/science/article/pii/S1364032122001344 answered in the browser with
+  HTTP 403 and a Cloudflare challenge; not passed. OpenAlex reports no repository copy
+  ("any_repository_has_fulltext": false); Semantic Scholar lists only the ScienceDirect PDF. Why
+  worthwhile: a peer-reviewed map of e-bus research topics; it would show how much of the literature
+  treats maintenance. Can you download it from ScienceDirect in your browser?
 - **Wang, Z.; Liu, P.; Xin, T. (2011).** Study on a fault-analysis method for electric buses based
   on AHP. *Gaojishu Tongxin (High Technology Letters)* 21(11), 1196-1200.
   https://doi.org/10.3772/j.issn.1002-0470.2011.11.014. Reason: no full text found; probably in
@@ -496,9 +556,9 @@ buses.
   County Connection
   (https://afdc.energy.gov/files/u/publication/zero-emission_evaluation_county_connection_bec.pdf),
   King County Metro (cost per mile, cited by the US DOT ITS knowledge base,
-  https://www.itskrs.its.dot.gov/2019-b01361), and FTA Report No. 0253, "Procuring and Maintaining
-  Battery Electric Buses and Charging Systems" (2023,
-  https://www.transit.dot.gov/sites/fta.dot.gov/files/2023-08/FTA-Report-No-0253.pdf). Not read.
+  https://www.itskrs.its.dot.gov/2019-b01361): not read. FTA Report No. 0253, "Procuring and
+  Maintaining Battery Electric Buses and Charging Systems" (2023): read on 10 Nov 2026, entered as
+  R14 in case_study/maintenance_focus_reports.md and B12 in case_study/component_battery.md.
 - University of Washington, "Statistical Failure Analysis of Hybrid Bus Batteries: Using A
   Three-Year Maintenance Dataset from King County" (thesis, hybrid buses):
   https://digital.lib.washington.edu/researchworks/items/a7e57ae0-03d8-44e2-b0ec-43e048428d34.
@@ -550,6 +610,13 @@ buses.
   and on battery degradation monitoring of a 40-foot electric bus (*Neural Computing and
   Applications*); PolyPublie records https://publications.polymtl.ca/62731/ and
   https://publications.polymtl.ca/80455/. Not read.
+- Agredano, F.; Taha, H.A.; Yacout, S. (2023). Maintenance 4.0 opportunistic strategy for electric
+  buses. CIGI Qualita MOSIM 2023, Trois-Rivières (5 pages). Open PDF (seen in a search list, 10 Nov
+  2026): https://collection-numerique.uqtr.ca/2064/1/CIGI_QUALITA_MOSIM_2023_paper_4719.pdf. Not
+  read.
+- Alkassas, O.; Taha, H.A.; Le Ny, J.; Yacout, S. (2026). Logical analysis of survival data for
+  remaining driving range prediction in battery electric bus operations. *Computers & Industrial
+  Engineering* 220, 112264 (PolyPublie search list, 10 Nov 2026). Range, not maintenance. Not read.
 - Połom, M.; Wiśniewski, P. (2021). Implementing Electromobility in Public Transport in Poland in
   1990-2020. *Sustainability* 13(7), 4009. https://doi.org/10.3390/su13074009. Policy review; the
   Crossref abstract shows no maintenance content. Not read.

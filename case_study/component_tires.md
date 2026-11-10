@@ -1,7 +1,11 @@
 # Component: tyres of a battery-electric city bus
 
-Status: done (9 Nov 2026). Ten sources read (S1-S10), in full or in the parts stated. In progress: none.
-Next: fill the gaps of section 4; first G1 (battery-bus factor from tread data) and G7 (prices in CHF).
+Status: done (10 Nov 2026). Ten sources read (S1-S10), in full or in the parts stated. In progress: none.
+On 10 Nov 2026 Fwa 1991 was tried again and could not be read (section 5): the ETH licence seems not
+to cover the article. So the route factor stays the derived F2 of section 2.3, and the per-line values were not
+recomputed; the Hagenholz lines (case_study/zurich_hagenholz_line_features.csv) have no g_j yet.
+Next: fill the gaps of section 4; first G1 (battery-bus factor from tread data) and G7 (prices in CHF);
+Fwa 1991 through the user (section 5).
 Scope: the vehicle is free (the user's choice): any well-documented 12 m battery bus; the eCitaro is used
 here. The lines are those near Zurich (case_study/zurich_line_features.csv).
 
@@ -518,11 +522,16 @@ measured.
 
 ## 5. Could not read
 
-- **Fwa, T.F. (1991).** Tire-wear characteristics of public buses. *Journal of Transportation Engineering*
-  117(3), 298-310. https://doi.org/10.1061/(ASCE)0733-947X(1991)117:3(298). ASCE answered 403 to
-  PowerShell and showed a Cloudflare human-verification page in the browser; not passed. It looks the
-  most relevant missing source: tread wear of 144 bus tyres with regression on route and service
-  parameters (search snippet). Can you retrieve it?
+- **Fwa, T.F.; Ang, B.W. (1991).** Tire-wear characteristics of public buses. *Journal of Transportation
+  Engineering* 117(3), 298-310. https://doi.org/10.1061/(ASCE)0733-947X(1991)117:3(298). 9 Nov 2026:
+  ASCE answered 403 to PowerShell and showed a Cloudflare human-verification page in the browser; not
+  passed. 10 Nov 2026: the article page loaded in the browser without a check, but it shows "Get
+  access", and the PDF link answered HTTP 403 with an HTML page; the ETH licence seems not to cover
+  this article. OpenAlex and Semantic Scholar list no open copy, and no secondary source found quotes
+  its regression. It looks the most relevant missing source: tread wear of 144 bus tyres (authors at
+  the National University of Singapore), with regression on route and service parameters (abstract
+  only, not evidence). It would give a data-based route factor in place of F2. Can you obtain it,
+  for example through the document delivery service of the ETH Library?
 - **Bagdonavicius, V.; Nikulin, M. (2001).** Estimation in degradation models with explanatory variables.
   *Lifetime Data Analysis* 7, 85-103. https://doi.org/10.1023/A:1009629311100. Springer served a purchase
   page (no ETH access). Possibly a Gamma process model with covariates applied to tyre wear (keywords).
