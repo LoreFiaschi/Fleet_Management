@@ -132,6 +132,9 @@ def _cfg(**changes) -> SimpleNamespace:
     for name in ("mu", "v", "support", "cgf", "gamma_beta"):
         cfg[name + "_trans"] = None
     cfg["options"] = {**_OPTIONS, **changes.pop("options", {})}
+    cfg["vehicles_per_mission"] = np.ones((M, H2), dtype=np.int64)
+    cfg["vehicles_per_mission_trans"] = None
+    cfg["d"] = np.ones((M, H1 + H2), dtype=np.int64)
     cfg.update(changes)
     return SimpleNamespace(**cfg)
 

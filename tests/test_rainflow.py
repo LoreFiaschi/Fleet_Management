@@ -132,6 +132,9 @@ def _cfg(bound, repair_model="ard1", *, reliability_impl="tangent", encoding="bi
         range_R=cell(2.0 / kappa if bound == "hoeffding" else _NAN),
         range_K=cell(s - kappa if bound == "chernoff" else _NAN),
         options=dict(_OPTIONS),
+        vehicles_per_mission=np.ones((M, H2), dtype=np.int64),
+        vehicles_per_mission_trans=None,
+        d=np.ones((M, H1 + H2), dtype=np.int64),
     )
     cfg["mu"][0] = 0.3
     cfg.update(changes)
@@ -152,6 +155,8 @@ def _build_schedule(L: int = 1) -> dict:
 
 
 _SCHEDULE = _build_schedule()
+# the fields without a component axis: _stack keeps those of the first case
+_NO_COMPONENT_AXIS = {"vehicles_per_mission", "vehicles_per_mission_trans", "d"}
 _INFEASIBLE = ("infeasible", "inf_or_unbounded")
 # train 0 on days 1..4 under each law: (states, anchors); train 1 keeps its start
 _EXPECTED = {
@@ -217,6 +222,8 @@ def _stack(first, second) -> SimpleNamespace:
     """Two one-component cases as one fleet with ``L = 2``; ``first`` is component 0."""
     joined = dict(vars(first))
     for key, a in vars(first).items():
+        if key in _NO_COMPONENT_AXIS:
+            continue
         b = getattr(second, key)
         if a is None and b is None:
             continue

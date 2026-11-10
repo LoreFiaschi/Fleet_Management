@@ -97,7 +97,8 @@ python -m streamlit run src/fleet_management/validator_dashboard.py     # the da
 - Shared variables: `x[i, j, k]` of shape `(F, M+1, T)` (`j = 0` is the depot day); `x^m` (repair) and `x^r`
   (replacement) binaries; the shared mean `mu`; `z` (damage removed by a repair); `u` (damage penalty).
   The horizon has `T = H1 + H2` days: `H1` days of the transitory phase, `H2` of the operating phase.
-- Model-independent rows: `add_assignment_rows` (at most one activity per train and day, each mission covered),
+- Model-independent rows: `add_assignment_rows` (at most one activity per train and day; mission `j` flown by exactly
+  `d_jk` trains on day `k`, from the input `vehicles_per_mission`, default 1, held as `cfg.d` of shape `(M, T)`),
   `add_depot_rows` (repair or replacement only on a depot day), `add_damage_penalty_rows`.
 - **Objective** (`build_objective`, `objective_mode`): `total`, `operating_average` (operating cost per day) or
   `evaluation_total` (needs `evaluation_horizon`). `C_M` is paid once per depot day of a train; `C_R` per unit
