@@ -1,3 +1,4 @@
+\PassOptionsToPackage{table}{xcolor}
 \documentclass[11pt,a4paper]{article}
 \usepackage[utf8]{inputenc}
 \usepackage[T1]{fontenc}
@@ -13,6 +14,24 @@
 \usetikzlibrary{arrows.meta,positioning,shapes.geometric,fit,decorations.pathreplacing,calc}
 \usepackage{xcolor}
 \setlength{\emergencystretch}{1em}
+% --- readability layout
+\usepackage{parskip}
+\linespread{1.08}
+\usepackage{tabularx}
+\usepackage{etoolbox}
+\usepackage[most]{tcolorbox}
+\usepackage[labelfont=bf]{caption}
+\definecolor{rowblue}{RGB}{234,242,251}
+\definecolor{headgrey}{RGB}{226,226,226}
+\renewcommand{\arraystretch}{1.25}
+\setlength{\aboverulesep}{0pt}
+\setlength{\belowrulesep}{0pt}
+\AtBeginEnvironment{table}{\rowcolors{2}{white}{rowblue}}
+\setlist{itemsep=0.45em,topsep=0.5em,parsep=0pt}
+\newcolumntype{Y}{>{\raggedright\arraybackslash}X}
+\tcbset{sblock/.style={enhanced,breakable,boxrule=0pt,arc=0pt,leftrule=2.5pt,
+  left=6pt,right=6pt,top=5pt,bottom=5pt,before skip=10pt,after skip=10pt}}
+\newtcolorbox{examplebox}{sblock,colback=br3!6,colframe=br3!70}
 \DeclareMathOperator*{\argmin}{arg\,min}
 \DeclareMathOperator*{\argmax}{arg\,max}
 
@@ -35,6 +54,12 @@
 \definecolor{br4}{RGB}{214,39,40}
 \definecolor{br5}{RGB}{148,103,189}
 \definecolor{br6}{RGB}{140,86,75}
+\tcolorboxenvironment{theorem}{sblock,colback=br1!5,colframe=br1!70}
+\tcolorboxenvironment{proposition}{sblock,colback=br1!5,colframe=br1!70}
+\tcolorboxenvironment{lemma}{sblock,colback=br1!5,colframe=br1!70}
+\tcolorboxenvironment{definition}{sblock,colback=black!3,colframe=black!40}
+\tcolorboxenvironment{assumption}{sblock,colback=black!3,colframe=black!40}
+\tcolorboxenvironment{example}{sblock,colback=br3!6,colframe=br3!70}
 \hypersetup{colorlinks=true,linkcolor=br1,citecolor=br3,urlcolor=br4}
 \begin{document}
 
@@ -75,7 +100,7 @@ When a question is answered, its answer goes into the section that treats the to
       \Pr(D_{i\ell k} > \tau_{i\ell}) \le \varepsilon_{i\ell} \quad \text{for all } i, \ell, k.
     \end{equation}
     A user may want to state the requirement at a coarser level.
-    \begin{itemize}[nosep]
+    \begin{itemize}
       \item \textbf{Member level:}
         \begin{equation}
           \Pr(\exists\,\ell : D_{i\ell k} > \tau_{i\ell}) \le \varepsilon_i \quad \text{for all } i, k,
@@ -121,7 +146,7 @@ When a question is answered, its answer goes into the section that treats the to
     The loop rows compare the end of the operating phase with its start, statistic by statistic.
     So every component that gains damage in the operating phase needs, inside it, a repair that removes this damage or a replacement (Section~\ref{sec:loop_replacements}).
     The battery and the inverter last several years, much longer than a typical operating phase.
-    \begin{itemize}[nosep]
+    \begin{itemize}
       \item \textbf{Battery.} A partial renewal ($\text{ARD}_\infty$ with $\rho > 0$) can remove the damage of the operating phase.
         Does a full replacement also belong in the horizon?
         The answer depends on the period length: ten years are 120 periods of one month, and 3,650 periods of one day.
@@ -178,7 +203,7 @@ When a question is answered, its answer goes into the section that treats the to
   \item \textbf{Data gaps of the simulation.}
     Section~\ref{sec:data} lists what the open data do not give.
     Which values replace them?
-    \begin{itemize}[nosep]
+    \begin{itemize}
       \item \textbf{Vehicle parameters:} empty mass, drag area, rolling resistance, efficiency maps and HVAC power over temperature.
       \item \textbf{Speed inside a segment:} only the stop times are public.
       \item \textbf{Passenger loads of the VBG lines, and their spread between single trips:} no open data exist at stop level, and the VBZ data give yearly means.
@@ -228,7 +253,7 @@ On each day, a member serves a mission (a route), goes to the depot for maintena
 Serving a mission damages the components of the member, and the damage that a day adds depends on the mission served.
 
 The schedule must do two things at once.
-\begin{itemize}[nosep]
+\begin{itemize}
   \item \textbf{Keep the fleet reliable.} The probability that a component fails must stay below a risk level~$\varepsilon$ on every day (Section~\ref{sec:overview}).
   \item \textbf{Keep the schedule repeatable.} A loop constraint requires that, at the end of the operating phase, the fleet is in a condition at least as good as at its start.
 \end{itemize}
@@ -238,7 +263,7 @@ The main application is the fleet of electric vehicles, such as buses and cars.
 A battery-electric road vehicle is a complex repairable system.
 Its parts degrade at very different rates and through very different physical mechanisms (Section~\ref{sec:ev_focus}).
 Two facts of the domain shape the relative importance of the components.
-\begin{itemize}[nosep]
+\begin{itemize}
   \item \textbf{The traction battery dominates.}
     A predictive-maintenance study of electric buses centres on the battery pack as the main maintenance-critical component \cite[Secs.~2,~4.2]{Ibrahim2025}.
     It shows that optimising the driving profile alone can cut the modelled capacity loss by 25\,\%.
@@ -254,7 +279,7 @@ The case study of Section~\ref{sec:case} is one realistic instance.
 The fleet is a set of battery-electric city buses that serve the lines of one bus depot in or near Zurich.
 The depot, its lines, their timetables, their road lengths and their height profiles are real, and they come from public data (Section~\ref{sec:data}).
 
-\begin{itemize}[nosep]
+\begin{itemize}
   \item \textbf{Lines that wear a bus at different rates.}
     The lines of a depot differ in length, in stops per km, in speed and in climbs (Section~\ref{sec:cs_aim}).
     So they wear the battery, the tires and the inverter of a bus at different rates.
@@ -268,7 +293,7 @@ The depot, its lines, their timetables, their road lengths and their height prof
 
 \subsection{Why existing approaches fall short}
 
-\begin{itemize}[nosep]
+\begin{itemize}
   \item \textbf{A fitted parametric law ties the model to one data set.}
     The distribution of the damage increment of a mission can be measured by rainflow counting.
     A fit of a parametric law to this density ties the model to one data set and one functional form.
@@ -344,8 +369,9 @@ The project leaves out the following points.
 \centering
 \caption{Options that the project does not use.}
 \label{tab:out_of_scope}
-\begin{tabular}{@{}p{5.2cm}p{9.3cm}@{}}
+\begin{tabularx}{\linewidth}{@{}>{\hsize=0.717\hsize\raggedright\arraybackslash}X>{\hsize=1.283\hsize\raggedright\arraybackslash}X@{}}
 \toprule
+\rowcolor{headgrey}
 \textbf{Option} & \textbf{Reason} \\
 \midrule
 Compound Poisson process & Not implemented and not planned. \\
@@ -357,7 +383,7 @@ Brake friction elements in the case study & Not tracked in the case study and no
 Wheel bearings in the case study & Not tracked in the case study and not planned. \\
 Traction-motor insulation in the case study & Not tracked in the case study and not planned. \\
 \bottomrule
-\end{tabular}
+\end{tabularx}
 \end{table}
 
 \section{Literature Review}\label{sec:literature}
@@ -388,8 +414,9 @@ Parameters: $\alpha,\beta>0$ (Gamma shape rate / inverse scale), $\mu$ (drift), 
 Mon.: monotone sample paths.}
 \label{tab:deg_models}
 \small
-\begin{tabular}{@{}p{3cm}p{3.6cm}p{2.2cm}cp{3.5cm}@{}}
+\begin{tabularx}{\linewidth}{@{}>{\hsize=0.976\hsize\raggedright\arraybackslash}X>{\hsize=1.171\hsize\raggedright\arraybackslash}X>{\hsize=0.715\hsize\raggedright\arraybackslash}Xc>{\hsize=1.138\hsize\raggedright\arraybackslash}X@{}}
 \toprule
+\rowcolor{headgrey}
 \textbf{Model} & \textbf{Increment} $X(t)-X(s)$ & \textbf{Marginal} $X(t)$ & \textbf{Mon.} & \textbf{Closure under $+$} \\
 \midrule
 Gamma process \cite{AbdelHameed1975}
@@ -408,7 +435,7 @@ Inverse Gaussian process \cite{YeChen2014}
   & Yes
   & Same $\mu^2/\lambda$ \\[4pt]
 \bottomrule
-\end{tabular}
+\end{tabularx}
 \end{table}
 
 \paragraph{Gamma process.}
@@ -497,8 +524,9 @@ Table~\ref{tab:sn_scatter} summarises the three most common choices.
 In all cases, the location $\mu(\sigma_a)$ or the Weibull scale $\lambda(\sigma_a)$ depends on the stress level through Basquin's law~\eqref{eq:basquin}; the scatter parameters $\sigma$, $k$ and $\beta$ do not.}
 \label{tab:sn_scatter}
 \small
-\begin{tabular}{@{}p{2.1cm}p{3.4cm}p{3.5cm}p{1.2cm}p{3.0cm}@{}}
+\begin{tabularx}{\linewidth}{@{}>{\hsize=0.795\hsize\raggedright\arraybackslash}X>{\hsize=1.288\hsize\raggedright\arraybackslash}X>{\hsize=1.326\hsize\raggedright\arraybackslash}X>{\hsize=0.455\hsize\raggedright\arraybackslash}X>{\hsize=1.136\hsize\raggedright\arraybackslash}X@{}}
 \toprule
+\rowcolor{headgrey}
 \textbf{Model} & \textbf{Life} $N_f$ & \textbf{Increment} $\Delta D_{\mathrm{PM}}$ & \textbf{Mon.} & \textbf{Closure under $+$} \\
 \midrule
 Log-normal
@@ -517,7 +545,7 @@ Gumbel
   & Yes
   & No \\
 \bottomrule
-\end{tabular}
+\end{tabularx}
 \end{table}
 
 \paragraph{Log-normal.}
@@ -604,8 +632,9 @@ CGF: cumulant generating function; var: variance.}
 \label{tab:cons_surrogates}
 \footnotesize
 \setlength{\tabcolsep}{4.5pt}
-\begin{tabular}{@{}p{1.7cm}p{1.9cm}p{1.15cm}p{2.9cm}p{2.9cm}p{1.5cm}@{}}
+\begin{tabularx}{\linewidth}{@{}>{\hsize=0.846\hsize\raggedright\arraybackslash}X>{\hsize=0.946\hsize\raggedright\arraybackslash}X>{\hsize=0.573\hsize\raggedright\arraybackslash}X>{\hsize=1.444\hsize\raggedright\arraybackslash}X>{\hsize=1.444\hsize\raggedright\arraybackslash}X>{\hsize=0.747\hsize\raggedright\arraybackslash}X@{}}
 \toprule
+\rowcolor{headgrey}
 \textbf{Method} & \textbf{Inputs} & \textbf{Cons.?} & \textbf{Pros} & \textbf{Cons} & \textbf{Ref.} \\
 \midrule
 \multicolumn{6}{@{}l}{\textit{Route I --- bound the tail of $D$ directly}} \\
@@ -640,12 +669,12 @@ Chernoff
   & needs the CGF; empirical CGF is an estimate, not a bound
   & \cite{Chernoff1952} \\[3pt]
 \bottomrule
-\end{tabular}
+\end{tabularx}
 \end{table}
 
 The Route~I bounds are elementary, and this is why they need no assumption on the distribution.
 Let $D \ge 0$ and $\tau > 0$.
-\begin{itemize}[nosep]
+\begin{itemize}
   \item \textbf{Markov.} Markov's inequality reads
     \begin{equation}\label{eq:markov_surrogate}
       \Pr(D > \tau) \le \mathbb{E}[D]/\tau.
@@ -659,7 +688,7 @@ Both are the \emph{tight} bounds that the first moment and the first two moments
 Two-point distributions attain both bounds (for the closed event $D \ge \tau$).
 This is exactly why the two bounds ignore the structure of a sum of independent terms, and why they are loose for such a sum.
 
-\begin{itemize}[nosep]
+\begin{itemize}
   \item \textbf{Chernoff.} The exponential (Cram\'er--Chernoff) bound reads
     \begin{equation}\label{eq:chernoff_surrogate}
       \Pr(D > \tau) \;\le\; \inf_{s > 0} e^{-s\tau} M_D(s)
@@ -715,7 +744,7 @@ For the fleet management problem, the relevant comparison is between two damages
 An example is the damage at the end of the transitory phase and the damage at the end of the horizon.
 
 Tables~\ref{tab:ordering_lr}--\ref{tab:ordering_st} give, for each family of Table~\ref{tab:deg_models}, the necessary and sufficient conditions for each of the three orders.
-\begin{itemize}[nosep]
+\begin{itemize}
   \item An entry marked ``---'' means that the author knows no simple closed-form characterisation.
   \item For the inverse Gaussian rows, the $\le_{\mathrm{lr}}$ conditions remain a valid sufficient criterion by~\eqref{eq:order_implications}.
 \end{itemize}
@@ -725,8 +754,9 @@ Tables~\ref{tab:ordering_lr}--\ref{tab:ordering_st} give, for each family of Tab
 \caption{Conditions for $X \le_{\mathrm{lr}} Y$ (likelihood ratio order) within each family.  Conditions are necessary and sufficient except where noted.}
 \label{tab:ordering_lr}
 \small
-\begin{tabular}{@{}p{2.1cm}p{3.8cm}p{4.0cm}p{4.0cm}@{}}
+\begin{tabularx}{\linewidth}{@{}>{\hsize=0.604\hsize\raggedright\arraybackslash}X>{\hsize=1.094\hsize\raggedright\arraybackslash}X>{\hsize=1.151\hsize\raggedright\arraybackslash}X>{\hsize=1.151\hsize\raggedright\arraybackslash}X@{}}
 \toprule
+\rowcolor{headgrey}
 \textbf{Family} & $X$ & $Y$ & \textbf{Condition} \\
 \midrule
 Gamma
@@ -742,7 +772,7 @@ Inv.\ Gaussian
   & $\mathrm{IG}(\mu_2,\,\lambda_2)$
   & $\lambda_2 \ge \lambda_1$ and $\lambda_1/\mu_1^2 \ge \lambda_2/\mu_2^2$ \\[4pt]
 \bottomrule
-\end{tabular}
+\end{tabularx}
 \end{table}
 
 \begin{table}[htbp]
@@ -750,8 +780,9 @@ Inv.\ Gaussian
 \caption{Conditions for $X \le_{\mathrm{hr}} Y$ (hazard rate order) within each family.}
 \label{tab:ordering_hr}
 \small
-\begin{tabular}{@{}p{2.1cm}p{3.8cm}p{4.0cm}p{4.0cm}@{}}
+\begin{tabularx}{\linewidth}{@{}>{\hsize=0.604\hsize\raggedright\arraybackslash}X>{\hsize=1.094\hsize\raggedright\arraybackslash}X>{\hsize=1.151\hsize\raggedright\arraybackslash}X>{\hsize=1.151\hsize\raggedright\arraybackslash}X@{}}
 \toprule
+\rowcolor{headgrey}
 \textbf{Family} & $X$ & $Y$ & \textbf{Condition} \\
 \midrule
 Gamma
@@ -767,7 +798,7 @@ Inv.\ Gaussian
   & $\mathrm{IG}(\mu_2,\,\lambda_2)$
   & --- (sufficient: $\le_{\mathrm{lr}}$ conditions) \\[4pt]
 \bottomrule
-\end{tabular}
+\end{tabularx}
 \end{table}
 
 \begin{table}[htbp]
@@ -775,8 +806,9 @@ Inv.\ Gaussian
 \caption{Conditions for $X \le_{\mathrm{st}} Y$ (usual stochastic order) within each family.}
 \label{tab:ordering_st}
 \small
-\begin{tabular}{@{}p{2.1cm}p{3.8cm}p{4.0cm}p{4.0cm}@{}}
+\begin{tabularx}{\linewidth}{@{}>{\hsize=0.604\hsize\raggedright\arraybackslash}X>{\hsize=1.094\hsize\raggedright\arraybackslash}X>{\hsize=1.151\hsize\raggedright\arraybackslash}X>{\hsize=1.151\hsize\raggedright\arraybackslash}X@{}}
 \toprule
+\rowcolor{headgrey}
 \textbf{Family} & $X$ & $Y$ & \textbf{Condition} \\
 \midrule
 Gamma
@@ -792,7 +824,7 @@ Inv.\ Gaussian
   & $\mathrm{IG}(\mu_2,\,\lambda_2)$
   & --- (sufficient: $\le_{\mathrm{lr}}$ conditions) \\[4pt]
 \bottomrule
-\end{tabular}
+\end{tabularx}
 \end{table}
 
 \subparagraph{Gamma.}
@@ -834,8 +866,9 @@ Table~\ref{tab:repair_actions} classifies five canonical maintenance actions by 
 \caption{Taxonomy of maintenance actions, from least to most restorative.}
 \label{tab:repair_actions}
 \small
-\begin{tabular}{@{}p{3.0cm}p{4.5cm}p{5.8cm}@{}}
+\begin{tabularx}{\linewidth}{@{}>{\hsize=0.677\hsize\raggedright\arraybackslash}X>{\hsize=1.015\hsize\raggedright\arraybackslash}X>{\hsize=1.308\hsize\raggedright\arraybackslash}X@{}}
 \toprule
+\rowcolor{headgrey}
 \textbf{Action} & \textbf{Effect on damage $D$} & \textbf{Model} \\
 \midrule
 No intervention
@@ -854,7 +887,7 @@ Replacement
   & $D^+ = D^{\mathrm{new}}$
   & Physical component substituted; equivalent to perfect repair \\
 \bottomrule
-\end{tabular}
+\end{tabularx}
 \end{table}
 
 \noindent Here $D^-$ and $D^+$ denote the damage immediately before and after maintenance, and $D^{\mathrm{new}}$ is the damage of a new component.
@@ -896,8 +929,9 @@ Table~\ref{tab:reduction_classes} compares the reduction classes.
 \caption{Reduction classes of imperfect repair (arithmetic reduction of age, ARA; of deterioration, ARD; of intensity, ARI): the reduced quantity, the laws and their sources.}
 \label{tab:reduction_classes}
 \small
-\begin{tabular}{@{}p{1.2cm}p{3.3cm}p{2.6cm}p{6.9cm}@{}}
+\begin{tabularx}{\linewidth}{@{}>{\hsize=0.343\hsize\raggedright\arraybackslash}X>{\hsize=0.943\hsize\raggedright\arraybackslash}X>{\hsize=0.743\hsize\raggedright\arraybackslash}X>{\hsize=1.971\hsize\raggedright\arraybackslash}X@{}}
 \toprule
+\rowcolor{headgrey}
 \textbf{Class} & \textbf{Reduced quantity} & \textbf{Laws} & \textbf{Source} \\
 \midrule
 ARA
@@ -913,7 +947,7 @@ ARI
   & $\text{ARI}_1$~\eqref{eq:ari1}\newline $\text{ARI}_\infty$~\eqref{eq:ariinf}
   & Doyen and Gaudoin~\cite{DoyenGaudoin2004} \\
 \bottomrule
-\end{tabular}
+\end{tabularx}
 \end{table}
 
 \subparagraph{Arithmetic Reduction of Age (ARA).}
@@ -974,7 +1008,7 @@ A component can be worth considering even when the abstract model of Section~\re
 Such cases are listed here with the modelling extension that they would need, rather than dropped without a note.
 
 The components that meet these criteria form two groups.
-\begin{itemize}[nosep]
+\begin{itemize}
   \item The \emph{electrochemical and electrical powertrain} (traction battery, electric motor, power electronics, charging interface) degrades through electrochemical ageing and through thermal and electrical cycling.
     Energy throughput, charge and discharge rates and temperature drive this degradation.
   \item The \emph{mechanical running gear} (tires, friction brakes, wheel bearings, suspension, reduction gear) degrades through wear and fatigue.
@@ -983,7 +1017,7 @@ The components that meet these criteria form two groups.
 Table~\ref{tab:ev_components} lists the main candidates in each group, the dominant degradation mechanism, the operational quantity that drives it, and the reason why the component is operationally significant.
 
 Two facts of the domain shape the relative importance of these components.
-\begin{enumerate}[nosep]
+\begin{enumerate}
   \item \textbf{The traction battery dominates.}
     A recent predictive-maintenance study of electric buses~\cite[Secs.~2,~4.2]{Ibrahim2025} centres entirely on the battery pack as the main maintenance-critical component.
     The study models the end of life of the pack through the accumulated charge throughput.
@@ -1003,8 +1037,9 @@ The ``mission driver'' column names the operational quantity that determines the
 Acronyms: SEI, solid electrolyte interphase; DOD, depth of discharge; C-rate, charge or discharge current divided by the capacity; IGBT, insulated-gate bipolar transistor; SiC, silicon carbide; DC, direct current; PCB, printed circuit board; BMS, battery management system; HVAC, heating, ventilation and air conditioning.}
 \label{tab:ev_components}
 \small
-\begin{tabular}{@{}p{3.0cm}p{4.6cm}p{3.5cm}c@{}}
+\begin{tabularx}{\linewidth}{@{}>{\hsize=0.811\hsize\raggedright\arraybackslash}X>{\hsize=1.243\hsize\raggedright\arraybackslash}X>{\hsize=0.946\hsize\raggedright\arraybackslash}Xc@{}}
 \toprule
+\rowcolor{headgrey}
 \textbf{Component} & \textbf{Dominant degradation mechanism} & \textbf{Mission driver} & \textbf{Rel.} \\
 \midrule
 \multicolumn{4}{@{}l}{\textit{Electrochemical / electrical powertrain}} \\
@@ -1059,18 +1094,18 @@ Auxiliaries (HVAC, battery thermal management, doors)
   & Operating hours, actuation cycles
   & A \\
 \bottomrule
-\end{tabular}
+\end{tabularx}
 \end{table}
 
 \paragraph{Power-electronic and electronic components.}
 Beyond the battery, the traction chain contains three electrical sub-families, and they fit the framework to different degrees.
-\begin{itemize}[nosep]
+\begin{itemize}
   \item \textbf{Power semiconductors.}
     Junction-temperature-swing fatigue governs the \emph{power semiconductors} of the inverter and of the DC--DC and on-board-charger \emph{converters}.
     They fit well into the remaining-life family (treated in detail below).
   \item \textbf{Converter capacitors.}
     The \emph{DC-link capacitors} of the converters stand out among the components that fail in the field~\cite[Sec.~I]{WangBlaabjerg2014}.
-    \begin{itemize}[nosep]
+    \begin{itemize}
       \item \textbf{Mechanisms.} Small electrolytic capacitors wear out mainly by vaporisation of the electrolyte, and large ones mainly by an electrochemical reaction of the oxide layer~\cite[Sec.~III-A]{WangBlaabjerg2014}.
         Film capacitors lose capacitance through self-healing breakdowns of the film and through corrosion by moisture~\cite[Sec.~III-A, Table~II]{WangBlaabjerg2014}.
         When the ripple current is high, as in electric vehicles, film capacitors can give a cheaper and smaller DC link~\cite[Sec.~II]{WangBlaabjerg2014}.
@@ -1085,7 +1120,7 @@ Beyond the battery, the traction chain contains three electrical sub-families, a
     \end{itemize}
   \item \textbf{Printed circuit boards.}
     The \emph{control and power printed circuit boards} (gate-driver, battery-management and converter boards) are the borderline case.
-    \begin{itemize}[nosep]
+    \begin{itemize}
       \item \textbf{Wear-out.} Temperature cycles, such as power on/off cycles or day--night cycles, fatigue the solder joints and the plated through-holes of a board~\cite[Table~1]{Wileman2021}.
         Vibration also fatigues the solder joints~\cite[Table~1]{Wileman2021}.
         With each cycle the damage accumulates, until a crack grows and the joint fails~\cite[Table~1]{Wileman2021}.
@@ -1112,10 +1147,11 @@ For example, a long highway mission produces large increments of tire wear and o
 A stop-intensive urban mission instead multiplies the braking events and the charge--discharge micro-cycles.
 This dependence on the mission is exactly the coupling that the scheduling problem of Section~\ref{sec:overview} exploits.
 
+\begin{examplebox}
 \paragraph{Worked example: traction-battery capacity fade.}
 The battery pack is the most expensive component of an electric vehicle and the focus of its predictive maintenance~\cite[Secs.~2,~4.2]{Ibrahim2025}.
 So it serves as the reference instance of the abstract increment $\Delta D^{(j)}_{i\ell k}$.
-\begin{itemize}[nosep]
+\begin{itemize}
   \item \textbf{Damage and threshold.}
     Its damage is the relative capacity fade (one minus the state of health), and the failure threshold~$\tau$ is the largest admissible fade (the end-of-life criterion).
   \item \textbf{Mechanisms.}
@@ -1123,14 +1159,14 @@ So it serves as the reference instance of the abstract increment $\Delta D^{(j)}
     Their contributions split into loss of lithium inventory and loss of active material~\cite[Secs.~2.1,~4.1, Eqs.~28--29]{Lv2025}.
   \item \textbf{Semi-empirical models.}
     At the fleet level, semi-empirical models abstract this process and split the fade into a \emph{calendar} term and a \emph{cycling} term.
-    \begin{itemize}[nosep]
+    \begin{itemize}
       \item The calendar term grows with an Arrhenius factor $a\exp(-E_a/RT)$ in temperature and with a power law in time and state of charge.
       \item The cycling term grows with the number of cycles, modulated by stress factors for temperature, C-rate and depth of discharge~\cite[Eqs.~1--3]{Hosen2021}.
     \end{itemize}
     An even simpler engineering abstraction links the end of life directly to the accumulated charge throughput~\cite[Sec.~4.2]{Ibrahim2025}.
   \item \textbf{Cycling term.}
     For our framework the decisive structure is the following.
-    \begin{itemize}[nosep]
+    \begin{itemize}
       \item The cycling fade is monotone and adds up over days.
       \item The daily increment is a function of the energy served on the mission, of its depth of discharge and of its temperature profile.
         The energy includes the recharge that restores it, so fast charging (a high C-rate) makes the same mission more damaging.
@@ -1144,6 +1180,7 @@ So it serves as the reference instance of the abstract increment $\Delta D^{(j)}
     Over short horizons the calendar term can be neglected.
     Over long horizons the dynamics~\eqref{eq:dyn_full} must be extended with a small drift that does not depend on the activity and is added to every case, idle days included.
 \end{itemize}
+\end{examplebox}
 
 \subsubsection{Degradation models for the shortlisted components}
 \label{sec:ev_deg_models}
@@ -1160,8 +1197,9 @@ Table~\ref{tab:ev_deg_models} summarises, for each component, the governing mode
 SOC: state of charge; LAM: loss of active material; DOD: depth of discharge.}
 \label{tab:ev_deg_models}
 \small
-\begin{tabular}{@{}p{2.4cm}p{4.9cm}p{3.0cm}p{2.6cm}@{}}
+\begin{tabularx}{\linewidth}{@{}>{\hsize=0.744\hsize\raggedright\arraybackslash}X>{\hsize=1.519\hsize\raggedright\arraybackslash}X>{\hsize=0.930\hsize\raggedright\arraybackslash}X>{\hsize=0.806\hsize\raggedright\arraybackslash}X@{}}
 \toprule
+\rowcolor{headgrey}
 \textbf{Component} & \textbf{Degradation model / law} & \textbf{Mission driver} & \textbf{Abstract family} \\
 \midrule
 Battery pack
@@ -1189,7 +1227,7 @@ Inverter power module
   & Power throughput, thermal cycles
   & Remaining-life (Miner) \\
 \bottomrule
-\end{tabular}
+\end{tabularx}
 \end{table}
 
 The paragraphs below treat the tires and the inverter power modules; the battery is treated above.
@@ -1198,7 +1236,7 @@ Section~\ref{sec:scope} lists the other components of the table as out of scope.
 
 \paragraph{Tires.}
 The frictional work spent at the tire--road contact patch governs the loss of tread.
-\begin{itemize}[nosep]
+\begin{itemize}
   \item \textbf{Model.}
     The classical theory of Schallamach and Turner assumes that abrasion is proportional to the energy dissipated by friction~\cite[Eq.~7]{SchallamachTurner1960}.
     It derives that, at small slip, wear grows approximately with the \emph{square} of the slip~\cite[Eq.~19]{SchallamachTurner1960}.
@@ -1219,7 +1257,7 @@ The frictional work spent at the tire--road contact patch governs the loss of tr
 \paragraph{Inverter power modules.}
 The IGBT modules of the traction inverter fail mainly by thermo-mechanical fatigue: lift-off of the aluminium bond wires and cracking of the solder layer~\cite[Sec.~1]{Alavi2024}.
 The mismatch of the coefficients of thermal expansion under repeated junction-temperature swings $\Delta T_j$ drives this fatigue~\cite[Secs.~1 and~4]{Alavi2024}.
-\begin{itemize}[nosep]
+\begin{itemize}
   \item \textbf{Model.}
     The classical model of the number of cycles to failure is a Coffin--Manson power law~\cite[Eq.~3]{Alavi2024}:
     \begin{equation}
@@ -1240,7 +1278,7 @@ The mismatch of the coefficients of thermal expansion under repeated junction-te
     Alavi et al.\ enter $V$ in volts divided by~100~\cite[Sec.~4]{Alavi2024}.
     Here $K$ is a scale factor, and $\beta_1,\dots,\beta_6$ are exponents fitted by multiple linear regression on the logarithm of the model~\cite[Sec.~3.2]{Bayerer2008}.
     Bayerer et al.\ give two sets of exponents $\beta = (\beta_1, \ldots, \beta_6)$~\cite[Eqs.~(5)--(6)]{Bayerer2008}:
-    \begin{itemize}[nosep]
+    \begin{itemize}
       \item with $T_j$ the maximum junction temperature of the cycle,
         \begin{equation}
           \beta = (-3.483,\ 1917,\ -0.438,\ -0.717,\ -0.751,\ -0.564);
@@ -1273,7 +1311,7 @@ The mismatch of the coefficients of thermal expansion under repeated junction-te
 
 \paragraph{Common structure.}
 Every shortlisted component reduces to one of the two abstract descriptions of Section~\ref{sec:deg_families}:
-\begin{itemize}[nosep]
+\begin{itemize}
   \item a \emph{monotone accumulation process} (battery cycling fade, tires, brakes, bearings; for bearings, the propagation stage ends at a remaining-life threshold);
   \item a \emph{remaining-life model accumulated by the Palmgren--Miner rule} (insulation, power modules).
 \end{itemize}
@@ -1319,8 +1357,9 @@ CSV: comma-separated values. GPL, AGPL: GNU General Public License, GNU Affero G
 \label{tab:cs_sim_tools}
 \small
 \setlength{\tabcolsep}{4pt}
-\begin{tabular}{@{}p{1.7cm}p{3.0cm}p{3.8cm}p{2.1cm}p{2.0cm}p{1.8cm}@{}}
+\begin{tabularx}{\linewidth}{@{}>{\hsize=0.708\hsize\raggedright\arraybackslash}X>{\hsize=1.250\hsize\raggedright\arraybackslash}X>{\hsize=1.583\hsize\raggedright\arraybackslash}X>{\hsize=0.875\hsize\raggedright\arraybackslash}X>{\hsize=0.833\hsize\raggedright\arraybackslash}X>{\hsize=0.750\hsize\raggedright\arraybackslash}X@{}}
 \toprule
+\rowcolor{headgrey}
 \textbf{Tool} & \textbf{Simulates} & \textbf{Battery buses} & \textbf{Timetable} & \textbf{Gradients} & \textbf{Licence} \\
 \midrule
 SUMO \cite{SUMOdocs2026} & traffic flow and the motion of each vehicle, step by step & battery device: energy content, chargers on lanes, one constant auxiliary power; no HVAC model over air temperature; no ageing & GTFS; with \texttt{shapes.txt}, routes follow OSM & heights from OSM or a height map & Eclipse Public License 2.0 \\
@@ -1331,7 +1370,7 @@ SimBA \cite{SimBA2026} & operation of a battery-bus fleet: trip energy, charging
 eflips-X \cite{Heide2025} & planning of a battery-bus fleet: blocks, depot, chargers, smart charging & energy tables over speed, gradient, temperature and load; SOC per block; no ageing & not stated & in the energy table & AGPL \\
 PTV Visum \cite{PTVVisum2024} & transport planning at the network level; vehicle scheduling & bus scheduling with linear charging and a range in km; no ageing model described & not stated & elevation import & commercial \\
 \bottomrule
-\end{tabular}
+\end{tabularx}
 \end{table}
 
 \paragraph{A published check on Zurich data.}
@@ -1363,7 +1402,7 @@ This subsection lists what the sources read for this document do not cover.
 
 We consider a fleet of $F$ members.
 Each member has $L$ components, and each component degrades stochastically.
-\begin{itemize}[nosep]
+\begin{itemize}
   \item \textbf{Horizon.} The planning horizon has $T = H_1 + H_2$ days, the time steps of the model.
     The first $H_1$ days form the \emph{transitory phase}, which starts from the current state of the fleet.
     The last $H_2$ days form the \emph{operating phase}, which is the schedule to repeat.
@@ -1394,8 +1433,9 @@ All variables are general and independent of any specific degradation model.
 \caption{Notation and variable definitions.}
 \label{tab:notation}
 \small
-\begin{tabular}{@{}lp{10.5cm}@{}}
+\begin{tabularx}{\linewidth}{@{}l>{\hsize=1.000\hsize\raggedright\arraybackslash}X@{}}
 \toprule
+\rowcolor{headgrey}
 \textbf{Symbol} & \textbf{Description} \\
 \midrule
 \multicolumn{2}{@{}l}{\textit{Index sets}} \\
@@ -1439,7 +1479,7 @@ $x^r_{i\ell k} \in \{0,1\}$   & $1$ if component $\ell$ of member $i$ is replace
 $z_{i\ell k} \ge 0$            & Damage removed by imperfect repair (in expected-damage units) \\
 $u \ge 0$                      & Damage-penalty variable \\
 \bottomrule
-\end{tabular}
+\end{tabularx}
 \end{table}
 
 \subsection{Scheduling and maintenance variables}
@@ -1458,7 +1498,7 @@ A mission may need several members at once: for example, a bus line that needs $
 The number may change from day to day, for example between weekdays and weekends; $d_{jk} = 0$ means that mission~$j$ is not served on day~$k$.
 
 A member whose assignment row is all zeros on day~$k$ is \emph{idle}: it serves no mission and is not in the depot.
-\begin{itemize}[nosep]
+\begin{itemize}
   \item \textbf{Members on missions.} By~\eqref{eq:one_activity} and~\eqref{eq:mission_coverage}, exactly $\sum_{j} d_{jk}$ members serve missions on day~$k$. Since $F > \max_k \sum_{j} d_{jk}$, the other $F - \sum_{j} d_{jk} \ge 1$ members are in the depot or idle.
   \item \textbf{Depot day or idle day.} Because~\eqref{eq:one_activity} is an inequality, the choice between a depot day and an idle day is free.
     An idle day costs nothing, and the depot-day cost~$C_M$ prices this choice (Section~\ref{sec:cost_function}).
@@ -1513,7 +1553,7 @@ On each day, exactly one of the following mutually exclusive cases applies to ev
     where $\mathcal{R}$ denotes the repair operator.
     Under $\text{ARD}_1$ the operator also uses the damage just after the last intervention; the notation leaves this argument implicit.
     The formulation offers two repair operators, or repair laws, chosen per component.
-    \begin{itemize}[nosep]
+    \begin{itemize}
       \item $\text{ARD}_\infty$ (arithmetic reduction of deterioration with infinite memory) removes the fraction~$\rho_{i\ell}$ of the whole damage.
       \item $\text{ARD}_1$ (arithmetic reduction of deterioration of order~1) removes the fraction~$\rho_{i\ell}$ of the damage accumulated since the last intervention, repair or replacement (Section~\ref{sec:repair_connection}).
     \end{itemize}
@@ -1568,7 +1608,7 @@ Day $T + nH_2 + h$ carries the decisions and the increment laws of day $H_1 + h$
   n \ge 0 \quad\text{and}\quad 1 \le h \le H_2.
 \end{equation}
 The days of the transitory phase read their increment laws in one of two ways.
-\begin{itemize}[nosep]
+\begin{itemize}
   \item \textbf{No transitory laws.} When the transitory phase has no increment laws of its own, its days read the laws of the operating phase cyclically.
     For example, with $H = [2, 3]$, days $1,\ldots,5$ read the operating laws $1, 2, 1, 2, 3$.
     With a single value $H$, both phases read the same $H$ laws, one phase after the other.
@@ -1578,7 +1618,7 @@ The days of the transitory phase read their increment laws in one of two ways.
 \paragraph{Degradation models of the formulation.}
 Each component has one of five degradation models: Gaussian, inverse Gaussian, Wiener, Gamma or rainflow.
 Section~\ref{sec:loop_per_model} lists the statistics that each model tracks and its reliability row.
-\begin{itemize}[nosep]
+\begin{itemize}
   \item \textbf{Gaussian and Wiener.} Both the Gaussian and the Wiener model use Gaussian increments.
     The Gaussian model tracks a variance that a repair reduces.
     The Wiener model fits components whose uncertainty does not depend on the route and is not reduced by a repair.
@@ -1622,7 +1662,7 @@ The failure occurs already for the exact probabilities whenever the law of the s
 For a Gaussian state, a change of the mean balanced by an opposite change of the variance can satisfy~\eqref{eq:loop_prob} over one repetition, while the failure probability $\Phi\bigl((\mu-\tau)/\sigma\bigr)$ rises above~$\varepsilon$ in a later repetition.
 
 Repeating the schedule is guaranteed to keep the failure probability below~$\varepsilon$ whenever the comparison uses a quantity with two properties:
-\begin{itemize}[nosep]
+\begin{itemize}
   \item the quantity bounds the failure probability monotonically;
   \item the dynamics~\eqref{eq:dyn_full} propagate it monotonically.
 \end{itemize}
@@ -1637,7 +1677,7 @@ The formulation compares a few statistics of the state instead, one by one.
 
 \paragraph{Tracked state.}
 Each degradation model certifies the reliability of a component through a few statistics of its damage~$D_{i\ell k}$.
-\begin{itemize}[nosep]
+\begin{itemize}
   \item The inverse Gaussian and Gamma models track the mean.
   \item The Gaussian and Wiener models track the mean and the variance.
   \item The rainflow model tracks the mean and, except under the Markov bound, one statistic of the chosen tail bound (Sections~\ref{sec:cons_surrogates} and~\ref{sec:loop_per_model}).
@@ -1647,7 +1687,7 @@ The \emph{tracked state} $\xi_{i\ell k}$ collects the statistics and their ancho
 Each component also has a \emph{start of the repetition} $y_{i\ell}$.
 It is a vector over the same coordinates as $\xi_{i\ell k}$, anchors included: the tracked state at the start of every repetition of the operating phase.
 Three groups of rows tie $y_{i\ell}$ to the tracked state, one row per coordinate:
-\begin{itemize}[nosep]
+\begin{itemize}
   \item \textbf{Start rows.} The start is at least the state of day~$H_1$:
     \begin{equation}\label{eq:start}
       y_{i\ell} \;\ge\; \xi_{i\ell H_1}
@@ -1689,7 +1729,7 @@ The loop constraint~\eqref{eq:loop} of the formulation compares tracked statisti
 \label{sec:encoding}
 
 Each day, every tracked statistic of a component follows one rule:
-\begin{itemize}[nosep]
+\begin{itemize}
   \item \textbf{Mission.} A mission adds an increment.
   \item \textbf{Repair.} A repair applies the repair map of Section~\ref{sec:repair_connection}.
   \item \textbf{Replacement.} A replacement resets the statistic (Section~\ref{sec:damage_dynamics}).
@@ -1699,13 +1739,15 @@ The solver may choose a value above the result of the rule, never a value below 
 A value above the result of the rule carries \emph{slack}.
 So a tracked statistic is an upper bound on the value that the rule gives.
 
-Example: with $\mu_{i\ell,k-1} = 0.3$ and a mission increment of $0.2$, the rule gives $0.5$; the rows accept $\mu_{i\ell k} = 0.5$ and also $\mu_{i\ell k} = 0.6$.
+\begin{examplebox}
+\textbf{Example.} with $\mu_{i\ell,k-1} = 0.3$ and a mission increment of $0.2$, the rule gives $0.5$; the rows accept $\mu_{i\ell k} = 0.5$ and also $\mu_{i\ell k} = 0.6$.
+\end{examplebox}
 
 Replacement rows and anchor updates are equalities.
 
 Fix a schedule, that is, values of every binary, and one component.
 The following objects are used here and in the rest of this section.
-\begin{itemize}[nosep]
+\begin{itemize}
   \item The \emph{full tracked state} $\xi_k$ collects the values on day~$k$ of every tracked statistic of the component and of every anchor.
     $\xi_0$ holds the initial values and the starting anchors.
   \item The \emph{day map} $\pi_k$ gives, for each coordinate, the value that the rule of day~$k$ assigns: $s + \delta s_k$ and $g$ on a day without intervention; $a\,s + (1-a)\,g$ for both $s$ and $g$ on a repair day; the replacement value $s^{\mathrm{new}}$ for both on a replacement day.
@@ -1716,7 +1758,7 @@ The following objects are used here and in the rest of this section.
 \end{itemize}
 
 For every model of the formulation, three facts hold (Section~\ref{sec:loop_per_model} states them model by model):
-\begin{enumerate}[nosep,label=(M\arabic*)]
+\begin{enumerate}[label=(M\arabic*)]
   \item Each repair factor $a$ lies in $[0,1]$, and each increment $\delta s_k$ is non-negative.
   \item On day~$0$ the true statistics are at most the initial values and starting anchors, $\theta_0 \le \xi_0$.
     On every later day the true statistic is at most the day map applied to the true statistics of the day before: $\theta_k \le \pi_k(\theta_{k-1})$.
@@ -1740,6 +1782,7 @@ $\kappa_G = \Phi^{-1}(1-\varepsilon)$, $\kappa_C = \sqrt{(1-\varepsilon)/\vareps
 \small
 \begin{tabular}{@{}lll@{}}
 \toprule
+\rowcolor{headgrey}
 \textbf{Model or bound} & \textbf{Row in chance-bound form} & \textbf{Source} \\
 \midrule
 Gaussian, Wiener      & $\mu + \kappa_G\sqrt{v} \le \tau$ & Section~\ref{sec:loop_per_model} \\
@@ -1780,7 +1823,7 @@ The costs computed from them are upper bounds on the costs computed from the ref
 Against the true costs there is one exception, for a starting anchor above the true one (Section~\ref{sec:cost_function}).
 
 The minimisation removes slack only where slack costs something.
-\begin{itemize}[nosep]
+\begin{itemize}
   \item \textbf{Mean.} A larger mean raises the damage penalty $C_D\,u$ where $u$ is binding (where a row that defines~$u$ holds with equality), and raises the repair cost $C_R\,z$ of the next repair, unless a replacement comes first.
     Under $\text{ARD}_\infty$ it also raises the cost of the later repairs up to the next replacement; under $\text{ARD}_1$ the anchor takes the slack at the next intervention, and the later repairs do not change.
   \item \textbf{Other statistics.} A larger variance, Hoeffding budget or cumulant generating function tightens the reliability row and so restricts the schedule.
@@ -1807,7 +1850,7 @@ The constant $M_s$ is the \emph{natural range} of~$s$: an upper bound of~$s$ at 
 For a variance, the Hoeffding budget and the Chernoff statistic, the value below is the largest value that the exact row admits at $\mu \ge 0$.
 For a mean, $\tau$ is an upper bound: the row itself, its side row or a smaller cap bounds the mean by~$\tau$.
 The Chernoff row does not contain the mean; there $\mu \le K/s < \tau$ holds on the reference trajectory, because the input checks keep $K \ge s\mu$ (Jensen's inequality).
-\begin{itemize}[nosep]
+\begin{itemize}
   \item $\tau$ for a mean and for its anchor.
   \item $V_{\max} = \tau^2/\kappa_G^2$ for a Gaussian or Wiener variance (Remark~\ref{rem:vmax}).
   \item $\varepsilon\tau^2/(1-\varepsilon)$ for a Cantelli variance.
@@ -1841,7 +1884,7 @@ Therefore $\zeta_k \in \mathcal{C}_{i\ell}$ and $\Pr(D_{i\ell k} > \tau) \le \va
 \end{theorem}
 The proof is in Appendix~\ref{prf:thm:perpetual}, page~\pageref{prf:thm:perpetual}.
 
-\begin{itemize}[nosep]
+\begin{itemize}
   \item \textbf{Models and repair laws.} The theorem holds for every model and both repair laws, because it uses only the facts (M1)--(M3) and Lemma~\ref{lem:monotone}.
   \item \textbf{Encodings and forms.} The theorem holds in both encodings and in every form of the reliability rows.
   \item \textbf{Phase lengths.} The theorem needs no relation between $H_1$ and $H_2$: the transitory phase may be shorter or longer than the operating phase, because $H_1$ only marks the day at which the operating phase starts.
@@ -1862,7 +1905,7 @@ The loop constraint states an order between tracked statistics; it is not a stoc
 Call a schedule \emph{safe} for a component when the reference trajectory of the endless schedule lies in $\mathcal{C}_{i\ell}$ and in the natural ranges of the statistics on every day.
 The natural range of a statistic is an upper bound of its value at every point that satisfies the reliability row (Section~\ref{sec:impl_encoding}).
 The one-sided rows relate to safety as follows.
-\begin{itemize}[nosep]
+\begin{itemize}
   \item \emph{They never accept an unsafe schedule} (Theorem~\ref{thm:perpetual}).
   \item \emph{They accept every schedule that equality rows accept}, and more.
     Equality rows force $\xi_k = \zeta_k$; Proposition~\ref{prop:acceptance}~(a) shows that such a schedule satisfies the one-sided rows too.
@@ -1870,7 +1913,7 @@ The one-sided rows relate to safety as follows.
   \item \emph{They may reject a safe schedule}, as equality rows may.
     Proposition~\ref{prop:acceptance} (both parts) excludes this for a component in the exact form with one tracked statistic and the law $\text{ARD}_\infty$.
     Otherwise a rejection can occur in two cases:
-    \begin{itemize}[nosep]
+    \begin{itemize}
       \item tracked statistics, anchors included, move in opposite directions over the first repetition (the second example below);
       \item a linear form is stricter than the exact row.
     \end{itemize}
@@ -1880,7 +1923,7 @@ A replacement on day~$H_1$ causes no rejection: the start of the repetition $y$ 
 \begin{proposition}[Acceptance]\label{prop:acceptance}
 Fix a schedule and a component, use the exact reliability form, and let the schedule be safe for the component.
 Let $\bar\zeta = \zeta_{H_1}$.
-\begin{enumerate}[nosep,label=(\alph*)]
+\begin{enumerate}[label=(\alph*)]
   \item If $\Pi(\bar\zeta) \le \bar\zeta$, the rows of the component, the loop rows included, accept the schedule with $\xi_k = \zeta_k$ for every~$k$ and $y = \bar\zeta$.
   \item If $\Pi(\bar\zeta) \ge \bar\zeta$, the rows of the component accept the schedule.
 \end{enumerate}
@@ -1901,7 +1944,7 @@ The operating phase is a mission ($\delta\mu = 0.2$) followed by a repair, so
 \end{equation}
 and $\Pi(y) \le y$ if and only if $y \ge 0.2$.
 Let $\bar\zeta = 0.1$.
-\begin{itemize}[nosep]
+\begin{itemize}
   \item Equality rows:
     \begin{equation}
       \Pi(0.1) = 0.15 > 0.1,
@@ -1925,7 +1968,7 @@ So
 \end{equation}
 with fixed point $(0.2, 0.003)$.
 Let $\bar\zeta = (0.5, 0)$.
-\begin{itemize}[nosep]
+\begin{itemize}
   \item Reference: over the repetitions the mean falls to $0.2$ and the variance rises to $0.003$.
     The first peak is $(0.7, 0.009)$, with
     \begin{equation}
@@ -1969,8 +2012,10 @@ The requirement is a property of the repair law, not a side effect of the formul
 Without a replacement, each repair leaves in place the share $1-\rho$ of the damage added since the last intervention.
 So the anchor rises with every repair, and the mean grows without bound over the repetitions of the operating phase.
 
-Example: $\rho = 0.5$, and a mission adds $0.2$ to the mean between two repairs; each repair leaves the mean $0.1$ higher than the previous one.
+\begin{examplebox}
+\textbf{Example.} $\rho = 0.5$, and a mission adds $0.2$ to the mean between two repairs; each repair leaves the mean $0.1$ higher than the previous one.
 With $\rho = 1$ a repair returns the state to the anchor, and no replacement is needed.
+\end{examplebox}
 
 When replacements are not allowed, the member of such a component cannot serve, in the operating phase, a mission with a positive mean increment for the component.
 If the fleet cannot cover the missions without such a mission, the problem is infeasible.
@@ -1991,7 +2036,7 @@ We assume that all four cost functions are non-negative and non-decreasing in ea
 So the cost never decreases when the schedule has more depot days, removes more damage, replaces more components or accepts a higher aggregate damage.
 
 The first three terms are the following.
-\begin{itemize}[nosep]
+\begin{itemize}
   \item \textbf{Depot-day cost $C_M$.} The first term charges for every depot day of the fleet.
     It is paid once per member and depot day ($x_{i0k} = 1$), whatever the number of components repaired or replaced on that day.
     It prices the visit to the depot, for example the member out of service and the set-up of the work.
@@ -2011,7 +2056,7 @@ where
 \end{equation}
 is a non-decreasing aggregation function.
 The formulation offers two penalty types.
-\begin{itemize}[nosep]
+\begin{itemize}
   \item \textbf{Default type.} It takes $\phi$ as the sum of the expected component damages, which gives one linear row per member and day.
   \item \textbf{Quadratic type.} It takes $\phi$ as the sum of their squares, which gives one convex quadratic row per member and day.
     The quadratic type is used only with the exact form of the reliability rows, because the linear forms of those rows (Section~\ref{sec:linear_forms}) serve to keep the whole model linear.
@@ -2045,18 +2090,19 @@ The formulation offers three objectives, and Table~\ref{tab:objective_modes} com
 \caption{Objective modes of the formulation.}
 \label{tab:objective_modes}
 \small
-\begin{tabular}{@{}p{3.0cm}p{4.1cm}p{4.4cm}p{3.1cm}@{}}
+\begin{tabularx}{\linewidth}{@{}>{\hsize=0.822\hsize\raggedright\arraybackslash}X>{\hsize=1.123\hsize\raggedright\arraybackslash}X>{\hsize=1.205\hsize\raggedright\arraybackslash}X>{\hsize=0.849\hsize\raggedright\arraybackslash}X@{}}
 \toprule
+\rowcolor{headgrey}
 \textbf{Mode} & \textbf{Objective} & \textbf{Meaning} & \textbf{Transitory phase} \\
 \midrule
 Total             & $J_{\mathrm{init}} + J_{\mathrm{op}} + C_D\,u$ & the cost of the $T$ modelled days & priced by $J_{\mathrm{init}}$ \\
 Operating average & $J_{\mathrm{op}}/H_2 + C_D\,u$ & the cost per day of the operating phase & no day cost, but still constrained and part of~$u$ \\
 Evaluation total  & $J_{\mathrm{init}} + \frac{E - H_1}{H_2}\,J_{\mathrm{op}} + C_D\,u$ & the projected cost over an evaluation horizon of $E$ days & priced by $J_{\mathrm{init}}$ \\
 \bottomrule
-\end{tabular}
+\end{tabularx}
 \end{table}
 
-\begin{itemize}[nosep]
+\begin{itemize}
   \item \textbf{Operating average.} It is the long-run cost per day of the endless schedule, in which the cost of the transitory phase spreads over infinitely many days.
     It is comparable across values of~$H_2$, whereas a raw objective over $T$ days is not.
     The solver chooses the schedule of the transitory phase for feasibility and, when $C_D > 0$, for the damage penalty, because $u$ also covers the transitory days.
@@ -2065,8 +2111,10 @@ Evaluation total  & $J_{\mathrm{init}} + \frac{E - H_1}{H_2}\,J_{\mathrm{op}} + 
     It needs $E > H_1$: for a smaller~$E$ the operating cost would have a negative weight.
 \end{itemize}
 The damage penalty is added once in every mode, because $u$ is the maximum over the whole horizon.
-Example: $H_1 = 5$, $H_2 = 10$, $E = 365$.
+\begin{examplebox}
+\textbf{Example.} $H_1 = 5$, $H_2 = 10$, $E = 365$.
 Then the evaluation total weights the operating cost by $36$, and the operating average by $1/10$.
+\end{examplebox}
 
 The objective value is computed from the tracked values, so it is an upper bound on the cost of the schedule computed from the reference values (Section~\ref{sec:encoding}).
 
@@ -2077,7 +2125,7 @@ The formulation writes it with the tracked mean $\mu$ and its anchor $g^{\mu}$, 
   z_{i\ell k} \;\ge\; \rho\,\bigl(\mu_{i\ell,k-1} - g^{\mu}_{i\ell,k-1}\bigr) - \rho\,\tau\,\bigl(1 - x^m_{i\ell k}\bigr),
   \qquad z_{i\ell k} \ge 0 .
 \end{equation}
-\begin{itemize}[nosep]
+\begin{itemize}
   \item \textbf{Repair day.} The first row reads
     \begin{equation}
       z_{i\ell k} \ge \rho\,(\mu_{i\ell,k-1} - g^{\mu}_{i\ell,k-1}),
@@ -2106,7 +2154,7 @@ When the starting anchor equals the true mean level after the last intervention 
 The proof is in Appendix~\ref{prf:prop:repair_cost}, page~\pageref{prf:prop:repair_cost}.
 
 The default starting anchor may lie above the true one (Section~\ref{sec:repair_connection}), and such an anchor models a weaker repair.
-\begin{itemize}[nosep]
+\begin{itemize}
   \item \textbf{First repair.} Then, for the first repair of the horizon, when no intervention precedes it, the charged removal follows the starting anchor and may be below the true removal.
   \item \textbf{Later repairs.} From the first intervention on, the reference gap $\zeta^{\mu} - \zeta^{g}$ equals the true gap, the sum of the mean increments since that intervention, so the bound holds again.
 \end{itemize}
@@ -2175,7 +2223,7 @@ Here $\xi_{i\ell k}$ is the tracked state and $y_{i\ell}$ the start of the repet
 The rows of day $H_1 + 1$ that read the state of the day before read $y_{i\ell}$ in place of $\xi_{i\ell H_1}$.
 When $C_D = 0$, the variable $u$ and row~\eqref{eq:abs_u} are not built (Section~\ref{sec:cost_function}).
 The constraints have three groups.
-\begin{itemize}[nosep]
+\begin{itemize}
   \item The fleet rows (assignment and depot days) do not depend on the degradation models.
   \item The common rules of the dynamics (repair laws, one-sided encoding, replacement, linear forms of the reliability rows) hold for every model.
   \item Each model adds its tracked statistics, day maps and reliability row (Section~\ref{sec:loop_per_model}).
@@ -2207,8 +2255,9 @@ Table~\ref{tab:discrete_models} restates the three models in this discrete-time 
 Each row gives the distribution of a one-day increment~$\Delta D$ and the resulting marginal of $D_k = \sum_{t=1}^{k}\Delta D_t$ when all increments share the parameters required for closure.}
 \label{tab:discrete_models}
 \small
-\begin{tabular}{@{}p{2.1cm}p{3.4cm}p{4.0cm}p{4.2cm}@{}}
+\begin{tabularx}{\linewidth}{@{}>{\hsize=0.613\hsize\raggedright\arraybackslash}X>{\hsize=0.993\hsize\raggedright\arraybackslash}X>{\hsize=1.168\hsize\raggedright\arraybackslash}X>{\hsize=1.226\hsize\raggedright\arraybackslash}X@{}}
 \toprule
+\rowcolor{headgrey}
 \textbf{Model} & \textbf{Increment} $\Delta D_t$ & \textbf{Marginal} $D_k$ (homogeneous) & \textbf{Closure condition} \\
 \midrule
 Gamma
@@ -2224,7 +2273,7 @@ Inv.\ Gaussian
   & $\mathrm{IG}\!\bigl(\sum_{t}\mu_t,\;\frac{(\sum_t \mu_t)^3}{ \sum_t(\mu_t^3/\lambda_t)}\bigr)$
   & Same $\mu^2/\lambda$ \\
 \bottomrule
-\end{tabular}
+\end{tabularx}
 \end{table}
 
 The closure conditions decide whether the marginal distribution of~$D_{i\ell k}$ stays in the same parametric family when increments of different missions are summed.
@@ -2234,7 +2283,7 @@ When the condition does not hold, for example for a sum of Gamma increments with
 
 In the fleet management problem of Section~\ref{sec:overview}, the increment of each day has parameters that depend on the mission.
 Closure therefore requires one value of the shared parameter for all missions of a component: the rate~$\beta$ for Gamma, or the dispersion $\mu^2/\lambda$ for inverse Gaussian.
-\begin{itemize}[nosep]
+\begin{itemize}
   \item \textbf{Gamma.} The shape parameters may vary freely across missions, and they add up.
   \item \textbf{Gaussian.} The mean and variance parameters may vary freely across missions, and they add up.
     No restriction is needed: normal random variables are closed under addition without conditions.
@@ -2266,7 +2315,7 @@ Here, conservative means that the surrogate never \emph{under}states the damage.
 Then the reliability constraint $\Pr(D_{i\ell k} > \tau) \le \varepsilon$ and the loop constraint~\eqref{eq:loop} stay valid by construction.
 
 Two features of the problem limit the admissible options.
-\begin{itemize}[nosep]
+\begin{itemize}
   \item \textbf{Accumulated damage.} Both constraints act on the \emph{accumulated} damage
     \begin{equation}
       D = \sum_t \Delta D_t
@@ -2298,7 +2347,7 @@ Independence across days then gives
   \operatorname{Var}[D] = \sum_j n_{ij}\,v_{\ell j}, \qquad
   \ln M_D(s) = \sum_j n_{ij}\,\psi_{\ell j}(s).
 \end{equation}
-\begin{itemize}[nosep]
+\begin{itemize}
   \item \textbf{Linearity.} Each functional of~$D$ is therefore a sum of quantities of the missions, weighted by the counts.
     It is linear in the schedule.
   \item \textbf{Support.} The support enters through the support $b_{\ell j}$ of each mission; only the closed form of Bernstein's inequality merges the supports into one shared value (see below).
@@ -2318,7 +2367,7 @@ Suppose that all summands share one worst-case support
 Then Bernstein's inequality treats every mission as the most damaging one, and it loses the differences between missions that the schedule exploits.
 This loss comes from the closed form of Bernstein's inequality, not from Route~I.
 With inputs kept per term, each bound keeps the support and the tail of every mission.
-\begin{itemize}[nosep]
+\begin{itemize}
   \item \textbf{Hoeffding.} Hoeffding's inequality reads
     \begin{equation}
       \Pr(D - \mathbb{E}[D] > a) \le \exp\!\big( -2a^2 / \sum_j n_{ij} b_{\ell j}^2 \big)
@@ -2385,7 +2434,7 @@ The derivation of these properties of~\eqref{eq:bernstein_constraint} is in Appe
 \paragraph{Guaranteed bound versus estimate.}
 For~\eqref{eq:chernoff_permission} to be a true bound, the per-mission ingredient must be an \emph{upper} bound on $\psi_{\ell j}$.
 Two per-mission choices are enough, and both keep the support local.
-\begin{itemize}[nosep]
+\begin{itemize}
   \item \textbf{Mean-and-support bound.} For an increment whose range is $[0, b_{\ell j}]$, so that it starts at~$0$, the first is
     \begin{equation}
       \psi_{\ell j}(s) \le \ln\!\big( 1 + (\mu_{\ell j}/b_{\ell j})(e^{s b_{\ell j}} - 1) \big),
@@ -2420,6 +2469,7 @@ $\mu_k$: tracked mean; $v_k$: tracked variance; $R_k$: tracked Hoeffding budget;
 \small
 \begin{tabular}{@{}lll@{}}
 \toprule
+\rowcolor{headgrey}
 \textbf{Bound} & \textbf{Tracked statistics} & \textbf{Reliability row} \\
 \midrule
 Markov    & $\mu$       & $\mu_k \le \varepsilon\,\tau$ \\
@@ -2471,7 +2521,7 @@ with $r_t$ the squared width of~$X_t$.
 \begin{proposition}[Day maps of the statistics]\label{prop:rf_maps}
 Let $\theta \in \{m, V, R\}$, with factor $a_\theta = 1-\rho$ for $m$ and $a_\theta = (1-\rho)^2$ for $V$ and~$R$.
 Under A1:
-\begin{enumerate}[nosep]
+\begin{enumerate}
   \item a mission day adds the statistic of the increment:
     \begin{equation}
       \theta(D + X) = \theta(D) + \theta(X)
@@ -2503,7 +2553,7 @@ Hence each true statistic of~$D_k$, written $m$, $V$, $R^{\mathrm{t}}$ and $K^{\
 \paragraph{Derivation and validity of the rows.}
 Each row of Table~\ref{tab:five_bounds} gives $\Pr(D_k > \tau) \le \varepsilon$ when the tracked statistics satisfy it and are at least the true statistics of~$D_k$.
 The derivation also gives the following properties of the rows.
-\begin{itemize}[nosep]
+\begin{itemize}
   \item \textbf{Markov.} The row uses the mean only and does not need A1 or A2.
   \item \textbf{Cantelli.} The row is equivalent to
     \begin{equation}
@@ -2532,7 +2582,7 @@ At $\mu_k = v_k = 0$ the row needs $\tau \ge 2c$, and a positive variance is fea
 
 \paragraph{Initial and replacement values of the Chernoff statistic.}
 The statistic $K_k$ is the cumulant generating function of the whole damage, initial damage included.
-\begin{itemize}[nosep]
+\begin{itemize}
   \item \textbf{Known damage.} A known initial damage $\mu_0$ gives the initial value $K_0 = s\,\mu_0$, and a known replacement damage $\mu^{\mathrm{new}}$ gives the reset value $s\,\mu^{\mathrm{new}}$.
   \item \textbf{Random damage.} A random initial or replacement damage needs its own cumulant generating function at~$s$, which is larger.
   \item \textbf{Lower bounds.} The cumulant generating function of every increment at~$s$ is at least $s$ times its mean.
@@ -2542,10 +2592,11 @@ The statistic $K_k$ is the cumulant generating function of the whole damage, ini
 The derivation, from Jensen's inequality, is in Appendix~\ref{drv:chernoff_initial}, page~\pageref{drv:chernoff_initial}.
 
 A start at $K_0 = 0$ ignores the initial damage and can accept an unsafe schedule.
-Example: $\tau = 1$, $\varepsilon = 0.1$, $s = 5$, a known initial damage $\mu_0 = 0.6$, and one mission that adds $0$ or $0.5$ with probability $1/2$ each.
+\begin{examplebox}
+\textbf{Example.} $\tau = 1$, $\varepsilon = 0.1$, $s = 5$, a known initial damage $\mu_0 = 0.6$, and one mission that adds $0$ or $0.5$ with probability $1/2$ each.
 The cumulant generating function of the mission at~$s$ is $\ln(0.5 + 0.5\,e^{2.5}) = 1.886$.
 The true failure probability is $0.5$.
-\begin{itemize}[nosep]
+\begin{itemize}
   \item With $K_0 = 0$ the row reads
     \begin{equation}
       1.886 - 5 = -3.11 \le \ln 0.1 = -2.30
@@ -2557,6 +2608,7 @@ The true failure probability is $0.5$.
     \end{equation}
     and rejects it.
 \end{itemize}
+\end{examplebox}
 
 In the same way, the Hoeffding budget of a known damage is $0$, because its range has width~$0$, and a random initial or replacement damage needs its own budget.
 So the defaults of the formulation describe a known initial damage and a known replacement damage: zero variance, zero support, zero budget, and $K = s$ times the mean.
@@ -2589,7 +2641,7 @@ A concrete instance\footnote{The script \texttt{loop\_routeI\_instance.py} in th
   \qquad
   \bigl(\mathbb{E}[D_{H_1}],\operatorname{Var}[D_{H_1}]\bigr) = (4,9).
 \end{equation}
-\begin{itemize}[nosep]
+\begin{itemize}
   \item \textbf{Cantelli.} The bound gives $U^{(0)} = 0.2000$ and $U^{(1)} = 0.1997 \le U^{(0)}$, but $U^{(2)} = 0.2151 > U^{(0)}$, and $U^{(n)} \to 0.2495$.
   \item \textbf{Bernstein.} A similar instance (variance $3.15$ added over the operating phase) also fails at the second repetition: $U^{(0)} = 0.3012$, $U^{(1)} = 0.3006$ and $U^{(2)} = 0.3247$.
   \item \textbf{Loop constraint.} The loop constraint~\eqref{eq:loop} rejects both, since $\mathbb{E}[D_T] = 5 > 4$.
@@ -2603,7 +2655,7 @@ The defect is that the level sets are not invariant, not a constant gap.
 \paragraph{The certificate stays valid in every repetition.}
 This worsening is not hidden: it can be detected.
 Each statistic that Route~I tracks follows a monotone recursion under the dynamics~\eqref{eq:dyn_full}: the mean, the variance, the Hoeffding budget and the cumulant generating function at a fixed point~$s$.
-\begin{itemize}[nosep]
+\begin{itemize}
   \item \textbf{Increment.} Increments add to the statistic.
   \item \textbf{Imperfect repair.} An imperfect repair maps it from~$\theta$ to $a\,\theta + (1-a)\,g$, with its anchor~$g$ and a factor $a \in [0,1]$ (Section~\ref{sec:repair_connection}).
   \item \textbf{Replacement.} A replacement resets it.
@@ -2672,8 +2724,9 @@ This is the practical meaning of repeatability for a model based on bounds.
 \caption{Statistics on which the Route-I loop constraint acts, for each bound, and the recursion that tracks them under the dynamics.}
 \label{tab:loop_routeI_bounds}
 \small
-\begin{tabular}{@{}p{3.0cm}p{5.8cm}p{6.2cm}@{}}
+\begin{tabularx}{\linewidth}{@{}>{\hsize=0.600\hsize\raggedright\arraybackslash}X>{\hsize=1.160\hsize\raggedright\arraybackslash}X>{\hsize=1.240\hsize\raggedright\arraybackslash}X@{}}
 \toprule
+\rowcolor{headgrey}
 \textbf{Bound} & \textbf{Statistics in the loop constraint} & \textbf{Recursion of the statistics} \\
 \midrule
 Markov              & the mean & exact \\
@@ -2681,7 +2734,7 @@ Cantelli, Bernstein & the mean and the variance~\eqref{eq:loop_moments} & exact 
 Hoeffding           & the mean and the Hoeffding budget & exact \\
 Chernoff            & the mean and the cumulant generating function~\eqref{eq:loop_cumulant} & exact for the mean; an upper bound for the cumulant generating function \\
 \bottomrule
-\end{tabular}
+\end{tabularx}
 \end{table}
 
 \subsection{Two refinements of the Route-I constraints: schedule-dependent support and piecewise-linear tightening}
@@ -2689,7 +2742,7 @@ Chernoff            & the mean and the cumulant generating function~\eqref{eq:lo
 
 Two identifiable sources of slack remain in the Route-I constraints.
 Standard mixed-integer constructions can remove both, at a cost in binaries and rows that can be quantified.
-\begin{itemize}[nosep]
+\begin{itemize}
   \item \textbf{Schedule-dependent support.} The first one, a schedule-dependent support, is not part of the formulation, which uses the constant support of Section~\ref{sec:cons_surrogates}.
   \item \textbf{Piecewise-linear tightening.} The formulation includes the second one, the piecewise-linear tightening, as the form \texttt{pwl} of its reliability rows (Section~\ref{sec:linear_forms}).
 \end{itemize}
@@ -2697,7 +2750,7 @@ Neither refinement changes the loop argument of Section~\ref{sec:loop_routeI}.
 The moment condition~\eqref{eq:loop_moments} acts on the exactly tracked moments, and it does not depend on how tightly the certificate is enforced on them.\footnote{Every monotonicity and equivalence claim in this subsection, both worked examples and the comparison between the union and the intersection of the tangent regions are checked, symbolically or numerically, by the scripts \texttt{refine\_schedule\_support.py} and \texttt{refine\_pwl\_tightening.py}. The scripts and their outputs are in the folder \texttt{archive/merge-2026/analysis/scripts/\allowbreak scoping\_checks} of the repository.}
 
 \paragraph{Schedule-dependent Bernstein support.}
-\begin{itemize}[nosep]
+\begin{itemize}
   \item \textbf{Slack.} The closed form~\eqref{eq:bernstein_constraint} carries the single constant
     \begin{equation}
       b_\ell \;=\; \max\{b^{\mathrm{start}}_\ell,\, b^{\mathrm{new}}_\ell,\, \max_j b_{\ell j}\}.
@@ -2707,7 +2760,7 @@ The moment condition~\eqref{eq:loop_moments} acts on the exactly tracked moments
     The effect is not small, because the correction $\kappa b_\ell/3$ enters twice at zero variance: even the empty schedule satisfies~\eqref{eq:bernstein_constraint} only if $2\kappa b_\ell/3 \le \tau$.
   \item \textbf{Example.} Take $\varepsilon = 0.01$ ($\kappa = \ln 100 \approx 4.605$), $\tau = 1$, two missions with supports $b_{\ell 1} = 0.02$ and $b_{\ell 2} = 0.30$, initial and replacement supports $0.02$, and moments per day of mission~1 $\mu_{\ell 1} = 0.01$, $v_{\ell 1} = 4\cdot 10^{-6}$.
     Consider a component that never serves mission~2.
-    \begin{itemize}[nosep]
+    \begin{itemize}
       \item The constraint with the constant~$b_\ell$ ($\kappa b_\ell/3 = 0.4605$) leaves a mean budget of $0.079$ and admits at most $n_{i1} = 7$ days of mission~1.
       \item The same constraint evaluated with the supports actually present ($\kappa b_\ell/3 = 0.0307$) leaves $0.939$ and admits $n_{i1} = 90$.
     \end{itemize}
@@ -2737,7 +2790,7 @@ The moment condition~\eqref{eq:loop_moments} acts on the exactly tracked moments
     The rows of the tangent surrogate attach to $\zeta_{ij}$ by indicator constraints or by big-M rows. Written as $2\kappa v \le \dots$, these rows have the uniform valid constant $2\tau(\tau - c_0)$ for every mission with $2c_j < \tau$; a mission with $2c_j \ge \tau$ gets $\zeta_{ij} = 0$ and no row.
     The exact quadratic rows must use big-M, because Gurobi's indicator constraints enforce a linear constraint~\cite{GurobiConstraints}.
   \item \textbf{Side effects.} Two side effects are worth recording.
-    \begin{enumerate}[nosep]
+    \begin{enumerate}
       \item Big-M constants derived from the largest admissible variance must be recomputed from $c_0$.
         The feasible region has grown, and a bound taken from the old constant $b_\ell$ would cut it.
       \item The feasibility precondition $2\kappa b_\ell/3 < \tau$ becomes local: only $c_0$ must satisfy it.
@@ -2751,7 +2804,7 @@ The moment condition~\eqref{eq:loop_moments} acts on the exactly tracked moments
 \end{itemize}
 
 \paragraph{Piecewise-linear tightening of the tangent surrogates.}
-\begin{itemize}[nosep]
+\begin{itemize}
   \item \textbf{Slack of one tangent.} The linear surrogate with one fixed tangent (the device described after~\eqref{eq:bernstein_constraint}) has a conservatism that grows quadratically with the mean.
     Cantelli's bound~\eqref{eq:cantelli_surrogate} is at most $\varepsilon$ if and only if
     \begin{equation}
@@ -2807,6 +2860,7 @@ The moment condition~\eqref{eq:loop_moments} acts on the exactly tracked moments
 \footnotesize
 \begin{tabular}{@{}lccccc@{}}
 \toprule
+\rowcolor{headgrey}
 $\mu$ & $0$ & $0.2$ & $0.4$ & $0.5$ & $0.6$ \\
 \midrule
 exact $(\tau-\mu)^2/\kappa_C^2$ & $10.10$ & $6.46$ & $3.64$ & $2.53$ & $1.62$ \\
@@ -2841,6 +2895,7 @@ Since $c_2 > 0$, $f$ is convex in~$\mu$, with $f'(\mu) = -2c_2(\tau - \mu) - c_1
 \small
 \begin{tabular}{@{}lllll@{}}
 \toprule
+\rowcolor{headgrey}
 \textbf{Row} & $\chi$ & $c_2$ & $c_1$ & $\bar\mu_{\mathrm{side}}$ \\
 \midrule
 Gaussian, Wiener   & $v$ & $1/\kappa_G^2$ & $0$ & $\tau$ \\
@@ -2876,7 +2931,7 @@ Therefore every point that satisfies the \texttt{tangent} or the \texttt{pwl} fo
 The proof is in Appendix~\ref{prf:prop:tangent_safe}, page~\pageref{prf:prop:tangent_safe}.
 
 \paragraph{Accuracy.}
-\begin{itemize}[nosep]
+\begin{itemize}
   \item \textbf{The \texttt{tangent} form.} The \texttt{tangent} form loses $c_2(\mu - \mu_r)^2$ in~$\chi$: it is exact at $\mu = \mu_r$ and loosest far from it.
     A tangent point near the operating mean of the component is the best choice.
   \item \textbf{The \texttt{pwl} form.} In the \texttt{pwl} form the loss is
@@ -2913,7 +2968,7 @@ So the Cantelli bound gives a conservative and tractable constraint.
 The rainflow pipeline of Section~\ref{sec:cons_surrogates} measures the law of the per-mission increment $\Delta D^{(j)}$ directly and nonparametrically.
 A complementary pipeline keeps the rainflow \emph{counts} deterministic and makes the fatigue life $N_f$ in Miner's rule~\eqref{eq:miner} the random object.
 It has two steps.
-\begin{enumerate}[nosep]
+\begin{enumerate}
   \item Fit a scatter family of Table~\ref{tab:sn_scatter} to constant-amplitude test data or to records of failures in service.
     Basquin's law~\eqref{eq:basquin} ties the location to the stress amplitude.
     For the log-normal,
@@ -2932,7 +2987,7 @@ It has two steps.
 \end{enumerate}
 Both pipelines follow the same idea: collect data, then approximate a distribution.
 They differ in the random object and in the assumptions they commit to.
-\begin{itemize}[nosep]
+\begin{itemize}
   \item \textbf{Empirical route.} It is distribution-free, and it captures the variability of the load and of the material together.
   \item \textbf{Random-$N_f$ route.} It is parametric.
     It pools information across stress levels, extrapolates to unobserved amplitudes through~\eqref{eq:basquin}, and separates the load spectrum (the counts) from the material scatter (the law of $N_f$).
@@ -2948,8 +3003,9 @@ Table~\ref{tab:miner_interpretations} compares the two interpretations.
 \caption{The two interpretations of a random fatigue life $N_f$ in the Palmgren--Miner rule.}
 \label{tab:miner_interpretations}
 \small
-\begin{tabular}{@{}p{3.0cm}p{6.0cm}p{6.0cm}@{}}
+\begin{tabularx}{\linewidth}{@{}>{\hsize=0.600\hsize\raggedright\arraybackslash}X>{\hsize=1.200\hsize\raggedright\arraybackslash}X>{\hsize=1.200\hsize\raggedright\arraybackslash}X@{}}
 \toprule
+\rowcolor{headgrey}
  & \textbf{(I) Block-independent scatter} & \textbf{(II) Unit-specific scatter} \\
 \midrule
 Scatter across days & each execution of mission~$j$ draws a new, independent life & the component carries \emph{one} realisation of the scatter for its entire life \\
@@ -2957,7 +3013,7 @@ Stochastic state & the moments of the Route-I pipeline & a deterministic scalar 
 Chance constraint & Cantelli certificate~\eqref{eq:cantelli_surrogate} & the exact linear inequality~\eqref{eq:miner_quantile} \\
 Loop constraint & moment loop~\eqref{eq:loop_moments} & the linear condition~\eqref{eq:miner_loop_det} \\
 \bottomrule
-\end{tabular}
+\end{tabularx}
 \end{table}
 
 \emph{(II) Unit-specific scatter.}
@@ -2968,7 +3024,7 @@ The fitted families have a scale or a shape that does not depend on the stress, 
 with $\bar N_j$ the median life (log-normal: $e^{\mu_j}$) or the characteristic life (Weibull: $\lambda_j$; Gumbel: $e^{\mu_j}$), and $A \sim F_A$ the unit factor ($\ln A \sim \mathcal{N}(0,\sigma^2)$, $A \sim \mathrm{Wei}(k,1)$ or $A = e^{\beta G}$, respectively).
 This is exactly the ``random critical damage sum'' of source~(ii) above.
 Dividing the Miner sum by $A$ is the same as comparing a deterministic sum with a random capacity.
-\begin{itemize}[nosep]
+\begin{itemize}
   \item \textbf{Damage.} The damage becomes $D_k = M_k / A$, where $M_k$ is the \emph{deterministic} Miner state.
     Its dynamics mirror~\eqref{eq:dyn_full}: a mission day adds
     \begin{equation}
@@ -3031,7 +3087,7 @@ For a larger $M$, (I) gives the larger probability.
 So neither interpretation is conservative in all cases.\footnote{The scripts and their outputs are in the folder \texttt{archive/merge-2026/analysis/scripts/\allowbreak scoping\_checks/miner} of the repository. They check the exactness of~\eqref{eq:miner_quantile} along a schedule with repair and replacement, the chaining of~\eqref{eq:miner_loop_det}, the variance ratio and the example. The value under~(I) comes from a discretised convolution, which bounds it between $2.45 \cdot 10^{-7}$ and $2.46 \cdot 10^{-7}$.}
 
 The choice is a question of identification.
-\begin{itemize}[nosep]
+\begin{itemize}
   \item \textbf{Unit-specific~(II).} Scatter that comes from the variability between specimens (material batch, manufacturing) is unit-specific~(II).
   \item \textbf{Block-independent~(I).} Scatter that comes from the randomness of the load history within a mission is block-independent~(I).
 \end{itemize}
@@ -3051,7 +3107,7 @@ The calibration of such combinations is left as future work.
 
 \subsection{Implications of the orderings for the fleet problem}
 Under the closure conditions of Table~\ref{tab:discrete_models}, the cumulative damage $D_{i\ell k}$ depends on the schedule only through cumulative parameters.
-\begin{itemize}[nosep]
+\begin{itemize}
   \item \textbf{One-parameter families.} The comparison of two damages is scalar:
     for Gamma (shared rate~$\beta$), the total shape $\sum_t \alpha_t$;
     for IG (shared dispersion $\mu^2/\lambda$), the total mean $\sum_t \mu_t$.
@@ -3065,7 +3121,7 @@ Under the closure conditions of Table~\ref{tab:discrete_models}, the cumulative 
 \end{itemize}
 
 The formulation does not rely on closure for the Gamma and inverse Gaussian models, for two reasons.
-\begin{itemize}[nosep]
+\begin{itemize}
   \item The terms of the damage need not share the closure parameter.
     The missions of one component may have different Gamma rates, and an inverse Gaussian term of mean~$a$ in the formulation has the dispersion $\mu^2/\lambda = \eta\, a$, which grows with~$a$ (the model is stated below).
   \item A repair acts on the damage path, and the repaired damage leaves the family with the shared parameter, in both cases.
@@ -3120,7 +3176,7 @@ Between replacements, under either repair law, the damage is
   D_k = \sum_t w_t\, a_t\, Z_t,
 \end{equation}
 where each $Z_t$ has the law of~$Z$ or equals~$1$, and each weight $w_t \in [0,1]$ is a product of factors $1-\rho$.
-\begin{itemize}[nosep]
+\begin{itemize}
   \item \textbf{Weight zero.} A term of weight~$0$, possible when $\rho = 1$, is dropped.
   \item \textbf{Repair laws.} $\text{ARD}_\infty$ multiplies every weight by $1-\rho$, and $\text{ARD}_1$ multiplies only the weights of the terms added since the last intervention.
   \item \textbf{Anchor below the initial mean.} When the anchor before the first intervention is below the initial mean~$\mu_0$, the initial damage $\mu_0 Z_0$ is read as the two terms $g\,Z_0$ and $(\mu_0 - g)\,Z_0$, with $g$ the anchor.
@@ -3167,6 +3223,7 @@ Table~\ref{tab:ig_cap} gives values of the cap.
 \small
 \begin{tabular}{@{}lccccc@{}}
 \toprule
+\rowcolor{headgrey}
  & $\eta = 0.05$ & $0.25$ & $1$ & $4$ & $10$ \\
 \midrule
 $\varepsilon = 0.001$ & 0.491 & 0.242 & 0.101 & 0.0370 & 0.0190 \\
@@ -3181,10 +3238,12 @@ The derivation is in Appendix~\ref{drv:ig_sharp}, page~\pageref{drv:ig_sharp}.
 The schedules produce only some of the laws below $\mu Z$, so the row can reject some safe schedules.
 
 The quantile cap $\tau/q$, at which the single law $\mu Z$ meets the target exactly, is not safe for sums.
-Example: $\eta = 10$ and $\varepsilon = 0.1$, so $\tau/q = 0.473\,\tau$.
+\begin{examplebox}
+\textbf{Example.} $\eta = 10$ and $\varepsilon = 0.1$, so $\tau/q = 0.473\,\tau$.
 Three independent missions of equal mean, with total mean $\tau/q$, give $\Pr(D > \tau) = 0.118$.
 The CVaR cap is $0.141\,\tau$ there.
 At $\varepsilon = 0.01$ and $\eta$ from $0.05$ to $10$, the CVaR cap $\bar\mu$ is $0.93$ to $0.59$ times $\tau/q$.
+\end{examplebox}
 
 
 \subsection{Gamma: a sharp cap on the mean}
@@ -3202,7 +3261,7 @@ The day map of the tracked mean is exact for the true mean $\mathbb{E}[D_k]$, be
 
 Let $\beta^*$ be the smallest rate among the terms of the component with a positive mean, over the missions and the days of both phases, and $t = \beta^*\tau$.
 The formulation computes $\beta^*$ from the data; no input gives it.
-\begin{itemize}[nosep]
+\begin{itemize}
   \item A mission with mean~$0$ adds no term, and a known damage is a constant, which does not enter~$\beta^*$.
   \item The rate of the replacement draw enters only when replacements are allowed.
   \item If no term has a rate, the damage is a known constant, and the cap below reads $\mu_k \le \tau$.
@@ -3261,7 +3320,7 @@ For $A \in [0, t)$ let
 \begin{equation}
   w(A) = \max_{c \in (0,1]} Q(A/c, t/c).
 \end{equation}
-\begin{itemize}[nosep]
+\begin{itemize}
   \item $w$ is continuous and non-decreasing in~$A$.
   \item $w(A) < 1/2$ for every $A < t$.
   \item $w(A) \to 1/2$ as $A \to t$.
@@ -3285,7 +3344,7 @@ The proof is in Appendix~\ref{prf:prop:gamma_safe}, page~\pageref{prf:prop:gamma
 \paragraph{The sharp cap and the exact one-rate cap.}
 $\hat A$ is the exact cap of a single Gamma law of rate~$\beta^*$, and $A_1 \le \hat A$, because $c = 1$ is in the maximum.
 Let $t_1(\varepsilon)$ be the value of~$t$ at which $\partial_c Q(\hat A/c, t/c)$ at $c = 1$ changes sign: $t_1 = 0.436$, $0.448$ and $0.614$ for $\varepsilon = 0.001$, $0.01$ and $0.1$.
-\begin{itemize}[nosep]
+\begin{itemize}
   \item \textbf{Above $t_1$.} On a grid of $200$ values of~$t$ in $[t_1, 10^5]$, no $c < 1$ gives a larger tail than $c = 1$, so $A_1 = \hat A$ there. This is a numerical check, not a proof; the computation of the cap does not rely on it, because it tests $w(\hat A) \le \varepsilon$ before it uses~$\hat A$.
   \item \textbf{Below $t_1$.} $A_1 < \hat A$.
 \end{itemize}
@@ -3294,6 +3353,7 @@ For $\varepsilon = 0.01$:
 \small
 \begin{tabular}{@{}lccccc@{}}
 \toprule
+\rowcolor{headgrey}
 $t = \beta^*\tau$ & 0.01 & 0.1 & 0.3 & 1 & 10 \\
 \midrule
 $A_1/\hat A$ & 0.142 & 0.641 & 0.961 & 1 & 1 \\
@@ -3303,10 +3363,12 @@ $A_1/\hat A$ & 0.142 & 0.641 & 0.961 & 1 & 1 \\
 When every term has the same rate and no repair occurs, the true state is a single Gamma law and $\hat A$ is exact for it.
 With several rates, or with repairs, the true state is a weighted sum, and below~$t_1$ the exact one-rate cap is not safe.
 
-Example: $\varepsilon = 0.01$ and $\beta^*\tau = 0.1$, so $\hat A = 0.0055012$.
+\begin{examplebox}
+\textbf{Example.} $\varepsilon = 0.01$ and $\beta^*\tau = 0.1$, so $\hat A = 0.0055012$.
 A new part serves one mission of mean $\hat A/\beta^*$ and rate $4.56\,\beta^*$.
 Its mean meets the exact one-rate cap, but its tail is $1.565\,\varepsilon$.
 The sharp cap there is $A_1 = 0.641\,\hat A$.
+\end{examplebox}
 
 \paragraph{Below the threshold.}
 For $t \le t_1(\varepsilon)$,
@@ -3348,6 +3410,7 @@ $\kappa_G = \Phi^{-1}(1-\varepsilon)$, with $\varepsilon < 0.5$.}
 \small
 \begin{tabular}{@{}lll@{}}
 \toprule
+\rowcolor{headgrey}
 \textbf{Model} & \textbf{Tracked statistics} & \textbf{Reliability row} \\
 \midrule
 Gaussian         & mean $\mu$, variance $v$ & $\kappa_G^2\, v_k \le (\tau - \mu_k)^2$, \quad $\mu_k \le \tau$ \\
@@ -3375,10 +3438,12 @@ A repair modelled in parameter space, as the shape reduction $A \mapsto (1-\rho)
 \end{equation}
 But it is a different operator on the paths, and it can accept an unsafe schedule.
 
-Example: $\tau = 1$, $\varepsilon = 0.01$, $\rho = 0.5$ and one rate $\beta = 0.01$, so the exact one-rate cap is $\hat A = 0.0024877$.
+\begin{examplebox}
+\textbf{Example.} $\tau = 1$, $\varepsilon = 0.01$, $\rho = 0.5$ and one rate $\beta = 0.01$, so the exact one-rate cap is $\hat A = 0.0024877$.
 A new part serves a mission of shape~$\hat A$ on day~1, is repaired on day~2, and serves a mission of shape $0.5\,\hat A$ on day~3.
 The shapes in parameter space are $\hat A$, $0.5\,\hat A$ and $\hat A$, so every cap row holds.
 But the true tail on day~3 is $0.0133$, that is, $1.33\,\varepsilon$.
+\end{examplebox}
 
 The formulation therefore repairs the damage path, tracks the mean, and certifies reliability by the sharp cap~\eqref{eq:gamma_cap}, which is safe for every weighted sum of Gamma terms (Proposition~\ref{prop:gamma_safe}).
 Its loop constraint acts on the mean and, under $\text{ARD}_1$, on the anchor of the mean.
@@ -3560,23 +3625,27 @@ Under $\text{ARD}_1$ the formulation tracks, for each statistic of the damage, a
 On an intervention day the anchor takes the new value of its statistic.
 On any other day it keeps its value.
 
-Example: mean $0.6$ and anchor $0.2$ before a repair with $\rho = 0.5$.
+\begin{examplebox}
+\textbf{Example.} mean $0.6$ and anchor $0.2$ before a repair with $\rho = 0.5$.
 The repair gives the mean $0.6 - 0.5\,(0.6 - 0.2) = 0.4$ and the anchor $0.4$.
 On the next day the gap between the mean and the anchor is $0$, and it grows again with each mission.
+\end{examplebox}
 
 Before the first intervention of the horizon, the anchor is the value just after the last intervention before the horizon.
 When that value is unknown, the formulation takes the initial value of the statistic.
 Each statistic is non-decreasing between interventions (fact~(M1) of Section~\ref{sec:encoding}), so the true value lies between the value of a new part and the initial value.
 A larger anchor gives a weaker repair, so the initial value never overstates what a repair achieves.
 
-Example: initial mean $0.5$, $\rho = 0.5$, and a repair on day~1 before any mission.
+\begin{examplebox}
+\textbf{Example.} initial mean $0.5$, $\rho = 0.5$, and a repair on day~1 before any mission.
 With the anchor $0$ the mean drops to $0.25$.
 With the anchor $0.5$ it stays at $0.5$, and the repair removes only damage accumulated within the horizon.
+\end{examplebox}
 
 \paragraph{Repair maps of the tracked statistics.}
 A model tracks moments or other summaries of the damage~$D$, not $D$ itself.
 A repair maps a tracked statistic~$\theta$ with anchor~$g$ to $a\,\theta + (1-a)\,g$, with a factor $a \in [0,1]$ and $g = 0$ under $\text{ARD}_\infty$.
-\begin{itemize}[nosep]
+\begin{itemize}
   \item \textbf{Mean.} $a = 1-\rho$.
   \item \textbf{Variance and Hoeffding budget.} $a = (1-\rho)^2$.
   \item \textbf{Cumulant generating function of the Chernoff bound.} $a = 1-\rho$ gives an upper bound (Proposition~\ref{prop:rf_maps}).
@@ -3595,8 +3664,9 @@ Under $\text{ARD}_1$ with $\rho < 1$, the loop constraint requires a replacement
 \caption{Repair laws accepted by each degradation model, with the reason.}
 \label{tab:laws_per_model}
 \small
-\begin{tabular}{@{}lllp{7.4cm}@{}}
+\begin{tabularx}{\linewidth}{@{}lll>{\hsize=1.000\hsize\raggedright\arraybackslash}X@{}}
 \toprule
+\rowcolor{headgrey}
 \textbf{Model} & $\text{ARD}_\infty$ & $\text{ARD}_1$ & \textbf{Reason or note} \\
 \midrule
 Gaussian & yes & yes & both laws keep the state Gaussian, with exact moments (Proposition~\ref{prop:gauss_exact}) \\
@@ -3605,7 +3675,7 @@ Wiener & yes & yes & on the mean only; the variance changes only by replacement 
 Gamma & yes & yes & both laws keep the state a weighted sum of Gamma terms (Lemma~\ref{lem:gamma_class}), and the sharp cap holds for every such sum (Proposition~\ref{prop:gamma_safe}) \\
 Rainflow, every bound & yes & yes & under both laws, Chernoff uses a conservative recursion for the cumulant generating function (Proposition~\ref{prop:rf_maps}) \\
 \bottomrule
-\end{tabular}
+\end{tabularx}
 \end{table}
 
 \section{Assumptions and Constraints}
@@ -3619,7 +3689,7 @@ The input checks of the library enforce the assumptions that concern the domain 
 
 The first group concerns the empirical (rainflow) bounds of Section~\ref{sec:overview}.
 The rows rest on four modelling assumptions.
-\begin{itemize}[nosep]
+\begin{itemize}
   \item \textbf{A0 (non-negative damage).} Every increment, the initial damage and every replacement draw are non-negative.
   \item \textbf{A1 (independence).} The mission increments are mutually independent, and independent of the initial damage and of every replacement draw.
     Each replacement installs a new draw, independent of everything else.
@@ -3841,7 +3911,7 @@ The reasons for the checks that the library applies to the inputs are in Section
 The rainflow model needs statistics of the damage of each mission.
 Of the two ingredients of the Chernoff row (Section~\ref{sec:cons_surrogates}), the mean-and-support bound is a guaranteed bound.
 The second ingredient is an estimate from recorded executions of a mission.
-\begin{itemize}[nosep]
+\begin{itemize}
   \item \textbf{Empirical cumulant generating function.} The second is
     \begin{equation}
       \widehat\psi_{\ell j}(s) = \ln\!\Big( \frac{1}{m} \sum_{r=1}^{m} e^{s \Delta D^{(j)}_r} \Big),
@@ -3854,14 +3924,14 @@ Repeating a mission tightens both ingredients: more executions sharpen $\widehat
 \subsection{Depots and lines}\label{sec:cs_depots}
 
 Three depots are candidates (Table~\ref{tab:cs_depots}).
-\begin{itemize}[nosep]
+\begin{itemize}
   \item \textbf{Hardau and Hagenholz} are the two bus garages of VBZ in the city of Zurich~\cite{VBZ2026Depots}.
     Hardau includes a second hall, Herdern.
   \item \textbf{Bassersdorf} is the depot of the bus contractor EUROBUS welti-furrer AG, which runs 15 lines for VBG (Verkehrsbetriebe Glattal AG)~\cite{VBG2026Partner}.
     VBG is a management company: contractors run the buses from their own depots, and the buses belong to them~\cite[p.~25]{VBG2026Report}.
 \end{itemize}
 Battery-electric buses run today from these depots as follows.
-\begin{itemize}[nosep]
+\begin{itemize}
   \item \textbf{Bassersdorf.} VBG had 14 battery-electric buses among 121 buses on 31 Dec 2025~\cite[p.~4]{VBG2026Report}, all on lines 759 and 768 of this depot~\cite{VBG2026Fleet}.
     Line 759 has been all-electric since the end of February 2023, with eight buses: a pilot bus of 2021 and seven more~\cite{VBG2023Release759}.
     They are Mercedes-Benz eCitaro buses with 264\,kWh, and they charge at the terminus Z\"urich Flughafen by a pantograph that comes down from a mast (opportunity charging)~\cite{VBG2023Line759}.
@@ -3874,7 +3944,7 @@ Battery-electric buses run today from these depots as follows.
 
 \paragraph{Data and method.}
 The line features of Tables~\ref{tab:cs_depots}--\ref{tab:cs_lines_bassersdorf} are our computation from the following data.
-\begin{itemize}[nosep]
+\begin{itemize}
   \item \textbf{Timetable.} We use the national timetable in GTFS (General Transit Feed Specification, the common file format of timetables), feed version 20260527, valid from 14 Dec 2025 to 12 Dec 2026~\cite{SKI2026GTFS}.
     We keep only the trips of the operator of the depot (VBG or VBZ).
     The days are Tuesday 16 June, Sunday 21 June and a Saturday: 20 June 2026 for Bassersdorf, 27 June 2026 for the city garages.
@@ -3929,8 +3999,9 @@ The steepest grade counts only the directions measured on OSM roads.
 The 24 Hardau lines are listed in the file \nolinkurl{case_study/zurich_city_line_features.csv} of the project repository.}
 \label{tab:cs_depots}
 \small
-\begin{tabular}{@{}lp{3.5cm}p{3.5cm}p{3.5cm}@{}}
+\begin{tabularx}{\linewidth}{@{}l>{\hsize=1.000\hsize\raggedright\arraybackslash}X>{\hsize=1.000\hsize\raggedright\arraybackslash}X>{\hsize=1.000\hsize\raggedright\arraybackslash}X@{}}
 \toprule
+\rowcolor{headgrey}
  & \textbf{Bassersdorf} & \textbf{Hardau} & \textbf{Hagenholz} \\
 \midrule
 Operator & EUROBUS, for VBG & VBZ & VBZ \\
@@ -3950,7 +4021,7 @@ Stops per km & 1.14--4.08 & 2.25--4.96 & 1.71--3.04 \\
 Buses, weekday, $\sum_j \hat d_{jk}$ & 48 & 160 & 54 \\
 Vehicle-km, weekday & 7,401 & 30,590 & 11,289 \\
 \bottomrule
-\end{tabular}
+\end{tabularx}
 \end{table}
 
 \begin{table}[htbp]
@@ -3964,8 +4035,9 @@ The full table is the file \nolinkurl{case_study/zurich_hagenholz_line_features.
 \label{tab:cs_lines_hagenholz}
 \small
 \setlength{\tabcolsep}{4pt}
-\begin{tabular}{@{}rp{5.5cm}ccccc@{}}
+\begin{tabularx}{\linewidth}{@{}r>{\hsize=1.000\hsize\raggedright\arraybackslash}Xccccc@{}}
 \toprule
+\rowcolor{headgrey}
 \textbf{Line} & \textbf{Route} & \textbf{Length (km)} & \textbf{Stops} & \textbf{Speed} & \textbf{Climb} & \textbf{Buses} \\
  & & d0 / d1 & per km & (km/h) & (m) & Tue/Sat/Sun \\
 \midrule
@@ -3980,7 +4052,7 @@ The full table is the file \nolinkurl{case_study/zurich_hagenholz_line_features.
 \midrule
 Sum & & & & & & 54 / 37 / 30 \\
 \bottomrule
-\end{tabular}
+\end{tabularx}
 \end{table}
 
 \begin{table}[htbp]
@@ -3993,8 +4065,9 @@ The full table is the file \nolinkurl{case_study/zurich_line_features.csv} of th
 \label{tab:cs_lines_bassersdorf}
 \small
 \setlength{\tabcolsep}{4pt}
-\begin{tabular}{@{}rp{5.5cm}ccccc@{}}
+\begin{tabularx}{\linewidth}{@{}r>{\hsize=1.000\hsize\raggedright\arraybackslash}Xccccc@{}}
 \toprule
+\rowcolor{headgrey}
 \textbf{Line} & \textbf{Route} & \textbf{Length (km)} & \textbf{Stops} & \textbf{Speed} & \textbf{Climb} & \textbf{Buses} \\
  & & d0 / d1 & per km & (km/h) & (m) & Tue/Sat/Sun \\
 \midrule
@@ -4016,11 +4089,11 @@ The full table is the file \nolinkurl{case_study/zurich_line_features.csv} of th
 \midrule
 Sum & & & & & & 48 / 31 / 22 \\
 \bottomrule
-\end{tabular}
+\end{tabularx}
 \end{table}
 
 \paragraph{How the depots differ.}
-\begin{itemize}[nosep]
+\begin{itemize}
   \item \textbf{Battery-electric buses today.} The bus type is assumed (Section~\ref{sec:cs_aim}), so a depot need not run battery-electric buses today.
     Only at Bassersdorf, however, can the estimate~\eqref{eq:cs_buses} be checked against counts of battery-electric buses per line.
   \item \textbf{Kinds of lines.} Bassersdorf has urban lines into Z\"urich Oerlikon (768, 781, 787), suburban lines and two rural lines (769, 797); only line 769 climbs 100\,m or more.
@@ -4040,7 +4113,7 @@ The choice of the depot is open (Section~\ref{sec:cs_open}).
 Each component model needs a fixed list of inputs (Section~\ref{sec:cs_components}).
 We ranked the battery-electric city bus types by the number of these inputs that the sources read give (our count, Table~\ref{tab:cs_ranking}).
 A type scores one point for each input given, and half a point for a partial value.
-\begin{itemize}[nosep]
+\begin{itemize}
   \item \textbf{Battery, 6 points:} chemistry, gross capacity, usable capacity or depth-of-discharge rule, pack or module layout, cell maker, stated life or warranty.
   \item \textbf{Tires, 4 points:} tire size, empty mass, gross mass, axle loads.
   \item \textbf{Inverter, 3 points:} drive type and motor power, inverter maker, semiconductor type.
@@ -4056,8 +4129,9 @@ Types without a maker document read (for example Iveco, Ebusco, Yutong and the H
 \label{tab:cs_ranking}
 \small
 \setlength{\tabcolsep}{4pt}
-\begin{tabular}{@{}rp{3.5cm}cccccp{3.6cm}@{}}
+\begin{tabularx}{\linewidth}{@{}r>{\hsize=0.986\hsize\raggedright\arraybackslash}Xccccc>{\hsize=1.014\hsize\raggedright\arraybackslash}X@{}}
 \toprule
+\rowcolor{headgrey}
 \textbf{Rank} & \textbf{Type} & \textbf{Battery} & \textbf{Tires} & \textbf{Inverter} & \textbf{Energy} & \textbf{Total} & \textbf{Main gaps} \tabularnewline
 \midrule
 1 & \raggedright Mercedes-Benz eCitaro G, 18\,m & 6 & 4 & 3$^{a}$ & 0 & 13 & \raggedright measured energy use; inverter of the buses in service \tabularnewline
@@ -4067,12 +4141,12 @@ Types without a maker document read (for example Iveco, Ebusco, Yutong and the H
 5 & \raggedright MAN Lion's City 18 E & 5 & 3 & 1 & 0 & 9 & \raggedright as the 12 E; axle loads \tabularnewline
 6--12 & \raggedright BYD, Proterra and New Flyer (USA); Irizar 12 and 18\,m, Volvo, VDL, Solaris Urbino 18 electric & 0--4 & 1--4 & 1--2 & 0--1 & 4--7 & \raggedright battery data, masses or axle loads \tabularnewline
 \bottomrule
-\end{tabular}
+\end{tabularx}
 \end{table}
 
 \paragraph{Recommendation.}
 We recommend the Mercedes-Benz eCitaro (12\,m) and the eCitaro G (18\,m, articulated).
-\begin{itemize}[nosep]
+\begin{itemize}
   \item \textbf{Battery data.} The eCitaro family has the most complete battery data of all types: chemistry, pack size and layout, cell maker and a cycle-life claim~\cite{DaimlerTruck2022eCitaro,DaimlerTruck2023eCitaro}\cite[p.~10]{Daimler2026eCitaro}.
   \item \textbf{Tire inputs.} The data sheet gives the tire size, the gross mass and the axle loads~\cite[pp.~4,~9]{Daimler2026eCitaro}.
     The Swiss vehicle register gives the empty mass of 211 eCitaro and 163 eCitaro G buses~\cite{ASTRA2026Stock}.
@@ -4084,7 +4158,7 @@ We recommend the Mercedes-Benz eCitaro (12\,m) and the eCitaro G (18\,m, articul
 The Solaris Urbino 12 electric is the alternative for 12\,m if a measured energy use and a named inverter maker (Medcom) matter more than the cell maker and the battery-life statements~\cite[p.~11]{Tschakert2020}.
 
 \paragraph{Data of the recommended types.}
-\begin{itemize}[nosep]
+\begin{itemize}
   \item \textbf{Empty mass.} The Swiss vehicle register, state of 1 Nov 2026, gives a registered empty mass of 13,450--15,250\,kg for 211 eCitaro buses and 19,650--22,100\,kg for 163 eCitaro G buses~\cite{ASTRA2026Stock}.
     This mass includes a driver of 75\,kg~\cite[Art.~7 para.~1]{VTS2026}, so the bus alone is 75\,kg lighter.
     The type approvals leave the empty mass blank, because it is fixed at the inspection of each vehicle~\cite[approval 2MB442, remark Z18]{ASTRA2026TG}.
@@ -4109,7 +4183,7 @@ As a substitute for the eCitaro, we use a magazine test of one Solaris Urbino 12
 Like the early eCitaro, this bus has a ZF AVE 130 axle.
 Its empty mass is 13,900\,kg (maker value), and its NMC battery has 300\,kWh nominal.
 The energy was measured at the battery output; it covers traction and air conditioning, and a share of the charging losses.
-\begin{itemize}[nosep]
+\begin{itemize}
   \item \textbf{Whole test:} 1.126\,kWh/km over 235.4\,km, at 5--12\,$^\circ$C, partly in heavy rain.
   \item \textbf{City route, about 70\,\% load:} 1.023\,kWh/km, at about 12\,$^\circ$C, dry, heating on.
   \item \textbf{City route, full load:} 1.525\,kWh/km, at about 5\,$^\circ$C, in rain.
@@ -4118,7 +4192,7 @@ The test covers one bus, it is not peer-reviewed, and the magazine describes the
 
 \paragraph{The VBZ fleet as the local alternative.}
 If the case study uses a VBZ garage, the local battery-electric types are the MAN Lion's City 12~E and 18~E (Section~\ref{sec:cs_depots}).
-\begin{itemize}[nosep]
+\begin{itemize}
   \item \textbf{Empty mass.} The register gives 14,570--15,100\,kg for 42 Lion's City 12~E and 21,950--22,600\,kg for 32 Lion's City 18~E~\cite{ASTRA2026Stock}.
   \item \textbf{Battery.} Each pack holds 12 exchangeable modules; the 12~E carries 4 to 6 packs, the 18~E 6 to 8~\cite[pp.~9--10]{MAN2026LionsCityE}.
     The usable share is 65\,\% or 90\,\% of the capacity, by the operating strategy~\cite[p.~9]{MAN2026LionsCityE}.
@@ -4147,8 +4221,9 @@ OSM: OpenStreetMap. SOH: state of health, the remaining capacity over the initia
 \label{tab:cs_sim_data}
 \small
 \setlength{\tabcolsep}{4pt}
-\begin{tabular}{@{}p{2.6cm}p{2.9cm}p{3.0cm}p{2.2cm}p{4.0cm}@{}}
+\begin{tabularx}{\linewidth}{@{}>{\hsize=0.884\hsize\raggedright\arraybackslash}X>{\hsize=0.986\hsize\raggedright\arraybackslash}X>{\hsize=1.020\hsize\raggedright\arraybackslash}X>{\hsize=0.748\hsize\raggedright\arraybackslash}X>{\hsize=1.361\hsize\raggedright\arraybackslash}X@{}}
 \toprule
+\rowcolor{headgrey}
 \textbf{Input} & \textbf{Available} & \textbf{Source} & \textbf{Licence} & \textbf{Confirmed} \\
 \midrule
 Timetable, stops, road shapes & yes, VBZ and VBG lines & ZVV GTFS \cite{ZVV2026GTFS} & CC0 & yes, by byte ranges; every trip has a shape \\
@@ -4162,11 +4237,11 @@ Vehicle parameters & in part & Section~\ref{sec:cs_buses} & -- & -- \\
 Charger power and places & in part & Section~\ref{sec:cs_depots} & -- & -- \\
 Condition of the components (SOH, tread depth, inverter failures) & no public data found & -- & -- & -- \\
 \bottomrule
-\end{tabular}
+\end{tabularx}
 \end{table}
 
 \paragraph{Gaps and how to estimate them.}
-\begin{itemize}[nosep]
+\begin{itemize}
   \item \textbf{Vehicle parameters.} Empty mass, drag area, rolling resistance, efficiency maps and HVAC power over temperature set the energy per km.
     Estimate them from the maker data and registered masses of Section~\ref{sec:cs_buses}.
     Check them against the energy split that Konzept et al.\ measured on VBZ buses: 57.07~kWh for the drivetrain and 11.98~kWh for the auxiliaries on the 44~km round trip \cite[Table~1]{Konzept2025}.
@@ -4207,8 +4282,9 @@ The entries below either instantiate abstract quantities or add new ones.
 \caption{Additional notation for the electric-vehicle fleet specialisation (extends Table~\ref{tab:notation}).}
 \label{tab:notation_evs}
 \small
-\begin{tabular}{@{}lp{10.5cm}@{}}
+\begin{tabularx}{\linewidth}{@{}l>{\hsize=1.000\hsize\raggedright\arraybackslash}X@{}}
 \toprule
+\rowcolor{headgrey}
 \textbf{Symbol} & \textbf{Description} \\
 \midrule
 \multicolumn{2}{@{}l}{\textit{Cost parameters}} \\
@@ -4217,7 +4293,7 @@ $C_D$                        & Damage-penalty coefficient (scalar) \\
 $C_{R,i\ell}$                & Cost of imperfect repair per unit of expected damage removed \\
 $C_{\mathrm{rep},i\ell}$     & Cost of a replacement of component $\ell$ of member $i$ \\
 \bottomrule
-\end{tabular}
+\end{tabularx}
 \end{table}
 
 \subsubsection{Cost function}
@@ -4245,7 +4321,7 @@ The rest is assumed: one bus type serves every line of the depot, and the number
 
 \subsubsection{Aim and setting}\label{sec:cs_aim}
 
-\begin{itemize}[nosep]
+\begin{itemize}
   \item \textbf{Aim.} The case study is a realistic instance of the general problem.
     Its lines differ in length, in stops per km, in speed and in climbs (Tables~\ref{tab:cs_depots}--\ref{tab:cs_lines_bassersdorf}).
     So they wear the battery, the tires and the inverter of a bus at different rates (Section~\ref{sec:cs_components}).
@@ -4268,7 +4344,7 @@ The rest is assumed: one bus type serves every line of the depot, and the number
 \end{itemize}
 
 \subsubsection{Maintenance of the battery}
-\begin{itemize}[nosep]
+\begin{itemize}
   \item \textbf{Maintenance.}
     The maintenance of the battery takes a specific form.
     Replacing a subset of battery modules removes a corresponding fraction of the damage of the pack.
@@ -4282,14 +4358,14 @@ The rest is assumed: one bus type serves every line of the depot, and the number
 The case study tracks three components of each battery-electric bus (BEB): the traction battery, the tires and the power modules of the traction inverter.
 The choice applies the two criteria of Section~\ref{sec:ev_focus}: (C1) usage-driven degradation and (C2) operational significance.
 The evidence comes from fleet data and fleet reports:
-\begin{itemize}[nosep]
+\begin{itemize}
   \item BEB fleets in Lublin (Poland), Zhenjiang and Shenzhen (China), Foothill Transit, Long Beach and AC Transit (California), Duluth (Minnesota), Toronto (Canada) and Thuringia (Germany);
   \item a fleet of trolleybuses that run on a traction battery where the overhead line is missing (Russia);
   \item two Swiss studies: a battery-bus trial in Zurich and a planning study for the mountain lines of the Upper Engadine.
 \end{itemize}
 Table~\ref{tab:cs_focus} gives the evidence per component.
 Two limits apply to all of it.
-\begin{itemize}[nosep]
+\begin{itemize}
   \item \textbf{Warranty.} In most fleets with cost data, the battery and the electric drive were under warranty, and the reports remove warranty work from the costs~\cite[p.~37]{NREL2020LongBeach},~\cite[p.~94]{WorldBank2021Shenzhen}.
     So the cost shares understate these two systems.
   \item \textbf{Definitions.} The fleets define a failure in different ways.
@@ -4304,8 +4380,9 @@ Shares of ``fault mentions'' are our computation from the counts of the nine fau
 HV: high voltage; SOH: state of health, the remaining capacity over the initial capacity.}
 \label{tab:cs_focus}
 \small
-\begin{tabular}{@{}p{2.2cm}p{7.0cm}p{3.6cm}p{1.3cm}@{}}
+\begin{tabularx}{\linewidth}{@{}>{\hsize=0.624\hsize\raggedright\arraybackslash}X>{\hsize=1.986\hsize\raggedright\arraybackslash}X>{\hsize=1.021\hsize\raggedright\arraybackslash}X>{\hsize=0.369\hsize\raggedright\arraybackslash}X@{}}
 \toprule
+\rowcolor{headgrey}
 \textbf{Component} & \textbf{Field evidence} & \textbf{Wear-out evidence} & \textbf{Case study} \\
 \midrule
 Traction battery
@@ -4351,11 +4428,11 @@ DC-link capacitors
   & model studies only~\cite{Yao2021,Chakraborty2022}
   & left out \\
 \bottomrule
-\end{tabular}
+\end{tabularx}
 \end{table}
 
 \paragraph{Components tracked.}
-\begin{itemize}[nosep]
+\begin{itemize}
   \item \textbf{Traction battery.}
     It has the broadest field evidence of availability loss and replacement (Table~\ref{tab:cs_focus}), so it meets~(C2).
     It is also the only component with fade measured in a fleet.
@@ -4373,7 +4450,7 @@ DC-link capacitors
 \end{itemize}
 
 \paragraph{Components left out.}
-\begin{itemize}[nosep]
+\begin{itemize}
   \item \textbf{Doors, charging equipment and the 24\,V system.}
     They fail often (Table~\ref{tab:cs_focus}).
     But the Weibull shape is below~$1$ for all eight systems of the Lublin fleet, from 0.838 to 0.911~\cite[Table~8]{Niewczas2025reliability}.
@@ -4401,7 +4478,7 @@ The worked values are for one weekday on lines 759 and 768.
 A value derived by the project is marked ``our estimate'' or ``our computation''.
 
 \paragraph{Traction battery.}
-\begin{itemize}[nosep]
+\begin{itemize}
   \item \textbf{Damage and threshold.}
     The damage is the capacity fade $D = 1 - \mathrm{SOH}$, with SOH the state of health (remaining capacity over initial capacity).
     The threshold is $\tau = 0.20$: the end of life (EOL) at 80\% SOH is the ``market definition'', and Swiss planning assumes one battery replacement per bus life of 12--14 years~\cite[p.~28]{Kollegger2020mountain}.
@@ -4422,14 +4499,14 @@ A value derived by the project is marked ``our estimate'' or ``our computation''
       \qquad
       e_j = e_0 + k_\theta\, \theta_j + \frac{P_{\mathrm{HVAC}}}{v_j}.
     \end{equation}
-    \begin{itemize}[nosep]
+    \begin{itemize}
       \item $c_{\mathrm{cal}}$ is the calendar fade per day, and $k_{\mathrm{EFC}}$ the fade per equivalent full cycle (EFC: charge throughput over the nominal capacity).
       \item $e_j$ is the energy per km drawn from the battery; $E_{\mathrm{nom}} = 264$\,kWh is the nominal energy of the line-759 buses (Section~\ref{sec:cs_depots}).
       \item $\theta_j$ is the mean absolute grade of the round trip, in percent: the ascent plus the descent of both directions over their length.
       \item $v_j$ is the mean speed in km/h, and $P_{\mathrm{HVAC}}$ the mean power of heating, ventilation and air conditioning (HVAC) in kW.
     \end{itemize}
     The coefficients (Table~\ref{tab:cs_parameters}) are our computation.
-    \begin{itemize}[nosep]
+    \begin{itemize}
       \item $c_{\mathrm{cal}}$ and $k_{\mathrm{EFC}}$ are marginal rates of the fade models of a large LFP (lithium iron phosphate) cell and of an NMC cell that NREL (the US National Renewable Energy Laboratory) publishes as code~\cite{BLASTLite}.
         They hold at 25\,$^\circ$C, the temperature at which the eCitaro keeps its cells~\cite{DaimlerTruck2022eCitaro}.
         The maker's claim of 4,000 cycles~\cite{DaimlerTruck2022eCitaro} gives $5 \cdot 10^{-5}$ per cycle, calendar fade included.
@@ -4471,7 +4548,7 @@ A value derived by the project is marked ``our estimate'' or ``our computation''
 
 \paragraph{Tires.}
 Each bus has two tire cells: the steer axle with $n = 2$ tires and the drive axle with $n = 4$ tires (twin rear tires, as in the fleet that gives the wear rates~\cite[Sec.~2]{Giechaskiel2026bus}).
-\begin{itemize}[nosep]
+\begin{itemize}
   \item \textbf{Damage and threshold.}
     The damage is the tread depth lost in the main grooves, in mm, at the worst groove~\cite[Sec.~2]{Giechaskiel2026bus}.
     A city-bus tire of the eCitaro size 275/70\,R22.5 has a new depth of 19.5\,mm (steer) or 20.4\,mm (drive)~\cite[p.~38]{Goodyear2020}.
@@ -4492,7 +4569,7 @@ Each bus has two tire cells: the steer axle with $n = 2$ tires and the drive axl
     \begin{equation}\label{eq:cs_tire}
       \mu_{ljk} = r_l\, f_{\mathrm{BEB}}\, L_{jk}\, q_j .
     \end{equation}
-    \begin{itemize}[nosep]
+    \begin{itemize}
       \item $r_l$ is the wear rate of new 275/70\,R22.5 tires on diesel buses of regional routes: 0.15 (steer) and 0.16 (drive) mm per 1,000\,km~\cite[Table~6]{Giechaskiel2026bus}.
       \item $f_{\mathrm{BEB}} = 1.35$ (range 1.3--1.8) is the factor of a BEB (our estimate).
         It rests on the tire cost in Shenzhen, about 30\% above diesel buses~\cite[p.~68]{WorldBank2021Shenzhen}, and on the miles per tire at Foothill Transit, where the gas buses ran 1.82 and 1.74 times as many miles per tire as the two BEB fleets~\cite[pp.~53,~78]{NREL2021Foothill} (our computation).
@@ -4525,7 +4602,7 @@ Each bus has two tire cells: the steer axle with $n = 2$ tires and the drive axl
 \end{itemize}
 
 \paragraph{Inverter power modules.}
-\begin{itemize}[nosep]
+\begin{itemize}
   \item \textbf{Reference inverter.}
     No source read documents the inverter of the eCitaro buses in service (Section~\ref{sec:cs_buses}).
     The reference is an inverter of the Semikron SKAI~2~HV family: insulated-gate bipolar transistors (IGBT) with sintered chips and aluminium--copper bonds, up to 800\,V DC~\cite{SemikronSKAI2HV}.
@@ -4562,7 +4639,7 @@ Each bus has two tire cells: the steer axle with $n = 2$ tires and the drive axl
     \begin{equation}\label{eq:cs_inverter}
       \mu_{jk} = \delta_{\mathrm{stop}}\, G_j\, s_j\, L_{jk}\, F_k .
     \end{equation}
-    \begin{itemize}[nosep]
+    \begin{itemize}
       \item $\delta_{\mathrm{stop}} = 2/N_f(\Delta T_{\mathrm{ref}}) = 3.6 \cdot 10^{-7}$ is the damage of one stop on a flat road.
         We assume two cycles per stop, one in acceleration and one in braking, as in a car study~\cite[Fig.~19]{Lu2023}, a lowest junction temperature of 60\,$^\circ$C and $t_{\mathrm{on}} = 10$\,s.
       \item $\Delta T_{\mathrm{ref}} = 40$\,K is our estimate.
@@ -4596,7 +4673,7 @@ Each bus has two tire cells: the steer axle with $n = 2$ tires and the drive axl
 
 \paragraph{Repairs, replacements and the loop constraint.}
 The loop constraint needs every component that gains damage in the operating phase to come back, in each repetition, by a repair or a replacement (Section~\ref{sec:loop_replacements}).
-\begin{itemize}[nosep]
+\begin{itemize}
   \item \textbf{Battery and tires.}
     Their $\text{ARD}_\infty$ repairs can close the loop.
     For the tires this rests on the approximation above: the model may regroove the same tire many times.
@@ -4616,8 +4693,9 @@ Weekday values are for one bus on line 759 / line 768; the battery and tire valu
 SOH: state of health; EOL: end of life; EFC: equivalent full cycle; HVAC: heating, ventilation and air conditioning; $c$: coefficient of variation; $k$: Weibull shape of module life.}
 \label{tab:cs_parameters}
 \small
-\begin{tabular}{@{}p{2.0cm}p{4.15cm}p{4.15cm}p{4.15cm}@{}}
+\begin{tabularx}{\linewidth}{@{}>{\hsize=0.554\hsize\raggedright\arraybackslash}X>{\hsize=1.149\hsize\raggedright\arraybackslash}X>{\hsize=1.149\hsize\raggedright\arraybackslash}X>{\hsize=1.149\hsize\raggedright\arraybackslash}X@{}}
 \toprule
+\rowcolor{headgrey}
  & \textbf{Traction battery} & \textbf{Tires (per axle set)} & \textbf{Inverter power modules} \\
 \midrule
 Damage $D$
@@ -4661,13 +4739,13 @@ Initial state $\mu_0$
   & uniform on $[0, \tau)$, mean $\tau/2$; or the last reading
   & 0 if new; else days in service $\times$ mean daily increment \\
 \bottomrule
-\end{tabular}
+\end{tabularx}
 \end{table}
 
 \paragraph{Choice of the tail bound for the inverter.}
 The rainflow model offers the five bounds of Table~\ref{tab:five_bounds}.
 We compare the three that fit the inputs of the inverter.
-\begin{itemize}[nosep]
+\begin{itemize}
   \item \textbf{Inputs.}
     No source gives the variance of the inverter damage under one use.
     The support follows from a worst day: $b = 1.5 \cdot 1.15\,\mu$, with 50\% more stops than planned and a coolant 10\,K warmer (our assumption).
@@ -4695,6 +4773,7 @@ The damage grows by equal weekday increments without repair: mean $2.0 \cdot 10^
 \small
 \begin{tabular}{@{}llcccc@{}}
 \toprule
+\rowcolor{headgrey}
  & & \multicolumn{2}{c}{$\varepsilon = 0.01$} & \multicolumn{2}{c}{$\varepsilon = 0.001$} \\
 \cmidrule(lr){3-4}\cmidrule(l){5-6}
 \textbf{Bound} & \textbf{Statistics needed} & 759 & 768 & 759 & 768 \\
@@ -4720,8 +4799,9 @@ Table~\ref{tab:eval_metrics} lists the quantities with which the project judges 
 \caption{Metrics of a schedule and of a solve.}
 \label{tab:eval_metrics}
 \small
-\begin{tabular}{@{}p{3.3cm}p{7.6cm}p{3.7cm}@{}}
+\begin{tabularx}{\linewidth}{@{}>{\hsize=0.678\hsize\raggedright\arraybackslash}X>{\hsize=1.562\hsize\raggedright\arraybackslash}X>{\hsize=0.760\hsize\raggedright\arraybackslash}X@{}}
 \toprule
+\rowcolor{headgrey}
 \textbf{Metric} & \textbf{Definition} & \textbf{Where} \\
 \midrule
 Cost of a schedule & The objective~\eqref{eq:objective}, in one of three modes: the total cost of the $T$ modelled days, the operating average (cost per day of the operating phase), or the projected cost over an evaluation horizon of $E$ days. & Section~\ref{sec:cost_function}, Table~\ref{tab:objective_modes} \\
@@ -4731,7 +4811,7 @@ Gap of the solver & With the default MIP gap of $0.1$, the status \texttt{optima
 Solve time and status & The time of a solve. A solution found before the time limit is reported with the status \texttt{time\_limit}. A warm start changes the time of a solve, not the model. & Sections~\ref{sec:impl_outputs} and~\ref{sec:impl_warm} \\
 Ranking value of a sweep & The operating average $\bar J_{\mathrm{op}}$, or the projected cost $P_E$ when the sweep varies both horizons. & Section~\ref{sec:impl_sweeps} \\
 \bottomrule
-\end{tabular}
+\end{tabularx}
 \end{table}
 
 The dynamics rows are one-sided.
@@ -4740,7 +4820,7 @@ So the tracked values, and the costs computed from them, are upper bounds on the
 \subsection{Baselines}
 
 The project has one baseline in the library and one proposed baseline.
-\begin{itemize}[nosep]
+\begin{itemize}
   \item \textbf{Greedy heuristic.} The library builds a schedule with a greedy heuristic (Section~\ref{sec:impl_warm}).
     The heuristic tries to satisfy the rows of the model and does not try to give a low cost.
     Its schedule is the reference for the schedule of the solver.
@@ -4763,7 +4843,7 @@ A reliability constraint with small~$\varepsilon$ lies several standard deviatio
 A numerical experiment compared the bounds on sums of $k \in \{30, 100\}$ independent increments with one law on $[0,1]$.
 It used five laws: the uniform law, $\mathrm{Beta}(2,2)$, $\mathrm{Beta}(0.5,5)$, and the two-point laws on $\{0,1\}$ with $\Pr(1) = 0.5$ and $\Pr(1) = 0.05$.
 For each case the threshold~$\tau$ gives an exact tail $\Pr(D > \tau)$ close to $10^{-4}$, and each bound was divided by this exact tail.
-\begin{itemize}[nosep]
+\begin{itemize}
   \item \textbf{Chernoff.} With the exact cumulant generating function and the best~$s$, the Chernoff bound exceeded the tail by a factor between $4$ and $12$, so it stayed within about one order of magnitude.
     With only the mean and the width of the range (the mean-and-support bound), it exceeded the tail of the three continuous laws by a factor between $1000$ and $3200$.
   \item \textbf{Cantelli.} The Cantelli bound exceeded the tail by a factor between $330$ and $710$, more than two orders of magnitude, for both values of~$k$.
@@ -4782,7 +4862,7 @@ For each case the threshold~$\tau$ gives an exact tail $\Pr(D > \tau)$ close to 
 So Cantelli, the simplest bound, can compete with Bernstein only for short accumulation windows and shallow tails; otherwise it is a coarse fallback that needs only the mean and the variance.
 
 \paragraph{Checks against operator figures.}
-\begin{itemize}[nosep]
+\begin{itemize}
   \item \textbf{Length of line 759.} VBG gives ``\"uber 27 Kilometer'' (over 27\,km)~\cite{VBG2023Line759}; our round trip is $14.08 + 13.56 = 27.64$\,km.
   \item \textbf{Distance per year, line 759.} VBG gives about 635,000\,km per year with diesel buses, on the timetable of 2021~\cite[p.~1]{VBG2021Line759}.
     Our estimate is $250 \cdot 1{,}935.1 + 52 \cdot 1{,}865.5 + 63 \cdot 1{,}055.8 \approx 647{,}000$\,km, with 250 weekdays, 52 Saturdays and 63 Sundays and holidays.
@@ -4796,7 +4876,7 @@ So Cantelli, the simplest bound, can compete with Bernstein only for short accum
 The validators of the library check a schedule against its input and its model.
 Section~\ref{sec:impl_validation} describes them.
 One limit of the Monte Carlo validator follows.
-\begin{itemize}[nosep]
+\begin{itemize}
   \item \textbf{Monte Carlo validator.} Its result is an empirical stress test and not a proof: zero failures in $n$ runs does not show that the true failure rate is below $1/n$.
     It raises no error for a violation of the schedule rows.
     The mode \texttt{both} runs the replay and the Monte Carlo validators together, and it reports the schedule through the replay validator.
@@ -4817,7 +4897,7 @@ Section~\ref{sec:literature} reviews the simulation tools, and Section~\ref{sec:
 \paragraph{Proposed chain.}
 Our proposal is to write the chain in our own Python code.
 It takes the physics from published practice \cite{Heide2025,Konzept2025} and the battery fade from BLAST-Lite \cite{BLASTLite}.
-\begin{itemize}[nosep]
+\begin{itemize}
   \item \textbf{Ageing needs own code.} No tool read ages tires or inverters or draws failures.
   \item \textbf{Few inputs.} Each bus and day needs only its trips, distances, stops, grades, loads and temperatures.
   \item \textbf{Measured times.} Measured stop times exist for almost all trips.
@@ -4838,8 +4918,9 @@ Junction temperature: the temperature of the semiconductor chip.}
 \label{tab:cs_sim_chain}
 \small
 \setlength{\tabcolsep}{4pt}
-\begin{tabular}{@{}p{2.6cm}p{8.3cm}p{4.0cm}@{}}
+\begin{tabularx}{\linewidth}{@{}>{\hsize=0.523\hsize\raggedright\arraybackslash}X>{\hsize=1.671\hsize\raggedright\arraybackslash}X>{\hsize=0.805\hsize\raggedright\arraybackslash}X@{}}
 \toprule
+\rowcolor{headgrey}
 \textbf{Step} & \textbf{What it does} & \textbf{Tool and data} \\
 \midrule
 1. Bus-days & For each period and bus, take the line from the schedule. For each day, draw one block of that line and day type (weekday, Saturday, Sunday). & own code; blocks from \cite{IstDaten2026} or from the vehicle estimate of Section~\ref{sec:cs_depots} \\
@@ -4854,7 +4935,7 @@ Junction temperature: the temperature of the semiconductor chip.}
 8. Failures & For each bus, draw a fade-rate factor (battery), a wear-rate factor (tires) and a module strength (inverter, Weibull law). A component fails when its damage passes its limit. Apply the planned repairs and replacements with their repair laws. A failure before the planned action is a violation. & own code \\
 9. Monte Carlo & Repeat steps 3 to 8, for example 1,000 times, with a weather year drawn from the hourly records since 1980. Count, for each component and period, how often the limit is passed, and compare the share with~$\varepsilon$. & own code; \cite{MeteoSwissSMN2026} \\
 \bottomrule
-\end{tabular}
+\end{tabularx}
 \end{table}
 
 \paragraph{Cost of the chain.}
@@ -4907,10 +4988,10 @@ With $x^m_{i\ell k}, x^r_{i\ell k} \ge 0$ and $x_{i0k} \le 1$, row~\eqref{eq:mai
 \end{equation}
 \end{remark}
 
-\begin{itemize}[nosep]
+\begin{itemize}
   \item \textbf{Two forms of the rows.}
     The rows have two forms with the same feasible set at binary points (Section~\ref{sec:impl_encoding}).
-\begin{itemize}[nosep]
+\begin{itemize}
   \item \textbf{Big-M row.} A binary switches the row off through a large constant~$M$.
   \item \textbf{Indicator constraint.} A row that the solver enforces only when a binary is~$1$.
 \end{itemize}
@@ -4944,7 +5025,7 @@ A check of one model runs only at the components of that model.
 Each item below gives a rule and, after the dash, its reason.
 
 \paragraph{Keys, shapes and entries.}
-\begin{itemize}[nosep]
+\begin{itemize}
   \item Every key is known, and every required key is present. --- A misspelled or missing key must not change the problem without a message.
   \item Each value has one of the shapes of its key. --- Silent broadcasting by the array library (the automatic extension of an array to a larger shape) could read a value for another component.
   \item At a component where a key applies, every entry is a finite number, or a string for a selector. --- A missing value at a component must not take a default silently.
@@ -4955,7 +5036,7 @@ Each item below gives a rule and, after the dash, its reason.
 \end{itemize}
 
 \paragraph{Sizes and selectors.}
-\begin{itemize}[nosep]
+\begin{itemize}
   \item $F > \max_k \sum_{j} d_{jk}$. --- Mission~$j$ needs $d_{jk}$ members on day~$k$; with $F = \sum_{j} d_{jk}$ no member could be in the depot on day~$k$, and no repair could take place on that day.
   \item $F > M$. --- A profile with three axes is read as $(L, M, H_*)$ or as $(F, L, M)$, and the two shapes coincide only if $F = L = M = H_*$. If on some day every mission has $d_{jk} \ge 1$, this check follows from the previous one; it matters when some $d_{jk}$ are~$0$.
   \item $H_1, H_2 \ge 1$. --- Each phase has at least one day.
@@ -4963,7 +5044,7 @@ Each item below gives a rule and, after the dash, its reason.
 \end{itemize}
 
 \paragraph{Reliability, repair and initial state.}
-\begin{itemize}[nosep]
+\begin{itemize}
   \item $\tau > 0$. --- The threshold is a positive degradation level.
   \item $\varepsilon \in (0, 1)$, and $\varepsilon < 0.5$ at Gaussian and Wiener components. --- A probability lies in $(0,1)$; the normal quantile $\kappa_G = \Phi^{-1}(1-\varepsilon)$ of the Gaussian and Wiener rows is positive only below~$0.5$; at $\varepsilon \ge 0.5$ the squared row does not describe the requirement (Remark~\ref{rem:vmax}).
   \item $\rho \in (0, 1]$. --- A repair removes a positive fraction of the level, at most all of it.
@@ -4979,13 +5060,13 @@ Each item below gives a rule and, after the dash, its reason.
 \end{itemize}
 
 \paragraph{Natural ranges and replacement states.}
-\begin{itemize}[nosep]
+\begin{itemize}
   \item Every initial value, starting anchor and replacement value lies in the natural range of its statistic (Section~\ref{sec:impl_encoding}). --- The big-M rows take the natural range as their constant, and this constant is valid only for values in the range (Appendix~\ref{drv:bigM_validity}, page~\pageref{drv:bigM_validity}): with a value outside it, a switched-off row can cut feasible points.
   \item When replacements are allowed, the replacement state satisfies every row that holds on a replacement day, in the form built at the component (for \texttt{pwl}, the cap of the segment that contains the replacement mean), its side row, and the optional variance cap. --- The rows hold on the day of a replacement, so a replacement state that violates one of them makes every replacement infeasible (Section~\ref{sec:damage_dynamics}).
 \end{itemize}
 
 \paragraph{Increments.}
-\begin{itemize}[nosep]
+\begin{itemize}
   \item The mean of an increment satisfies
     \begin{equation}
       0 \le \mu^{\mathrm{inc}} < \tau
@@ -4996,7 +5077,7 @@ Each item below gives a rule and, after the dash, its reason.
 \end{itemize}
 
 \paragraph{Model-specific checks.}
-\begin{itemize}[nosep]
+\begin{itemize}
   \item Gaussian: $\mu \ge 3\sqrt{v}$ for the initial damage, for every increment and, when replacements are allowed, for the replacement draw. --- A Gaussian term is then negative with probability at most about $0.13\,\%$, so the damage stays non-negative in practice.
   \item Inverse Gaussian: $\eta > 0$. --- The squared coefficient of variation of the inverse Gaussian terms must be positive.
   \item Wiener: $\sigma > 0$ and $v_0 \ge 0$. --- The diffusion constant is positive; a known initial damage has variance~$0$ and is a valid input.
@@ -5014,14 +5095,14 @@ Each item below gives a rule and, after the dash, its reason.
 \end{itemize}
 
 \paragraph{Run options and costs.}
-\begin{itemize}[nosep]
+\begin{itemize}
   \item The evaluation horizon, when given, exceeds~$H_1$. --- The projected cost needs at least one operating day beyond the transitory phase; for a smaller horizon the operating cost would have a negative weight (Section~\ref{sec:cost_function}).
   \item Numerical run options lie in their ranges, and flags are flags. --- A value outside its range must raise an error and must not be changed silently.
   \item All costs are finite and non-negative. --- A negative cost would reward a depot day, a repair, a replacement or damage.
 \end{itemize}
 
 \paragraph{Tolerance of the checks.}
-\begin{itemize}[nosep]
+\begin{itemize}
   \item A non-strict inequality $a \le b$ passes when it holds up to $10^{-12}\max(1, |a|, |b|)$. --- The rounding of floating-point numbers can break an exact comparison on valid data.
     For example, with $s = 5$ and $\mu_0 = 0.14$, the Chernoff initial value $K_0 = 0.7$ fails $K_0 \ge s\mu_0$ without a tolerance, because $5 \cdot 0.14 = 0.7000000000000001$ in floating point.
     The rounding error grows with the size of the numbers, so the tolerance is relative; the term~$1$ keeps the tolerance $10^{-12}$ near~$0$.
@@ -5033,7 +5114,7 @@ Each item below gives a rule and, after the dash, its reason.
 \subsubsection{Computation of the inverse Gaussian cap}
 The cap~$\bar\mu$ is computed once per component, before the model is built.
 Its numerical choices have the following reasons.
-\begin{itemize}[nosep]
+\begin{itemize}
   \item \textbf{Distribution function.} $F_Z$ is a sum of two positive terms, and $\ln F_Z$ is computed from their logarithms.
     So the sum loses no digits, and the factor $e^{2/\eta}$ of~\eqref{eq:ig_cdf} does not overflow when $\eta$ is small.
   \item \textbf{Survival function.} $1 - F_Z$ is a difference of two positive terms, and $\ln(1 - F_Z)$ is computed from their logarithms.
@@ -5050,6 +5131,7 @@ Its numerical choices have the following reasons.
     \small
     \begin{tabular}{@{}lcc@{}}
     \toprule
+\rowcolor{headgrey}
      & \texttt{invgauss.isf} & root search \\
     \midrule
     $\eta = 10^{-6}$, $\varepsilon = 0.5$ & $1.6 \cdot 10^{-6}$ & $2 \cdot 10^{-13}$ \\
@@ -5070,7 +5152,7 @@ Three facts justify the computation, and $w(A_1) \le \varepsilon$ holds at the r
 The derivation is in Appendix~\ref{drv:gamma_computation}, page~\pageref{drv:gamma_computation}.
 
 The numerical choices of the computation have the following reasons.
-\begin{itemize}[nosep]
+\begin{itemize}
   \item \textbf{One-rate cap.} A bisection on the first argument of~$Q$ finds the exact one-rate cap~$\hat A$, the root of $Q(\hat A, t) = \varepsilon$.
     Its interval keeps $Q \le \varepsilon$ at the lower end and $Q > \varepsilon$ at the upper end, and the bisection returns the lower end.
     So $Q(\hat A, t) \le \varepsilon$, and the numerical error lies on the safe side.
@@ -5097,6 +5179,7 @@ The numerical choices of the computation have the following reasons.
     \small
     \begin{tabular}{@{}llllc@{}}
     \toprule
+\rowcolor{headgrey}
     Value & Reference & $\varepsilon$ & $t$ & Largest difference \\
     \midrule
     $\hat A$ & \texttt{brentq}, tolerance $10^{-15}$ & $10^{-6}$ to $0.99$ & $10^{-6}$ to $10^{4}$ & $8.8 \cdot 10^{-13}$ (relative) \\
@@ -5114,7 +5197,7 @@ The numerical choices of the computation have the following reasons.
 \subsubsection{Outputs}
 \label{sec:impl_outputs}
 
-\begin{itemize}[nosep]
+\begin{itemize}
   \item \textbf{Solution and status.}
     The solution arrays are present whenever Gurobi has found at least one solution, and then the status tells how the solve ended.
     For example, a solution found before the time limit is reported with the status \texttt{time\_limit}.
@@ -5156,7 +5239,7 @@ A sweep over both horizons with an evaluation horizon~$E$ ranks by the projected
 \end{equation}
 which is the cost of the transitory phase, then of the operating phase repeated until day~$E$.
 This criterion also prices the transitory phase, so it compares different values of~$H_1$.
-\begin{itemize}[nosep]
+\begin{itemize}
   \item \textbf{What a proof certifies.} A case counts as proven when Gurobi reports \texttt{optimal} at the MIP gap requested for that case.
     Such a case is optimal within that gap, not exactly optimal, and the sweep report records the requested gap of each case.
     The status certifies the objective that the solve minimised: $\bar J_{\mathrm{op}} + C_D\,u$ or $P_E + C_D\,u$, while the ranking value is $\bar J_{\mathrm{op}}$ or $P_E$ alone.
@@ -5175,9 +5258,9 @@ This criterion also prices the transitory phase, so it compares different values
 \label{sec:impl_warm}
 
 A warm start changes the time of a solve, not the model: it does not change the feasible set or the objective.
-\begin{itemize}[nosep]
+\begin{itemize}
   \item \textbf{Day mapping.} A start taken from a previous result maps its days to the days of the new problem.
-    \begin{itemize}[nosep]
+    \begin{itemize}
       \item The transitory days keep their index.
       \item The operating days repeat the operating phase of the source cyclically, so a shorter operating phase can seed a longer one.
       \item When the new transitory phase is longer than the source's, its extra days all take the first operating day of the source.
@@ -5201,7 +5284,7 @@ A warm start changes the time of a solve, not the model: it does not change the 
   \item \textbf{Greedy heuristic.} The heuristic builds a schedule that tries to satisfy the rows of the model.
     It does not try to give a low cost.
     After its construction pass the missions are fixed, so the components are independent except through the depot days of a member.
-    \begin{itemize}[nosep]
+    \begin{itemize}
       \item \textbf{Rows in the excess.} The excess of a component counts the violations of the reliability row, of its side row and of the optional variance cap.
         The tracked values are at least the reference values (Proposition~\ref{prop:domination}), and each of these rows sets upper limits on them.
         So a schedule whose reference trajectory breaks one of these rows has no feasible completion.
@@ -5223,7 +5306,7 @@ A warm start changes the time of a solve, not the model: it does not change the 
 \subsubsection{Plots}
 \label{sec:impl_plots}
 
-\begin{itemize}[nosep]
+\begin{itemize}
   \item \textbf{Readers.} The schedule plot reads its file with the reader of the result files (Section~\ref{sec:impl_outputs}), and the sweep plot reads its reports with the input reader.
     A file whose data are not a mapping raises the type error of the reader, so every way of reading a file has one error for this case.
   \item \textbf{Result without models.} A result file without the key of the models is plotted, and each row shows the model ``unknown''.
@@ -5238,7 +5321,7 @@ A warm start changes the time of a solve, not the model: it does not change the 
 \subsubsection{Validation tools}
 \label{sec:impl_validation}
 
-\begin{itemize}[nosep]
+\begin{itemize}
   \item \textbf{Objective check.} The saved damage penalty~$u$ is the maximum of its rows.
     The solver objective contains the variable~$u$, which can lie above this maximum in a solution that is not optimal.
     So the check is one-sided: it tests that the reported objective is not below the cost of the reported solution, and it does not test optimality.
@@ -5268,7 +5351,7 @@ A warm start changes the time of a solve, not the model: it does not change the 
     This is the row of the model, and at binary points the saved difference between the mean and the anchor is at least the reference difference, under both repair laws.
     So the check on the saved values also implies the check on the reference values.
   \item \textbf{Exact Gamma validator.} It computes the tail $\Pr(D_k > \tau)$ of the sum of the terms with the Moschopoulos series.
-    \begin{itemize}[nosep]
+    \begin{itemize}
       \item \textbf{Mixture.} The series writes the law of a sum of independent Gamma variables with different rates as a mixture of Gamma laws with non-negative weights.
         When all rates are equal, the tail is the Gamma tail.
       \item \textbf{Certified bound.} The partial sum of the series is a lower bound of the tail, so adding the mixture weight that remains gives a certified upper bound.
@@ -5297,7 +5380,7 @@ A warm start changes the time of a solve, not the model: it does not change the 
 \subsubsection{Package and inputs}
 \label{sec:impl_package}
 
-\begin{itemize}[nosep]
+\begin{itemize}
   \item \textbf{Modules.}
     The package has one module per task.
     The shared Gurobi model and the registry of component builders are in one module, and each degradation model has its own module.
@@ -5339,8 +5422,10 @@ Tables~\ref{tab:risks_formulation} and~\ref{tab:risks_case} split the risks into
 Likelihood and impact are our own assessment, with the levels high, medium and low.}
 \label{tab:risks_formulation}
 \small
-\begin{tabular}{@{}p{5.4cm}p{1.9cm}p{1.3cm}p{6.0cm}@{}}
+\setlength{\tabcolsep}{3pt}
+\begin{tabularx}{\linewidth}{@{}>{\hsize=1.540\hsize\raggedright\arraybackslash}X>{\hsize=0.500\hsize\raggedright\arraybackslash}X>{\hsize=0.380\hsize\raggedright\arraybackslash\hspace*{6pt}}X>{\hsize=1.580\hsize\raggedright\arraybackslash\hspace*{3pt}}X@{}}
 \toprule
+\rowcolor{headgrey}
 \textbf{Risk} & \textbf{Likelihood} & \textbf{Impact} & \textbf{Mitigation or fallback} \\
 \midrule
 A component that needs a replacement, such as a Wiener component or an $\text{ARD}_1$ component with $\rho < 1$, has none in the operating phase while its member serves a mission. The problem is then infeasible (Section~\ref{sec:loop_replacements}).
@@ -5368,7 +5453,7 @@ A repair modelled in parameter space, for example as a reduction of the Gamma sh
   & low & high
   & The formulation repairs the damage path, tracks the mean, and gives every tracked quantity and anchor its own loop row (Section~\ref{sec:loop_constraint}). \\
 \bottomrule
-\end{tabular}
+\end{tabularx}
 \end{table}
 
 \begin{table}[htbp]
@@ -5377,8 +5462,9 @@ A repair modelled in parameter space, for example as a reduction of the Gamma sh
 Likelihood and impact are our own assessment, with the levels high, medium and low.}
 \label{tab:risks_case}
 \small
-\begin{tabular}{@{}p{5.4cm}p{1.9cm}p{1.3cm}p{6.0cm}@{}}
+\begin{tabularx}{\linewidth}{@{}>{\hsize=1.479\hsize\raggedright\arraybackslash}X>{\hsize=0.521\hsize\raggedright\arraybackslash}X>{\hsize=0.356\hsize\raggedright\arraybackslash}X>{\hsize=1.644\hsize\raggedright\arraybackslash}X@{}}
 \toprule
+\rowcolor{headgrey}
 \textbf{Risk} & \textbf{Likelihood} & \textbf{Impact} & \textbf{Mitigation or fallback} \\
 \midrule
 The exact Gamma validator costs much when a component is repaired many times: about $2$\,s per tail after $8$ repairs, and an error from $11$ repairs (Section~\ref{sec:impl_validation}).
@@ -5412,7 +5498,7 @@ The data have gaps: the meaning of the block identifier is unverified, the opera
   & high & medium
   & State each gap with the result. Compare components within one fleet, not across fleets. \\
 \bottomrule
-\end{tabular}
+\end{tabularx}
 \end{table}
 
 \clearpage
@@ -5562,7 +5648,7 @@ By Proposition~\ref{prop:domination}, $\theta_k \le \xi_k$, so (M3) gives $\Pr(D
 Fix a component.
 Let $\xi_k$ be its full tracked state, and $\theta_k$ and $\zeta_k$ the true statistics and the reference trajectory of the endless schedule.
 By (M2) and Lemma~\ref{lem:monotone}, the induction of Proposition~\ref{prop:domination} gives $\theta_k \le \zeta_k$ on every day $k \ge 1$.
-\begin{itemize}[nosep]
+\begin{itemize}
   \item Days $k \le T$: $\zeta_k \le \xi_k$ (Proposition~\ref{prop:domination}) and $\xi_k \in \mathcal{C}_{i\ell}$ (Section~\ref{sec:encoding}).
   \item By Proposition~\ref{prop:domination} and~\eqref{eq:start},
     \begin{equation}
@@ -5604,13 +5690,15 @@ Since $\zeta_k \ge 0$ and $\mathcal{C}_{i\ell}$ is a down-set, $\zeta_k \in \mat
 \begin{proof}[Derivation that the loop constraint needs the anchors]
 The third step of the proof of Theorem~\ref{thm:perpetual} needs $\Pi(y) \le y$ in every coordinate.
 Under $\text{ARD}_1$ a larger anchor gives a weaker repair, so an anchor that grows over one repetition weakens the repairs of the next one.
-Example:
-\begin{itemize}[nosep]
+\begin{examplebox}
+\textbf{Example.}
+\begin{itemize}
   \item \textbf{Data.} $\rho = 0.5$; the repetitions start at mean $0.4$ and anchor $0.1$ (the start $y$); the operating phase is a mission ($+0.1$), a repair, and a mission ($+0.05$).
   \item \textbf{First repetition.} The phase ends at mean $0.35$ and anchor $0.3$, because the repair gives $0.5 \cdot 0.5 + 0.5 \cdot 0.1 = 0.3$.
     The loop row on the mean holds ($0.35 \le 0.4$), and the loop row on the anchor fails ($0.3 > 0.1$).
   \item \textbf{Later repetitions.} Each repetition raises the mean after the repair by $0.075$, so the mean grows without bound: the third repetition already peaks at $0.525$, above the checked peak $0.5$.
 \end{itemize}
+\end{examplebox}
 A loop row on the mean alone would accept this unsafe schedule.
 \end{proof}
 
@@ -5669,7 +5757,7 @@ On a day $k > H_1$ of the operating phase, a repair day gives
 and any other day gives $\bar\mu_k \ge \bar\mu_{k-1} + \delta\mu_k$ and $\bar g_k = \bar g_{k-1}$.
 The loop rows read $\mu_T \le y^{\mu}$ and $g_T \le y^{g}$.
 Let $\Delta = \sum_{k=H_1+1}^{T} \delta\mu_k > 0$.
-\begin{itemize}[nosep]
+\begin{itemize}
   \item \textbf{No repair.} $\mu_T \ge y^{\mu} + \Delta > y^{\mu}$, which violates the loop row.
   \item \textbf{A repair, and $y^{g} > y^{\mu}$.}
     Let $r$ be the first repair day.
@@ -5707,7 +5795,7 @@ Under $\text{ARD}_\infty$,
 and $\mu_{k-1} \ge \zeta^{\mu}_{k-1}$ by Proposition~\ref{prop:domination}.
 Under $\text{ARD}_1$, let $t < k$ be the last intervention day before~$k$, or $t = 0$ if there is none.
 Then $g^{\mu}_{k-1} = g^{\mu}_t$ and $\zeta^{g}_{k-1} = \zeta^{g}_t$.
-\begin{itemize}[nosep]
+\begin{itemize}
   \item If $t = 0$: $g^{\mu}_0 = \zeta^{g}_0$ (the starting anchor), so
     \begin{equation}
       g^{\mu}_{k-1} - \zeta^{g}_{k-1} = 0 \le \mu_{k-1} - \zeta^{\mu}_{k-1}.
@@ -5913,7 +6001,7 @@ So the relation~\eqref{eq:loopI_U_rise} is possible.
 \phantomsection\label{drv:loopI_moments}
 \begin{proof}[Derivation that the moment loop~\eqref{eq:loop_moments} chains]
 Under the dynamics, the mean and the variance change by one of three operations.
-\begin{itemize}[nosep]
+\begin{itemize}
   \item \textbf{Increment.} The moments grow as
     \begin{equation}
       \mathbb{E} \mathrel{+}= \sum_j n_{ij}\mu_{\ell j}
@@ -5970,7 +6058,7 @@ These maps are non-decreasing in $(K, g^K)$, and the tracked $K$ stays an upper 
 
 \phantomsection\label{drv:sched_support}
 \begin{proof}[Derivation of the validity of the support $b_\ell(\zeta)$ and of its rows (Section~\ref{sec:routeI_refinements})]\leavevmode
-\begin{itemize}[nosep]
+\begin{itemize}
   \item \textbf{Validity of $b_\ell(\zeta)$.} Between resets, the state is a sum, with weights in $[0,1]$, of one reset draw and of increments of \emph{served} missions only.
     So $b_\ell(\zeta)$ bounds every summand, and Bernstein's inequality applies without change, on every day and in every repetition of the schedule.
   \item \textbf{Equivalence of the rows.} The certified value $\mu + c + \sqrt{c^2 + 2\kappa v}$ has the derivative
@@ -6177,7 +6265,7 @@ Let $\mathcal{G}_N(m)$ be the elements with at most $N$ atoms, the constant incl
     \end{equation}
   \item \emph{First-order conditions.} Write $\omega^\circ = \omega_{S^*}$.
     Lemma~\ref{lem:gamma_rates} gives three conditions.
-    \begin{enumerate}[nosep,label=(\roman*)]
+    \begin{enumerate}[label=(\roman*)]
       \item Moving mean between two atoms of positive mean must not raise the tail, so $\omega^\circ$ takes one value $\omega^*$ at every atom of positive mean.
       \item At an atom with $c \in (0, 1)$, $\partial\omega^\circ/\partial c = 0$.
       \item If $S^*$ has fewer than $N$ atoms of positive mean, a new atom can be opened at any $c \in [0, 1]$, so $\omega^\circ(c) \le \omega^*$ on $[0, 1]$.
@@ -6242,7 +6330,7 @@ Therefore $W(m, t) \le W(m', t)$.
 
 \phantomsection\label{drv:gamma_w}
 \begin{proof}[Derivation of the properties of the function~$w$]
-\begin{itemize}[nosep]
+\begin{itemize}
   \item $w$ is non-decreasing in~$A$, because $Q(a, x)$ increases in~$a$.
     It is continuous on $[0, A']$ for every $A' < t$.
     By Chebyshev's inequality $Q(A/c, t/c) \le cA/(t - A)^2$, so $w(A) \le A/(t - A)^2 \to 0 = w(0)$ as $A \to 0$.
@@ -6290,7 +6378,7 @@ is non-decreasing in~$\beta^*$.
 
 \phantomsection\label{drv:mfacts_gamma}
 \begin{proof}[Derivation of facts (M1)--(M3) for the Gamma model]
-\begin{itemize}[nosep]
+\begin{itemize}
   \item[(M1)] The repair factor $1-\rho$ lies in $[0, 1]$, and the mean increments are non-negative.
   \item[(M2)] The true mean equals the day map applied to the true statistics of the day before, and $\theta_0 \le \xi_0$ holds as for the Gaussian model below.
   \item[(M3)] If a value $\mu \le A_1/\beta^*$ is at least the true mean of day~$k$, then $\Pr(D_k > \tau) \le \varepsilon$, because the proof of Proposition~\ref{prop:gamma_safe} uses only these two facts.
@@ -6325,7 +6413,7 @@ because $(\tau - \mu)/\sqrt{v}$ decreases in~$\mu$ and in~$v$.
 
 \phantomsection\label{drv:mfacts_gauss}
 \begin{proof}[Derivation of facts (M1)--(M3) for the Gaussian model]
-\begin{itemize}[nosep]
+\begin{itemize}
   \item[(M1)] The repair factors $1-\rho$ and $(1-\rho)^2$ lie in $[0, 1]$, and the mean and variance increments are non-negative.
   \item[(M2)] $\theta_0 \le \xi_0$: the initial values are the moments of the initial damage, and each starting anchor is at least the moment of the part of the damage present just after the last intervention before day~$1$ (Section~\ref{sec:repair_connection}).
     On every later day, the true moments equal the maps applied to the true statistics of the day before (Proposition~\ref{prop:gauss_exact}).
@@ -6347,7 +6435,7 @@ Both are at most~$V$, and the reliability row increases in~$v$, so the rows of t
 
 \phantomsection\label{drv:mfacts_ig}
 \begin{proof}[Derivation of facts (M1)--(M3) for the inverse Gaussian model]
-\begin{itemize}[nosep]
+\begin{itemize}
   \item[(M1)] The repair factor $1-\rho$ lies in $[0, 1]$, and the mean increments are non-negative.
   \item[(M2)] $\theta_0 \le \xi_0$ holds as for the Gaussian model, and the true mean equals the day map applied to the true statistics of the day before.
   \item[(M3)] If a value $\mu \le \bar\mu$ is at least the true mean of day~$k$, then $\Pr(D_k > \tau) \le \varepsilon$, by Proposition~\ref{prop:ig_order} with this~$\mu$ and Theorem~\ref{thm:ig_cap}.
@@ -6358,7 +6446,7 @@ The argument holds for each of them, because it needs neither independence nor a
 
 \phantomsection\label{drv:mfacts_rf}
 \begin{proof}[Derivation of facts (M1)--(M3) for the rainflow model]
-\begin{itemize}[nosep]
+\begin{itemize}
   \item[(M1)] The repair factors $1-\rho$ (for the mean and the cumulant generating function) and $(1-\rho)^2$ (for the variance and the Hoeffding budget) lie in $[0, 1]$, and the increments of the four statistics are non-negative.
     The cumulant generating function of an increment is at least $s$ times its mean, which is non-negative, by Jensen's inequality and A0.
   \item[(M2)] $\theta_0 \le \xi_0$ holds as for the Gaussian model.
@@ -6369,7 +6457,7 @@ The argument holds for each of them, because it needs neither independence nor a
 
 \phantomsection\label{drv:repair_maps}
 \begin{proof}[Derivation of the repair maps of the mean and the variance]
-\begin{itemize}[nosep]
+\begin{itemize}
   \item \textbf{Mean.} $a = 1-\rho$, because expectation is linear: Eq.~\eqref{eq:ard1} gives
     \begin{equation}
       \mathbb{E}[D^+] = (1-\rho)\,\mathbb{E}[D^-] + \rho\,\mathbb{E}[D^{\mathrm{last}}].
@@ -6404,7 +6492,7 @@ Therefore $\ln\Pr(Z > e^u) - \ln\varepsilon < 0$ at $u = \ln b$, and the quantil
 \phantomsection\label{drv:gamma_computation}
 \begin{proof}[Derivation of the computation of the Gamma cap]
 Three facts justify the computation.
-\begin{enumerate}[nosep]
+\begin{enumerate}
   \item A bisection on the first argument of~$Q$ finds the exact one-rate cap $\hat A$, the root of $Q(\hat A, t) = \varepsilon$, because $Q$ increases in its first argument.
     The inverse routine \texttt{gammaincinv} solves for the second argument and does not apply.
   \item The function $c \mapsto Q(A/c, t/c)$ tends to~$0$ as $c \to 0$ and has a single peak on $(0, 1]$.
@@ -6419,7 +6507,7 @@ Three facts justify the computation.
 \phantomsection\label{drv:bigM_validity}
 \begin{proof}[Derivation of the validity of the big-M constants of Section~\ref{sec:impl_encoding}]
 An intervention day is a depot day, so $\delta s_k = 0$ on it.
-\begin{itemize}[nosep]
+\begin{itemize}
   \item The carry row with an intervention reads $s_k \ge s_{k-1} - M_s$, whose right-hand side is at most~$0$.
   \item The repair row without a repair has a right-hand side
     \begin{equation}

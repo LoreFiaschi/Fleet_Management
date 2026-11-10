@@ -1,3 +1,4 @@
+\PassOptionsToPackage{table}{xcolor}
 \documentclass[11pt,a4paper]{article}
 \usepackage[utf8]{inputenc}
 \usepackage[T1]{fontenc}
@@ -14,6 +15,24 @@
 \usetikzlibrary{arrows.meta,positioning,shapes.geometric,fit,decorations.pathreplacing,calc}
 \usepackage{xcolor}
 \setlength{\emergencystretch}{1em}
+% --- readability layout
+\usepackage{parskip}
+\linespread{1.08}
+\usepackage{tabularx}
+\usepackage{etoolbox}
+\usepackage[most]{tcolorbox}
+\usepackage[labelfont=bf]{caption}
+\definecolor{rowblue}{RGB}{234,242,251}
+\definecolor{headgrey}{RGB}{226,226,226}
+\renewcommand{\arraystretch}{1.25}
+\setlength{\aboverulesep}{0pt}
+\setlength{\belowrulesep}{0pt}
+\AtBeginEnvironment{table}{\rowcolors{2}{white}{rowblue}}
+\setlist{itemsep=0.45em,topsep=0.5em,parsep=0pt}
+\newcolumntype{Y}{>{\raggedright\arraybackslash}X}
+\tcbset{sblock/.style={enhanced,breakable,boxrule=0pt,arc=0pt,leftrule=2.5pt,
+  left=6pt,right=6pt,top=5pt,bottom=5pt,before skip=10pt,after skip=10pt}}
+\newtcolorbox{examplebox}{sblock,colback=br3!6,colframe=br3!70}
 \DeclareMathOperator*{\argmin}{arg\,min}
 \DeclareMathOperator*{\argmax}{arg\,max}
 
@@ -34,6 +53,11 @@
 \definecolor{br4}{RGB}{214,39,40}
 \definecolor{br5}{RGB}{148,103,189}
 \definecolor{br6}{RGB}{140,86,75}
+\tcolorboxenvironment{theorem}{sblock,colback=br1!5,colframe=br1!70}
+\tcolorboxenvironment{proposition}{sblock,colback=br1!5,colframe=br1!70}
+\tcolorboxenvironment{lemma}{sblock,colback=br1!5,colframe=br1!70}
+\tcolorboxenvironment{definition}{sblock,colback=black!3,colframe=black!40}
+\tcolorboxenvironment{example}{sblock,colback=br3!6,colframe=br3!70}
 \hypersetup{colorlinks=true,linkcolor=br1,citecolor=br3,urlcolor=br4}
 \externaldocument[S:]{scoping}
 \begin{document}
@@ -53,8 +77,9 @@ Reason: compound Poisson is not implemented and not planned.
 
 \begin{center}
 \small
-\begin{tabular}{@{}p{3cm}p{3.6cm}p{2.2cm}cp{3.5cm}@{}}
+\begin{tabularx}{\linewidth}{@{}>{\hsize=0.976\hsize\raggedright\arraybackslash}X>{\hsize=1.171\hsize\raggedright\arraybackslash}X>{\hsize=0.715\hsize\raggedright\arraybackslash}Xc>{\hsize=1.138\hsize\raggedright\arraybackslash}X@{}}
 \toprule
+\rowcolor{headgrey}
 \textbf{Model} & \textbf{Increment} $X(t)-X(s)$ & \textbf{Marginal} $X(t)$ & \textbf{Mon.} & \textbf{Closure under $+$} \\
 \midrule
 Compound Poisson \cite{EsaryMarshallProschan1973,Wang2022}
@@ -63,7 +88,7 @@ Compound Poisson \cite{EsaryMarshallProschan1973,Wang2022}
   & If $Y{\ge}0$
   & Always \\
 \bottomrule
-\end{tabular}
+\end{tabularx}
 \end{center}
 
 \section{Paragraph ``Compound Poisson process''}
@@ -91,8 +116,9 @@ Reason: compound Poisson is not implemented and not planned.
 
 \begin{center}
 \small
-\begin{tabular}{@{}p{2.1cm}p{3.4cm}p{4.0cm}p{4.2cm}@{}}
+\begin{tabularx}{\linewidth}{@{}>{\hsize=0.613\hsize\raggedright\arraybackslash}X>{\hsize=0.993\hsize\raggedright\arraybackslash}X>{\hsize=1.168\hsize\raggedright\arraybackslash}X>{\hsize=1.226\hsize\raggedright\arraybackslash}X@{}}
 \toprule
+\rowcolor{headgrey}
 \textbf{Model} & \textbf{Increment} $\Delta D_t$ & \textbf{Marginal} $D_k$ (homogeneous) & \textbf{Closure condition} \\
 \midrule
 Compound Poisson
@@ -100,7 +126,7 @@ Compound Poisson
   & $\mathrm{CP}\!\bigl(\sum_t\nu_t,\,F_Y\bigr)$
   & Always; same $F_Y$ keeps the jump law \\
 \bottomrule
-\end{tabular}
+\end{tabularx}
 \end{center}
 
 \section{Deterministic S--N curve when the scatter is negligible}
@@ -118,8 +144,9 @@ Reason: Route II is not part of the formulation.
 \footnotesize
 \setlength{\tabcolsep}{4.5pt}
 \begin{center}
-\begin{tabular}{@{}p{1.7cm}p{1.9cm}p{1.15cm}p{0.95cm}p{2.9cm}p{2.9cm}p{1.5cm}@{}}
+\begin{tabularx}{\linewidth}{@{}>{\hsize=0.915\hsize\raggedright\arraybackslash}X>{\hsize=1.023\hsize\raggedright\arraybackslash}X>{\hsize=0.619\hsize\raggedright\arraybackslash}X>{\hsize=0.512\hsize\raggedright\arraybackslash}X>{\hsize=1.562\hsize\raggedright\arraybackslash}X>{\hsize=1.562\hsize\raggedright\arraybackslash}X>{\hsize=0.808\hsize\raggedright\arraybackslash}X@{}}
 \toprule
+\rowcolor{headgrey}
 \textbf{Method} & \textbf{Inputs} & \textbf{Cons.?} & \textbf{$\widetilde{D}$?} & \textbf{Pros} & \textbf{Cons} & \textbf{Ref.} \\
 \midrule
 \multicolumn{7}{@{}l}{\textit{Route II --- dominate each increment, then convolve (explicit $\widetilde{D}$)}} \\
@@ -136,7 +163,7 @@ Dominating shared-rate Gamma
   & shared rate $+$ dominance margin add slack; commits to Gamma
   & \cite{ShakedShanthikumar2007} \\
 \bottomrule
-\end{tabular}
+\end{tabularx}
 \end{center}
 \endgroup
 
@@ -152,7 +179,7 @@ Both replacements imply~\eqref{S:eq:bernstein_constraint}, so they stay conserva
 Reason: Route II is not part of the formulation.
 
 Route~II gives an explicit surrogate law, not a bound.
-\begin{itemize}[nosep]
+\begin{itemize}
   \item \textbf{Moment-matched Gamma or inverse Gaussian.} Matching only the first two moments of a family closed under convolution is convenient: Gamma, with shape and rate
     \begin{equation}
       \alpha = \mathbb{E}[\Delta D]^2/\operatorname{Var}[\Delta D]
@@ -192,7 +219,7 @@ Route~II is not part of the formulation.
 Reason: the trade-off only compares the Route-I bounds with the removed Route II.
 
 One trade-off cannot be removed.
-\begin{itemize}[nosep]
+\begin{itemize}
   \item \textbf{Route-I bounds.} The bounds assume nothing about the shape of the law, but they give only a tail bound.
   \item \textbf{Dominating Gamma.} The dominating Gamma gives a law that propagates through the dynamics, but it commits to one family and adds some conservatism.
 \end{itemize}
@@ -205,7 +232,7 @@ The item ``Encodings'' of the scoping document lists two encodings of the union 
 Encoding (i) stays there.
 The removed part is encoding (ii), the statement that the two encodings describe the same set, and the shortcuts that fail.
 
-\begin{enumerate}[nosep,label=(\roman*),start=2]
+\begin{enumerate}[label=(\roman*),start=2]
       \item An auxiliary variable $y$, tied by a piecewise-linear \emph{equality} (the SOS2 $\lambda$-formulation) to the pointwise minimum of the tangents to $\sqrt{v}$ at
         \begin{equation}
           v_r \;=\; (\tau - \mu_r)^2/\kappa_C^2,
@@ -218,7 +245,7 @@ The removed part is encoding (ii), the statement that the two encodings describe
       \kappa_C^2 v \;\le\; (\tau - \mu_r)(\tau + \mu_r - 2\mu).
     \end{equation}
 
-\begin{itemize}[nosep]
+\begin{itemize}
   \item \textbf{Shortcuts that fail.} Two natural shortcuts both fail.
     Requiring $y \ge$ every tangent gives their pointwise \emph{maximum}: a region strictly inside the single-tangent region, worse than no refinement.
     Requiring $y \le$ every tangent lets $y$ fall below $\sqrt{v}$, and this destroys the certificate.
@@ -304,7 +331,7 @@ The random-$N_f$ model is then only another input pipeline for the same formulat
 Reason: a deterministic-equivalent model type is not implemented and not planned.
 
 \paragraph{Implications for the abstract formulation.}
-\begin{itemize}[nosep]
+\begin{itemize}
   \item \textbf{Interpretation~(I).} Interpretation~(I) requires no change to Problem~\eqref{S:eq:abstract}.
     It supplies the per-mission moments~\eqref{eq:miner_routeI} to the same Route-I pipeline that uses the moments measured by rainflow counting, and it keeps the certificates and the loop condition of that pipeline.
   \item \textbf{Interpretation~(II).} Interpretation~(II) defines a strictly simpler model family (Table~\ref{S:tab:miner_interpretations}).
@@ -322,8 +349,9 @@ Reason: compound Poisson is not implemented.
 
 \begin{center}
 \small
-\begin{tabular}{@{}p{2.1cm}p{3.8cm}p{4.0cm}p{4.0cm}@{}}
+\begin{tabularx}{\linewidth}{@{}>{\hsize=0.604\hsize\raggedright\arraybackslash}X>{\hsize=1.094\hsize\raggedright\arraybackslash}X>{\hsize=1.151\hsize\raggedright\arraybackslash}X>{\hsize=1.151\hsize\raggedright\arraybackslash}X@{}}
 \toprule
+\rowcolor{headgrey}
 \textbf{Family} & $X$ & $Y$ & \textbf{Condition} \\
 \midrule
 Comp.\ Poisson
@@ -331,15 +359,16 @@ Comp.\ Poisson
   & $\mathrm{CP}(\nu_2,\,F_{Y_2})$
   & --- (can fail even for $F_{Y_1}{=}F_{Y_2}$, $\nu_1 \le \nu_2$; holds, for example, for deterministic jumps; see text) \\
 \bottomrule
-\end{tabular}
+\end{tabularx}
 \end{center}
 
 \noindent\textit{Row of Table~\ref{S:tab:ordering_hr} (hazard rate order).}
 
 \begin{center}
 \small
-\begin{tabular}{@{}p{2.1cm}p{3.8cm}p{4.0cm}p{4.0cm}@{}}
+\begin{tabularx}{\linewidth}{@{}>{\hsize=0.604\hsize\raggedright\arraybackslash}X>{\hsize=1.094\hsize\raggedright\arraybackslash}X>{\hsize=1.151\hsize\raggedright\arraybackslash}X>{\hsize=1.151\hsize\raggedright\arraybackslash}X@{}}
 \toprule
+\rowcolor{headgrey}
 \textbf{Family} & $X$ & $Y$ & \textbf{Condition} \\
 \midrule
 Comp.\ Poisson
@@ -347,15 +376,16 @@ Comp.\ Poisson
   & $\mathrm{CP}(\nu_2,\,F_{Y_2})$
   & --- (no general criterion; the $\le_{\mathrm{lr}}$ route is unavailable, see text) \\
 \bottomrule
-\end{tabular}
+\end{tabularx}
 \end{center}
 
 \noindent\textit{Row of Table~\ref{S:tab:ordering_st} (usual stochastic order).}
 
 \begin{center}
 \small
-\begin{tabular}{@{}p{2.1cm}p{3.8cm}p{4.0cm}p{4.0cm}@{}}
+\begin{tabularx}{\linewidth}{@{}>{\hsize=0.604\hsize\raggedright\arraybackslash}X>{\hsize=1.094\hsize\raggedright\arraybackslash}X>{\hsize=1.151\hsize\raggedright\arraybackslash}X>{\hsize=1.151\hsize\raggedright\arraybackslash}X@{}}
 \toprule
+\rowcolor{headgrey}
 \textbf{Family} & $X$ & $Y$ & \textbf{Condition} \\
 \midrule
 Comp.\ Poisson
@@ -363,7 +393,7 @@ Comp.\ Poisson
   & $\mathrm{CP}(\nu_2,\,F_{Y_2})$
   & for $F_{Y_1} = F_{Y_2}$, $Y \ge 0$, $\Pr(Y > 0) > 0$: $\nu_1 \le \nu_2$ \\
 \bottomrule
-\end{tabular}
+\end{tabularx}
 \end{center}
 
 \section{Paragraph ``Compound Poisson'' of the stochastic orderings}
@@ -407,7 +437,7 @@ Reason: the paragraph repeats the conservative surrogates of Section~\ref{S:sec:
 Sometimes the survival function $\Pr(D > \tau)$ has no closed form.
 This happens for the compound Poisson process, and when the closure condition fails and the marginal of the sum is not in a standard family.
 The \emph{reliability} constraint can then still be enforced through conservative upper bounds on the failure probability:
-\begin{itemize}[nosep]
+\begin{itemize}
   \item Markov ($\Pr(D > \tau) \le \mathbb{E}[D]/\tau$);
   \item Cantelli~\eqref{S:eq:cantelli_surrogate};
   \item Chernoff~\eqref{S:eq:chernoff_surrogate}.
@@ -455,7 +485,7 @@ In the stochastic extension it becomes a chance constraint analogous to~\eqref{S
 Closure under summation holds trivially: $D_{\mathrm{PM}}$ is a sum of real-valued increments.
 When the increments are independent, as under the block-independent scatter~(I) of Section~\ref{S:sec:miner_randomN}, the marginal on any day is the convolution of the individual increments, whatever their distributional family.
 Under the unit-specific scatter~(II) the increments share the factor~$A$, and the marginal is the law of $M_k/A$.
-\begin{itemize}[nosep]
+\begin{itemize}
   \item In the deterministic variant of Miner's rule, the comparison of two schedules reduces to the comparison of two real numbers, and no stochastic order is needed.
   \item In the stochastic extension (scatter in $N_{f,i}$), the parametric ordering conditions of Section~\ref{S:sec:stoch_orders} apply only if the assumption on the scatter places the increments $n_i/N_{f,i}$ in one of the families of Table~\ref{S:tab:deg_models}.
     Otherwise the general definitions of the orders still hold, but they must be verified case by case.
@@ -467,7 +497,7 @@ Reason: these components are not tracked in the case study and not planned.
 
 \paragraph{Brake friction elements.}
 Friction braking wears the brake pad and the brake disc.
-\begin{itemize}[nosep]
+\begin{itemize}
   \item \textbf{Model.}
     A physics-based route applies Archard's law on a fractal, elastoplastic contact~\cite[Eqs.~11,~14]{Sha2022}.
     Sha et al.\ apply it to the brake disc, not to the pad.
@@ -487,7 +517,7 @@ Friction braking wears the brake pad and the brake disc.
 
 \paragraph{Wheel bearings.}
 Bearing degradation has two stages: a long \emph{initiation} phase of rolling-contact fatigue, and then a rapid \emph{spall propagation} once a surface defect forms (a spall is a flake of material that breaks off the surface).
-\begin{itemize}[nosep]
+\begin{itemize}
   \item \textbf{Model.}
     Ohana et al.~\cite[Sec.~2.1.3]{Ohana2023} model the propagation phase with a formulation from continuum damage mechanics.
     In it, a scalar damage variable accumulates per over-rolling cycle,
@@ -505,7 +535,7 @@ Bearing degradation has two stages: a long \emph{initiation} phase of rolling-co
 \paragraph{Traction-motor insulation.}
 The winding insulation is the main element that limits the life of the traction motor, and its dominant ageing mechanism is thermal.
 A high winding temperature accelerates the chemical degradation of the dielectric.
-\begin{itemize}[nosep]
+\begin{itemize}
   \item \textbf{Model.}
     Dakin recognised thermal ageing as a chemical reaction whose rate constant follows the Arrhenius exponential law $K = A\,e^{-B/T}$ in absolute temperature~\cite[Eq.~5]{Dakin1948}.
     This gives the thermal-endurance life $L(T) = a\,\exp(b/T)$~\cite[Eq.~1]{Zhang2025insul}.
@@ -528,7 +558,7 @@ Reason: the specification keeps the example, and this text only repeats it.
 The input example of the specification has $F = 3$ members, $M = 2$ missions and $L = 2$ components.
 Its six components use the Gaussian, inverse Gaussian, Wiener and Gamma models, and the rainflow model with the Bernstein bound and with the Chernoff bound.
 It passes every input check.
-\begin{itemize}[nosep]
+\begin{itemize}
   \item \textbf{Inverse Gaussian component.}
     It uses $\text{ARD}_1$ with the starting anchor
     \begin{equation}
@@ -570,7 +600,7 @@ Their law $\text{ARD}_1$ is the law $\text{ARD}_\infty$ of this document, and th
 Their horizon has $2H$ days, and the second $H$ days are the schedule to repeat.
 
 \paragraph{Version 0.3 (panel review).}
-\begin{itemize}[nosep]
+\begin{itemize}
   \item The $\text{ARA}_1$ maintenance was removed from the Gaussian model, because no source in the literature supports its extension to the variance.
   \item The output \texttt{v} has the shape $F \times L \times 2H$, with NaN (not a number) at the components without a variance.
   \item The bound on $\varepsilon$ became tighter: from $(0, 0.5)$ to $(0, 0.01]$.
@@ -579,7 +609,7 @@ Their horizon has $2H$ days, and the second $H$ days are the schedule to repeat.
 \end{itemize}
 
 \paragraph{Version 0.4 (rainflow extension).}
-\begin{itemize}[nosep]
+\begin{itemize}
   \item The rainflow degradation model was added.
     It is distribution-free, and its inputs are the empirical mean, variance and support of each mission, from rainflow counting.
     A Cantelli or a Bernstein tail bound certifies the reliability; the new option \texttt{tail\_bound} selects the bound, with the default \texttt{"cantelli"}.
@@ -595,7 +625,7 @@ Their horizon has $2H$ days, and the second $H$ days are the schedule to repeat.
   \item The wording of the Wiener loop constraint was corrected after the accepted review item A-02: the constraint bounds the moments; it is not first-order stochastic dominance.
   \item The change log of version 0.3 above describes the revision that the title page had called ``v0.2 (revised)''.
   \item A panel review after the draft (markers RF-042--RF-045 and corrections made in place) made further changes.
-    \begin{itemize}[nosep]
+    \begin{itemize}
       \item It fixed the base case of the induction over the loop ($m \ge 2$, with the loop row as the case $m = 1$).
       \item It fixed the wording at the boundary of the precondition $\tau > 2\kappa b/3$.
       \item It fixed the centring step in the application of Bernstein's inequality, which holds a fortiori (it follows from a stronger fact).
@@ -609,7 +639,7 @@ Their horizon has $2H$ days, and the second $H$ days are the schedule to repeat.
 \end{itemize}
 
 \paragraph{Version 0.5 (removal of the loop penalty).}
-\begin{itemize}[nosep]
+\begin{itemize}
   \item The soft penalty of the loop constraint, $\mathcal{L}_{\mathrm{loop}}$, and its coefficient $C_P$ were removed from every place: the objective, the penalty formulas of the models, the total penalty sum, the input tables, the YAML example and the statement of the full problem.
     The hard loop constraints of all five models did not change.
   \item The remark on the tightness of the big-M rows had named three mechanisms.
@@ -629,7 +659,7 @@ Their horizon has $2H$ days, and the second $H$ days are the schedule to repeat.
     A derivation of monotonicity on the full state shows that these rows restore the chaining premise $\Pi(s_H) \le s_H$.
     The review extended the remark on robustness to slack in the same way.
   \item The same review made further changes.
-    \begin{itemize}[nosep]
+    \begin{itemize}
       \item It stated that an idle day is a row of zeros in the assignment, so the term with $C_M$ is a real decision cost, not a constant.
       \item It corrected the day index of the anchor in the $\text{ARA}_1$ repair-cost row ($k \to k{-}1$).
       \item It removed the old duplicate parameter \texttt{alpha\_target}, a former name of $\tau$.
@@ -641,7 +671,7 @@ Their horizon has $2H$ days, and the second $H$ days are the schedule to repeat.
 \end{itemize}
 
 \paragraph{Version 1.0 (merged package).}
-\begin{itemize}[nosep]
+\begin{itemize}
   \item The specification describes the package that merges the branches \texttt{lore} and \texttt{main}, on the code base of \texttt{main}.
     It holds only the codebase and its mathematical constructions; the reasons, the proofs and the sources are in this scoping document.
   \item The five degradation models are cell builders in one registry; a cell is component~$\ell$ of member~$i$.
@@ -668,7 +698,7 @@ Reason: its statement, the inverse moments, is removed with interpretation (I).
 
 \phantomsection\label{drv:miner_invmom}
 \begin{proof}[Derivation of the inverse moments~\eqref{eq:miner_invmom}]\leavevmode
-\begin{itemize}[nosep]
+\begin{itemize}
   \item \textbf{Log-normal.} The first line is the normal moment generating function at the argument $-r$.
   \item \textbf{Weibull.} The second line follows from the substitution $u = (x/\lambda)^k$, which turns $\mathbb{E}[N_f^{-r}]$ into
     \begin{equation}
