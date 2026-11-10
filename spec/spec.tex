@@ -1134,7 +1134,7 @@ $\mu^{\inc}_{jk}$; the initial damage, $\mu_0$; a replacement draw, $\mu^{\new}$
 has the law $\mathrm{IG}(a, a/\eta) = a\,Z$, with $Z \sim \mathrm{IG}(1, 1/\eta)$
 and $\eta > 0$ the squared coefficient of variation of the terms of the cell (input \texttt{eta}). A known damage is a
 constant. No independence between terms is required (scoping document, section
-``Stochastic orderings'').
+``Inverse Gaussian: a cap on the mean'').
 
 \textbf{Laws and tracked quantities.} $\ARDinf$ and $\ARDone$. Tracked: $\mu_k$;
 under $\ARDone$ also the anchor $g^{\mu}_k$. Day map:
@@ -1293,8 +1293,7 @@ row $v_k \leq V^{\mathrm{user}}$ is added when \texttt{v\_max\_user} is given.
 $y^v \geq v_{H_1}$ and the loop row $v_T \leq y^v$ (Section~\ref{sec:loop}) force a replacement of the component
 in the operating phase whenever its train flies a mission there; with
 \texttt{allow\_replacement} false, the train cannot fly in the operating phase
-(scoping document, section ``Stochastic orderings'', loop constraint for each
-degradation model).
+(scoping document, section ``Loop constraint for each degradation model'').
 
 % ----------------------------------------------------------------
 \subsection{Gamma Model}

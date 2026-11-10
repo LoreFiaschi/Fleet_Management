@@ -1,0 +1,704 @@
+\documentclass[11pt,a4paper]{article}
+\usepackage[utf8]{inputenc}
+\usepackage[T1]{fontenc}
+\usepackage[top=2.5cm,bottom=2.5cm,left=2.5cm,right=2.5cm]{geometry}
+\usepackage{amsmath,amssymb,amsthm,mathtools}
+\usepackage[numbers,sort&compress]{natbib}
+\usepackage{float}
+\usepackage{xr-hyper}
+\usepackage{hyperref}
+\makeatletter\g@addto@macro{\UrlBreaks}{\UrlOrds}\makeatother
+\usepackage{enumitem}
+\usepackage{booktabs}
+\usepackage{tikz}
+\usetikzlibrary{arrows.meta,positioning,shapes.geometric,fit,decorations.pathreplacing,calc}
+\usepackage{xcolor}
+\setlength{\emergencystretch}{1em}
+\DeclareMathOperator*{\argmin}{arg\,min}
+\DeclareMathOperator*{\argmax}{arg\,max}
+
+
+\theoremstyle{plain}
+\newtheorem{theorem}{Theorem}[section]
+\newtheorem{proposition}[theorem]{Proposition}
+\newtheorem{lemma}[theorem]{Lemma}
+\theoremstyle{definition}
+\newtheorem{definition}[theorem]{Definition}
+\newtheorem{example}[theorem]{Example}
+\theoremstyle{remark}
+\newtheorem{remark}[theorem]{Remark}
+
+\definecolor{br1}{RGB}{31,119,180}
+\definecolor{br2}{RGB}{255,127,14}
+\definecolor{br3}{RGB}{44,160,44}
+\definecolor{br4}{RGB}{214,39,40}
+\definecolor{br5}{RGB}{148,103,189}
+\definecolor{br6}{RGB}{140,86,75}
+\hypersetup{colorlinks=true,linkcolor=br1,citecolor=br3,urlcolor=br4}
+\externaldocument[S:]{scoping}
+\begin{document}
+
+\title{\textbf{Material removed from the scoping document}}
+\author{L.\ Fiaschi \\ \small ETH Z\"urich}
+\date{\today}
+\maketitle
+
+This file holds the material that was removed from the scoping document \texttt{scoping.tex} on 10 November 2026.
+Each section gives the reason for the removal and then the removed text, unchanged.
+References to sections, equations, tables and results of the scoping document point to its labels.
+
+\section{Compound Poisson row of the table of damage-accumulation processes}
+
+Reason: compound Poisson is not implemented and not planned.
+
+\begin{center}
+\small
+\begin{tabular}{@{}p{3cm}p{3.6cm}p{2.2cm}cp{3.5cm}@{}}
+\toprule
+\textbf{Model} & \textbf{Increment} $X(t)-X(s)$ & \textbf{Marginal} $X(t)$ & \textbf{Mon.} & \textbf{Closure under $+$} \\
+\midrule
+Compound Poisson \cite{EsaryMarshallProschan1973,Wang2022}
+  & $\sum_{n=N(s)+1}^{N(t)} Y_n$
+  & $\mathrm{CP}(\nu t,\,F_Y)$
+  & If $Y{\ge}0$
+  & Always \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\section{Paragraph ``Compound Poisson process''}
+
+Reason: compound Poisson is not implemented and not planned.
+
+\paragraph{Compound Poisson process.}
+The compound Poisson process
+\begin{equation}
+  X(t) = \sum_{n=1}^{N(t)} Y_n
+\end{equation}
+models degradation by shocks~\cite{EsaryMarshallProschan1973}.
+The shocks arrive according to a Poisson process $N(t)$ with rate~$\nu$.
+Each shock causes a random damage~$Y_n$, and the $Y_n$ are independent draws from one distribution~$F_Y$.
+
+When $Y_n \ge 0$, the process is monotone.
+The sum of independent compound Poisson processes is always a compound Poisson process.
+This model suits discrete damage events, for example impacts and overloads, rather than continuous wear.
+Wang~\cite{Wang2022} gives a recent application to structural reliability.
+
+
+\section{Compound Poisson row of the table of discrete-time models}
+
+Reason: compound Poisson is not implemented and not planned.
+
+\begin{center}
+\small
+\begin{tabular}{@{}p{2.1cm}p{3.4cm}p{4.0cm}p{4.2cm}@{}}
+\toprule
+\textbf{Model} & \textbf{Increment} $\Delta D_t$ & \textbf{Marginal} $D_k$ (homogeneous) & \textbf{Closure condition} \\
+\midrule
+Compound Poisson
+  & $\sum_{n=1}^{N_t} Y_n$
+  & $\mathrm{CP}\!\bigl(\sum_t\nu_t,\,F_Y\bigr)$
+  & Always; same $F_Y$ keeps the jump law \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\section{Deterministic S--N curve when the scatter is negligible}
+
+Reason: a deterministic model is not among the five models.
+
+If the scatter is small, a deterministic S--N curve, for example the mean curve or a design percentile, may be an acceptable approximation.
+The problem then reduces to the deterministic Miner's rule, and all constraints become linear.
+
+\section{Route II rows of the table of conservative surrogates}
+
+Reason: Route II is not part of the formulation.
+
+\begingroup
+\footnotesize
+\setlength{\tabcolsep}{4.5pt}
+\begin{center}
+\begin{tabular}{@{}p{1.7cm}p{1.9cm}p{1.15cm}p{0.95cm}p{2.9cm}p{2.9cm}p{1.5cm}@{}}
+\toprule
+\textbf{Method} & \textbf{Inputs} & \textbf{Cons.?} & \textbf{$\widetilde{D}$?} & \textbf{Pros} & \textbf{Cons} & \textbf{Ref.} \\
+\midrule
+\multicolumn{7}{@{}l}{\textit{Route II --- dominate each increment, then convolve (explicit $\widetilde{D}$)}} \\
+Moment-matched Gamma / IG
+  & mean, var
+  & No & Yes
+  & explicit law; closed under $+$; ordering tables apply
+  & matches moments but does not dominate (survival curves cross)
+  & \cite{vanNoortwijk2009,YeChen2014} \\[3pt]
+Dominating shared-rate Gamma
+  & moments $+$ empirical survival
+  & Yes & Yes
+  & conservative \emph{and} explicit; serves reliability and loop; shape linear in the schedule
+  & shared rate $+$ dominance margin add slack; commits to Gamma
+  & \cite{ShakedShanthikumar2007} \\
+\bottomrule
+\end{tabular}
+\end{center}
+\endgroup
+
+\section{SOS2 sentence of the Bernstein constraint}
+
+Reason: the code does not use SOS2.
+
+This minimum is piecewise-linear (PWL), and an equality with a special ordered set of type~2 (SOS2: a set of variables of which at most two consecutive ones are non-zero) encodes it exactly.
+Both replacements imply~\eqref{S:eq:bernstein_constraint}, so they stay conservative: a fixed tangent gives one linear constraint in the counts, and the minimum of tangents gives linear constraints together with the SOS2 set.
+
+\section{Route II surrogates}
+
+Reason: Route II is not part of the formulation.
+
+Route~II gives an explicit surrogate law, not a bound.
+\begin{itemize}[nosep]
+  \item \textbf{Moment-matched Gamma or inverse Gaussian.} Matching only the first two moments of a family closed under convolution is convenient: Gamma, with shape and rate
+    \begin{equation}
+      \alpha = \mathbb{E}[\Delta D]^2/\operatorname{Var}[\Delta D]
+      \quad\text{and}\quad
+      \beta = \mathbb{E}[\Delta D]/\operatorname{Var}[\Delta D],
+    \end{equation}
+    or inverse Gaussian.
+    The sum then stays in the family under the closure conditions of Table~\ref{S:tab:discrete_models}.
+    But this choice is \emph{not} conservative: a law with matched moments in general crosses the empirical survival function and does not dominate it.
+  \item \textbf{Dominating shared-rate Gamma.} Using more of the empirical information than the moments restores conservatism.
+    Fix a common rate $\beta^\star$, and, for each mission, increase the shape $\alpha_j$ until the survival function of the surrogate dominates the empirical one:
+    \begin{equation}
+      \overline{\mathrm{Ga}}(x;\alpha_j,\beta^\star) \ge \widehat{\bar F}_j(x) \quad \text{for all } x.
+    \end{equation}
+    This is possible exactly when some recorded increment is~$0$.
+    If every record is positive, $\widehat{\bar F}_j(x) = 1$ below the smallest record, while $\overline{\mathrm{Ga}}(x;\alpha,\beta^\star) < 1$ for every $x > 0$, so no Gamma law dominates.
+    If a share $p_0 > 0$ of the records is~$0$, then $\widehat{\bar F}_j(x) \le 1 - p_0$ for $x > 0$, and a large $\alpha_j$ dominates, because $\overline{\mathrm{Ga}}(x_{\max};\alpha,\beta^\star) \to 1$ as $\alpha \to \infty$, with $x_{\max}$ the largest record.
+    The accumulated surrogate is then $\widetilde{D} = \mathrm{Ga}(A,\beta^\star)$, by the closure under a shared rate, and $D \le_{\mathrm{st}} \widetilde{D}$ by Proposition~\ref{S:prop:st_closure}.
+    Its law has a cumulative shape
+    \begin{equation}
+      A = \sum_{t,j} x_{ijt}\,\alpha_j
+    \end{equation}
+    that is linear in the schedule.
+    The reliability constraint reduces to the scalar condition $A \le A^\star(\varepsilon)$.
+    In the absence of repairs, the loop constraint reduces to the rows $A_{H_1} \le y^{A}$ and $A_T \le y^{A}$ on the cumulative shape, with a start $y^{A}$ that is free above $A_{H_1}$.
+    The cost is the slack that the shared rate and the dominance margin add.
+\end{itemize}
+
+\section{Sentence ``Route II is not part of the formulation''}
+
+Reason: this sentence refers to the removed Route II.
+
+Route~II is not part of the formulation.
+
+\section{Trade-off against Route II}
+
+Reason: the trade-off only compares the Route-I bounds with the removed Route II.
+
+One trade-off cannot be removed.
+\begin{itemize}[nosep]
+  \item \textbf{Route-I bounds.} The bounds assume nothing about the shape of the law, but they give only a tail bound.
+  \item \textbf{Dominating Gamma.} The dominating Gamma gives a law that propagates through the dynamics, but it commits to one family and adds some conservatism.
+\end{itemize}
+
+\section{SOS2 encodings and shortcuts that fail}
+
+Reason: the code uses one selector binary per segment (encoding (i)), and the statement of encoding (i) stays in the scoping document.
+
+The item ``Encodings'' of the scoping document lists two encodings of the union of tangents.
+Encoding (i) stays there.
+The removed part is encoding (ii), the statement that the two encodings describe the same set, and the shortcuts that fail.
+
+\begin{enumerate}[nosep,label=(\roman*),start=2]
+      \item An auxiliary variable $y$, tied by a piecewise-linear \emph{equality} (the SOS2 $\lambda$-formulation) to the pointwise minimum of the tangents to $\sqrt{v}$ at
+        \begin{equation}
+          v_r \;=\; (\tau - \mu_r)^2/\kappa_C^2,
+        \end{equation}
+        followed by the single linear row $\mu + \kappa_C\, y \le \tau$.
+\end{enumerate}
+
+    The two encodings describe the same set: the tangent at $\mu_r$ on the side of~$\mu$ and the tangent at $v_r$ on the side of~$v$ bound the same half-plane
+    \begin{equation}
+      \kappa_C^2 v \;\le\; (\tau - \mu_r)(\tau + \mu_r - 2\mu).
+    \end{equation}
+
+\begin{itemize}[nosep]
+  \item \textbf{Shortcuts that fail.} Two natural shortcuts both fail.
+    Requiring $y \ge$ every tangent gives their pointwise \emph{maximum}: a region strictly inside the single-tangent region, worse than no refinement.
+    Requiring $y \le$ every tangent lets $y$ fall below $\sqrt{v}$, and this destroys the certificate.
+    Likewise, the equality must interpolate the vertices of the tangent envelope, not points on the curve.
+    Consecutive tangents meet at
+    \begin{equation}
+      v \;=\; \sqrt{v_r v_{r+1}}
+      \qquad\text{with value}\qquad
+      \bigl(\sqrt{v_r} + \sqrt{v_{r+1}}\bigr)/2,
+    \end{equation}
+    above the curve.
+    The chords between points on the curve underestimate the concave square root.
+\end{itemize}
+
+\section{Inverse moments of the scatter families; remark on Miner tails}
+
+Reason: they are used only by interpretation (I), which the project does not use.
+
+\paragraph{Inverse moments of the scatter families.}
+Every quantity that the framework uses later is a moment of $1/N_f$.
+For the three families of Table~\ref{S:tab:sn_scatter} and $r > 0$,
+\begin{equation}\label{eq:miner_invmom}
+  \mathbb{E}\big[N_f^{-r}\big] \;=\;
+  \begin{cases}
+    \exp\big({-r\mu + r^2\sigma^2/2}\big), & \ln N_f \sim \mathcal{N}(\mu,\sigma^2) \quad \text{(finite for all $r$)},\\[3pt]
+    \lambda^{-r}\,\Gamma(1 - r/k), & N_f \sim \mathrm{Wei}(k,\lambda) \quad \text{(finite if and only if $r < k$)},\\[3pt]
+    e^{-r\mu}\,\Gamma(1 - r\beta), & \ln N_f \sim \mathrm{Gumbel}_{\min}(\mu,\beta) \quad \text{(finite if and only if $r\beta < 1$)}.
+  \end{cases}
+\end{equation}
+The derivation is in Appendix~\ref{drv:miner_invmom}, page~\pageref{drv:miner_invmom}.
+In particular, for the three families,
+\begin{equation}
+  \operatorname{Var}[1/N_f] \;=\;
+  \begin{cases}
+    e^{-2\mu+\sigma^2}(e^{\sigma^2}-1), & \text{log-normal},\\[3pt]
+    \lambda^{-2}\big[\Gamma(1-2/k)-\Gamma(1-1/k)^2\big], & \text{Weibull},\\[3pt]
+    e^{-2\mu}\big[\Gamma(1-2\beta)-\Gamma(1-\beta)^2\big], & \text{Gumbel-minimum}.
+  \end{cases}
+\end{equation}
+These values match the increment moments already given for the log-normal below Table~\ref{S:tab:sn_scatter}.
+
+\begin{remark}[Two tail behaviours, one real restriction]\label{rem:miner_tails}
+The Gumbel-minimum log-life is \emph{exactly} a Weibull life:
+\begin{equation}
+  \Pr(N_f > x) \;=\; \exp\big(-e^{(\ln x - \mu)/\beta}\big) \;=\; \exp\big(-(x/e^{\mu})^{1/\beta}\big),
+\end{equation}
+that is, $\mathrm{Wei}(k = 1/\beta,\ \lambda = e^{\mu})$.
+The existence conditions in~\eqref{eq:miner_invmom} correspond to each other.
+So the three families of Table~\ref{S:tab:sn_scatter} give two tail behaviours for $1/N_f$: log-normal (all polynomial moments finite) and Fr\'echet tails with index $k$ (moments finite only below order $k$).
+
+The second behaviour is a real restriction, not a formality.
+The mean of the increment requires $k > 1$, and the variance, the input of the Cantelli certificate~\eqref{S:eq:cantelli_surrogate}, requires $k > 2$.
+So the fitted shape must be checked before the method is used.
+For $k \in (1,2]$ only the Markov bound remains, and for $k \le 1$ the untruncated model has an infinite mean increment and cannot enter the framework at all.
+
+Moreover, for \emph{all three} untruncated families, $1/N_f$ has unbounded support and an infinite moment generating function.
+So the exponential certificates (Chernoff~\eqref{S:eq:chernoff_permission}, Bernstein~\eqref{S:eq:bernstein_constraint}, Hoeffding) are not admissible.
+Only a lower bound $N_{\min} > 0$ on the life, defended on physical grounds, restores them (a truncated family).
+This bound gives the per-mission support $b_{\ell j} = n_j / N_{\min}$, and the moments must then be recomputed under the truncated law (closed forms with Gaussian tails and incomplete gamma functions).
+\end{remark}
+
+\section{Interpretation (I) of the random fatigue life}
+
+Reason: the case study and the code use interpretation (II).
+
+\emph{(I) Block-independent scatter.}
+Interpretation~(I) suits the case in which the variability from cycle to cycle and from day to day dominates, and the component does not carry one fixed $N_f$.
+Assume a single dominant stress level per mission.
+(For a spectrum in bins, the means add over the bins; the variance depends on the assumed dependence within the mission, and it is computed from~\eqref{eq:miner_invmom} in the same way.)
+Then the per-mission inputs are
+\begin{equation}\label{eq:miner_routeI}
+  \mu_{\ell j} \;=\; n_j\,\mathbb{E}\big[N_f^{-1}\big],
+  \qquad
+  v_{\ell j} \;=\; n_j^2\,\operatorname{Var}\big[N_f^{-1}\big].
+\end{equation}
+Independence across days is exactly the hypothesis of Equation~\eqref{S:eq:additive_functionals}.
+So the Cantelli certificate~\eqref{S:eq:cantelli_surrogate} and the moment loop~\eqref{S:eq:loop_moments} apply \emph{without change}, with parametric instead of empirical moments per mission.
+The rainflow route of Section~\ref{S:sec:cons_surrogates} already uses this interpretation.
+The random-$N_f$ model is then only another input pipeline for the same formulation, subject to the admissibility conditions of Remark~\ref{rem:miner_tails}.
+
+\section{Implications for the abstract formulation}
+
+Reason: a deterministic-equivalent model type is not implemented and not planned.
+
+\paragraph{Implications for the abstract formulation.}
+\begin{itemize}[nosep]
+  \item \textbf{Interpretation~(I).} Interpretation~(I) requires no change to Problem~\eqref{S:eq:abstract}.
+    It supplies the per-mission moments~\eqref{eq:miner_routeI} to the same Route-I pipeline that uses the moments measured by rainflow counting, and it keeps the certificates and the loop condition of that pipeline.
+  \item \textbf{Interpretation~(II).} Interpretation~(II) defines a strictly simpler model family (Table~\ref{S:tab:miner_interpretations}).
+    There is no moment tracking, no slack from a tail bound and no big-M linearisation of a variance recursion.
+    One quantile $q_\varepsilon$ per component holds the entire stochastic description.
+    So interpretation~(II) is a natural candidate for a dedicated model type (a deterministic equivalent) beside the models based on processes.
+\end{itemize}
+The caveat of Remark~\ref{S:rem:miner_dichotomy} applies: which interpretation matches a given component is an empirical question, not a preference of the formulation.
+
+\section{Compound Poisson rows of the three ordering tables}
+
+Reason: compound Poisson is not implemented.
+
+\noindent\textit{Row of Table~\ref{S:tab:ordering_lr} (likelihood ratio order).}
+
+\begin{center}
+\small
+\begin{tabular}{@{}p{2.1cm}p{3.8cm}p{4.0cm}p{4.0cm}@{}}
+\toprule
+\textbf{Family} & $X$ & $Y$ & \textbf{Condition} \\
+\midrule
+Comp.\ Poisson
+  & $\mathrm{CP}(\nu_1,\,F_{Y_1})$
+  & $\mathrm{CP}(\nu_2,\,F_{Y_2})$
+  & --- (can fail even for $F_{Y_1}{=}F_{Y_2}$, $\nu_1 \le \nu_2$; holds, for example, for deterministic jumps; see text) \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\noindent\textit{Row of Table~\ref{S:tab:ordering_hr} (hazard rate order).}
+
+\begin{center}
+\small
+\begin{tabular}{@{}p{2.1cm}p{3.8cm}p{4.0cm}p{4.0cm}@{}}
+\toprule
+\textbf{Family} & $X$ & $Y$ & \textbf{Condition} \\
+\midrule
+Comp.\ Poisson
+  & $\mathrm{CP}(\nu_1,\,F_{Y_1})$
+  & $\mathrm{CP}(\nu_2,\,F_{Y_2})$
+  & --- (no general criterion; the $\le_{\mathrm{lr}}$ route is unavailable, see text) \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\noindent\textit{Row of Table~\ref{S:tab:ordering_st} (usual stochastic order).}
+
+\begin{center}
+\small
+\begin{tabular}{@{}p{2.1cm}p{3.8cm}p{4.0cm}p{4.0cm}@{}}
+\toprule
+\textbf{Family} & $X$ & $Y$ & \textbf{Condition} \\
+\midrule
+Comp.\ Poisson
+  & $\mathrm{CP}(\nu_1,\,F_{Y_1})$
+  & $\mathrm{CP}(\nu_2,\,F_{Y_2})$
+  & for $F_{Y_1} = F_{Y_2}$, $Y \ge 0$, $\Pr(Y > 0) > 0$: $\nu_1 \le \nu_2$ \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\section{Paragraph ``Compound Poisson'' of the stochastic orderings}
+
+Reason: compound Poisson is not implemented.
+
+\paragraph{Compound Poisson.}
+Take the same jump-size distribution~$F_Y$ for both laws, with $Y \ge 0$ and $\Pr(Y>0) > 0$.
+Then
+\begin{equation}
+  \mathrm{CP}(\nu_1, F_Y) \le_{\mathrm{st}} \mathrm{CP}(\nu_2, F_Y)
+\end{equation}
+if and only if $\nu_1 \le \nu_2$.
+The derivation is in Appendix~\ref{drv:order_cp}, page~\pageref{drv:order_cp}.
+
+The stronger orders do \emph{not} follow in general.
+Take $Y$ uniform on $\{1, 10\}$, $\nu_1 = 0.1$ and $\nu_2 = 0.2$.
+The likelihood ratio drops from ${\approx}463$ at $x = 9$ (reachable only by nine unit jumps) to ${\approx}1.8$ at $x = 10$ (reachable by a single large jump), so $\le_{\mathrm{lr}}$ fails.
+The ratio of the survival functions is not monotone either, so $\le_{\mathrm{hr}}$ fails as well.
+Both orders hold in special cases, such as deterministic jump sizes, where the process is a scaled Poisson process.
+
+When the jump-size distributions differ, the ordering conditions depend on the specific form of~$F_Y$, and no universal closed-form characterisation is available.
+
+\section{Paragraph ``Compound Poisson'' of the loop constraint}
+
+Reason: compound Poisson is not implemented.
+
+\paragraph{Compound Poisson.}
+When $D \sim \mathrm{CP}(\nu,F_Y)$, the survival function does not admit a universal closed form.
+Conditioning on the number of shocks gives the series
+\begin{equation}\label{eq:surv_cp}
+  \Pr(D > \tau) \;=\; \sum_{n=0}^{\infty} \frac{e^{-\nu}\,\nu^n}{n!}\;\Pr\!\Bigl(\sum_{k=1}^{n} Y_k > \tau\Bigr),
+\end{equation}
+which can be evaluated numerically (it converges rapidly) or bounded.
+
+\section{Upper bounds when no closed form is available}
+
+Reason: the paragraph repeats the conservative surrogates of Section~\ref{S:sec:cons_surrogates}.
+
+\paragraph{Upper bounds when no closed form is available.}
+Sometimes the survival function $\Pr(D > \tau)$ has no closed form.
+This happens for the compound Poisson process, and when the closure condition fails and the marginal of the sum is not in a standard family.
+The \emph{reliability} constraint can then still be enforced through conservative upper bounds on the failure probability:
+\begin{itemize}[nosep]
+  \item Markov ($\Pr(D > \tau) \le \mathbb{E}[D]/\tau$);
+  \item Cantelli~\eqref{S:eq:cantelli_surrogate};
+  \item Chernoff~\eqref{S:eq:chernoff_surrogate}.
+\end{itemize}
+Section~\ref{S:sec:cons_surrogates} develops these bounds in per-mission form, together with the Bernstein and Hoeffding refinements, their relative tightness in the small-$\varepsilon$ regime and their MILP encodings.
+For the compound Poisson process the Chernoff bound is particularly convenient, since $M_D(s) = \exp\bigl(\nu\,(M_Y(s)-1)\bigr)$ has a closed form whenever $M_Y$ has one.
+
+
+\section{Maintenance under the Palmgren--Miner damage model}
+
+Reason: there is no separate Miner maintenance model; the rainflow repair maps cover the code.
+
+\paragraph{Maintenance under the Palmgren--Miner damage model.}
+The remaining-life framework of Section~\ref{S:sec:remaining_life} represents damage as the normalised fraction
+\begin{equation}
+  D_{\mathrm{PM}} = \sum_i n_i/N_{f,i} \ge 0,
+\end{equation}
+with failure at $D_{\mathrm{PM}} \ge 1$.
+$D_{\mathrm{PM}}$ adds up over loading blocks.
+So it fits the same damage-tracking structure as the stochastic processes of Table~\ref{S:tab:deg_models}: each mission day adds an increment $\Delta D_{\mathrm{PM}} = n_j / N_{f,j}$.
+This increment is deterministic if the S--N parameters are fixed, and random if the scatter is modelled~\cite{MunizCalvente2022}.
+The repair operator~$\mathcal{R}$ and the replacement therefore apply directly:
+\begin{itemize}
+  \item \emph{Replacement} resets the fatigue fraction to zero: $D_{\mathrm{PM}}^+ = 0$ (equivalently $D^{\mathrm{new}} = 0$).
+    A new component, with a cycle count of zero, takes the place of the physical component.
+  \item $\text{ARD}_\infty$:
+    \begin{equation}
+      D_{\mathrm{PM}}^+ = (1-\rho)\,D_{\mathrm{PM}}^-.
+    \end{equation}
+    Physically, this models an intervention that partly restores the fatigue life without resetting the whole loading history, for example a surface treatment, shot peening or a local crack repair.
+  \item $\text{ARD}_1$:
+    \begin{equation}
+      D_{\mathrm{PM}}^+ = D_{\mathrm{PM}}^- - \rho\,(D_{\mathrm{PM}}^- - D_{\mathrm{PM}}^{\mathrm{last}}).
+    \end{equation}
+    The repair reverses part of the damage accumulated since the last intervention (repair or replacement), and only that damage.
+\end{itemize}
+Unlike the stochastic process models, $D_{\mathrm{PM}}$ is normalised so that failure occurs at~$1$.
+So the threshold is fixed at $\tau = 1$, and the reliability constraint becomes
+\begin{equation}
+  \Pr(D_{\mathrm{PM}} \ge 1) \le \varepsilon.
+\end{equation}
+In the deterministic variant of Miner's rule this is a hard feasibility check.
+In the stochastic extension it becomes a chance constraint analogous to~\eqref{S:eq:abs_rel}.
+
+Closure under summation holds trivially: $D_{\mathrm{PM}}$ is a sum of real-valued increments.
+When the increments are independent, as under the block-independent scatter~(I) of Section~\ref{S:sec:miner_randomN}, the marginal on any day is the convolution of the individual increments, whatever their distributional family.
+Under the unit-specific scatter~(II) the increments share the factor~$A$, and the marginal is the law of $M_k/A$.
+\begin{itemize}[nosep]
+  \item In the deterministic variant of Miner's rule, the comparison of two schedules reduces to the comparison of two real numbers, and no stochastic order is needed.
+  \item In the stochastic extension (scatter in $N_{f,i}$), the parametric ordering conditions of Section~\ref{S:sec:stoch_orders} apply only if the assumption on the scatter places the increments $n_i/N_{f,i}$ in one of the families of Table~\ref{S:tab:deg_models}.
+    Otherwise the general definitions of the orders still hold, but they must be verified case by case.
+\end{itemize}
+
+\section{Brake friction elements, wheel bearings and traction-motor insulation}
+
+Reason: these components are not tracked in the case study and not planned.
+
+\paragraph{Brake friction elements.}
+Friction braking wears the brake pad and the brake disc.
+\begin{itemize}[nosep]
+  \item \textbf{Model.}
+    A physics-based route applies Archard's law on a fractal, elastoplastic contact~\cite[Eqs.~11,~14]{Sha2022}.
+    Sha et al.\ apply it to the brake disc, not to the pad.
+    The model gives the average wear depth $h_{\mathrm{wear}}$ of the disc in one braking~\cite[Eq.~21]{Sha2022}.
+    The life of the disc, as a number of brakings, is then
+    \begin{equation}
+      N = H_0/(S_0\,h_{\mathrm{wear}}),
+    \end{equation}
+    with $H_0$ the maximum admissible average wear depth and $S_0$ a dimensionless wear safety factor for frictional heat and other external effects~\cite[Eq.~22]{Sha2022}.
+  \item \textbf{Regenerative braking.}
+    In an electric vehicle the regenerative brake absorbs most service braking, and it cuts friction-brake wear by an estimated 60--90\%~\cite[Sec.~6.1]{Fussell2022}.
+    The remaining increments concentrate in the events where regeneration is unavailable or insufficient: a battery near full charge, a very low temperature, an emergency stop.
+  \item \textbf{Fit to the framework.}
+    The cumulative wear of a friction element remains a sum of non-negative, mission-dependent increments, one per friction-braking event.
+    So it is a monotone accumulation process, whose rate now also depends on the energy-management strategy.
+\end{itemize}
+
+\paragraph{Wheel bearings.}
+Bearing degradation has two stages: a long \emph{initiation} phase of rolling-contact fatigue, and then a rapid \emph{spall propagation} once a surface defect forms (a spall is a flake of material that breaks off the surface).
+\begin{itemize}[nosep]
+  \item \textbf{Model.}
+    Ohana et al.~\cite[Sec.~2.1.3]{Ohana2023} model the propagation phase with a formulation from continuum damage mechanics.
+    In it, a scalar damage variable accumulates per over-rolling cycle,
+    \begin{equation}
+      \mathrm{d}D/\mathrm{d}N = \bigl(\sigma_{\mathrm{eff}}/[\sigma_r(1-D)]\bigr)^m.
+    \end{equation}
+    The growth is driven by the tensile residual stresses that repeated impacts of the rolling elements generate at the edge of the spall.
+    The model is meant as the basis of a physics-based prognostic tool that estimates the remaining useful life once a critical spall size is reached.
+  \item \textbf{Fit to the framework.}
+    The underlying driver is the number of load cycles, and hence the running distance and the speed.
+    So the bearing damage is a monotone accumulation process.
+    A Gamma or inverse Gaussian process (initiation) that feeds a remaining-life threshold (propagation) represents it well.
+\end{itemize}
+
+\paragraph{Traction-motor insulation.}
+The winding insulation is the main element that limits the life of the traction motor, and its dominant ageing mechanism is thermal.
+A high winding temperature accelerates the chemical degradation of the dielectric.
+\begin{itemize}[nosep]
+  \item \textbf{Model.}
+    Dakin recognised thermal ageing as a chemical reaction whose rate constant follows the Arrhenius exponential law $K = A\,e^{-B/T}$ in absolute temperature~\cite[Eq.~5]{Dakin1948}.
+    This gives the thermal-endurance life $L(T) = a\,\exp(b/T)$~\cite[Eq.~1]{Zhang2025insul}.
+  \item \textbf{Montsinger's rule.}
+    The earlier empirical rule of Montsinger states that the ageing rate roughly doubles for each 8\,$^\circ$C rise of temperature~\cite[Synopsis, p.~776]{Montsinger1930}.
+    This rule halves the life for each fixed rise, and Dakin showed that it is the constant-coefficient approximation of the Arrhenius law, accurate at one temperature only~\cite[Fig.~1 and discussion of Eq.~5]{Dakin1948}.
+  \item \textbf{Fit to the framework.}
+    Under a temperature profile that varies with the mission, the fraction of life consumed in an interval $\mathrm{d}t$ at temperature $T_i(t)$ is $\mathrm{d}t/L[T_i(t)]$.
+    The total consumed fraction is the integral of this loss rate over the profile.
+    This is a cumulative-damage (Palmgren--Miner) extension of the Arrhenius model~\cite[Eq.~2 and Fig.~10]{Zhang2025insul}.
+    So the abstract description coincides with the remaining-life model of Section~\ref{S:sec:remaining_life}, with the mission driving the thermal load (current, cooling, ambient conditions).
+  \item \textbf{Stochastic processes.}
+    The same review also surveys Wiener- and Gamma-process formulations of insulation degradation~\cite[Sec.~5]{Zhang2025insul}, which match directly the stochastic families of Section~\ref{S:sec:stoch_orders}.
+\end{itemize}
+
+\section{Input example of the specification}
+
+Reason: the specification keeps the example, and this text only repeats it.
+
+The input example of the specification has $F = 3$ members, $M = 2$ missions and $L = 2$ components.
+Its six components use the Gaussian, inverse Gaussian, Wiener and Gamma models, and the rainflow model with the Bernstein bound and with the Chernoff bound.
+It passes every input check.
+\begin{itemize}[nosep]
+  \item \textbf{Inverse Gaussian component.}
+    It uses $\text{ARD}_1$ with the starting anchor
+    \begin{equation}
+      0.06 \le \mu_0 = 0.10.
+    \end{equation}
+  \item \textbf{Gamma component.}
+    It has the starting anchor
+    \begin{equation}
+      0.05 \le \mu_0 = 0.08
+    \end{equation}
+    and no rate for the initial damage, so its initial damage is known.
+  \item \textbf{Chernoff component.}
+    It has
+    \begin{equation}
+      K_0 = 5 \cdot 0.14 = 0.70
+    \end{equation}
+    by default, so its starting anchor $0.50$ is allowed.
+  \item \textbf{Bernstein component.}
+    It has the support constant
+    \begin{equation}
+      b = \max(0.05, 0.03, 0.05) = 0.05,
+    \end{equation}
+    so
+    \begin{equation}
+      2\kappa b/3 = 0.077 < \tau = 1,
+    \end{equation}
+    with $\kappa = \ln 10$.
+\end{itemize}
+
+\section{Changelog of the software specification}
+\label{sec:spec_changelog}
+
+Reason: history of the specification (decision of 10 November 2026).
+
+
+This section records the versions of the software specification \texttt{spec/spec.tex}.
+Versions 0.3 to 0.5 use older names and an older horizon.
+Their law $\text{ARD}_1$ is the law $\text{ARD}_\infty$ of this document, and their law $\text{ARA}_1$ is the law $\text{ARD}_1$ of this document.
+Their horizon has $2H$ days, and the second $H$ days are the schedule to repeat.
+
+\paragraph{Version 0.3 (panel review).}
+\begin{itemize}[nosep]
+  \item The $\text{ARA}_1$ maintenance was removed from the Gaussian model, because no source in the literature supports its extension to the variance.
+  \item The output \texttt{v} has the shape $F \times L \times 2H$, with NaN (not a number) at the components without a variance.
+  \item The bound on $\varepsilon$ became tighter: from $(0, 0.5)$ to $(0, 0.01]$.
+  \item A verified proposition, with a proof by the monotone likelihood ratio (MLR), replaced the open item on first-order stochastic dominance (FSD) of the inverse Gaussian (IG) model.
+  \item The remark on tightness became an argument with three mechanisms.
+\end{itemize}
+
+\paragraph{Version 0.4 (rainflow extension).}
+\begin{itemize}[nosep]
+  \item The rainflow degradation model was added.
+    It is distribution-free, and its inputs are the empirical mean, variance and support of each mission, from rainflow counting.
+    A Cantelli or a Bernstein tail bound certifies the reliability; the new option \texttt{tail\_bound} selects the bound, with the default \texttt{"cantelli"}.
+    The specification gives both an exact nonconvex quadratic formulation and a conservative linear tangent formulation.
+    The loop constraint acts on both tracked moments.
+    The argument is that the componentwise domination of the moments chains across repetitions, while the scalar comparison of the bounds, $U_{2H} \le U_H$, does not.
+    The model accepts $\text{ARD}_1$ only, as the Gaussian model did.
+  \item The value \texttt{"socp"} of the key \texttt{formulation} was renamed \texttt{"exact"}.
+    \texttt{"socp"} remained as a deprecated alias, with a \texttt{UserWarning}.
+  \item The exact reliability constraint of the Gaussian and Wiener models had been called a rotated second-order cone (SOC); this was corrected.
+    The variance is affine in the decisions, so the squared form is a nonconvex quadratic constraint, handled by the \texttt{NonConvex=2} support of Gurobi.
+    The \texttt{"quadratic"} damage penalty remains a truly convex SOC constraint.
+  \item The wording of the Wiener loop constraint was corrected after the accepted review item A-02: the constraint bounds the moments; it is not first-order stochastic dominance.
+  \item The change log of version 0.3 above describes the revision that the title page had called ``v0.2 (revised)''.
+  \item A panel review after the draft (markers RF-042--RF-045 and corrections made in place) made further changes.
+    \begin{itemize}[nosep]
+      \item It fixed the base case of the induction over the loop ($m \ge 2$, with the loop row as the case $m = 1$).
+      \item It fixed the wording at the boundary of the precondition $\tau > 2\kappa b/3$.
+      \item It fixed the centring step in the application of Bernstein's inequality, which holds a fortiori (it follows from a stronger fact).
+      \item It fixed the statement of the problem class for fleets whose components are all inverse Gaussian or Gamma.
+      \item It extended the consistency checks based on the Bhatia--Davis inequality (a bound on the variance from the mean and the range) to the initial and replacement states.
+      \item It extended the list of checked array shapes to $b^{\mathrm{inc}}$, $b^{0}$ and $b^{\mathrm{new}}$.
+      \item It moved \texttt{tail\_bound} to the input tables of the models.
+      \item It added the fifth border style of the plot.
+      \item It corrected the value of $\varepsilon$ in the YAML example, which did not respect the bound $(0, 0.01]$ of the specification.
+    \end{itemize}
+\end{itemize}
+
+\paragraph{Version 0.5 (removal of the loop penalty).}
+\begin{itemize}[nosep]
+  \item The soft penalty of the loop constraint, $\mathcal{L}_{\mathrm{loop}}$, and its coefficient $C_P$ were removed from every place: the objective, the penalty formulas of the models, the total penalty sum, the input tables, the YAML example and the statement of the full problem.
+    The hard loop constraints of all five models did not change.
+  \item The remark on the tightness of the big-M rows had named three mechanisms.
+    It was revised to name the two cost mechanisms that remain, $C_D\,u$ and $C_R\,z$.
+  \item An argument on robustness to slack was added.
+    The tracked states are componentwise upper bounds on the true moments, and each one-sided dynamics row dominates the exact monotone map of one day.
+    So the hard loop constraint gives $\Pi(s_H) \le s_H$ for the exact map $\Pi$ of one repetition of the second half (Section~\ref{S:sec:perpetual}; that version wrote $\Phi$ for this map).
+    This inequality is the premise of the induction in the repeatability argument.
+    The monotonicity of the reliability certificates then keeps every future repetition certified, even when the tracked states carry slack.
+    The only role of the penalty had been to break ties in favour of larger sustainability margins.
+  \item A later review (markers REV-001--REV-022) closed a gap of the loop constraint under $\text{ARA}_1$: the loop did not cover the anchors.
+    It added the hard rows
+    \begin{align}
+      \mu^{\mathrm{last}}_{2H} &\le \mu^{\mathrm{last}}_{H} && \text{(Wiener with $\text{ARA}_1$)}, \\
+      \alpha^{\mathrm{last}}_{2H} &\le \alpha^{\mathrm{last}}_{H} && \text{(Gamma with $\text{ARA}_1$)}.
+    \end{align}
+    A derivation of monotonicity on the full state shows that these rows restore the chaining premise $\Pi(s_H) \le s_H$.
+    The review extended the remark on robustness to slack in the same way.
+  \item The same review made further changes.
+    \begin{itemize}[nosep]
+      \item It stated that an idle day is a row of zeros in the assignment, so the term with $C_M$ is a real decision cost, not a constant.
+      \item It corrected the day index of the anchor in the $\text{ARA}_1$ repair-cost row ($k \to k{-}1$).
+      \item It removed the old duplicate parameter \texttt{alpha\_target}, a former name of $\tau$.
+      \item It made consistent which keys are optional: \texttt{tail\_bound} and the input fields that have a default.
+      \item It added the derived constants to the notation table.
+      \item It expanded the two items on future work of the rainflow model, with pointers to the Route-I refinements of this document (Section~\ref{S:sec:routeI_refinements}).
+      \item It recorded two questions on the convention of the $\text{ARA}_1$ anchor as open items: whether the anchor stores the state before or after the repair, and the missing reset of the anchor at a replacement.
+    \end{itemize}
+\end{itemize}
+
+\paragraph{Version 1.0 (merged package).}
+\begin{itemize}[nosep]
+  \item The specification describes the package that merges the branches \texttt{lore} and \texttt{main}, on the code base of \texttt{main}.
+    It holds only the codebase and its mathematical constructions; the reasons, the proofs and the sources are in this scoping document.
+  \item The five degradation models are cell builders in one registry; a cell is component~$\ell$ of member~$i$.
+  \item The repair laws are $\text{ARD}_\infty$, which reduces the whole degradation, and $\text{ARD}_1$, which reduces the degradation since the last intervention.
+  \item The horizon has a transitory phase and an operating phase, $H = [H_1, H_2]$, and the loop row bounds the full tracked state, anchors included.
+  \item Every dynamics row is one-sided, in big-M or indicator form.
+  \item The rainflow model offers five tail bounds, and the quadratic reliability rows have an exact, a tangent and a piecewise-linear form.
+  \item The inverse Gaussian row is a cap from a conditional tail mean.
+    The Gamma row is a cap on the tracked mean that holds for any mix of rates.
+  \item The reliability level, the tangent point, the repair cost and the replacement cost are set per cell.
+  \item The specification covers the horizon sweeps, the warm starts, the schedule plot and the validators.
+  \item The input keys follow one table, and unknown or old keys raise an error.
+  \item The input checks give every non-strict inequality the relative tolerance $10^{-12}\max(1, |a|, |b|)$, and they compare selector values with their case.
+    At a key without a default, \texttt{null} means that the key is not given at that cell.
+    YAML and JSON result files write every number that is not finite as \texttt{null}.
+  \item The specification fixes the numerical methods of the two caps: a root search in $\ln q$ for the inverse Gaussian quantile, and the grid, the golden-section search and the two bisections of the Gamma cap~$A_1$.
+  \item One function, \texttt{read\_result}, reads the result files for every tool.
+    The greedy heuristic tries a repair and a replacement on every free day of a Wiener cell.
+\end{itemize}
+
+\section{Derivation of the inverse moments}
+
+Reason: its statement, the inverse moments, is removed with interpretation (I).
+
+\phantomsection\label{drv:miner_invmom}
+\begin{proof}[Derivation of the inverse moments~\eqref{eq:miner_invmom}]\leavevmode
+\begin{itemize}[nosep]
+  \item \textbf{Log-normal.} The first line is the normal moment generating function at the argument $-r$.
+  \item \textbf{Weibull.} The second line follows from the substitution $u = (x/\lambda)^k$, which turns $\mathbb{E}[N_f^{-r}]$ into
+    \begin{equation}
+      \lambda^{-r}\int_0^\infty u^{-r/k}e^{-u}\,\mathrm{d}u;
+    \end{equation}
+    this integral diverges \emph{at the origin} when $r \ge k$.
+  \item \textbf{Gumbel-minimum.} The third line writes $\ln N_f = \mu + \beta G$ with $\Pr(G \le g) = 1 - e^{-e^{g}}$.
+    The transform
+    \begin{equation}
+      \mathbb{E}[e^{tG}] \;=\; \int_0^\infty u^{t}e^{-u}\,\mathrm{d}u \;=\; \Gamma(1+t)
+    \end{equation}
+    (substitute $u = e^g$) is finite if and only if $t > -1$.
+\end{itemize}
+\end{proof}
+
+\section{Derivation of the compound Poisson row of the ordering table}
+
+Reason: its statement, the compound Poisson row, is removed.
+
+\phantomsection\label{drv:order_cp}
+\begin{proof}[Derivation of the compound Poisson row of Table~\ref{S:tab:ordering_st}]
+Sufficiency follows from the superposition coupling
+\begin{equation}
+  \mathrm{CP}(\nu_2, F_Y) \stackrel{d}{=} \mathrm{CP}(\nu_1, F_Y) + \mathrm{CP}(\nu_2 - \nu_1, F_Y),
+\end{equation}
+with independent non-negative summands.
+Necessity follows from the atom at zero, $\Pr(X = 0) = e^{-\nu \Pr(Y > 0)}$.
+\end{proof}
+
+\bibliographystyle{plainnat}
+\bibliography{scoping_bib}
+
+\end{document}
